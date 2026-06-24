@@ -710,6 +710,36 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                 }
             }
 
+            var presentationTimer = Stopwatch.StartNew();
+            _diagnostics.Write(
+                NavigationDiagnosticEventKind.PresentationStarted,
+                operationId,
+                plan.Kind.ToString(),
+                Data((NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
+            try
+            {
+                await _presenter.ApplyAsync(
+                    plan,
+                    new NavigationPresentationContext(request, route, CurrentState, operationId),
+                    cancellationToken).ConfigureAwait(false);
+                _diagnostics.Write(
+                    NavigationDiagnosticEventKind.PresentationCompleted,
+                    operationId,
+                    plan.Kind.ToString(),
+                    Duration(presentationTimer, (NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
+            }
+            catch (Exception ex)
+            {
+                WriteFailure(
+                    NavigationDiagnosticEventKind.PresentationFailed,
+                    operationId,
+                    plan.Kind.ToString(),
+                    ex,
+                    presentationTimer,
+                    (NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString()));
+                throw;
+            }
+
             CurrentState = plan.TargetState;
             History = History.Push(CreateHistoryEntry(operationId, request, route, CurrentState, plan.Reason), _maxHistoryEntries);
             await SaveSnapshotIfConfiguredAsync(operationId, cancellationToken).ConfigureAwait(false);

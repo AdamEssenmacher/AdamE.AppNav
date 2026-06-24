@@ -441,6 +441,139 @@ public sealed class MauiNavigationPresenterLifecycleTests
     }
 
     [Fact]
+    public async Task ReusedModalContentRootIsReconciledInPlaceWhenCompatibilityMatches()
+    {
+        var fixture = new PresenterFixture();
+        var root = Stack("schools", Entry("schools"));
+        var initialState = new NavigationState(
+            new[]
+            {
+                new WindowNode(
+                    "main",
+                    root,
+                    new[]
+                    {
+                        new ModalNode(
+                            "cart-modal",
+                            new RouteEntry("cart-modal-route", new TestPageRoute("cart-shell")),
+                            Stack(
+                                "cart-stack",
+                                new RouteEntry("cart-root", new TestPageRoute("cart")),
+                                new RouteEntry("cart-detail", new TestPageRoute("cart-detail"))))
+                    })
+            },
+            "main");
+        var updatedState = new NavigationState(
+            new[]
+            {
+                new WindowNode(
+                    "main",
+                    root,
+                    new[]
+                    {
+                        new ModalNode(
+                            "cart-modal",
+                            new RouteEntry("cart-modal-route", new TestPageRoute("cart-shell")),
+                            Stack(
+                                "cart-stack",
+                                new RouteEntry("cart-root", new TestPageRoute("cart")),
+                                new RouteEntry("cart-detail", new TestPageRoute("cart-detail-updated"))))
+                    })
+            },
+            "main");
+
+        await fixture.Presenter.ApplyAsync(
+            new NavigationPlan(initialState),
+            Context(new TestPageRoute("cart-detail"), NavigationState.Empty));
+
+        var rootNavigationPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        var retainedModalPage = Assert.IsType<NavigationPage>(Assert.Single(rootNavigationPage.Navigation.ModalStack));
+        var retainedDetailPage = retainedModalPage.Navigation.NavigationStack[1];
+
+        await fixture.Presenter.ApplyAsync(
+            new NavigationPlan(updatedState),
+            Context(new TestPageRoute("cart-detail-updated"), initialState));
+
+        var updatedRootNavigationPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        var updatedModalPage = Assert.IsType<NavigationPage>(Assert.Single(updatedRootNavigationPage.Navigation.ModalStack));
+        Assert.Same(retainedModalPage, updatedModalPage);
+        Assert.Same(retainedDetailPage, updatedModalPage.Navigation.NavigationStack[1]);
+        Assert.Equal(1, fixture.Factory.UpdateCountFor(retainedDetailPage));
+        Assert.Equal(
+            "cart-detail-updated",
+            Assert.IsType<TestPageRoute>(fixture.Factory.LastUpdatedEntryFor(retainedDetailPage)!.Route).Name);
+
+        fixture.Presenter.Dispose();
+    }
+
+    [Fact]
+    public async Task ReusedModalIdWithIncompatibleContentRootRebuildsModalSuffix()
+    {
+        var fixture = new PresenterFixture();
+        var root = Stack("schools", Entry("schools"));
+        var initialState = new NavigationState(
+            new[]
+            {
+                new WindowNode(
+                    "main",
+                    root,
+                    new[]
+                    {
+                        new ModalNode(
+                            "cart-modal",
+                            new RouteEntry("cart-modal-route", new TestPageRoute("cart-shell")),
+                            Stack(
+                                "cart-stack",
+                                new RouteEntry("cart-root", new TestPageRoute("cart")),
+                                new RouteEntry("cart-detail", new TestPageRoute("cart-detail"))))
+                    })
+            },
+            "main");
+        var updatedState = new NavigationState(
+            new[]
+            {
+                new WindowNode(
+                    "main",
+                    root,
+                    new[]
+                    {
+                        new ModalNode(
+                            "cart-modal",
+                            new RouteEntry("cart-modal-route", new TestPageRoute("cart-shell")),
+                            new TabsNode(
+                                "cart-tabs",
+                                new[]
+                                {
+                                    new NavigationBranch("summary", "Summary", Stack("summary-stack", Entry("summary"))),
+                                    new NavigationBranch("history", "History", Stack("history-stack", Entry("history")))
+                                },
+                                "summary",
+                                "summary"))
+                    })
+            },
+            "main");
+
+        await fixture.Presenter.ApplyAsync(
+            new NavigationPlan(initialState),
+            Context(new TestPageRoute("cart-detail"), NavigationState.Empty));
+
+        var rootNavigationPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        var initialModalPage = Assert.IsType<NavigationPage>(Assert.Single(rootNavigationPage.Navigation.ModalStack));
+        var releasedPages = initialModalPage.Navigation.NavigationStack.ToArray();
+
+        await fixture.Presenter.ApplyAsync(
+            new NavigationPlan(updatedState),
+            Context(new TestPageRoute("summary"), initialState));
+
+        var updatedRootNavigationPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        var updatedModalPage = Assert.IsType<TabbedPage>(Assert.Single(updatedRootNavigationPage.Navigation.ModalStack));
+        Assert.NotSame(initialModalPage, updatedModalPage);
+        Assert.All(releasedPages, page => Assert.Equal(1, fixture.Factory.ReleaseCountFor(page)));
+
+        fixture.Presenter.Dispose();
+    }
+
+    [Fact]
     public async Task IsModalPresentedTracksNativeModalPresence()
     {
         var fixture = new PresenterFixture();
@@ -511,6 +644,41 @@ public sealed class MauiNavigationPresenterLifecycleTests
     }
 
     [Fact]
+    public async Task NativeStackPopInsideModalContentReconcilesOwningModalState()
+    {
+        var fixture = new PresenterFixture();
+        NavigationReconciliation? reconciliation = null;
+        fixture.Presenter.ReconciliationRequested += (_, args) => reconciliation = args.Reconciliation;
+
+        await fixture.Presenter.ApplyAsync(
+            Plan(
+                new WindowNode(
+                    "main",
+                    Stack("schools", Entry("schools")),
+                    new[]
+                    {
+                        new ModalNode(
+                            "cart-modal",
+                            new RouteEntry("cart-modal-route", new TestPageRoute("cart-shell")),
+                            Stack("cart-stack", Entry("cart"), Entry("cart-detail"), Entry("cart-receipt")))
+                    })),
+            Context(new TestPageRoute("cart-receipt")));
+
+        var rootNavigationPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        var modalNavigationPage = Assert.IsType<NavigationPage>(Assert.Single(rootNavigationPage.Navigation.ModalStack));
+        await modalNavigationPage.Navigation.PopAsync(animated: false);
+
+        var modal = Assert.Single(reconciliation?.TargetState.ActiveWindow?.Modals ?? []);
+        var stack = Assert.IsType<StackNode>(modal.Content);
+        Assert.Equal(new[] { "cart", "cart-detail" }, stack.Entries.Select(entry => entry.Id));
+        Assert.Equal(new TestPageRoute("cart-detail"), reconciliation!.Route);
+        Assert.Equal(NavigationReconciliationSource.NativeBackGesture, reconciliation.Source);
+        Assert.IsType<StackNode>(reconciliation.TargetState.ActiveWindow?.Root);
+
+        fixture.Presenter.Dispose();
+    }
+
+    [Fact]
     public async Task ModalRemovalReleasesDismissedModalPage()
     {
         var fixture = new PresenterFixture();
@@ -573,6 +741,51 @@ public sealed class MauiNavigationPresenterLifecycleTests
     }
 
     [Fact]
+    public async Task NativeTabSelectionInsideModalContentReconcilesSelectedTab()
+    {
+        var fixture = new PresenterFixture();
+        NavigationReconciliation? reconciliation = null;
+        fixture.Presenter.ReconciliationRequested += (_, args) => reconciliation = args.Reconciliation;
+
+        var modalTabs = new TabsNode(
+            "cart-tabs",
+            new[]
+            {
+                new NavigationBranch("home", "Home", Stack("home-stack", Entry("home"))),
+                new NavigationBranch("catalog", "Catalog", Stack("catalog-stack", Entry("catalog")))
+            },
+            "home",
+            "home");
+
+        await fixture.Presenter.ApplyAsync(
+            Plan(
+                new WindowNode(
+                    "main",
+                    Stack("schools", Entry("schools")),
+                    new[]
+                    {
+                        new ModalNode(
+                            "cart-modal",
+                            new RouteEntry("cart-modal-route", new TestPageRoute("cart-shell")),
+                            modalTabs)
+                    })),
+            Context(new TestPageRoute("home")));
+
+        var rootNavigationPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        var modalTabbedPage = Assert.IsType<TabbedPage>(Assert.Single(rootNavigationPage.Navigation.ModalStack));
+        modalTabbedPage.CurrentPage = modalTabbedPage.Children[1];
+
+        var modal = Assert.Single(reconciliation?.TargetState.ActiveWindow?.Modals ?? []);
+        var updatedTabs = Assert.IsType<TabsNode>(modal.Content);
+        Assert.Equal("catalog", updatedTabs.SelectedTabId);
+        var activeWindow = Assert.IsType<WindowNode>(reconciliation!.TargetState.ActiveWindow);
+        Assert.IsType<StackNode>(activeWindow.Root);
+        Assert.Equal(NavigationReconciliationSource.TabChanged, reconciliation!.Source);
+
+        fixture.Presenter.Dispose();
+    }
+
+    [Fact]
     public async Task NativeFlyoutSelectionReconcilesSelectedBranch()
     {
         var fixture = new PresenterFixture();
@@ -597,6 +810,49 @@ public sealed class MauiNavigationPresenterLifecycleTests
 
         var updatedFlyout = Assert.IsType<FlyoutNode>(reconciliation?.TargetState.ActiveWindow?.Root);
         Assert.Equal("catalog", updatedFlyout.SelectedItemId);
+        Assert.Equal(NavigationReconciliationSource.OtherNativeEvent, reconciliation!.Source);
+
+        fixture.Presenter.Dispose();
+    }
+
+    [Fact]
+    public async Task NativeFlyoutSelectionInsideModalContentReconcilesSelectedBranch()
+    {
+        var fixture = new PresenterFixture();
+        NavigationReconciliation? reconciliation = null;
+        fixture.Presenter.ReconciliationRequested += (_, args) => reconciliation = args.Reconciliation;
+
+        var branches = new[]
+        {
+            new NavigationBranch("home", "Home", Stack("home-stack", Entry("home"))),
+            new NavigationBranch("catalog", "Catalog", Stack("catalog-stack", Entry("catalog")))
+        };
+
+        await fixture.Presenter.ApplyAsync(
+            Plan(
+                new WindowNode(
+                    "main",
+                    Stack("schools", Entry("schools")),
+                    new[]
+                    {
+                        new ModalNode(
+                            "cart-modal",
+                            new RouteEntry("cart-modal-route", new TestPageRoute("cart-shell")),
+                            new FlyoutNode("cart-flyout", branches, "home", "home"))
+                    })),
+            Context(new TestPageRoute("home")));
+
+        var rootNavigationPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        var modalFlyoutPage = Assert.IsType<FlyoutPage>(Assert.Single(rootNavigationPage.Navigation.ModalStack));
+        var menu = Assert.IsAssignableFrom<ContentPage>(modalFlyoutPage.Flyout);
+        var collectionView = Assert.IsType<CollectionView>(menu.Content);
+        collectionView.SelectedItem = branches[1];
+
+        var modal = Assert.Single(reconciliation?.TargetState.ActiveWindow?.Modals ?? []);
+        var updatedFlyout = Assert.IsType<FlyoutNode>(modal.Content);
+        Assert.Equal("catalog", updatedFlyout.SelectedItemId);
+        var activeWindow = Assert.IsType<WindowNode>(reconciliation!.TargetState.ActiveWindow);
+        Assert.IsType<StackNode>(activeWindow.Root);
         Assert.Equal(NavigationReconciliationSource.OtherNativeEvent, reconciliation!.Source);
 
         fixture.Presenter.Dispose();
@@ -636,6 +892,11 @@ public sealed class MauiNavigationPresenterLifecycleTests
             new[] { new WindowNode("main", root) },
             "main");
         return new NavigationPlan(state);
+    }
+
+    private static NavigationPlan Plan(WindowNode window)
+    {
+        return new NavigationPlan(new NavigationState(new[] { window }, window.Id));
     }
 
     private static StackNode Stack(string id, params RouteEntry[] entries)

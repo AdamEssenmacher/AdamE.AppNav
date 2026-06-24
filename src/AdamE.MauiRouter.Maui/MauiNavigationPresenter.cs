@@ -640,7 +640,7 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
                 isNavigationTarget: true,
                 CancellationToken.None);
             flyoutPage.IsPresented = false;
-            ReconcileSelectedFlyoutItem(flyout.Id, selectedItemId);
+            ReconcileSelectedFlyoutItem(flyoutPage, flyout.Id, selectedItemId);
         };
         menu.SelectedItemChanged += selectedItemChanged;
         _flyoutMenuHandlers[menu] = selectedItemChanged;
@@ -793,7 +793,14 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
                 cancellationToken);
         }
 
-        UpdateReusedModalPages(root.Navigation.ModalStack, modals, commonCount, previousModalCount);
+        await UpdateReusedModalPagesAsync(
+            root.Navigation.ModalStack,
+            modals,
+            commonCount,
+            previousModalCount,
+            planTransition,
+            operationId,
+            cancellationToken);
     }
 
     private static int CommonModalPrefix(IReadOnlyList<Page> pages, IReadOnlyList<ModalNode> modals)
@@ -802,7 +809,7 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         var common = 0;
         for (var i = 0; i < count; i++)
         {
-            if (!StringComparer.Ordinal.Equals(GetModalId(pages[i]), modals[i].Id))
+            if (!ModalPageMatches(pages[i], modals[i]))
             {
                 break;
             }
@@ -811,6 +818,35 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         }
 
         return common;
+    }
+
+    private static bool ModalPageMatches(Page page, ModalNode modal)
+    {
+        if (!StringComparer.Ordinal.Equals(GetModalId(page), modal.Id))
+        {
+            return false;
+        }
+
+        return modal.Content is null || CanReuseNodePage(modal.Content, page);
+    }
+
+    private static bool CanReuseNodePage(NavigationNode node, Page? existingPage)
+    {
+        return node switch
+        {
+            StackNode stack => existingPage is NavigationPage navigationPage &&
+                               StringComparer.Ordinal.Equals(GetHostId(navigationPage), stack.Id) &&
+                               StackRootMatches(navigationPage, stack),
+            TabsNode tabs => existingPage is TabbedPage tabbedPage &&
+                             StringComparer.Ordinal.Equals(GetHostId(tabbedPage), tabs.Id),
+            FlyoutNode flyout => existingPage is FlyoutPage flyoutPage &&
+                                 StringComparer.Ordinal.Equals(GetHostId(flyoutPage), flyout.Id),
+            ModalNode modal => modal.Content is null
+                ? existingPage is not null &&
+                  StringComparer.Ordinal.Equals(GetRouteEntryId(existingPage), modal.RouteEntry.Id)
+                : CanReuseNodePage(modal.Content, existingPage),
+            _ => false
+        };
     }
 
     private ValueTask<Page?> ExecuteTransitionAsync(
@@ -869,27 +905,37 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         }
     }
 
-    private void UpdateReusedModalPages(
+    private async Task UpdateReusedModalPagesAsync(
         IReadOnlyList<Page> pages,
         IReadOnlyList<ModalNode> modals,
         int commonCount,
-        int previousModalCount)
+        int previousModalCount,
+        NavigationTransition? planTransition,
+        string operationId,
+        CancellationToken cancellationToken)
     {
         var count = Math.Min(commonCount, Math.Min(pages.Count, modals.Count));
         for (var i = 0; i < count; i++)
         {
-            if (modals[i].Content is not null)
+            if (modals[i].Content is null)
             {
+                UpdateRoutePage(
+                    pages[i],
+                    modals[i].RouteEntry,
+                    new MauiRoutePageUpdateContext(
+                        ClassifyReuseKind(
+                            i == modals.Count - 1,
+                            previousModalCount > modals.Count)));
                 continue;
             }
 
-            UpdateRoutePage(
+            await MaterializeNodeAsync(
+                modals[i].Content!,
                 pages[i],
-                modals[i].RouteEntry,
-                new MauiRoutePageUpdateContext(
-                    ClassifyReuseKind(
-                        i == modals.Count - 1,
-                        previousModalCount > modals.Count)));
+                planTransition,
+                operationId,
+                isNavigationTarget: i == modals.Count - 1,
+                cancellationToken);
         }
     }
 
@@ -1243,19 +1289,15 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
             return;
         }
 
-        var window = _lastState.ActiveWindow;
-        if (window?.Root is null)
+        var updatedWindow = UpdateWindowForPresentedNode(
+            tabbedPage,
+            node => UpdateTabsSelection(node, tabsId, selectedBranchId));
+        if (updatedWindow is null)
         {
             return;
         }
 
-        var updatedRoot = UpdateTabsSelection(window.Root, tabsId, selectedBranchId);
-        if (updatedRoot is null)
-        {
-            return;
-        }
-
-        var updatedState = _lastState.ReplaceWindow(window with { Root = updatedRoot });
+        var updatedState = _lastState.ReplaceWindow(updatedWindow);
         RequestReconciliation(updatedState, NavigationReconciliationSource.TabChanged, "Native tab selection changed.");
     }
 
@@ -1297,47 +1339,158 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         RequestReconciliation(updatedState, NavigationReconciliationSource.ModalDismissed, "Native modal dismissal changed.");
     }
 
-    private void ReconcileSelectedFlyoutItem(string flyoutId, string selectedItemId)
+    private void ReconcileSelectedFlyoutItem(
+        FlyoutPage flyoutPage,
+        string flyoutId,
+        string selectedItemId)
     {
-        var window = _lastState.ActiveWindow;
-        if (window?.Root is null)
+        var updatedWindow = UpdateWindowForPresentedNode(
+            flyoutPage,
+            node => UpdateFlyoutSelection(node, flyoutId, selectedItemId));
+        if (updatedWindow is null)
         {
             return;
         }
 
-        var updatedRoot = UpdateFlyoutSelection(window.Root, flyoutId, selectedItemId);
-        if (updatedRoot is null)
-        {
-            return;
-        }
-
-        var updatedState = _lastState.ReplaceWindow(window with { Root = updatedRoot });
+        var updatedState = _lastState.ReplaceWindow(updatedWindow);
         RequestReconciliation(updatedState, NavigationReconciliationSource.OtherNativeEvent, "Native flyout selection changed.");
     }
 
     private void ReconcileStackFromNative(string stackId, NavigationPage navigationPage)
     {
-        var window = _lastState.ActiveWindow;
-        if (window?.Root is null)
-        {
-            return;
-        }
-
         var remainingRouteEntryIds = navigationPage.Navigation.NavigationStack
             .Select(GetRouteEntryId)
             .Where(id => !string.IsNullOrWhiteSpace(id))
             .Cast<string>()
             .ToArray();
 
-        var updatedRoot = UpdateStackFromNative(window.Root, stackId, remainingRouteEntryIds);
-        if (updatedRoot is null)
+        var updatedWindow = UpdateWindowForPresentedNode(
+            navigationPage,
+            node => UpdateStackFromNative(node, stackId, remainingRouteEntryIds));
+        if (updatedWindow is null)
         {
             return;
         }
 
-        var updatedState = _lastState.ReplaceWindow(window with { Root = updatedRoot });
-        var route = FindTopRoute(updatedRoot);
+        var ownerModalId = FindOwningModalId(navigationPage);
+        var updatedState = _lastState.ReplaceWindow(updatedWindow);
+        var route = FindTopRouteForPresentedNode(updatedWindow, ownerModalId);
         RequestReconciliation(updatedState, NavigationReconciliationSource.NativeBackGesture, "Native stack pop changed.", route);
+    }
+
+    private WindowNode? UpdateWindowForPresentedNode(
+        Page ownerPage,
+        Func<NavigationNode, NavigationNode?> update)
+    {
+        var window = _lastState.ActiveWindow;
+        if (window?.Root is null)
+        {
+            return null;
+        }
+
+        return UpdateWindowContent(window, FindOwningModalId(ownerPage), update);
+    }
+
+    private static WindowNode? UpdateWindowContent(
+        WindowNode window,
+        string? ownerModalId,
+        Func<NavigationNode, NavigationNode?> update)
+    {
+        if (string.IsNullOrWhiteSpace(ownerModalId))
+        {
+            var updatedRoot = window.Root is null ? null : update(window.Root);
+            return updatedRoot is null ? null : window with { Root = updatedRoot };
+        }
+
+        var updatedModals = window.Modals.ToArray();
+        for (var i = 0; i < updatedModals.Length; i++)
+        {
+            if (!StringComparer.Ordinal.Equals(updatedModals[i].Id, ownerModalId))
+            {
+                continue;
+            }
+
+            if (updatedModals[i].Content is null)
+            {
+                return null;
+            }
+
+            var updatedContent = update(updatedModals[i].Content!);
+            if (updatedContent is null)
+            {
+                return null;
+            }
+
+            updatedModals[i] = updatedModals[i] with { Content = updatedContent };
+            return window with { Modals = updatedModals };
+        }
+
+        return null;
+    }
+
+    private string? FindOwningModalId(Page page)
+    {
+        var modalId = GetModalId(page);
+        if (!string.IsNullOrWhiteSpace(modalId))
+        {
+            return modalId;
+        }
+
+        var root = CurrentPage ?? _attachedWindow?.Page;
+        if (root is null)
+        {
+            return null;
+        }
+
+        foreach (var modalPage in root.Navigation.ModalStack.Reverse())
+        {
+            var candidateModalId = GetModalId(modalPage);
+            if (string.IsNullOrWhiteSpace(candidateModalId))
+            {
+                continue;
+            }
+
+            if (ContainsPageInStructuralTree(modalPage, page))
+            {
+                return candidateModalId;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool ContainsPageInStructuralTree(Page root, Page target)
+    {
+        if (ReferenceEquals(root, target))
+        {
+            return true;
+        }
+
+        return root switch
+        {
+            NavigationPage navigationPage => navigationPage.Navigation.NavigationStack.Any(page => ContainsPageInStructuralTree(page, target)),
+            TabbedPage tabbedPage => tabbedPage.Children.Any(page => ContainsPageInStructuralTree(page, target)),
+            FlyoutPage flyoutPage =>
+                (flyoutPage.Flyout is not null && ContainsPageInStructuralTree(flyoutPage.Flyout, target)) ||
+                (flyoutPage.Detail is not null && ContainsPageInStructuralTree(flyoutPage.Detail, target)),
+            _ => false
+        };
+    }
+
+    private static AppRoute? FindTopRouteForPresentedNode(WindowNode window, string? ownerModalId)
+    {
+        if (!string.IsNullOrWhiteSpace(ownerModalId))
+        {
+            var modal = window.Modals.FirstOrDefault(candidate => StringComparer.Ordinal.Equals(candidate.Id, ownerModalId));
+            if (modal is not null)
+            {
+                return modal.Content is null
+                    ? modal.RouteEntry.Route
+                    : FindTopRoute(modal.Content) ?? modal.RouteEntry.Route;
+            }
+        }
+
+        return window.Root is null ? null : FindTopRoute(window.Root);
     }
 
     private void RequestReconciliation(

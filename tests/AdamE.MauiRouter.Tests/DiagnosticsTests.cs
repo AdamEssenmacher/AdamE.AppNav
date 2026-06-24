@@ -228,6 +228,8 @@ public sealed class DiagnosticsTests
             new TestRoutes.StoreRoute("northwind"),
             "test reconciliation"));
 
+        Assert.Contains(NavigationDiagnosticEventKind.PresentationStarted, events);
+        Assert.Contains(NavigationDiagnosticEventKind.PresentationCompleted, events);
         Assert.Contains(NavigationDiagnosticEventKind.ReconciliationStarted, events);
         Assert.Contains(NavigationDiagnosticEventKind.ReconciliationCompleted, events);
         Assert.Single(navigator.History.Entries);

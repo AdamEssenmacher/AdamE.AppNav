@@ -1,6 +1,7 @@
 using AdamE.MauiRouter.Diagnostics;
 using AdamE.MauiRouter.Navigation;
 using AdamE.MauiRouter.Plans;
+using AdamE.MauiRouter.Policies;
 using AdamE.MauiRouter.Presentation;
 using AdamE.MauiRouter.Requests;
 using AdamE.MauiRouter.Routing;
@@ -89,6 +90,91 @@ public sealed class TestingHarnessTests
 
         Assert.Equal(reconciledState, navigator.CurrentState);
         Assert.Equal(NavigationRequestSource.NativeReconciliation, navigator.History.Current!.Request.Source);
+        Assert.Equal(1, reconciliationPresenter.ApplyCount);
+        Assert.Equal(NavigationPlanKind.Reconcile, reconciliationPresenter.LastPlan?.Kind);
+    }
+
+    [Fact]
+    public async Task ReconciliationAppliesPlanPoliciesBeforeCommittingState()
+    {
+        var requestedState = TestNavigationState.State(
+            "main",
+            TestNavigationState.Window(
+                "main",
+                TestNavigationState.Stack(
+                    "stack",
+                    TestNavigationState.Entry("requested", new TestRoutes.StoreRoute("requested")))));
+        var rewrittenState = TestNavigationState.State(
+            "main",
+            TestNavigationState.Window(
+                "main",
+                TestNavigationState.Stack(
+                    "stack",
+                    TestNavigationState.Entry("rewritten", new TestRoutes.CatalogRoute("northwind")))));
+        var presenter = new RecordingNavigationPresenter();
+        var navigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            TestNavigationPlanner.EchoStack(),
+            presenter,
+            new RouterNavigatorOptions
+            {
+                PlanPolicies = [new RewriteReconciliationPlanPolicy(rewrittenState)]
+            });
+
+        var result = await navigator.ReconcileAsync(new NavigationReconciliation(
+            requestedState,
+            NavigationReconciliationSource.NativeBackGesture,
+            new TestRoutes.StoreRoute("requested"),
+            "test reconciliation"));
+
+        Assert.Equal(1, presenter.ApplyCount);
+        Assert.Equal(NavigationPlanKind.Reconcile, presenter.LastPlan?.Kind);
+        Assert.Equal(rewrittenState, presenter.LastPlan?.TargetState);
+        Assert.Equal(rewrittenState, result.State);
+        Assert.False(result.Presented);
+        Assert.Equal(rewrittenState, navigator.CurrentState);
+        Assert.Equal(rewrittenState, navigator.History.Current!.State);
+    }
+
+    [Fact]
+    public async Task ReconciliationPresenterFailureDoesNotCommitStateOrHistory()
+    {
+        var initialState = TestNavigationState.State(
+            "main",
+            TestNavigationState.Window(
+                "main",
+                TestNavigationState.Stack(
+                    "stack",
+                    TestNavigationState.Entry("home", new TestRoutes.StoreRoute("northwind")))));
+        var presenter = new RecordingNavigationPresenter
+        {
+            ThrowOnApply = new InvalidOperationException("Presentation failed.")
+        };
+        var navigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            TestNavigationPlanner.EchoStack(),
+            presenter,
+            new RouterNavigatorOptions
+            {
+                InitialState = initialState
+            });
+        var reconciledState = TestNavigationState.State(
+            "main",
+            TestNavigationState.Window(
+                "main",
+                TestNavigationState.Stack(
+                    "stack",
+                    TestNavigationState.Entry("catalog", new TestRoutes.CatalogRoute("northwind")))));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => navigator.ReconcileAsync(new NavigationReconciliation(
+            reconciledState,
+            NavigationReconciliationSource.NativeBackGesture,
+            new TestRoutes.CatalogRoute("northwind"),
+            "test reconciliation")).AsTask());
+
+        Assert.Equal(1, presenter.ApplyCount);
+        Assert.Equal(initialState, navigator.CurrentState);
+        Assert.Empty(navigator.History.Entries);
     }
 
     [Fact]
@@ -141,5 +227,16 @@ public sealed class TestingHarnessTests
 
         observer.Clear();
         Assert.Empty(observer.Events);
+    }
+
+    private sealed class RewriteReconciliationPlanPolicy(NavigationState rewrittenState) : INavigationPlanPolicy
+    {
+        public ValueTask<NavigationPlan> ApplyAsync(
+            NavigationPlanPolicyContext context,
+            NavigationPlan plan,
+            CancellationToken cancellationToken = default)
+        {
+            return ValueTask.FromResult(plan with { TargetState = rewrittenState });
+        }
     }
 }
