@@ -140,6 +140,12 @@ public sealed class RouteTable
         }
 
         var text = uri.OriginalString;
+        var fragmentIndex = text.IndexOf('#');
+        if (fragmentIndex >= 0)
+        {
+            text = text[..fragmentIndex];
+        }
+
         var queryIndex = text.IndexOf('?');
         return queryIndex < 0
             ? (text, string.Empty)

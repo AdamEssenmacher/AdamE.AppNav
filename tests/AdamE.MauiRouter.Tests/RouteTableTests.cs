@@ -20,6 +20,32 @@ public sealed class RouteTableTests
     }
 
     [Fact]
+    public void MatchIgnoresFragmentForRelativeUriWithoutQuery()
+    {
+        var table = TestRoutes.CreateTable();
+
+        var result = table.Match(new Uri("/stores/northwind#details", UriKind.Relative));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(new TestRoutes.StoreRoute("northwind"), result.Route);
+    }
+
+    [Fact]
+    public void MatchIgnoresFragmentForRelativeUriWithQuery()
+    {
+        var table = TestRoutes.CreateTable();
+
+        var result = table.Match(new Uri("/stores/northwind/products/123?variant=blue&promo=spring#details", UriKind.Relative));
+
+        Assert.True(result.IsSuccess);
+        var route = Assert.IsType<TestRoutes.ProductDetailRoute>(result.Route);
+        Assert.Equal("northwind", route.StoreId);
+        Assert.Equal(123, route.ProductId);
+        Assert.Equal("blue", route.Variant);
+        Assert.Equal("spring", route.Promo);
+    }
+
+    [Fact]
     public void FormatRoundTripsTypedRoute()
     {
         var table = TestRoutes.CreateTable();
