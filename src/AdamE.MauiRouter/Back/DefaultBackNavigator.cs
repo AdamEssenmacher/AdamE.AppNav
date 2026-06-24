@@ -31,6 +31,19 @@ public sealed class DefaultBackNavigator : IBackNavigator
 
         if (window.Modals.Count > 0)
         {
+            var topModal = window.Modals[^1];
+            if (topModal.Content is not null &&
+                TryBack(topModal.Content) is { } modalBackResult)
+            {
+                var updatedModals = window.Modals.ToArray();
+                updatedModals[^1] = topModal with { Content = modalBackResult.Node };
+                _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, operationId, modalBackResult.Reason);
+                return new NavigationPlan(
+                    state.ReplaceWindow(window with { Modals = updatedModals }),
+                    NavigationPlanKind.Back,
+                    modalBackResult.Reason);
+            }
+
             var updatedWindow = window with { Modals = RemoveLast(window.Modals) };
             _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, operationId, "Back navigation will dismiss the top modal.");
             return new NavigationPlan(state.ReplaceWindow(updatedWindow), NavigationPlanKind.Back, "Dismiss modal");

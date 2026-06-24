@@ -435,6 +435,37 @@ public sealed class NavigationPersistenceTests
     }
 
     [Fact]
+    public async Task RestoreUsesPresentedModalRouteForPlanPolicyAndPresenterContext()
+    {
+        var state = ModalCommerceState();
+        var history = HistoryFor(state, new TestRoutes.ProductDetailRoute("northwind", 123));
+        var snapshot = new NavigationSnapshotSerializer(
+            TestRoutes.CreateTable(),
+            new NavigationPersistenceOptions
+            {
+                BaseUri = BaseUri,
+                PersistModals = true
+            }).CreateSnapshot(state, history);
+        var presenter = new RecordingNavigationPresenter();
+        var policy = new CapturePlanPolicy();
+        var navigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            TestNavigationPlanner.EchoStack(),
+            presenter,
+            new RouterNavigatorOptions
+            {
+                PlanPolicies = new[] { policy }
+            });
+
+        var result = await navigator.RestoreAsync(snapshot);
+
+        Assert.True(result.Accepted);
+        var expectedRoute = new TestRoutes.ProductDetailRoute("northwind", 123);
+        Assert.Equal(expectedRoute, policy.LastRoute);
+        Assert.Equal(expectedRoute, presenter.LastContext!.Route);
+    }
+
+    [Fact]
     public async Task InvalidCurrentStateRouteRejectsRestoreWithoutMutation()
     {
         var snapshot = SnapshotWithRouteUri("https://example.com/missing");
@@ -695,9 +726,37 @@ public sealed class NavigationPersistenceTests
         }, "main");
     }
 
+    private static NavigationState ModalCommerceState()
+    {
+        return new NavigationState(new[]
+        {
+            new WindowNode(
+                "main",
+                new StackNode("home-stack", new[]
+                {
+                    new RouteEntry("home", new TestRoutes.StoreRoute("northwind"))
+                }),
+                new[]
+                {
+                    new ModalNode(
+                        "catalog-modal",
+                        new RouteEntry("catalog-modal-shell", new TestRoutes.StoreRoute("catalog-shell")),
+                        new StackNode("catalog-stack", new[]
+                        {
+                            new RouteEntry("catalog", new TestRoutes.CatalogRoute("northwind")),
+                            new RouteEntry("product", new TestRoutes.ProductDetailRoute("northwind", 123))
+                        }))
+                })
+        }, "main");
+    }
+
     private static NavigationHistory HistoryFor(NavigationState state)
     {
-        var route = new TestRoutes.ProductDetailRoute("northwind", 123, "blue", "spring");
+        return HistoryFor(state, new TestRoutes.ProductDetailRoute("northwind", 123, "blue", "spring"));
+    }
+
+    private static NavigationHistory HistoryFor(NavigationState state, AppRoute route)
+    {
         return NavigationHistory.Empty.Push(new NavigationHistoryEntry(
             "history",
             RouterNavigationRequest.FromRoute(route, NavigationRequestSource.Test),
@@ -826,6 +885,20 @@ public sealed class NavigationPersistenceTests
         {
             ApplyCount++;
             LastPlanKind = plan.Kind;
+            return ValueTask.FromResult(plan);
+        }
+    }
+
+    private sealed class CapturePlanPolicy : INavigationPlanPolicy
+    {
+        public AppRoute? LastRoute { get; private set; }
+
+        public ValueTask<NavigationPlan> ApplyAsync(
+            NavigationPlanPolicyContext context,
+            NavigationPlan plan,
+            CancellationToken cancellationToken = default)
+        {
+            LastRoute = context.Route;
             return ValueTask.FromResult(plan);
         }
     }

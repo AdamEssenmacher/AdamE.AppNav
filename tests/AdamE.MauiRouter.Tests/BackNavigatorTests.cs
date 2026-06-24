@@ -28,6 +28,34 @@ public sealed class BackNavigatorTests
     }
 
     [Fact]
+    public void BackPopsTopModalContentBeforeDismissingModal()
+    {
+        var state = new NavigationState(new[]
+        {
+            new WindowNode(
+                "main",
+                Stack("root", new TestRoute("home")),
+                new[]
+                {
+                    new ModalNode(
+                        "modal",
+                        Entry("modal-shell", new TestRoute("modal-shell")),
+                        Stack(
+                            "modal-stack",
+                            new TestRoute("catalog"),
+                            new TestRoute("product"),
+                            new TestRoute("review")))
+                })
+        }, "main");
+
+        var plan = new DefaultBackNavigator().CreateBackPlan(state);
+
+        var modal = Assert.Single(plan!.TargetState.ActiveWindow!.Modals);
+        var stack = Assert.IsType<StackNode>(modal.Content);
+        Assert.Equal(new[] { "catalog", "product" }, stack.Entries.Select(entry => ((TestRoute)entry.Route).Value));
+    }
+
+    [Fact]
     public void BackPopsSelectedStack()
     {
         var state = new NavigationState(new[]

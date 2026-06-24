@@ -5,6 +5,7 @@ using AdamE.MauiRouter.Policies;
 using AdamE.MauiRouter.Presentation;
 using AdamE.MauiRouter.Requests;
 using AdamE.MauiRouter.State;
+using AdamE.MauiRouter.Testing;
 
 namespace AdamE.MauiRouter.Tests;
 
@@ -101,6 +102,84 @@ public sealed class ProductionHardeningTests
         Assert.False(unhandled.Handled);
         var stack = Assert.IsType<StackNode>(navigator.CurrentState.ActiveWindow!.Root);
         Assert.Single(stack.Entries);
+    }
+
+    [Fact]
+    public async Task BackAsyncReportsPresentedModalRouteAfterPoppingModalContent()
+    {
+        var initialState = TestNavigationState.State(
+            "main",
+            TestNavigationState.Window(
+                "main",
+                TestNavigationState.Stack(
+                    "root-stack",
+                    TestNavigationState.Entry("home", new TestRoutes.StoreRoute("northwind"))),
+                new[]
+                {
+                    TestNavigationState.Modal(
+                        "cart-modal",
+                        TestNavigationState.Entry("cart-modal-shell", new TestRoutes.StoreRoute("cart-shell")),
+                        TestNavigationState.Stack(
+                            "cart-stack",
+                            TestNavigationState.Entry("cart", new TestRoutes.StoreRoute("northwind-cart")),
+                            TestNavigationState.Entry("catalog", new TestRoutes.CatalogRoute("northwind")),
+                            TestNavigationState.Entry("product", new TestRoutes.ProductDetailRoute("northwind", 123))))
+                }));
+        var navigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            new RouteEchoPlanner(),
+            NullNavigationPresenter.Instance,
+            new RouterNavigatorOptions { InitialState = initialState });
+
+        var handled = await navigator.BackAsync();
+
+        Assert.True(handled.Handled);
+        var route = Assert.IsType<TestRoutes.CatalogRoute>(handled.NavigationResult!.Route);
+        Assert.Equal("northwind", route.StoreId);
+        Assert.Equal(route, navigator.History.Current!.Route);
+        var modal = Assert.Single(navigator.CurrentState.ActiveWindow!.Modals);
+        var stack = Assert.IsType<StackNode>(modal.Content);
+        Assert.Equal(route, stack.Top!.Route);
+    }
+
+    [Fact]
+    public async Task BackAsyncReportsRemainingModalRouteAfterDismissingTopModal()
+    {
+        var lowerModalRoute = new TestRoutes.CatalogRoute("northwind");
+        var initialState = TestNavigationState.State(
+            "main",
+            TestNavigationState.Window(
+                "main",
+                TestNavigationState.Stack(
+                    "root-stack",
+                    TestNavigationState.Entry("home", new TestRoutes.StoreRoute("home"))),
+                new[]
+                {
+                    TestNavigationState.Modal(
+                        "catalog-modal",
+                        TestNavigationState.Entry("catalog-modal-shell", new TestRoutes.StoreRoute("catalog-shell")),
+                        TestNavigationState.Stack(
+                            "catalog-stack",
+                            TestNavigationState.Entry("catalog", lowerModalRoute))),
+                    TestNavigationState.Modal(
+                        "confirmation-modal",
+                        TestNavigationState.Entry("confirmation-modal-shell", new TestRoutes.StoreRoute("confirm-shell")))
+                }));
+        var navigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            new RouteEchoPlanner(),
+            NullNavigationPresenter.Instance,
+            new RouterNavigatorOptions { InitialState = initialState });
+
+        var handled = await navigator.BackAsync();
+
+        Assert.True(handled.Handled);
+        Assert.Equal(lowerModalRoute, handled.NavigationResult!.Route);
+        Assert.Equal(lowerModalRoute, navigator.History.Current!.Route);
+        Assert.Single(navigator.CurrentState.ActiveWindow!.Modals);
+        var remainingModal = Assert.Single(navigator.CurrentState.ActiveWindow.Modals);
+        var remainingStack = Assert.IsType<StackNode>(remainingModal.Content);
+        Assert.Equal(lowerModalRoute, remainingStack.Top!.Route);
     }
 
     [Fact]

@@ -603,7 +603,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                 return BackNavigationResult.Unhandled;
             }
 
-            var route = FindTopRoute(plan.TargetState.ActiveWindow?.Root) ?? new BackRoute();
+            var route = PresentedRouteResolver.FindPresentedRoute(plan.TargetState.ActiveWindow) ?? new BackRoute();
             var request = RouterNavigationRequest.FromRoute(route, NavigationRequestSource.InAppCommand, windowId);
 
             _diagnostics.Write(
@@ -866,7 +866,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                 }
             }
 
-            var route = FindTopRoute(restored.State.ActiveWindow?.Root) ?? new RestoredRoute();
+            var route = PresentedRouteResolver.FindPresentedRoute(restored.State.ActiveWindow) ?? new RestoredRoute();
             var request = RouterNavigationRequest.FromRoute(route, NavigationRequestSource.Restore, restored.State.ActiveWindowId);
             var plan = new NavigationPlan(
                 restored.State,
@@ -1445,18 +1445,6 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         {
             data[key] = value;
         }
-    }
-
-    private static AppRoute? FindTopRoute(NavigationNode? node)
-    {
-        return node switch
-        {
-            StackNode stack => stack.Top?.Route,
-            TabsNode tabs when tabs.SelectedBranch is not null => FindTopRoute(tabs.SelectedBranch.Content),
-            FlyoutNode flyout when flyout.SelectedBranch is not null => FindTopRoute(flyout.SelectedBranch.Content),
-            ModalNode modal => modal.RouteEntry.Route,
-            _ => null
-        };
     }
 
     private void ThrowIfDisposed()
