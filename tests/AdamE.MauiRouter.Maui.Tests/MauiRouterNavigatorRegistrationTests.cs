@@ -1,0 +1,222 @@
+using AdamE.MauiRouter.Back;
+using AdamE.MauiRouter.History;
+using AdamE.MauiRouter.Maui.AppLinks;
+using AdamE.MauiRouter.Maui.DependencyInjection;
+using AdamE.MauiRouter.Navigation;
+using AdamE.MauiRouter.Persistence;
+using AdamE.MauiRouter.Plans;
+using AdamE.MauiRouter.Policies;
+using AdamE.MauiRouter.Presentation;
+using AdamE.MauiRouter.Requests;
+using AdamE.MauiRouter.Routing;
+using AdamE.MauiRouter.State;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Maui.Controls;
+
+namespace AdamE.MauiRouter.Maui.Tests;
+
+public sealed class MauiRouterNavigatorRegistrationTests
+{
+    [Fact]
+    public void AddMauiRouterRegistersBlessedRuntimeAbstractions()
+    {
+        var services = new ServiceCollection();
+
+        services.AddMauiRouter<ThrowingPlanner>(
+            Routes(),
+            pages => pages.MapPage<TestRoute>((_, _) => new TestPage()));
+
+        using var provider = services.BuildServiceProvider();
+        var runtime = provider.GetRequiredService<IMauiRouterRuntime>();
+        var navigator = provider.GetRequiredService<IRouterNavigator>();
+        var windowAttachment = provider.GetRequiredService<IMauiWindowAttachment>();
+        var presenter = provider.GetRequiredService<MauiNavigationPresenter>();
+        var presentationState = provider.GetRequiredService<IMauiPresentationState>();
+        var dispatcher = provider.GetRequiredService<IMauiExternalNavigationDispatcher>();
+
+        Assert.Same(runtime, navigator);
+        Assert.Same(runtime, windowAttachment);
+        Assert.Same(presenter, presentationState);
+        Assert.NotNull(dispatcher);
+    }
+
+    [Fact]
+    public void AddMauiRouterPreservesPreRegisteredRouterNavigatorOverride()
+    {
+        var services = new ServiceCollection();
+        var navigator = new RecordingRouterNavigator();
+        services.AddSingleton<IRouterNavigator>(navigator);
+
+        services.AddMauiRouter<ThrowingPlanner>(
+            Routes(),
+            pages => pages.MapPage<TestRoute>((_, _) => new TestPage()));
+
+        using var provider = services.BuildServiceProvider();
+
+        Assert.Same(navigator, provider.GetRequiredService<IRouterNavigator>());
+        Assert.NotNull(provider.GetRequiredService<IMauiRouterRuntime>());
+        Assert.NotNull(provider.GetRequiredService<IMauiWindowAttachment>());
+    }
+
+    [Fact]
+    public void AddMauiRouterDiscoversPoliciesAndBackNavigatorFromDi()
+    {
+        var services = new ServiceCollection();
+        var requestPolicy = new RecordingRequestPolicy();
+        var planPolicy = new RecordingPlanPolicy();
+        var backNavigator = new RecordingBackNavigator();
+        services.AddSingleton<INavigationRequestPolicy>(requestPolicy);
+        services.AddSingleton<INavigationPlanPolicy>(planPolicy);
+        services.AddSingleton<IBackNavigator>(backNavigator);
+
+        services.AddMauiRouter<ThrowingPlanner>(
+            Routes(),
+            pages => pages.MapPage<TestRoute>((_, _) => new TestPage()));
+
+        using var provider = services.BuildServiceProvider();
+        var navigator = provider.GetRequiredService<RouterNavigator>();
+
+        Assert.Contains(requestPolicy, ReadField<IReadOnlyList<INavigationRequestPolicy>>(navigator, "_requestPolicies"));
+        Assert.Contains(planPolicy, ReadField<IReadOnlyList<INavigationPlanPolicy>>(navigator, "_planPolicies"));
+        Assert.Same(backNavigator, ReadField<IBackNavigator>(navigator, "_backNavigator"));
+    }
+
+    [Fact]
+    public void AddMauiRouterPagesComposesContributorMappingsWithInlineMappings()
+    {
+        var services = new ServiceCollection();
+        services.AddMauiRouterPages(pages => pages.MapPage<ContributorRoute>((_, _) => new ContributorPage()));
+        services.AddMauiRouter<ThrowingPlanner>(
+            Routes(),
+            pages => pages.MapPage<InlineRoute>((_, _) => new InlinePage()));
+
+        using var provider = services.BuildServiceProvider();
+        var pageFactory = provider.GetRequiredService<IMauiRoutePageFactory>();
+
+        Assert.IsType<InlinePage>(pageFactory.CreatePage(new RouteEntry("inline", new InlineRoute("inline"))));
+        Assert.IsType<ContributorPage>(pageFactory.CreatePage(new RouteEntry("contributor", new ContributorRoute("contributor"))));
+    }
+
+    [Fact]
+    public void AddMauiRouterStartupExposesPublicExternalIngressSeam()
+    {
+        var services = new ServiceCollection();
+        services.AddMauiRouter<ThrowingPlanner>(
+            Routes(),
+            pages => pages.MapPage<TestRoute>((_, _) => new TestPage()));
+        services.AddMauiRouterStartup();
+
+        using var provider = services.BuildServiceProvider();
+
+        Assert.NotNull(provider.GetRequiredService<IMauiExternalNavigationDispatcher>());
+        Assert.NotNull(provider.GetRequiredService<IMauiRouterStartupService>());
+    }
+
+    [Fact]
+    public void AddMauiRouterFileDeferredNavigationRequestsRegistersStoreAndReplayer()
+    {
+        var services = new ServiceCollection();
+        var path = Path.Combine(Path.GetTempPath(), $"maui-router-deferred-{Guid.NewGuid():N}.json");
+        services.AddMauiRouter<ThrowingPlanner>(
+            Routes(),
+            pages => pages.MapPage<TestRoute>((_, _) => new TestPage()));
+        services.AddMauiRouterFileDeferredNavigationRequests(options => options.Path = path);
+
+        using var provider = services.BuildServiceProvider();
+
+        Assert.NotNull(provider.GetRequiredService<IDeferredNavigationRequestStore>());
+        Assert.NotNull(provider.GetRequiredService<IDeferredNavigationRequestReplayer>());
+    }
+
+    private static RouteTable Routes()
+    {
+        return RouteTable.Create(routes =>
+        {
+            routes.MapRoute<TestRoute>("/tests/{id}");
+            routes.MapRoute<InlineRoute>("/inline/{id}");
+            routes.MapRoute<ContributorRoute>("/contributors/{id}");
+        });
+    }
+
+    private static TField ReadField<TField>(object instance, string fieldName)
+    {
+        var field = instance.GetType().GetField(fieldName, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        return Assert.IsType<TField>(field!.GetValue(instance));
+    }
+
+    private sealed record TestRoute(string Id) : AppRoute;
+
+    private sealed record InlineRoute(string Id) : AppRoute;
+
+    private sealed record ContributorRoute(string Id) : AppRoute;
+
+    private sealed class TestPage : ContentPage;
+
+    private sealed class InlinePage : ContentPage;
+
+    private sealed class ContributorPage : ContentPage;
+
+    private sealed class ThrowingPlanner : IAppNavigationPlanner
+    {
+        public ValueTask<NavigationPlan> CreatePlanAsync(
+            NavigationPlanningContext context,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException("Registration tests do not execute navigation.");
+        }
+    }
+
+    private sealed class RecordingRequestPolicy : INavigationRequestPolicy
+    {
+        public ValueTask<RouterNavigationRequest> ApplyAsync(
+            NavigationRequestPolicyContext context,
+            RouterNavigationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            return ValueTask.FromResult(request);
+        }
+    }
+
+    private sealed class RecordingPlanPolicy : INavigationPlanPolicy
+    {
+        public ValueTask<NavigationPlan> ApplyAsync(
+            NavigationPlanPolicyContext context,
+            NavigationPlan plan,
+            CancellationToken cancellationToken = default)
+        {
+            return ValueTask.FromResult(plan);
+        }
+    }
+
+    private sealed class RecordingBackNavigator : IBackNavigator
+    {
+        public NavigationPlan? CreateBackPlan(NavigationState state, string? windowId = null)
+        {
+            return null;
+        }
+    }
+
+    private sealed class RecordingRouterNavigator : IRouterNavigator
+    {
+        public NavigationState CurrentState => NavigationState.Empty;
+
+        public NavigationHistory History => NavigationHistory.Empty;
+
+        public ValueTask<NavigationResult> NavigateAsync(Uri uri, NavigationRequestSource source = NavigationRequestSource.InAppCommand, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<NavigationResult> NavigateAsync(Uri uri, NavigationRequestSource source, RouterNavigationDisposition disposition, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<NavigationResult> NavigateAsync(Uri uri, RouterNavigationDisposition disposition, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<NavigationResult> NavigateAsync(AppRoute route, NavigationRequestSource source = NavigationRequestSource.InAppCommand, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<NavigationResult> NavigateAsync(AppRoute route, NavigationRequestSource source, RouterNavigationDisposition disposition, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<NavigationResult> NavigateAsync(AppRoute route, RouterNavigationDisposition disposition, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<NavigationResult> NavigateAsync(AppRouteRequest routeRequest, NavigationRequestSource source = NavigationRequestSource.InAppCommand, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<NavigationResult> NavigateAsync(AppRouteRequest routeRequest, NavigationRequestSource source, RouterNavigationDisposition disposition, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<NavigationResult> NavigateAsync(AppRouteRequest routeRequest, RouterNavigationDisposition disposition, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<NavigationResult> NavigateAsync(RouterNavigationRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<BackNavigationResult> BackAsync(string? windowId = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<NavigationResult> ReconcileAsync(NavigationReconciliation reconciliation, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<NavigationRestoreResult> RestoreAsync(NavigationSnapshot snapshot, NavigationRestoreOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<NavigationRestoreResult> RestoreFromStoreAsync(NavigationRestoreOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task WhenReconciliationIdleAsync() => Task.CompletedTask;
+    }
+}

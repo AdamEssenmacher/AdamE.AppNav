@@ -1,0 +1,267 @@
+using AdamE.MauiRouter.Diagnostics;
+using AdamE.MauiRouter.Navigation;
+using AdamE.MauiRouter.Plans;
+using AdamE.MauiRouter.Policies;
+using AdamE.MauiRouter.Presentation;
+using AdamE.MauiRouter.Requests;
+using AdamE.MauiRouter.State;
+
+namespace AdamE.MauiRouter.Tests;
+
+public sealed class ProductionHardeningTests
+{
+    [Fact]
+    public async Task NavigationOperationsAreSerialized()
+    {
+        var presenter = new BlockingPresenter();
+        var navigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            new RouteEchoPlanner(),
+            presenter);
+
+        var first = navigator.NavigateAsync(new TestRoutes.StoreRoute("first"), NavigationRequestSource.Test).AsTask();
+        await presenter.FirstPresentationStarted.Task;
+
+        var second = navigator.NavigateAsync(new TestRoutes.StoreRoute("second"), NavigationRequestSource.Test).AsTask();
+        await Task.Delay(100);
+
+        Assert.False(second.IsCompleted);
+
+        presenter.ReleaseFirstPresentation.SetResult();
+        await Task.WhenAll(first, second);
+
+        Assert.Equal(new[] { "first", "second" }, presenter.PresentedStoreIds);
+        Assert.Equal("second", ((TestRoutes.StoreRoute)navigator.History.Current!.Route).StoreId);
+    }
+
+    [Fact]
+    public async Task PresentationFailureDoesNotMutateLogicalStateOrHistory()
+    {
+        var diagnostics = new NavigationDiagnostics();
+        var events = new List<NavigationDiagnosticEventKind>();
+        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent.Kind);
+
+        var navigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            new RouteEchoPlanner(),
+            new ThrowingPresenter(),
+            new RouterNavigatorOptions { Diagnostics = diagnostics });
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            navigator.NavigateAsync(new TestRoutes.StoreRoute("northwind"), NavigationRequestSource.Test).AsTask());
+
+        Assert.Null(navigator.CurrentState.ActiveWindow);
+        Assert.Empty(navigator.History.Entries);
+        Assert.Contains(NavigationDiagnosticEventKind.PresentationFailed, events);
+        Assert.Contains(NavigationDiagnosticEventKind.NavigationFailed, events);
+    }
+
+    [Fact]
+    public async Task HistoryIsBoundedByNavigatorOptions()
+    {
+        var navigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            new RouteEchoPlanner(),
+            NullNavigationPresenter.Instance,
+            new RouterNavigatorOptions { MaxHistoryEntries = 2 });
+
+        await navigator.NavigateAsync(new TestRoutes.StoreRoute("one"), NavigationRequestSource.Test);
+        await navigator.NavigateAsync(new TestRoutes.StoreRoute("two"), NavigationRequestSource.Test);
+        await navigator.NavigateAsync(new TestRoutes.StoreRoute("three"), NavigationRequestSource.Test);
+
+        Assert.Equal(2, navigator.History.Entries.Count);
+        Assert.Equal("two", ((TestRoutes.StoreRoute)navigator.History.Entries[0].Route).StoreId);
+        Assert.Equal("three", ((TestRoutes.StoreRoute)navigator.History.Current!.Route).StoreId);
+    }
+
+    [Fact]
+    public async Task BackAsyncAppliesBackPlanAndReportsUnhandledExit()
+    {
+        var initialState = new NavigationState(new[]
+        {
+            new WindowNode(
+                "main",
+                new StackNode("catalog-stack", new[]
+                {
+                    new RouteEntry("catalog", new TestRoutes.CatalogRoute("northwind")),
+                    new RouteEntry("product", new TestRoutes.ProductDetailRoute("northwind", 123))
+                }))
+        }, "main");
+
+        var navigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            new RouteEchoPlanner(),
+            NullNavigationPresenter.Instance,
+            new RouterNavigatorOptions { InitialState = initialState });
+
+        var handled = await navigator.BackAsync();
+        var unhandled = await navigator.BackAsync();
+
+        Assert.True(handled.Handled);
+        Assert.False(unhandled.Handled);
+        var stack = Assert.IsType<StackNode>(navigator.CurrentState.ActiveWindow!.Root);
+        Assert.Single(stack.Entries);
+    }
+
+    [Fact]
+    public void DiagnosticsObserversAreIsolated()
+    {
+        var diagnostics = new NavigationDiagnostics();
+        var events = new List<NavigationDiagnosticEventKind>();
+
+        diagnostics.EventWritten += (_, _) => throw new InvalidOperationException("observer failed");
+        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent.Kind);
+
+        diagnostics.Write(NavigationDiagnosticEventKind.RouteMatched, "operation", "matched");
+
+        Assert.Contains(NavigationDiagnosticEventKind.RouteMatched, events);
+        Assert.Contains(NavigationDiagnosticEventKind.DiagnosticObserverFailed, events);
+    }
+
+    [Fact]
+    public async Task AllowedUriOriginPolicyRejectsUntrustedExternalUris()
+    {
+        var policy = new AllowedUriOriginPolicy(new[] { new Uri("https://example.com") });
+        var trusted = RouterNavigationRequest.FromUri(new Uri("https://example.com/stores/northwind"), NavigationRequestSource.AppLink);
+        var untrusted = RouterNavigationRequest.FromUri(new Uri("https://evil.example/stores/northwind"), NavigationRequestSource.AppLink);
+        var inApp = RouterNavigationRequest.FromUri(new Uri("https://evil.example/stores/northwind"), NavigationRequestSource.InAppCommand);
+        var route = new TestRoutes.StoreRoute("northwind");
+        var context = new NavigationRequestPolicyContext(trusted, route, NavigationState.Empty, "operation");
+
+        await policy.ApplyAsync(context, trusted);
+        await policy.ApplyAsync(context, inApp);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => policy.ApplyAsync(context, untrusted).AsTask());
+    }
+
+    [Fact]
+    public void TrustedUriOriginHelperAppendsPolicyWithoutReplacingExistingPolicies()
+    {
+        var existing = new PassThroughRequestPolicy();
+        var options = new RouterNavigatorOptions
+        {
+            RequestPolicies = new INavigationRequestPolicy[] { existing }
+        };
+
+        var returned = options.RequireTrustedUriOrigins(new Uri("https://example.com"));
+
+        Assert.Same(options, returned);
+        Assert.Equal(2, options.RequestPolicies.Count);
+        Assert.Same(existing, options.RequestPolicies[0]);
+        Assert.IsType<AllowedUriOriginPolicy>(options.RequestPolicies[1]);
+    }
+
+    [Fact]
+    public async Task TrustedUriOriginHelperRejectsUntrustedExternalUriBeforePlanning()
+    {
+        var planner = new CountingPlanner();
+        var options = new RouterNavigatorOptions()
+            .RequireTrustedUriOrigins(new Uri("https://example.com"));
+        var navigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            planner,
+            NullNavigationPresenter.Instance,
+            options);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            navigator.NavigateAsync(
+                new Uri("https://evil.example/stores/northwind"),
+                NavigationRequestSource.AppLink).AsTask());
+
+        Assert.Equal(0, planner.ApplyCount);
+        Assert.Null(navigator.CurrentState.ActiveWindow);
+        Assert.Empty(navigator.History.Entries);
+    }
+
+    private sealed class RouteEchoPlanner : IAppNavigationPlanner
+    {
+        public ValueTask<NavigationPlan> CreatePlanAsync(
+            NavigationPlanningContext context,
+            CancellationToken cancellationToken = default)
+        {
+            var state = new NavigationState(new[]
+            {
+                new WindowNode("main", new StackNode("stack", new[] { new RouteEntry("route", context.Route) }))
+            }, "main");
+
+            return ValueTask.FromResult(new NavigationPlan(state));
+        }
+    }
+
+    private sealed class CountingPlanner : IAppNavigationPlanner
+    {
+        public int ApplyCount { get; private set; }
+
+        public ValueTask<NavigationPlan> CreatePlanAsync(
+            NavigationPlanningContext context,
+            CancellationToken cancellationToken = default)
+        {
+            ApplyCount++;
+            var state = new NavigationState(new[]
+            {
+                new WindowNode("main", new StackNode("stack", new[] { new RouteEntry("route", context.Route) }))
+            }, "main");
+
+            return ValueTask.FromResult(new NavigationPlan(state));
+        }
+    }
+
+    private sealed class PassThroughRequestPolicy : INavigationRequestPolicy
+    {
+        public ValueTask<RouterNavigationRequest> ApplyAsync(
+            NavigationRequestPolicyContext context,
+            RouterNavigationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            return ValueTask.FromResult(request);
+        }
+    }
+
+    private sealed class BlockingPresenter : INavigationPresenter
+    {
+        private int _presentationCount;
+
+        public TaskCompletionSource FirstPresentationStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource ReleaseFirstPresentation { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public List<string> PresentedStoreIds { get; } = new();
+
+        public event EventHandler<NavigationReconciliationRequestedEventArgs>? ReconciliationRequested
+        {
+            add { }
+            remove { }
+        }
+
+        public async ValueTask ApplyAsync(
+            NavigationPlan plan,
+            NavigationPresentationContext context,
+            CancellationToken cancellationToken = default)
+        {
+            var route = Assert.IsType<TestRoutes.StoreRoute>(context.Route);
+            PresentedStoreIds.Add(route.StoreId);
+
+            if (Interlocked.Increment(ref _presentationCount) == 1)
+            {
+                FirstPresentationStarted.SetResult();
+                await ReleaseFirstPresentation.Task;
+            }
+        }
+    }
+
+    private sealed class ThrowingPresenter : INavigationPresenter
+    {
+        public event EventHandler<NavigationReconciliationRequestedEventArgs>? ReconciliationRequested
+        {
+            add { }
+            remove { }
+        }
+
+        public ValueTask ApplyAsync(
+            NavigationPlan plan,
+            NavigationPresentationContext context,
+            CancellationToken cancellationToken = default)
+        {
+            throw new InvalidOperationException("Presentation failed.");
+        }
+    }
+}

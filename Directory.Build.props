@@ -1,0 +1,25 @@
+<Project>
+  <PropertyGroup>
+    <Authors>Adam Essenmacher</Authors>
+    <Company>Adam Essenmacher</Company>
+    <Product>AdamE.MauiRouter</Product>
+    <Copyright>Copyright © 2026 Adam Essenmacher</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/AdamEssenmacher/AdamE.MauiRouter</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/AdamEssenmacher/AdamE.MauiRouter.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>maui;navigation;router;deep-linking;app-links;url-routing</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+  </PropertyGroup>
+
+  <ItemGroup Condition="$([System.String]::Copy('$(PackageId)').StartsWith('AdamE.MauiRouter'))">
+    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="/" Visible="false" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,336 @@
+using AdamE.MauiRouter.Diagnostics;
+using AdamE.MauiRouter.Maui.AppLinks;
+using AdamE.MauiRouter.Navigation;
+using AdamE.MauiRouter.Persistence;
+using AdamE.MauiRouter.Requests;
+using Microsoft.Maui.ApplicationModel;
+using Microsoft.Maui.Controls;
+
+namespace AdamE.MauiRouter.Maui;
+
+public interface IMauiRouterStartupService
+{
+    ValueTask<MauiRouterStartupResult> StartAsync(
+        Window window,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<MauiRouterStartupResult> StartAsync(
+        Window window,
+        string windowId,
+        CancellationToken cancellationToken = default);
+}
+
+public sealed class MauiRouterStartupOptions
+{
+    public string WindowId { get; set; } = "main";
+
+    public TimeSpan AppLinkGracePeriod { get; set; } = TimeSpan.FromMilliseconds(250);
+
+    public bool RestoreFromStore { get; set; } = true;
+
+    public NavigationRestoreOptions RestoreOptions { get; set; } = new();
+
+    public Func<IServiceProvider, CancellationToken, ValueTask<RouterNavigationRequest?>>? FallbackRequestFactory { get; set; }
+}
+
+public enum MauiRouterStartupOutcome
+{
+    AppLinkPending,
+    Restored,
+    FallbackNavigated,
+    NoNavigation,
+    Failed
+}
+
+public sealed record MauiRouterStartupResult(
+    MauiRouterStartupOutcome Outcome,
+    NavigationRestoreResult? RestoreResult = null,
+    NavigationResult? FallbackNavigationResult = null,
+    Exception? Exception = null)
+{
+    public bool Succeeded => Outcome != MauiRouterStartupOutcome.Failed;
+}
+
+internal sealed class MauiRouterStartupService : IMauiRouterStartupService
+{
+    private readonly IRouterNavigator _navigator;
+    private readonly IMauiWindowAttachment _windowAttachment;
+    private readonly MauiExternalNavigationDispatcher _externalNavigationDispatcher;
+    private readonly MauiRouterStartupOptions _options;
+    private readonly IServiceProvider _services;
+    private readonly NavigationDiagnostics _diagnostics;
+
+    public MauiRouterStartupService(
+        IRouterNavigator navigator,
+        IMauiWindowAttachment windowAttachment,
+        MauiExternalNavigationDispatcher externalNavigationDispatcher,
+        MauiRouterStartupOptions options,
+        IServiceProvider services,
+        NavigationDiagnostics? diagnostics = null)
+    {
+        _navigator = navigator ?? throw new ArgumentNullException(nameof(navigator));
+        _windowAttachment = windowAttachment ?? throw new ArgumentNullException(nameof(windowAttachment));
+        _externalNavigationDispatcher = externalNavigationDispatcher ?? throw new ArgumentNullException(nameof(externalNavigationDispatcher));
+        _options = options ?? throw new ArgumentNullException(nameof(options));
+        _services = services ?? throw new ArgumentNullException(nameof(services));
+        _diagnostics = diagnostics ?? NavigationDiagnostics.None;
+
+        if (_options.AppLinkGracePeriod < TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(options),
+                "AppLinkGracePeriod cannot be negative.");
+        }
+    }
+
+    public ValueTask<MauiRouterStartupResult> StartAsync(
+        Window window,
+        CancellationToken cancellationToken = default)
+    {
+        return StartAsync(window, _options.WindowId, cancellationToken);
+    }
+
+    public async ValueTask<MauiRouterStartupResult> StartAsync(
+        Window window,
+        string windowId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(window);
+        ArgumentException.ThrowIfNullOrWhiteSpace(windowId);
+
+        if (MainThread.IsMainThread)
+        {
+            return await StartOnMainThreadAsync(window, windowId, cancellationToken).ConfigureAwait(false);
+        }
+
+        return await MainThread
+            .InvokeOnMainThreadAsync(() => StartOnMainThreadAsync(window, windowId, cancellationToken))
+            .ConfigureAwait(false);
+    }
+
+    private async Task<MauiRouterStartupResult> StartOnMainThreadAsync(
+        Window window,
+        string windowId,
+        CancellationToken cancellationToken)
+    {
+        var operationId = Guid.NewGuid().ToString("N");
+        var attached = false;
+        NavigationRestoreResult? restoreResult = null;
+
+        _diagnostics.Write(
+            NavigationDiagnosticEventKind.StartupStarted,
+            operationId,
+            "MAUI router startup started.",
+            StartupData(windowId));
+
+        try
+        {
+            var hasPendingAppLink = await _externalNavigationDispatcher
+                .WaitForPendingRequestAsync(_options.AppLinkGracePeriod, cancellationToken);
+
+            if (hasPendingAppLink)
+            {
+                _diagnostics.Write(
+                    NavigationDiagnosticEventKind.StartupAppLinkPending,
+                    operationId,
+                    "A buffered app-link request is pending; snapshot restore and fallback navigation were skipped.",
+                    StartupData(
+                        windowId,
+                        (NavigationDiagnosticDataKeys.StartupOutcome, MauiRouterStartupOutcome.AppLinkPending.ToString())));
+
+                _diagnostics.Write(
+                    NavigationDiagnosticEventKind.StartupRestoreSkipped,
+                    operationId,
+                    "Snapshot restore was skipped because an app-link request has priority.",
+                    StartupData(
+                        windowId,
+                        (NavigationDiagnosticDataKeys.RestoreReason, "app-link-pending"),
+                        (NavigationDiagnosticDataKeys.StartupOutcome, MauiRouterStartupOutcome.AppLinkPending.ToString())));
+
+                Attach(window, windowId, ref attached);
+                return Complete(operationId, windowId, MauiRouterStartupOutcome.AppLinkPending);
+            }
+
+            var hasDeferredRequests = false;
+            if (_services.GetService(typeof(IDeferredNavigationRequestStore)) is IDeferredNavigationRequestStore deferredRequestStore)
+            {
+                hasDeferredRequests = await deferredRequestStore
+                    .HasDeferredRequestsAsync(cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (hasDeferredRequests)
+                {
+                    _diagnostics.Write(
+                        NavigationDiagnosticEventKind.StartupDeferredRequestPending,
+                        operationId,
+                        "A deferred protected navigation request is pending; snapshot restore was skipped.",
+                        StartupData(
+                            windowId,
+                            (NavigationDiagnosticDataKeys.StartupDeferredRequestPending, true)));
+
+                    _diagnostics.Write(
+                        NavigationDiagnosticEventKind.StartupRestoreSkipped,
+                        operationId,
+                        "Snapshot restore was skipped because a deferred protected navigation request is pending.",
+                        StartupData(
+                            windowId,
+                            (NavigationDiagnosticDataKeys.RestoreReason, "deferred-request-pending"),
+                            (NavigationDiagnosticDataKeys.StartupDeferredRequestPending, true)));
+                }
+            }
+
+            if (_options.RestoreFromStore && !hasDeferredRequests)
+            {
+                restoreResult = await _navigator
+                    .RestoreFromStoreAsync(_options.RestoreOptions ?? new NavigationRestoreOptions(), cancellationToken);
+
+                if (restoreResult.Accepted)
+                {
+                    Attach(window, windowId, ref attached);
+                    return Complete(
+                        operationId,
+                        windowId,
+                        MauiRouterStartupOutcome.Restored,
+                        restoreResult);
+                }
+            }
+            else
+            {
+                _diagnostics.Write(
+                    NavigationDiagnosticEventKind.StartupRestoreSkipped,
+                    operationId,
+                    hasDeferredRequests
+                        ? "Snapshot restore was skipped because a deferred protected navigation request is pending."
+                        : "Snapshot restore was skipped by startup configuration.",
+                    StartupData(
+                        windowId,
+                        (NavigationDiagnosticDataKeys.RestoreReason, hasDeferredRequests ? "deferred-request-pending" : "disabled"),
+                        (NavigationDiagnosticDataKeys.StartupDeferredRequestPending, hasDeferredRequests)));
+            }
+
+            if (_options.FallbackRequestFactory is not null)
+            {
+                var fallbackRequest = await _options
+                    .FallbackRequestFactory(_services, cancellationToken);
+
+                if (fallbackRequest is not null)
+                {
+                    var fallbackResult = await _navigator
+                        .NavigateAsync(fallbackRequest, cancellationToken);
+
+                    _diagnostics.Write(
+                        NavigationDiagnosticEventKind.StartupFallbackNavigated,
+                        operationId,
+                        "Startup fallback navigation completed.",
+                        StartupData(
+                            windowId,
+                            (NavigationDiagnosticDataKeys.StartupOutcome, MauiRouterStartupOutcome.FallbackNavigated.ToString()),
+                            (NavigationDiagnosticDataKeys.RequestSource, fallbackRequest.Source.ToString()),
+                            (NavigationDiagnosticDataKeys.Uri, fallbackRequest.Uri?.ToString())));
+
+                    Attach(window, windowId, ref attached);
+                    return Complete(
+                        operationId,
+                        windowId,
+                        MauiRouterStartupOutcome.FallbackNavigated,
+                        restoreResult,
+                        fallbackResult);
+                }
+            }
+
+            Attach(window, windowId, ref attached);
+            return Complete(
+                operationId,
+                windowId,
+                MauiRouterStartupOutcome.NoNavigation,
+                restoreResult);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            TryAttach(window, windowId, ref attached);
+
+            _diagnostics.Write(
+                NavigationDiagnosticEventKind.StartupFailed,
+                operationId,
+                "MAUI router startup failed.",
+                StartupData(
+                    windowId,
+                    (NavigationDiagnosticDataKeys.StartupOutcome, MauiRouterStartupOutcome.Failed.ToString()),
+                    (NavigationDiagnosticDataKeys.ExceptionType, ex.GetType().FullName),
+                    (NavigationDiagnosticDataKeys.ExceptionMessage, ex.Message)));
+
+            return new MauiRouterStartupResult(
+                MauiRouterStartupOutcome.Failed,
+                restoreResult,
+                FallbackNavigationResult: null,
+                ex);
+        }
+    }
+
+    private MauiRouterStartupResult Complete(
+        string operationId,
+        string windowId,
+        MauiRouterStartupOutcome outcome,
+        NavigationRestoreResult? restoreResult = null,
+        NavigationResult? fallbackNavigationResult = null)
+    {
+        _diagnostics.Write(
+            NavigationDiagnosticEventKind.StartupCompleted,
+            operationId,
+            $"MAUI router startup completed with outcome '{outcome}'.",
+            StartupData(
+                windowId,
+                (NavigationDiagnosticDataKeys.StartupOutcome, outcome.ToString())));
+
+        return new MauiRouterStartupResult(
+            outcome,
+            restoreResult,
+            fallbackNavigationResult,
+            Exception: null);
+    }
+
+    private void Attach(Window window, string windowId, ref bool attached)
+    {
+        _windowAttachment.AttachWindow(window, windowId);
+        attached = true;
+    }
+
+    private void TryAttach(Window window, string windowId, ref bool attached)
+    {
+        if (attached)
+        {
+            return;
+        }
+
+        try
+        {
+            Attach(window, windowId, ref attached);
+        }
+        catch
+        {
+            // The original startup failure remains the actionable failure.
+        }
+    }
+
+    private Dictionary<string, object?> StartupData(
+        string windowId,
+        params (string Key, object? Value)[] values)
+    {
+        var data = new Dictionary<string, object?>
+        {
+            [NavigationDiagnosticDataKeys.WindowId] = windowId,
+            [NavigationDiagnosticDataKeys.AppLinkGraceMs] = _options.AppLinkGracePeriod.TotalMilliseconds
+        };
+
+        foreach (var (key, value) in values)
+        {
+            data[key] = value;
+        }
+
+        return data;
+    }
+}

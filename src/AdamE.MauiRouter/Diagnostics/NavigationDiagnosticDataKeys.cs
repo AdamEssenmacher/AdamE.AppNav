@@ -1,0 +1,53 @@
+namespace AdamE.MauiRouter.Diagnostics;
+
+public static class NavigationDiagnosticDataKeys
+{
+    public const string DurationMs = "durationMs";
+    public const string ExceptionType = "exceptionType";
+    public const string ExceptionMessage = "exceptionMessage";
+    public const string Uri = "uri";
+    public const string Path = "path";
+    public const string RequestSource = "requestSource";
+    public const string RequestDisposition = "requestDisposition";
+    public const string ProvenanceProvider = "provenanceProvider";
+    public const string ProvenanceOriginalUri = "provenanceOriginalUri";
+    public const string ProvenanceReferrerUri = "provenanceReferrerUri";
+    public const string ProvenanceCorrelationId = "provenanceCorrelationId";
+    public const string ProvenanceIsColdStart = "provenanceIsColdStart";
+    public const string ProvenanceAttributes = "provenanceAttributes";
+    public const string RouteType = "routeType";
+    public const string RouteTemplate = "routeTemplate";
+    public const string RouteDiagnosticCode = "routeDiagnosticCode";
+    public const string RouteDiagnosticMessage = "routeDiagnosticMessage";
+    public const string CandidateCount = "candidateCount";
+    public const string PlanKind = "planKind";
+    public const string PolicyType = "policyType";
+    public const string RedirectCount = "redirectCount";
+    public const string RedirectFrom = "redirectFrom";
+    public const string RedirectTo = "redirectTo";
+    public const string RedirectTrace = "redirectTrace";
+    public const string WindowId = "windowId";
+    public const string ReconciliationSource = "reconciliationSource";
+    public const string OriginalKind = "originalKind";
+    public const string PageType = "pageType";
+    public const string HostId = "hostId";
+    public const string BranchId = "branchId";
+    public const string RouteEntryId = "routeEntryId";
+    public const string ModalId = "modalId";
+    public const string HandlerName = "handlerName";
+    public const string TransitionType = "transitionType";
+    public const string TransitionOperation = "transitionOperation";
+    public const string TransitionDurationMs = "transitionDurationMs";
+    public const string TransitionElementIds = "transitionElementIds";
+    public const string TransitionFallbackReason = "transitionFallbackReason";
+    public const string Platform = "platform";
+    public const string SnapshotVersion = "snapshotVersion";
+    public const string SnapshotAgeMs = "snapshotAgeMs";
+    public const string SnapshotWindowCount = "snapshotWindowCount";
+    public const string SnapshotHistoryCount = "snapshotHistoryCount";
+    public const string SnapshotStoreType = "snapshotStoreType";
+    public const string RestoreReason = "restoreReason";
+    public const string StartupOutcome = "startupOutcome";
+    public const string StartupDeferredRequestPending = "startupDeferredRequestPending";
+    public const string AppLinkGraceMs = "appLinkGraceMs";
+}

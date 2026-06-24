@@ -1,0 +1,119 @@
+name: Release Confidence
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+    inputs:
+      run-ios-platform-tests:
+        description: Run iOS simulator XHarness tests
+        required: false
+        type: boolean
+        default: false
+      run-android-platform-tests:
+        description: Run Android emulator XHarness tests
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  release-confidence:
+    name: Build, pack, and Mac Catalyst platform tests
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            9.0.x
+            10.0.x
+
+      - name: Install MAUI workload
+        run: dotnet workload install maui
+
+      - name: Install XHarness
+        run: |
+          dotnet tool install Microsoft.DotNet.XHarness.CLI --global \
+            --add-source https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet-eng/nuget/v3/index.json \
+            --version "11.0.0-prerelease*"
+
+      - name: Core tests
+        run: dotnet test tests/AdamE.MauiRouter.Tests/AdamE.MauiRouter.Tests.csproj
+
+      - name: MAUI adapter build
+        run: dotnet build src/AdamE.MauiRouter.Maui/AdamE.MauiRouter.Maui.csproj
+
+      - name: Commerce sample build
+        run: dotnet build samples/Commerce.Sample/Commerce.Sample.csproj -f net10.0-maccatalyst
+
+      - name: Pack packages
+        run: |
+          dotnet pack src/AdamE.MauiRouter/AdamE.MauiRouter.csproj -o artifacts/packages
+          dotnet pack src/AdamE.MauiRouter.Maui/AdamE.MauiRouter.Maui.csproj -o artifacts/packages
+          dotnet pack src/AdamE.MauiRouter.Testing/AdamE.MauiRouter.Testing.csproj -o artifacts/packages
+
+      - name: Mac Catalyst platform tests
+        run: eng/run-maui-platform-tests.sh maccatalyst
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-confidence-artifacts
+          path: |
+            artifacts/packages
+            artifacts/xharness
+
+  ios-platform-tests:
+    name: iOS simulator platform tests
+    runs-on: macos-latest
+    if: github.event_name == 'workflow_dispatch' && inputs.run-ios-platform-tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            9.0.x
+            10.0.x
+      - run: dotnet workload install maui
+      - run: |
+          dotnet tool install Microsoft.DotNet.XHarness.CLI --global \
+            --add-source https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet-eng/nuget/v3/index.json \
+            --version "11.0.0-prerelease*"
+      - run: eng/run-maui-platform-tests.sh ios
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-xharness-artifacts
+          path: artifacts/xharness
+
+  android-platform-tests:
+    name: Android emulator platform tests
+    runs-on: macos-latest
+    if: github.event_name == 'workflow_dispatch' && inputs.run-android-platform-tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            9.0.x
+            10.0.x
+      - run: dotnet workload install maui
+      - run: |
+          dotnet tool install Microsoft.DotNet.XHarness.CLI --global \
+            --add-source https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet-eng/nuget/v3/index.json \
+            --version "11.0.0-prerelease*"
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          script: eng/run-maui-platform-tests.sh android
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-xharness-artifacts
+          path: artifacts/xharness
