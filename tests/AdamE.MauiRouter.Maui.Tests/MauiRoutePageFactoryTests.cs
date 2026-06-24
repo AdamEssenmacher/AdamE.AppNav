@@ -56,12 +56,48 @@ public sealed class MauiRoutePageFactoryTests
         Assert.True(page.Marker.IsDisposed);
     }
 
+    [Fact]
+    public void CreatePage_PrefersMostSpecificMappedPageForDerivedRoute()
+    {
+        using var provider = new ServiceCollection().BuildServiceProvider();
+        var options = new MauiRoutePresentationOptions();
+        options.Pages
+            .MapPage<BaseMappedRoute>((_, _) => new BaseMappedPage())
+            .MapPage<DerivedMappedRoute>((_, _) => new DerivedMappedPage());
+        var factory = new MauiRoutePageFactory(provider, options);
+
+        var page = factory.CreatePage(new RouteEntry("derived-route", new DerivedMappedRoute()));
+
+        Assert.IsType<DerivedMappedPage>(page);
+    }
+
+    [Fact]
+    public void CreatePage_FallsBackToBaseMappedPageWhenDerivedRouteMappingIsMissing()
+    {
+        using var provider = new ServiceCollection().BuildServiceProvider();
+        var options = new MauiRoutePresentationOptions();
+        options.Pages.MapPage<BaseMappedRoute>((_, _) => new BaseMappedPage());
+        var factory = new MauiRoutePageFactory(provider, options);
+
+        var page = factory.CreatePage(new RouteEntry("derived-route", new DerivedMappedRoute()));
+
+        Assert.IsType<BaseMappedPage>(page);
+    }
+
     private static RouteEntry Entry(string id)
     {
         return new RouteEntry(id, new TestPageRoute(id));
     }
 
+    private record BaseMappedRoute : AppRoute;
+
+    private sealed record DerivedMappedRoute : BaseMappedRoute;
+
     private sealed class PageDependency;
+
+    private sealed class BaseMappedPage : ContentPage;
+
+    private sealed class DerivedMappedPage : ContentPage;
 
     private sealed class ServiceResolvedPage(PageDependency dependency) : ContentPage
     {

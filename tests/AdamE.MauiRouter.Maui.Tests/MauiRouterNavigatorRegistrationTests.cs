@@ -142,7 +142,7 @@ public sealed class MauiRouterNavigatorRegistrationTests
     {
         var field = instance.GetType().GetField(fieldName, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
         Assert.NotNull(field);
-        return Assert.IsType<TField>(field!.GetValue(instance));
+        return Assert.IsAssignableFrom<TField>(field!.GetValue(instance));
     }
 
     private sealed record TestRoute(string Id) : AppRoute;

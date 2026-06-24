@@ -65,6 +65,54 @@ public sealed class MauiNavigationTransitionServiceTests
     }
 
     [Fact]
+    public async Task DerivedTransitionPrefersMostSpecificRegisteredHandler()
+    {
+        var baseHandler = new RecordingBaseTransitionHandler();
+        var derivedHandler = new RecordingDerivedTransitionHandler();
+        var options = new MauiRoutePresentationOptions();
+        options.Transitions.Map<BasePolymorphicTransition>(_ => baseHandler);
+        options.Transitions.Map<DerivedPolymorphicTransition>(_ => derivedHandler);
+        var service = CreateService(out _, options);
+
+        await service.ApplyAsync(
+            new DerivedPolymorphicTransition("derived"),
+            MauiNavigationTransitionOperation.StackPush,
+            new ContentPage(),
+            new ContentPage(),
+            sourceEntry: null,
+            targetEntry: Entry("target"),
+            operationId: "transition-derived-most-specific",
+            executeNativeOperationAsync: (_, _) => ValueTask.FromResult<Page?>(new ContentPage()));
+
+        Assert.Empty(baseHandler.Calls);
+        Assert.Single(derivedHandler.Calls);
+    }
+
+    [Fact]
+    public async Task DerivedTransitionFallsBackToBaseRegisteredHandler()
+    {
+        var baseHandler = new RecordingBaseTransitionHandler();
+        var options = new MauiRoutePresentationOptions();
+        options.Transitions.Map<BasePolymorphicTransition>(_ => baseHandler);
+        var service = CreateService(out _, options);
+
+        await service.ApplyAsync(
+            new DerivedPolymorphicTransition("derived"),
+            MauiNavigationTransitionOperation.StackPush,
+            new ContentPage(),
+            new ContentPage(),
+            sourceEntry: null,
+            targetEntry: Entry("target"),
+            operationId: "transition-derived-fallback",
+            executeNativeOperationAsync: (_, _) => ValueTask.FromResult<Page?>(new ContentPage()));
+
+        var call = Assert.Single(baseHandler.Calls);
+        Assert.Equal("derived", call.Transition.Name);
+        Assert.Equal(MauiNavigationTransitionOperation.StackPush, call.Operation);
+        Assert.Equal("target", call.TargetEntry?.Id);
+    }
+
+    [Fact]
     public async Task HandlerFailureEmitsTransitionFailureDiagnostic()
     {
         var handler = new RecordingTransitionHandler { ThrowOnApply = true };
@@ -140,6 +188,10 @@ public sealed class MauiNavigationTransitionServiceTests
 
     private sealed record TestNavigationTransition(string Name) : NavigationTransition;
 
+    private record BasePolymorphicTransition(string Name) : NavigationTransition;
+
+    private sealed record DerivedPolymorphicTransition(string Name) : BasePolymorphicTransition(Name);
+
     private sealed class RecordingTransitionHandler : IMauiNavigationTransitionHandler<TestNavigationTransition>
     {
         public List<TransitionCall> Calls { get; } = new();
@@ -167,6 +219,54 @@ public sealed class MauiNavigationTransitionServiceTests
 
     private sealed record TransitionCall(
         TestNavigationTransition Transition,
+        MauiNavigationTransitionOperation Operation,
+        RouteEntry? SourceEntry,
+        RouteEntry? TargetEntry);
+
+    private sealed class RecordingBaseTransitionHandler : IMauiNavigationTransitionHandler<BasePolymorphicTransition>
+    {
+        public List<BaseTransitionCall> Calls { get; } = new();
+
+        public async ValueTask ApplyAsync(
+            MauiNavigationTransitionContext<BasePolymorphicTransition> context,
+            CancellationToken cancellationToken = default)
+        {
+            Calls.Add(new BaseTransitionCall(
+                context.Transition,
+                context.Operation,
+                context.SourceEntry,
+                context.TargetEntry));
+
+            await context.ExecuteNativeOperationAsync(false, cancellationToken);
+        }
+    }
+
+    private sealed class RecordingDerivedTransitionHandler : IMauiNavigationTransitionHandler<DerivedPolymorphicTransition>
+    {
+        public List<DerivedTransitionCall> Calls { get; } = new();
+
+        public async ValueTask ApplyAsync(
+            MauiNavigationTransitionContext<DerivedPolymorphicTransition> context,
+            CancellationToken cancellationToken = default)
+        {
+            Calls.Add(new DerivedTransitionCall(
+                context.Transition,
+                context.Operation,
+                context.SourceEntry,
+                context.TargetEntry));
+
+            await context.ExecuteNativeOperationAsync(false, cancellationToken);
+        }
+    }
+
+    private sealed record BaseTransitionCall(
+        BasePolymorphicTransition Transition,
+        MauiNavigationTransitionOperation Operation,
+        RouteEntry? SourceEntry,
+        RouteEntry? TargetEntry);
+
+    private sealed record DerivedTransitionCall(
+        DerivedPolymorphicTransition Transition,
         MauiNavigationTransitionOperation Operation,
         RouteEntry? SourceEntry,
         RouteEntry? TargetEntry);

@@ -31,8 +31,7 @@ internal sealed class MauiNavigationTransitionRegistry
         Type transitionType,
         out object handler)
     {
-        var factory = _factories.FirstOrDefault(candidate => candidate.Key.IsAssignableFrom(transitionType)).Value;
-        if (factory is null)
+        if (!TypeHierarchyRegistrationLookup.TryGetMostSpecific(_factories, transitionType, out var factory))
         {
             handler = null!;
             return false;

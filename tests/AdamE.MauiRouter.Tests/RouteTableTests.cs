@@ -33,6 +33,25 @@ public sealed class RouteTableTests
     }
 
     [Fact]
+    public void FormatPrefersMostSpecificFormatterForDerivedRoute()
+    {
+        var table = RouteTable.Create(routes => routes
+            .Map("/base", _ => new BasePolymorphicRoute())
+            .Map("/derived", _ => new DerivedPolymorphicRoute()));
+
+        Assert.Equal("/derived", table.Format(new DerivedPolymorphicRoute()));
+    }
+
+    [Fact]
+    public void FormatFallsBackToBaseFormatterWhenDerivedFormatterIsMissing()
+    {
+        var table = RouteTable.Create(routes => routes
+            .Map("/base", _ => new BasePolymorphicRoute()));
+
+        Assert.Equal("/base", table.Format(new DerivedPolymorphicRoute()));
+    }
+
+    [Fact]
     public void MatchFailureDoesNotCreateHostState()
     {
         var table = TestRoutes.CreateTable();
@@ -675,6 +694,10 @@ public sealed class RouteTableTests
     private sealed record SearchRoute(string? LastTag, IReadOnlyList<string> Tags) : AppRoute;
 
     private sealed record ValueRoute(string Value) : AppRoute;
+
+    private record BasePolymorphicRoute : AppRoute;
+
+    private sealed record DerivedPolymorphicRoute : BasePolymorphicRoute;
 
     private sealed record ConventionProductRoute(string StoreId, int ProductId, string? Variant = null) : AppRoute;
 

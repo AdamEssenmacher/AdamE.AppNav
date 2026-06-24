@@ -118,9 +118,17 @@ internal sealed class MauiNavigationTransitionService
             case FadeNavigationTransition fade:
                 if (_options.Transitions.TryCreateHandler(_services, fade.GetType(), out var fadeHandler))
                 {
-                    await ((IMauiNavigationTransitionHandler<FadeNavigationTransition>)fadeHandler)
-                        .ApplyAsync(CreateContext(fade), cancellationToken)
-                        ;
+                    await InvokeCustomHandlerAsync(
+                        fadeHandler,
+                        fade,
+                        operation,
+                        sourcePage,
+                        targetPage,
+                        sourceEntry,
+                        targetEntry,
+                        operationId,
+                        executeNativeOperationAsync,
+                        cancellationToken);
                     return;
                 }
 
@@ -129,9 +137,17 @@ internal sealed class MauiNavigationTransitionService
             case SlideNavigationTransition slide:
                 if (_options.Transitions.TryCreateHandler(_services, slide.GetType(), out var slideHandler))
                 {
-                    await ((IMauiNavigationTransitionHandler<SlideNavigationTransition>)slideHandler)
-                        .ApplyAsync(CreateContext(slide), cancellationToken)
-                        ;
+                    await InvokeCustomHandlerAsync(
+                        slideHandler,
+                        slide,
+                        operation,
+                        sourcePage,
+                        targetPage,
+                        sourceEntry,
+                        targetEntry,
+                        operationId,
+                        executeNativeOperationAsync,
+                        cancellationToken);
                     return;
                 }
 
@@ -140,9 +156,17 @@ internal sealed class MauiNavigationTransitionService
             case SharedElementNavigationTransition shared:
                 if (_options.Transitions.TryCreateHandler(_services, shared.GetType(), out var sharedHandler))
                 {
-                    await ((IMauiNavigationTransitionHandler<SharedElementNavigationTransition>)sharedHandler)
-                        .ApplyAsync(CreateContext(shared), cancellationToken)
-                        ;
+                    await InvokeCustomHandlerAsync(
+                        sharedHandler,
+                        shared,
+                        operation,
+                        sourcePage,
+                        targetPage,
+                        sourceEntry,
+                        targetEntry,
+                        operationId,
+                        executeNativeOperationAsync,
+                        cancellationToken);
                     return;
                 }
 
@@ -188,7 +212,8 @@ internal sealed class MauiNavigationTransitionService
         Func<bool, CancellationToken, ValueTask<Page?>> executeNativeOperationAsync,
         CancellationToken cancellationToken)
     {
-        var contextType = typeof(MauiNavigationTransitionContext<>).MakeGenericType(transition.GetType());
+        var handledTransitionType = ResolveHandledTransitionType(handler, transition.GetType());
+        var contextType = typeof(MauiNavigationTransitionContext<>).MakeGenericType(handledTransitionType);
         var constructor = contextType.GetConstructors(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
             .Single();
         var context = constructor.Invoke(new object?[]
@@ -205,6 +230,25 @@ internal sealed class MauiNavigationTransitionService
         var method = handler.GetType().GetMethod(nameof(IMauiNavigationTransitionHandler<NavigationTransition>.ApplyAsync))
             ?? throw new InvalidOperationException($"Transition handler '{handler.GetType().FullName}' does not expose ApplyAsync.");
         return (ValueTask)method.Invoke(handler, new[] { context, cancellationToken })!;
+    }
+
+    private static Type ResolveHandledTransitionType(object handler, Type transitionType)
+    {
+        var handlerType = handler.GetType();
+        for (var currentType = transitionType; currentType is not null && currentType != typeof(object); currentType = currentType.BaseType)
+        {
+            var handledInterface = handlerType.GetInterfaces().FirstOrDefault(candidate =>
+                candidate.IsGenericType &&
+                candidate.GetGenericTypeDefinition() == typeof(IMauiNavigationTransitionHandler<>) &&
+                candidate.GenericTypeArguments[0] == currentType);
+            if (handledInterface is not null)
+            {
+                return currentType;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"Transition handler '{handlerType.FullName}' does not handle transition type '{transitionType.FullName}'.");
     }
 
     private void Write(

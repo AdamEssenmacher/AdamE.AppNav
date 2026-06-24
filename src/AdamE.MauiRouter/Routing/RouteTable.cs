@@ -86,7 +86,7 @@ public sealed class RouteTable
         ArgumentNullException.ThrowIfNull(route);
 
         var routeType = route.GetType();
-        var definition = _definitions.FirstOrDefault(candidate => candidate.RouteType.IsAssignableFrom(routeType));
+        var definition = FindDefinition(routeType);
         if (definition is null)
         {
             throw new InvalidOperationException($"No route formatter is registered for {routeType.FullName}.");
@@ -116,6 +116,20 @@ public sealed class RouteTable
     {
         ArgumentNullException.ThrowIfNull(baseUri);
         return new Uri(baseUri, Format(route, metadata));
+    }
+
+    private RouteDefinition? FindDefinition(Type routeType)
+    {
+        for (var currentType = routeType; currentType is not null && currentType != typeof(object); currentType = currentType.BaseType)
+        {
+            var definition = _definitions.FirstOrDefault(candidate => candidate.RouteType == currentType);
+            if (definition is not null)
+            {
+                return definition;
+            }
+        }
+
+        return null;
     }
 
     private static (string Path, string Query) SplitUri(Uri uri)

@@ -48,8 +48,7 @@ public sealed class MauiRoutePageRegistry
     internal bool TryCreatePage(IServiceProvider services, RouteEntry entry, out Page page)
     {
         var routeType = entry.Route.GetType();
-        var factory = _pageFactories.FirstOrDefault(candidate => candidate.Key.IsAssignableFrom(routeType)).Value;
-        if (factory is null)
+        if (!TypeHierarchyRegistrationLookup.TryGetMostSpecific(_pageFactories, routeType, out var factory))
         {
             page = null!;
             return false;
