@@ -1258,7 +1258,7 @@ Reconcile
 
 ### `NavigationTransition`
 
-`NavigationTransition` is typed presentation metadata. It belongs on a `NavigationPlan` when the whole operation should use a default transition, or on a `RouteEntry` when a specific stack/modal entry should override that default.
+`NavigationTransition` is built-in presentation metadata. It belongs on a `NavigationPlan` when the whole operation should use a default transition, or on a `RouteEntry` when a specific stack/modal entry should override that default.
 
 ```csharp
 new RouteEntry(
@@ -1270,9 +1270,9 @@ new RouteEntry(
         Duration: TimeSpan.FromMilliseconds(260)));
 ```
 
-Built-in descriptors include `NoNavigationTransition`, `PlatformDefaultNavigationTransition`, `FadeNavigationTransition`, `SlideNavigationTransition`, and `SharedElementNavigationTransition`.
+Built-in descriptors include `NoNavigationTransition`, `PlatformDefaultNavigationTransition`, `FadeNavigationTransition`, `SlideNavigationTransition`, and `SharedElementNavigationTransition`. Custom transition subtypes are not supported.
 
-Transition precedence is deterministic: stack push uses the incoming entry transition, stack pop uses the outgoing entry transition, modal push/pop use the modal route entry transition, and each falls back to `NavigationPlan.Transition` and then the MAUI adapter default. Initial materialization, restore, and bulk structural reconciliation do not animate by default.
+Transition precedence is deterministic: stack push uses the incoming entry transition, stack pop uses the outgoing entry transition, modal push/pop use the modal route entry transition, and each falls back to `NavigationPlan.Transition`. Initial materialization, restore, and bulk structural reconciliation do not animate by default.
 
 ### `IRouterNavigator`
 
@@ -1986,15 +1986,9 @@ MauiRouterTransition.SetSharedElementId(thumbnail, "product-123-image");
 MauiRouterTransition.SetSharedElementId(heroImage, "product-123-image");
 ```
 
-The MAUI adapter executes stock platform animation through `PlatformDefaultNavigationTransition`, native-view fade/slide handlers, and shared-element animations for single stack or modal push/pop operations. iOS and Mac Catalyst use UIKit snapshots over the active native container. Android uses native view snapshots and an in-surface overlay inside the MAUI page/container view; it does not use cross-activity shared-element APIs because router navigation stays inside the MAUI app surface. If a source or destination element is missing, the adapter emits a fallback diagnostic and runs the transition fallback.
+The MAUI adapter executes stock platform animation through `PlatformDefaultNavigationTransition`, native-view fade/slide handlers, and shared-element animations for single stack or modal push/pop operations. iOS and Mac Catalyst use UIKit snapshots over the active native container. Android uses native view snapshots and an in-surface overlay inside the MAUI page/container view; it does not use cross-activity shared-element APIs because router navigation stays inside the MAUI app surface. If a source or destination element is missing, the adapter emits a fallback diagnostic and runs the built-in transition fallback.
 
 Initial materialization, restore, and bulk structural reconciliations remain non-animated unless exactly one stack/modal push or pop is being applied. Native user-driven back remains native-first: iOS swipe-back and Android native back behavior come from the real `NavigationPage`, and the presenter reconciles `Popped`/`PoppedToRoot` events after native stack changes. V1 does not drive Android predictive-back gesture progress or preview transitions.
-
-For custom transitions, register a handler in the MAUI options:
-
-```csharp
-options.Transitions.Map<MyTransition, MyTransitionHandler>();
-```
 
 ### Represent A Modal
 

@@ -2,17 +2,41 @@ using AdamE.MauiRouter.Internal;
 
 namespace AdamE.MauiRouter.Plans;
 
-public abstract record NavigationTransition;
+public abstract record NavigationTransition
+{
+    private protected NavigationTransition()
+    {
+    }
 
-public sealed record NoNavigationTransition : NavigationTransition;
+    protected NavigationTransition(NavigationTransition original)
+    {
+    }
 
-public sealed record PlatformDefaultNavigationTransition : NavigationTransition;
+    // This non-public abstract member closes the hierarchy to built-ins in this assembly.
+    private protected abstract bool BuiltInTransitionMarker { get; }
+}
 
-public sealed record FadeNavigationTransition(TimeSpan? Duration = null) : NavigationTransition;
+public sealed record NoNavigationTransition : NavigationTransition
+{
+    private protected override bool BuiltInTransitionMarker => true;
+}
+
+public sealed record PlatformDefaultNavigationTransition : NavigationTransition
+{
+    private protected override bool BuiltInTransitionMarker => true;
+}
+
+public sealed record FadeNavigationTransition(TimeSpan? Duration = null) : NavigationTransition
+{
+    private protected override bool BuiltInTransitionMarker => true;
+}
 
 public sealed record SlideNavigationTransition(
     NavigationSlideDirection Direction,
-    TimeSpan? Duration = null) : NavigationTransition;
+    TimeSpan? Duration = null) : NavigationTransition
+{
+    private protected override bool BuiltInTransitionMarker => true;
+}
 
 public sealed record SharedElementNavigationTransition : NavigationTransition
 {
@@ -47,6 +71,8 @@ public sealed record SharedElementNavigationTransition : NavigationTransition
         Fallback = this.Fallback;
         Duration = this.Duration;
     }
+
+    private protected override bool BuiltInTransitionMarker => true;
 }
 
 public sealed record SharedElementPair(string SourceId, string DestinationId)

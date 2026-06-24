@@ -4,8 +4,7 @@ using AdamE.MauiRouter.Plans;
 using AdamE.MauiRouter.Presentation;
 using AdamE.MauiRouter.Requests;
 using AdamE.MauiRouter.State;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Maui.Controls;
+using AdamE.MauiRouter.Testing;
 
 namespace AdamE.MauiRouter.Maui.Tests;
 
@@ -14,26 +13,25 @@ public sealed class MauiNavigationPresenterTransitionTests
     [Fact]
     public async Task StackPushUsesIncomingRouteEntryTransitionBeforePlanTransition()
     {
-        var handler = new RecordingTransitionHandler();
-        var presenter = CreatePresenter(handler);
+        var presenter = CreatePresenter(out var observer);
 
         await presenter.ApplyAsync(
             Plan(Stack(Entry("catalog"))),
             Context(new TestPageRoute("catalog")));
 
-        handler.Calls.Clear();
+        observer.Clear();
 
         await presenter.ApplyAsync(
             Plan(
                 Stack(
                     Entry("catalog"),
-                    Entry("product", new TestTransition("entry"))),
-                new TestTransition("plan")),
+                    Entry("product", new PlatformDefaultNavigationTransition())),
+                new NoNavigationTransition()),
             Context(new TestPageRoute("product")));
 
-        var call = Assert.Single(handler.Calls);
-        Assert.Equal("entry", call.Transition.Name);
-        Assert.Equal(MauiNavigationTransitionOperation.StackPush, call.Operation);
+        var started = observer.Single(NavigationDiagnosticEventKind.PresentationTransitionStarted);
+        Assert.Equal(typeof(PlatformDefaultNavigationTransition).FullName, started.Data[NavigationDiagnosticDataKeys.TransitionType]);
+        Assert.Equal(MauiNavigationTransitionOperation.StackPush.ToString(), started.Data[NavigationDiagnosticDataKeys.TransitionOperation]);
 
         presenter.Dispose();
     }
@@ -41,64 +39,86 @@ public sealed class MauiNavigationPresenterTransitionTests
     [Fact]
     public async Task StackPopUsesOutgoingRouteEntryTransitionBeforePlanTransition()
     {
-        var handler = new RecordingTransitionHandler();
-        var presenter = CreatePresenter(handler);
+        var presenter = CreatePresenter(out var observer);
 
         await presenter.ApplyAsync(
             Plan(Stack(Entry("catalog"))),
             Context(new TestPageRoute("catalog")));
 
         await presenter.ApplyAsync(
-            Plan(Stack(Entry("catalog"), Entry("product", new TestTransition("entry")))),
+            Plan(Stack(Entry("catalog"), Entry("product", new PlatformDefaultNavigationTransition()))),
             Context(new TestPageRoute("product")));
 
-        handler.Calls.Clear();
+        observer.Clear();
 
         await presenter.ApplyAsync(
             Plan(
                 Stack(Entry("catalog")),
-                new TestTransition("plan")),
+                new NoNavigationTransition()),
             Context(new TestPageRoute("catalog")));
 
-        var call = Assert.Single(handler.Calls);
-        Assert.Equal("entry", call.Transition.Name);
-        Assert.Equal(MauiNavigationTransitionOperation.StackPop, call.Operation);
+        var started = observer.Single(NavigationDiagnosticEventKind.PresentationTransitionStarted);
+        Assert.Equal(typeof(PlatformDefaultNavigationTransition).FullName, started.Data[NavigationDiagnosticDataKeys.TransitionType]);
+        Assert.Equal(MauiNavigationTransitionOperation.StackPop.ToString(), started.Data[NavigationDiagnosticDataKeys.TransitionOperation]);
 
         presenter.Dispose();
     }
 
     [Fact]
-    public async Task BulkStackReconciliationDoesNotUseCustomPlanTransition()
+    public async Task StackPushUsesPlanTransitionWhenEntryTransitionIsAbsent()
     {
-        var handler = new RecordingTransitionHandler();
-        var presenter = CreatePresenter(handler);
+        var presenter = CreatePresenter(out var observer);
 
         await presenter.ApplyAsync(
             Plan(Stack(Entry("catalog"))),
             Context(new TestPageRoute("catalog")));
 
-        handler.Calls.Clear();
+        observer.Clear();
 
         await presenter.ApplyAsync(
             Plan(
-                Stack(Entry("catalog"), Entry("product-1"), Entry("product-2")),
-                new TestTransition("plan")),
-            Context(new TestPageRoute("product-2")));
+                Stack(Entry("catalog"), Entry("product")),
+                new PlatformDefaultNavigationTransition()),
+            Context(new TestPageRoute("product")));
 
-        Assert.Empty(handler.Calls);
+        var started = observer.Single(NavigationDiagnosticEventKind.PresentationTransitionStarted);
+        Assert.Equal(typeof(PlatformDefaultNavigationTransition).FullName, started.Data[NavigationDiagnosticDataKeys.TransitionType]);
+        Assert.Equal(MauiNavigationTransitionOperation.StackPush.ToString(), started.Data[NavigationDiagnosticDataKeys.TransitionOperation]);
 
         presenter.Dispose();
     }
 
-    private static MauiNavigationPresenter CreatePresenter(RecordingTransitionHandler handler)
+    [Fact]
+    public async Task BulkStackReconciliationUsesNoNavigationTransitionInsteadOfPlanTransition()
     {
-        var options = new MauiRoutePresentationOptions();
-        options.Transitions.Map<TestTransition>(_ => handler);
+        var presenter = CreatePresenter(out var observer);
+
+        await presenter.ApplyAsync(
+            Plan(Stack(Entry("catalog"))),
+            Context(new TestPageRoute("catalog")));
+
+        observer.Clear();
+
+        await presenter.ApplyAsync(
+            Plan(
+                Stack(Entry("catalog"), Entry("product-1"), Entry("product-2")),
+                new PlatformDefaultNavigationTransition()),
+            Context(new TestPageRoute("product-2")));
+
+        var started = observer.EventsOfKind(NavigationDiagnosticEventKind.PresentationTransitionStarted);
+        Assert.NotEmpty(started);
+        Assert.All(started, diagnosticEvent =>
+            Assert.Equal(typeof(NoNavigationTransition).FullName, diagnosticEvent.Data[NavigationDiagnosticDataKeys.TransitionType]));
+
+        presenter.Dispose();
+    }
+
+    private static MauiNavigationPresenter CreatePresenter(out RecordingNavigationObserver observer)
+    {
+        observer = new RecordingNavigationObserver();
         var diagnostics = new NavigationDiagnostics();
-        var transitions = new MauiNavigationTransitionService(
-            new ServiceCollection().BuildServiceProvider(),
-            options,
-            diagnostics);
+        diagnostics.AddObserver(observer);
+        var transitions = new MauiNavigationTransitionService(diagnostics);
 
         return new MauiNavigationPresenter(
             new InstrumentedRoutePageFactory(),
@@ -131,23 +151,4 @@ public sealed class MauiNavigationPresenterTransitionTests
     {
         return new RouteEntry(id, new TestPageRoute(id), transition);
     }
-
-    private sealed record TestTransition(string Name) : NavigationTransition;
-
-    private sealed class RecordingTransitionHandler : IMauiNavigationTransitionHandler<TestTransition>
-    {
-        public List<TransitionCall> Calls { get; } = new();
-
-        public async ValueTask ApplyAsync(
-            MauiNavigationTransitionContext<TestTransition> context,
-            CancellationToken cancellationToken = default)
-        {
-            Calls.Add(new TransitionCall(context.Transition, context.Operation));
-            await context.ExecuteNativeOperationAsync(false, cancellationToken);
-        }
-    }
-
-    private sealed record TransitionCall(
-        TestTransition Transition,
-        MauiNavigationTransitionOperation Operation);
 }

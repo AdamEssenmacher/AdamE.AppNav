@@ -3,7 +3,7 @@ using Microsoft.Maui.Controls;
 
 namespace AdamE.MauiRouter.Maui;
 
-internal sealed class BuiltInFadeTransitionHandler : IMauiNavigationTransitionHandler<FadeNavigationTransition>
+internal sealed class BuiltInFadeTransitionHandler
 {
     public async ValueTask ApplyAsync(
         MauiNavigationTransitionContext<FadeNavigationTransition> context,
@@ -29,7 +29,7 @@ internal sealed class BuiltInFadeTransitionHandler : IMauiNavigationTransitionHa
     }
 }
 
-internal sealed class BuiltInSlideTransitionHandler : IMauiNavigationTransitionHandler<SlideNavigationTransition>
+internal sealed class BuiltInSlideTransitionHandler
 {
     public async ValueTask ApplyAsync(
         MauiNavigationTransitionContext<SlideNavigationTransition> context,
@@ -55,7 +55,7 @@ internal sealed class BuiltInSlideTransitionHandler : IMauiNavigationTransitionH
     }
 }
 
-internal sealed class BuiltInSharedElementTransitionHandler : IMauiNavigationTransitionHandler<SharedElementNavigationTransition>
+internal sealed class BuiltInSharedElementTransitionHandler
 {
     private readonly MauiNavigationTransitionService _transitions;
 
@@ -80,6 +80,29 @@ internal sealed class BuiltInSharedElementTransitionHandler : IMauiNavigationTra
         var targetElementsBeforeNavigation = context.Transition.Elements
             .Select(pair => MauiSharedElementLookup.Find(context.TargetPage, pair.DestinationId))
             .ToArray();
+
+        if (missingSource || missingSourceCapture)
+        {
+            _transitions.WriteFallback(
+                context.OperationId,
+                context.Transition,
+                context.Operation,
+                "Shared element transition fell back because one or more source or destination elements were not available.");
+
+            await _transitions.ApplyFallbackAsync(
+                context.Transition.Fallback,
+                context.Operation,
+                context.SourcePage,
+                context.TargetPage,
+                context.SourceEntry,
+                context.TargetEntry,
+                context.OperationId,
+                context.Transition.Duration,
+                context.ExecuteNativeOperationAsync,
+                cancellationToken);
+            return;
+        }
+
         var targetElementOpacities = HideTargetElements(targetElementsBeforeNavigation);
 
         try
@@ -99,7 +122,17 @@ internal sealed class BuiltInSharedElementTransitionHandler : IMauiNavigationTra
                     context.Operation,
                     "Shared element transition fell back because one or more source or destination elements were not available.");
 
-                await ApplyFallbackAsync(context, cancellationToken);
+                await _transitions.ApplyFallbackAsync(
+                    context.Transition.Fallback,
+                    context.Operation,
+                    context.SourcePage,
+                    context.TargetPage,
+                    context.SourceEntry,
+                    context.TargetEntry,
+                    context.OperationId,
+                    context.Transition.Duration,
+                    static (animated, cancellationToken) => ValueTask.FromResult<Page?>(null),
+                    cancellationToken);
                 return;
             }
 
@@ -141,18 +174,5 @@ internal sealed class BuiltInSharedElementTransitionHandler : IMauiNavigationTra
                 target.Opacity = opacities[i];
             }
         }
-    }
-
-    private static ValueTask ApplyFallbackAsync(
-        MauiNavigationTransitionContext<SharedElementNavigationTransition> context,
-        CancellationToken cancellationToken)
-    {
-        var fallback = context.Transition.Fallback ?? new FadeNavigationTransition(context.Transition.Duration);
-        return fallback switch
-        {
-            FadeNavigationTransition fade => MauiNativeTransitionAnimator.FadeInAsync(context.TargetPage, fade.Duration ?? TimeSpan.FromMilliseconds(220), cancellationToken),
-            SlideNavigationTransition slide => MauiNativeTransitionAnimator.SlideInAsync(context.TargetPage, slide.Direction, slide.Duration ?? TimeSpan.FromMilliseconds(260), cancellationToken),
-            _ => ValueTask.CompletedTask
-        };
     }
 }

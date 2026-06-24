@@ -8,17 +8,11 @@ namespace AdamE.MauiRouter.Maui;
 
 internal sealed class MauiNavigationTransitionService
 {
-    private readonly IServiceProvider _services;
-    private readonly MauiRoutePresentationOptions _options;
     private readonly NavigationDiagnostics _diagnostics;
 
     public MauiNavigationTransitionService(
-        IServiceProvider services,
-        MauiRoutePresentationOptions options,
         NavigationDiagnostics? diagnostics = null)
     {
-        _services = services ?? throw new ArgumentNullException(nameof(services));
-        _options = options ?? throw new ArgumentNullException(nameof(options));
         _diagnostics = diagnostics ?? NavigationDiagnostics.None;
     }
 
@@ -33,7 +27,7 @@ internal sealed class MauiNavigationTransitionService
         Func<bool, CancellationToken, ValueTask<Page?>> executeNativeOperationAsync,
         CancellationToken cancellationToken = default)
     {
-        transition ??= _options.Transitions.DefaultTransition ?? new NoNavigationTransition();
+        transition ??= new NoNavigationTransition();
         var timer = Stopwatch.StartNew();
         Write(
             NavigationDiagnosticEventKind.PresentationTransitionStarted,
@@ -75,9 +69,7 @@ internal sealed class MauiNavigationTransitionService
             throw;
         }
 
-        return operation is MauiNavigationTransitionOperation.StackPop or MauiNavigationTransitionOperation.ModalPop
-            ? sourcePage
-            : targetPage;
+        return CompletionPageFor(operation, sourcePage, targetPage);
     }
 
     internal void WriteFallback(
@@ -94,6 +86,31 @@ internal sealed class MauiNavigationTransitionService
             reason,
             data,
             NavigationDiagnosticSeverity.Warning);
+    }
+
+    internal ValueTask ApplyFallbackAsync(
+        NavigationTransition? fallbackTransition,
+        MauiNavigationTransitionOperation operation,
+        Page? sourcePage,
+        Page? targetPage,
+        RouteEntry? sourceEntry,
+        RouteEntry? targetEntry,
+        string operationId,
+        TimeSpan? defaultFadeDuration,
+        Func<bool, CancellationToken, ValueTask<Page?>> executeNativeOperationAsync,
+        CancellationToken cancellationToken)
+    {
+        var resolvedTransition = fallbackTransition ?? new FadeNavigationTransition(defaultFadeDuration);
+        return ApplyCoreAsync(
+            resolvedTransition,
+            operation,
+            sourcePage,
+            targetPage,
+            sourceEntry,
+            targetEntry,
+            operationId,
+            executeNativeOperationAsync,
+            cancellationToken);
     }
 
     private async ValueTask ApplyCoreAsync(
@@ -116,73 +133,17 @@ internal sealed class MauiNavigationTransitionService
                 await CreateContext(platformDefault).ExecuteNativeOperationAsync(true, cancellationToken);
                 return;
             case FadeNavigationTransition fade:
-                if (_options.Transitions.TryCreateHandler(_services, fade.GetType(), out var fadeHandler))
-                {
-                    await InvokeCustomHandlerAsync(
-                        fadeHandler,
-                        fade,
-                        operation,
-                        sourcePage,
-                        targetPage,
-                        sourceEntry,
-                        targetEntry,
-                        operationId,
-                        executeNativeOperationAsync,
-                        cancellationToken);
-                    return;
-                }
-
                 await new BuiltInFadeTransitionHandler().ApplyAsync(CreateContext(fade), cancellationToken);
                 return;
             case SlideNavigationTransition slide:
-                if (_options.Transitions.TryCreateHandler(_services, slide.GetType(), out var slideHandler))
-                {
-                    await InvokeCustomHandlerAsync(
-                        slideHandler,
-                        slide,
-                        operation,
-                        sourcePage,
-                        targetPage,
-                        sourceEntry,
-                        targetEntry,
-                        operationId,
-                        executeNativeOperationAsync,
-                        cancellationToken);
-                    return;
-                }
-
                 await new BuiltInSlideTransitionHandler().ApplyAsync(CreateContext(slide), cancellationToken);
                 return;
             case SharedElementNavigationTransition shared:
-                if (_options.Transitions.TryCreateHandler(_services, shared.GetType(), out var sharedHandler))
-                {
-                    await InvokeCustomHandlerAsync(
-                        sharedHandler,
-                        shared,
-                        operation,
-                        sourcePage,
-                        targetPage,
-                        sourceEntry,
-                        targetEntry,
-                        operationId,
-                        executeNativeOperationAsync,
-                        cancellationToken);
-                    return;
-                }
-
                 await new BuiltInSharedElementTransitionHandler(this).ApplyAsync(CreateContext(shared), cancellationToken);
                 return;
             default:
-                if (_options.Transitions.TryCreateHandler(_services, transition.GetType(), out var handler))
-                {
-                    await InvokeCustomHandlerAsync(handler, transition, operation, sourcePage, targetPage, sourceEntry, targetEntry, operationId, executeNativeOperationAsync, cancellationToken)
-                        ;
-                    return;
-                }
-
-                WriteFallback(operationId, transition, operation, $"No MAUI transition handler is registered for '{transition.GetType().FullName}'.");
-                await executeNativeOperationAsync(false, cancellationToken);
-                return;
+                throw new NotSupportedException(
+                    $"Navigation transition '{transition.GetType().FullName}' is not supported by the MAUI adapter.");
         }
 
         MauiNavigationTransitionContext<TTransition> CreateContext<TTransition>(TTransition typedTransition)
@@ -198,57 +159,6 @@ internal sealed class MauiNavigationTransitionService
                 operationId,
                 executeNativeOperationAsync);
         }
-    }
-
-    private static ValueTask InvokeCustomHandlerAsync(
-        object handler,
-        NavigationTransition transition,
-        MauiNavigationTransitionOperation operation,
-        Page? sourcePage,
-        Page? targetPage,
-        RouteEntry? sourceEntry,
-        RouteEntry? targetEntry,
-        string operationId,
-        Func<bool, CancellationToken, ValueTask<Page?>> executeNativeOperationAsync,
-        CancellationToken cancellationToken)
-    {
-        var handledTransitionType = ResolveHandledTransitionType(handler, transition.GetType());
-        var contextType = typeof(MauiNavigationTransitionContext<>).MakeGenericType(handledTransitionType);
-        var constructor = contextType.GetConstructors(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
-            .Single();
-        var context = constructor.Invoke(new object?[]
-        {
-            transition,
-            operation,
-            sourcePage,
-            targetPage,
-            sourceEntry,
-            targetEntry,
-            operationId,
-            executeNativeOperationAsync
-        });
-        var method = handler.GetType().GetMethod(nameof(IMauiNavigationTransitionHandler<NavigationTransition>.ApplyAsync))
-            ?? throw new InvalidOperationException($"Transition handler '{handler.GetType().FullName}' does not expose ApplyAsync.");
-        return (ValueTask)method.Invoke(handler, new[] { context, cancellationToken })!;
-    }
-
-    private static Type ResolveHandledTransitionType(object handler, Type transitionType)
-    {
-        var handlerType = handler.GetType();
-        for (var currentType = transitionType; currentType is not null && currentType != typeof(object); currentType = currentType.BaseType)
-        {
-            var handledInterface = handlerType.GetInterfaces().FirstOrDefault(candidate =>
-                candidate.IsGenericType &&
-                candidate.GetGenericTypeDefinition() == typeof(IMauiNavigationTransitionHandler<>) &&
-                candidate.GenericTypeArguments[0] == currentType);
-            if (handledInterface is not null)
-            {
-                return currentType;
-            }
-        }
-
-        throw new InvalidOperationException(
-            $"Transition handler '{handlerType.FullName}' does not handle transition type '{transitionType.FullName}'.");
     }
 
     private void Write(
@@ -286,5 +196,15 @@ internal sealed class MauiNavigationTransitionService
         }
 
         return data;
+    }
+
+    private static Page? CompletionPageFor(
+        MauiNavigationTransitionOperation operation,
+        Page? sourcePage,
+        Page? targetPage)
+    {
+        return operation is MauiNavigationTransitionOperation.StackPop or MauiNavigationTransitionOperation.ModalPop
+            ? sourcePage
+            : targetPage;
     }
 }

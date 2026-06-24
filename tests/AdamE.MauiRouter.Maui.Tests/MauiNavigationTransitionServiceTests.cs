@@ -3,7 +3,6 @@ using AdamE.MauiRouter.Maui;
 using AdamE.MauiRouter.Plans;
 using AdamE.MauiRouter.State;
 using AdamE.MauiRouter.Testing;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Maui.Controls;
 
 namespace AdamE.MauiRouter.Maui.Tests;
@@ -40,102 +39,58 @@ public sealed class MauiNavigationTransitionServiceTests
     }
 
     [Fact]
-    public async Task CustomTransitionHandlerReceivesTransitionContext()
+    public async Task NullTransitionResolvesToNoNavigationTransition()
     {
-        var handler = new RecordingTransitionHandler();
-        var options = new MauiRoutePresentationOptions();
-        options.Transitions.Map<TestNavigationTransition>(_ => handler);
-        var service = CreateService(out _, options);
+        var service = CreateService(out var observer);
+        var animatedValues = new List<bool>();
 
         await service.ApplyAsync(
-            new TestNavigationTransition("entry"),
+            transition: null,
             MauiNavigationTransitionOperation.ModalPush,
             new ContentPage(),
             new ContentPage(),
             Entry("source"),
             Entry("target"),
-            "transition-custom",
-            (animated, _) => ValueTask.FromResult<Page?>(new ContentPage()));
+            "transition-null",
+            (animated, _) =>
+            {
+                animatedValues.Add(animated);
+                return ValueTask.FromResult<Page?>(new ContentPage());
+            });
 
-        var call = Assert.Single(handler.Calls);
-        Assert.Equal("entry", call.Transition.Name);
-        Assert.Equal(MauiNavigationTransitionOperation.ModalPush, call.Operation);
-        Assert.Equal("source", call.SourceEntry?.Id);
-        Assert.Equal("target", call.TargetEntry?.Id);
+        Assert.Equal(new[] { false }, animatedValues);
+        var started = observer.Single(NavigationDiagnosticEventKind.PresentationTransitionStarted);
+        Assert.Equal(typeof(NoNavigationTransition).FullName, started.Data[NavigationDiagnosticDataKeys.TransitionType]);
+        Assert.Equal(MauiNavigationTransitionOperation.ModalPush.ToString(), started.Data[NavigationDiagnosticDataKeys.TransitionOperation]);
     }
 
     [Fact]
-    public async Task DerivedTransitionPrefersMostSpecificRegisteredHandler()
+    public async Task SharedElementMissingSourceWithPlatformDefaultFallbackUsesAnimatedNativeOperation()
     {
-        var baseHandler = new RecordingBaseTransitionHandler();
-        var derivedHandler = new RecordingDerivedTransitionHandler();
-        var options = new MauiRoutePresentationOptions();
-        options.Transitions.Map<BasePolymorphicTransition>(_ => baseHandler);
-        options.Transitions.Map<DerivedPolymorphicTransition>(_ => derivedHandler);
-        var service = CreateService(out _, options);
+        var service = CreateService(out var observer);
+        var animatedValues = new List<bool>();
 
         await service.ApplyAsync(
-            new DerivedPolymorphicTransition("derived"),
+            new SharedElementNavigationTransition(
+                new[] { SharedElementPair.SameId("missing-product-image") },
+                Fallback: new PlatformDefaultNavigationTransition()),
             MauiNavigationTransitionOperation.StackPush,
             new ContentPage(),
             new ContentPage(),
-            sourceEntry: null,
+            sourceEntry: Entry("source"),
             targetEntry: Entry("target"),
-            operationId: "transition-derived-most-specific",
-            executeNativeOperationAsync: (_, _) => ValueTask.FromResult<Page?>(new ContentPage()));
+            operationId: "transition-shared-platform-fallback",
+            executeNativeOperationAsync: (animated, _) =>
+            {
+                animatedValues.Add(animated);
+                return ValueTask.FromResult<Page?>(new ContentPage());
+            });
 
-        Assert.Empty(baseHandler.Calls);
-        Assert.Single(derivedHandler.Calls);
-    }
-
-    [Fact]
-    public async Task DerivedTransitionFallsBackToBaseRegisteredHandler()
-    {
-        var baseHandler = new RecordingBaseTransitionHandler();
-        var options = new MauiRoutePresentationOptions();
-        options.Transitions.Map<BasePolymorphicTransition>(_ => baseHandler);
-        var service = CreateService(out _, options);
-
-        await service.ApplyAsync(
-            new DerivedPolymorphicTransition("derived"),
-            MauiNavigationTransitionOperation.StackPush,
-            new ContentPage(),
-            new ContentPage(),
-            sourceEntry: null,
-            targetEntry: Entry("target"),
-            operationId: "transition-derived-fallback",
-            executeNativeOperationAsync: (_, _) => ValueTask.FromResult<Page?>(new ContentPage()));
-
-        var call = Assert.Single(baseHandler.Calls);
-        Assert.Equal("derived", call.Transition.Name);
-        Assert.Equal(MauiNavigationTransitionOperation.StackPush, call.Operation);
-        Assert.Equal("target", call.TargetEntry?.Id);
-    }
-
-    [Fact]
-    public async Task HandlerFailureEmitsTransitionFailureDiagnostic()
-    {
-        var handler = new RecordingTransitionHandler { ThrowOnApply = true };
-        var options = new MauiRoutePresentationOptions();
-        options.Transitions.Map<TestNavigationTransition>(_ => handler);
-        var service = CreateService(out var observer, options);
-
-        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
-            await service.ApplyAsync(
-                new TestNavigationTransition("broken"),
-                MauiNavigationTransitionOperation.StackPush,
-                new ContentPage(),
-                new ContentPage(),
-                sourceEntry: null,
-                targetEntry: Entry("target"),
-                operationId: "transition-failure",
-                executeNativeOperationAsync: (_, _) => ValueTask.FromResult<Page?>(new ContentPage())));
-
-        var failed = observer.Single(NavigationDiagnosticEventKind.PresentationTransitionFailed);
-        Assert.Equal(NavigationDiagnosticPhase.Presentation, failed.Phase);
-        Assert.Equal(NavigationDiagnosticSeverity.Error, failed.Severity);
-        Assert.Equal(typeof(InvalidOperationException).FullName, failed.Data[NavigationDiagnosticDataKeys.ExceptionType]);
-        Assert.Equal(typeof(TestNavigationTransition).FullName, failed.Data[NavigationDiagnosticDataKeys.TransitionType]);
+        Assert.Equal(new[] { true }, animatedValues);
+        var fallback = observer.Single(NavigationDiagnosticEventKind.PresentationTransitionFallback);
+        Assert.Equal(NavigationDiagnosticSeverity.Warning, fallback.Severity);
+        Assert.Equal(typeof(SharedElementNavigationTransition).FullName, fallback.Data[NavigationDiagnosticDataKeys.TransitionType]);
+        Assert.Equal("missing-product-image->missing-product-image", fallback.Data[NavigationDiagnosticDataKeys.TransitionElementIds]);
     }
 
     [Fact]
@@ -167,107 +122,17 @@ public sealed class MauiNavigationTransitionServiceTests
         Assert.Equal("missing-product-image->missing-product-image", fallback.Data[NavigationDiagnosticDataKeys.TransitionElementIds]);
     }
 
-    private static MauiNavigationTransitionService CreateService(
-        out RecordingNavigationObserver observer,
-        MauiRoutePresentationOptions? options = null)
+    private static MauiNavigationTransitionService CreateService(out RecordingNavigationObserver observer)
     {
         observer = new RecordingNavigationObserver();
         var diagnostics = new NavigationDiagnostics();
         diagnostics.AddObserver(observer);
 
-        return new MauiNavigationTransitionService(
-            new ServiceCollection().BuildServiceProvider(),
-            options ?? new MauiRoutePresentationOptions(),
-            diagnostics);
+        return new MauiNavigationTransitionService(diagnostics);
     }
 
     private static RouteEntry Entry(string id)
     {
         return new RouteEntry(id, new TestPageRoute(id));
     }
-
-    private sealed record TestNavigationTransition(string Name) : NavigationTransition;
-
-    private record BasePolymorphicTransition(string Name) : NavigationTransition;
-
-    private sealed record DerivedPolymorphicTransition(string Name) : BasePolymorphicTransition(Name);
-
-    private sealed class RecordingTransitionHandler : IMauiNavigationTransitionHandler<TestNavigationTransition>
-    {
-        public List<TransitionCall> Calls { get; } = new();
-
-        public bool ThrowOnApply { get; set; }
-
-        public async ValueTask ApplyAsync(
-            MauiNavigationTransitionContext<TestNavigationTransition> context,
-            CancellationToken cancellationToken = default)
-        {
-            Calls.Add(new TransitionCall(
-                context.Transition,
-                context.Operation,
-                context.SourceEntry,
-                context.TargetEntry));
-
-            if (ThrowOnApply)
-            {
-                throw new InvalidOperationException("Transition failed.");
-            }
-
-            await context.ExecuteNativeOperationAsync(false, cancellationToken);
-        }
-    }
-
-    private sealed record TransitionCall(
-        TestNavigationTransition Transition,
-        MauiNavigationTransitionOperation Operation,
-        RouteEntry? SourceEntry,
-        RouteEntry? TargetEntry);
-
-    private sealed class RecordingBaseTransitionHandler : IMauiNavigationTransitionHandler<BasePolymorphicTransition>
-    {
-        public List<BaseTransitionCall> Calls { get; } = new();
-
-        public async ValueTask ApplyAsync(
-            MauiNavigationTransitionContext<BasePolymorphicTransition> context,
-            CancellationToken cancellationToken = default)
-        {
-            Calls.Add(new BaseTransitionCall(
-                context.Transition,
-                context.Operation,
-                context.SourceEntry,
-                context.TargetEntry));
-
-            await context.ExecuteNativeOperationAsync(false, cancellationToken);
-        }
-    }
-
-    private sealed class RecordingDerivedTransitionHandler : IMauiNavigationTransitionHandler<DerivedPolymorphicTransition>
-    {
-        public List<DerivedTransitionCall> Calls { get; } = new();
-
-        public async ValueTask ApplyAsync(
-            MauiNavigationTransitionContext<DerivedPolymorphicTransition> context,
-            CancellationToken cancellationToken = default)
-        {
-            Calls.Add(new DerivedTransitionCall(
-                context.Transition,
-                context.Operation,
-                context.SourceEntry,
-                context.TargetEntry));
-
-            await context.ExecuteNativeOperationAsync(false, cancellationToken);
-        }
-    }
-
-    private sealed record BaseTransitionCall(
-        BasePolymorphicTransition Transition,
-        MauiNavigationTransitionOperation Operation,
-        RouteEntry? SourceEntry,
-        RouteEntry? TargetEntry);
-
-    private sealed record DerivedTransitionCall(
-        DerivedPolymorphicTransition Transition,
-        MauiNavigationTransitionOperation Operation,
-        RouteEntry? SourceEntry,
-        RouteEntry? TargetEntry);
 }

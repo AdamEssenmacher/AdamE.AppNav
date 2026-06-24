@@ -1,6 +1,7 @@
 using System.Reflection;
 using AdamE.MauiRouter.Maui;
 using AdamE.MauiRouter.Navigation;
+using AdamE.MauiRouter.Plans;
 
 namespace AdamE.MauiRouter.Tests;
 
@@ -203,6 +204,22 @@ public sealed class PublicApiContractTests
             methods.Count(static method =>
                 method.Name == nameof(IRouterNavigator.NavigateAsync) &&
                 method.GetParameters().FirstOrDefault()?.ParameterType == typeof(Uri)));
+    }
+
+    [Fact]
+    public void NavigationTransitionIsClosedToExternalDerivation()
+    {
+        var constructors = typeof(NavigationTransition).GetConstructors(
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        var marker = typeof(NavigationTransition).GetProperty(
+            "BuiltInTransitionMarker",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+
+        Assert.NotEmpty(constructors);
+        Assert.NotNull(marker);
+        Assert.DoesNotContain(constructors, static constructor =>
+            constructor.IsPublic);
+        Assert.True(marker!.GetMethod is { IsAbstract: true, IsFamilyAndAssembly: true });
     }
 
     private static void AssertPublicApi(Assembly assembly, IReadOnlyList<string> expected)
