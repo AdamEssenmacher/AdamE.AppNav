@@ -183,6 +183,41 @@ public sealed class ProductionHardeningTests
     }
 
     [Fact]
+    public async Task BackAsyncForSecondaryWindowUsesThatWindowRouteWithoutChangingActiveWindow()
+    {
+        var secondaryRoute = new TestRoutes.CatalogRoute("northwind");
+        var initialState = TestNavigationState.State(
+            "main",
+            TestNavigationState.Window(
+                "main",
+                TestNavigationState.Stack(
+                    "main-stack",
+                    TestNavigationState.Entry("home", new TestRoutes.StoreRoute("home")))),
+            TestNavigationState.Window(
+                "secondary",
+                TestNavigationState.Stack(
+                    "secondary-stack",
+                    TestNavigationState.Entry("catalog", secondaryRoute),
+                    TestNavigationState.Entry("product", new TestRoutes.ProductDetailRoute("northwind", 123)))));
+        var navigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            new RouteEchoPlanner(),
+            NullNavigationPresenter.Instance,
+            new RouterNavigatorOptions { InitialState = initialState });
+
+        var handled = await navigator.BackAsync("secondary");
+
+        Assert.True(handled.Handled);
+        Assert.Equal("main", navigator.CurrentState.ActiveWindowId);
+        Assert.Equal(secondaryRoute, handled.NavigationResult!.Route);
+        Assert.Equal(secondaryRoute, navigator.History.Current!.Route);
+        var secondaryWindow = navigator.CurrentState.FindWindow("secondary");
+        var secondaryStack = Assert.IsType<StackNode>(secondaryWindow!.Root);
+        Assert.Single(secondaryStack.Entries);
+        Assert.Equal(secondaryRoute, secondaryStack.Top!.Route);
+    }
+
+    [Fact]
     public void DiagnosticsObserversAreIsolated()
     {
         var diagnostics = new NavigationDiagnostics();

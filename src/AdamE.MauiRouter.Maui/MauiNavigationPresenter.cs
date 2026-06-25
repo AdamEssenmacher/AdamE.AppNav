@@ -254,7 +254,7 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         cancellationToken.ThrowIfCancellationRequested();
 
         var window = plan.TargetState.ActiveWindow;
-        if (window?.Root is null)
+        if (window is null || (window.Root is null && window.Modals.Count == 0))
         {
             _suppressReconciliation = true;
             _activeOperationId = context.OperationId;
@@ -279,13 +279,15 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
             var effectiveTransition = plan.Kind == NavigationPlanKind.Restore
                 ? new NoNavigationTransition()
                 : plan.Transition;
-            var nextRoot = await MaterializeNodeAsync(
-                window.Root,
-                CurrentPage,
-                effectiveTransition,
-                context.OperationId,
-                isNavigationTarget: window.Modals.Count == 0,
-                cancellationToken);
+            var nextRoot = window.Root is null
+                ? CreateOrReuseEmptyRootHost(CurrentPage)
+                : await MaterializeNodeAsync(
+                    window.Root,
+                    CurrentPage,
+                    effectiveTransition,
+                    context.OperationId,
+                    isNavigationTarget: window.Modals.Count == 0,
+                    cancellationToken);
 
             SetCurrentPage(nextRoot);
             await ApplyModalsAsync(nextRoot, window.Modals, effectiveTransition, context.OperationId, cancellationToken);
@@ -827,7 +829,9 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
             return false;
         }
 
-        return modal.Content is null || CanReuseNodePage(modal.Content, page);
+        return modal.Content is null
+            ? StringComparer.Ordinal.Equals(GetRouteEntryId(page), modal.RouteEntry.Id)
+            : CanReuseNodePage(modal.Content, page);
     }
 
     private static bool CanReuseNodePage(NavigationNode node, Page? existingPage)
@@ -955,6 +959,16 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
     {
         SetRouteEntryId(page, entry.Id);
         _pageFactory.UpdatePage(page, entry, context);
+    }
+
+    private Page CreateOrReuseEmptyRootHost(Page? existingPage)
+    {
+        return existingPage is not null &&
+               existingPage is not NavigationPage &&
+               existingPage is not TabbedPage &&
+               existingPage is not FlyoutPage
+            ? existingPage
+            : CreateEmptyPage();
     }
 
     private Page CreateEmptyPage()

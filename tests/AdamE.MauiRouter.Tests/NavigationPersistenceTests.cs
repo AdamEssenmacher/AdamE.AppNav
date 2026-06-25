@@ -552,6 +552,37 @@ public sealed class NavigationPersistenceTests
     }
 
     [Fact]
+    public async Task RestorePlanPolicyRewriteFinalizesPresentedRouteForPresenterContext()
+    {
+        var initialState = new NavigationState(new[]
+        {
+            new WindowNode(
+                "main",
+                new StackNode("home-stack", new[]
+                {
+                    new RouteEntry("home", new TestRoutes.StoreRoute("northwind"))
+                }))
+        }, "main");
+        var snapshot = new NavigationSnapshotSerializer(TestRoutes.CreateTable()).CreateSnapshot(initialState, NavigationHistory.Empty);
+        var rewrittenState = ModalCommerceState();
+        var expectedRoute = new TestRoutes.ProductDetailRoute("northwind", 123);
+        var presenter = new RecordingNavigationPresenter();
+        var policy = new RewritePlanPolicy(rewrittenState);
+        var navigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            TestNavigationPlanner.EchoStack(),
+            presenter,
+            new RouterNavigatorOptions { PlanPolicies = new[] { policy } });
+
+        var result = await navigator.RestoreAsync(snapshot);
+
+        Assert.True(result.Accepted);
+        Assert.Equal(new TestRoutes.StoreRoute("northwind"), policy.LastRoute);
+        Assert.Equal(rewrittenState, navigator.CurrentState);
+        Assert.Equal(expectedRoute, presenter.LastContext!.Route);
+    }
+
+    [Fact]
     public async Task ConfiguredStoreSavesAfterSuccessfulOperationsAndCanClear()
     {
         var store = new InMemoryNavigationStateStore();
@@ -900,6 +931,20 @@ public sealed class NavigationPersistenceTests
         {
             LastRoute = context.Route;
             return ValueTask.FromResult(plan);
+        }
+    }
+
+    private sealed class RewritePlanPolicy(NavigationState rewrittenState) : INavigationPlanPolicy
+    {
+        public AppRoute? LastRoute { get; private set; }
+
+        public ValueTask<NavigationPlan> ApplyAsync(
+            NavigationPlanPolicyContext context,
+            NavigationPlan plan,
+            CancellationToken cancellationToken = default)
+        {
+            LastRoute = context.Route;
+            return ValueTask.FromResult(plan with { TargetState = rewrittenState });
         }
     }
 

@@ -211,6 +211,36 @@ public sealed class MauiNavigationPresenterLifecycleTests
     }
 
     [Fact]
+    public async Task RootlessWindowWithModalUsesSyntheticHostAndPresentsModal()
+    {
+        var fixture = new PresenterFixture();
+        IMauiPresentationState presentationState = fixture.Presenter;
+        var state = new NavigationState(
+            new[]
+            {
+                new WindowNode(
+                    "main",
+                    null,
+                    new[]
+                    {
+                        new ModalNode("cart-modal", Entry("cart-modal"))
+                    })
+            },
+            "main");
+
+        await fixture.Presenter.ApplyAsync(
+            new NavigationPlan(state),
+            Context(new TestPageRoute("cart-modal")));
+
+        var rootPage = Assert.IsType<ContentPage>(fixture.Presenter.CurrentPage);
+        var modalPage = Assert.Single(rootPage.Navigation.ModalStack);
+        Assert.NotSame(rootPage, modalPage);
+        Assert.Same(modalPage, presentationState.GetTopPresentedPage());
+
+        fixture.Presenter.Dispose();
+    }
+
+    [Fact]
     public async Task ReplacingStackRootReleasesOldStackPages()
     {
         var fixture = new PresenterFixture();
@@ -379,6 +409,59 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.True(fixture.Factory.LastUpdateContextFor(retainedModalPage)?.IsNavigationTarget);
         Assert.Equal(MauiRoutePageReuseKind.ExplicitTarget, fixture.Factory.LastUpdateContextFor(retainedModalPage)?.ReuseKind);
         Assert.Equal("cart-updated", Assert.IsType<TestPageRoute>(fixture.Factory.LastUpdatedEntryFor(retainedModalPage)!.Route).Name);
+
+        fixture.Presenter.Dispose();
+    }
+
+    [Fact]
+    public async Task ReusedModalIdWithDifferentRouteEntryIdRebuildsRouteOnlyModalPage()
+    {
+        var fixture = new PresenterFixture();
+        var root = Stack("schools", Entry("schools"));
+        var initialState = new NavigationState(
+            new[]
+            {
+                new WindowNode(
+                    "main",
+                    root,
+                    new[]
+                    {
+                        new ModalNode(
+                            "cart-modal",
+                            new RouteEntry("cart-modal-v1", new TestPageRoute("cart")))
+                    })
+            },
+            "main");
+        var updatedState = new NavigationState(
+            new[]
+            {
+                new WindowNode(
+                    "main",
+                    root,
+                    new[]
+                    {
+                        new ModalNode(
+                            "cart-modal",
+                            new RouteEntry("cart-modal-v2", new TestPageRoute("cart-updated")))
+                    })
+            },
+            "main");
+
+        await fixture.Presenter.ApplyAsync(
+            new NavigationPlan(initialState),
+            Context(new TestPageRoute("cart"), NavigationState.Empty));
+
+        var initialNavigationPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        var initialModalPage = Assert.Single(initialNavigationPage.Navigation.ModalStack);
+
+        await fixture.Presenter.ApplyAsync(
+            new NavigationPlan(updatedState),
+            Context(new TestPageRoute("cart-updated"), initialState));
+
+        var updatedNavigationPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        var updatedModalPage = Assert.Single(updatedNavigationPage.Navigation.ModalStack);
+        Assert.NotSame(initialModalPage, updatedModalPage);
+        Assert.Equal(1, fixture.Factory.ReleaseCountFor(initialModalPage));
 
         fixture.Presenter.Dispose();
     }

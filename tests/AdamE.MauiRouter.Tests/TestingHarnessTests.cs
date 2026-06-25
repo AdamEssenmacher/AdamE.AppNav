@@ -95,6 +95,38 @@ public sealed class TestingHarnessTests
     }
 
     [Fact]
+    public async Task NavigationPlanPoliciesFinalizePresentedRouteForPresenterResultAndHistory()
+    {
+        var requestedRoute = new TestRoutes.StoreRoute("requested");
+        var rewrittenRoute = new TestRoutes.CatalogRoute("northwind");
+        var rewrittenState = TestNavigationState.State(
+            "main",
+            TestNavigationState.Window(
+                "main",
+                TestNavigationState.Stack(
+                    "stack",
+                    TestNavigationState.Entry("rewritten", rewrittenRoute))));
+        var presenter = new RecordingNavigationPresenter();
+        var policy = new RewritePlanPolicy(rewrittenState);
+        var navigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            TestNavigationPlanner.EchoStack(),
+            presenter,
+            new RouterNavigatorOptions
+            {
+                PlanPolicies = [policy]
+            });
+
+        var result = await navigator.NavigateAsync(requestedRoute, NavigationRequestSource.Test);
+
+        Assert.Equal(requestedRoute, policy.LastRoute);
+        Assert.Equal(rewrittenState, presenter.LastPlan?.TargetState);
+        Assert.Equal(rewrittenRoute, presenter.LastContext!.Route);
+        Assert.Equal(rewrittenRoute, result.Route);
+        Assert.Equal(rewrittenRoute, navigator.History.Current!.Route);
+    }
+
+    [Fact]
     public async Task ReconciliationAppliesPlanPoliciesBeforeCommittingState()
     {
         var requestedState = TestNavigationState.State(
@@ -112,27 +144,33 @@ public sealed class TestingHarnessTests
                     "stack",
                     TestNavigationState.Entry("rewritten", new TestRoutes.CatalogRoute("northwind")))));
         var presenter = new RecordingNavigationPresenter();
+        var policy = new RewritePlanPolicy(rewrittenState);
         var navigator = new RouterNavigator(
             TestRoutes.CreateTable(),
             TestNavigationPlanner.EchoStack(),
             presenter,
             new RouterNavigatorOptions
             {
-                PlanPolicies = [new RewriteReconciliationPlanPolicy(rewrittenState)]
+                PlanPolicies = [policy]
             });
+        var requestedRoute = new TestRoutes.StoreRoute("requested");
 
         var result = await navigator.ReconcileAsync(new NavigationReconciliation(
             requestedState,
             NavigationReconciliationSource.NativeBackGesture,
-            new TestRoutes.StoreRoute("requested"),
+            requestedRoute,
             "test reconciliation"));
 
         Assert.Equal(1, presenter.ApplyCount);
+        Assert.Equal(requestedRoute, policy.LastRoute);
         Assert.Equal(NavigationPlanKind.Reconcile, presenter.LastPlan?.Kind);
         Assert.Equal(rewrittenState, presenter.LastPlan?.TargetState);
+        Assert.Equal(new TestRoutes.CatalogRoute("northwind"), presenter.LastContext!.Route);
+        Assert.Equal(new TestRoutes.CatalogRoute("northwind"), result.Route);
         Assert.Equal(rewrittenState, result.State);
         Assert.False(result.Presented);
         Assert.Equal(rewrittenState, navigator.CurrentState);
+        Assert.Equal(new TestRoutes.CatalogRoute("northwind"), navigator.History.Current!.Route);
         Assert.Equal(rewrittenState, navigator.History.Current!.State);
     }
 
@@ -229,13 +267,16 @@ public sealed class TestingHarnessTests
         Assert.Empty(observer.Events);
     }
 
-    private sealed class RewriteReconciliationPlanPolicy(NavigationState rewrittenState) : INavigationPlanPolicy
+    private sealed class RewritePlanPolicy(NavigationState rewrittenState) : INavigationPlanPolicy
     {
+        public AppRoute? LastRoute { get; private set; }
+
         public ValueTask<NavigationPlan> ApplyAsync(
             NavigationPlanPolicyContext context,
             NavigationPlan plan,
             CancellationToken cancellationToken = default)
         {
+            LastRoute = context.Route;
             return ValueTask.FromResult(plan with { TargetState = rewrittenState });
         }
     }

@@ -366,6 +366,8 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                 }
             }
 
+            var finalRoute = ResolvePresentedRoute(plan.TargetState, effectiveRequest.WindowId, route);
+            var finalizedRequest = effectiveRequest with { Route = finalRoute };
             var presentationTimer = Stopwatch.StartNew();
             _diagnostics.Write(
                 NavigationDiagnosticEventKind.PresentationStarted,
@@ -376,7 +378,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
             {
                 await _presenter.ApplyAsync(
                     plan,
-                    new NavigationPresentationContext(effectiveRequest, route, CurrentState, operationId),
+                    new NavigationPresentationContext(finalizedRequest, finalRoute, CurrentState, operationId),
                     cancellationToken).ConfigureAwait(false);
                 _diagnostics.Write(
                         NavigationDiagnosticEventKind.PresentationCompleted,
@@ -397,11 +399,13 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
             }
 
             CurrentState = plan.TargetState;
-            History = History.Push(CreateHistoryEntry(operationId, effectiveRequest, route, CurrentState, plan.Reason), _maxHistoryEntries);
+            History = History.Push(
+                CreateHistoryEntry(operationId, finalizedRequest, finalRoute, CurrentState, plan.Reason),
+                _maxHistoryEntries);
             await SaveSnapshotIfConfiguredAsync(operationId, cancellationToken).ConfigureAwait(false);
             activity?.SetStatus(ActivityStatusCode.Ok);
 
-            return new NavigationResult(route, plan, CurrentState, Presented: true);
+            return new NavigationResult(finalRoute, plan, CurrentState, Presented: true);
         }
         catch (Exception ex)
         {
@@ -603,7 +607,8 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                 return BackNavigationResult.Unhandled;
             }
 
-            var route = PresentedRouteResolver.FindPresentedRoute(plan.TargetState.ActiveWindow) ?? new BackRoute();
+            var resolvedWindowId = string.IsNullOrWhiteSpace(windowId) ? CurrentState.ActiveWindowId : windowId;
+            var route = ResolvePresentedRoute(plan.TargetState, resolvedWindowId, new BackRoute());
             var request = RouterNavigationRequest.FromRoute(route, NavigationRequestSource.InAppCommand, windowId);
 
             _diagnostics.Write(
@@ -710,6 +715,8 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                 }
             }
 
+            var finalRoute = ResolvePresentedRoute(plan.TargetState, request.WindowId, route);
+            var finalizedRequest = request with { Route = finalRoute };
             var presentationTimer = Stopwatch.StartNew();
             _diagnostics.Write(
                 NavigationDiagnosticEventKind.PresentationStarted,
@@ -720,7 +727,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
             {
                 await _presenter.ApplyAsync(
                     plan,
-                    new NavigationPresentationContext(request, route, CurrentState, operationId),
+                    new NavigationPresentationContext(finalizedRequest, finalRoute, CurrentState, operationId),
                     cancellationToken).ConfigureAwait(false);
                 _diagnostics.Write(
                     NavigationDiagnosticEventKind.PresentationCompleted,
@@ -741,7 +748,9 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
             }
 
             CurrentState = plan.TargetState;
-            History = History.Push(CreateHistoryEntry(operationId, request, route, CurrentState, plan.Reason), _maxHistoryEntries);
+            History = History.Push(
+                CreateHistoryEntry(operationId, finalizedRequest, finalRoute, CurrentState, plan.Reason),
+                _maxHistoryEntries);
             await SaveSnapshotIfConfiguredAsync(operationId, cancellationToken).ConfigureAwait(false);
 
             _diagnostics.Write(
@@ -750,7 +759,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                 reconciliation.Source.ToString(),
                 Duration(timer, (NavigationDiagnosticDataKeys.ReconciliationSource, reconciliation.Source.ToString())));
             activity?.SetStatus(ActivityStatusCode.Ok);
-            return new NavigationResult(route, plan, CurrentState, Presented: false);
+            return new NavigationResult(finalRoute, plan, CurrentState, Presented: false);
         }
         catch (Exception ex)
         {
@@ -866,7 +875,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                 }
             }
 
-            var route = PresentedRouteResolver.FindPresentedRoute(restored.State.ActiveWindow) ?? new RestoredRoute();
+            var route = ResolvePresentedRoute(restored.State, restored.State.ActiveWindowId, new RestoredRoute());
             var request = RouterNavigationRequest.FromRoute(route, NavigationRequestSource.Restore, restored.State.ActiveWindowId);
             var plan = new NavigationPlan(
                 restored.State,
@@ -909,6 +918,8 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                 }
             }
 
+            var finalRoute = ResolvePresentedRoute(plan.TargetState, request.WindowId, route);
+            var finalizedRequest = request with { Route = finalRoute };
             var presentationTimer = Stopwatch.StartNew();
             _diagnostics.Write(
                 NavigationDiagnosticEventKind.PresentationStarted,
@@ -919,7 +930,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
             {
                 await _presenter.ApplyAsync(
                     plan,
-                    new NavigationPresentationContext(request, route, CurrentState, operationId),
+                    new NavigationPresentationContext(finalizedRequest, finalRoute, CurrentState, operationId),
                     cancellationToken).ConfigureAwait(false);
                 _diagnostics.Write(
                     NavigationDiagnosticEventKind.PresentationCompleted,
@@ -1445,6 +1456,18 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         {
             data[key] = value;
         }
+    }
+
+    private static AppRoute ResolvePresentedRoute(
+        NavigationState state,
+        string? preferredWindowId,
+        AppRoute fallbackRoute)
+    {
+        var window = string.IsNullOrWhiteSpace(preferredWindowId)
+            ? state.ActiveWindow
+            : state.FindWindow(preferredWindowId) ?? state.ActiveWindow;
+
+        return PresentedRouteResolver.FindPresentedRoute(window) ?? fallbackRoute;
     }
 
     private void ThrowIfDisposed()
