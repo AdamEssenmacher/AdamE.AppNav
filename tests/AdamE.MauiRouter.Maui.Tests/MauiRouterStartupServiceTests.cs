@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text.Json;
 using AdamE.MauiRouter.Diagnostics;
 using AdamE.MauiRouter.History;
 using AdamE.MauiRouter.Maui.AppLinks;
@@ -49,6 +50,103 @@ public sealed class MauiRouterStartupServiceTests
         Assert.Single(navigator.NavigateCalls);
         Assert.Equal("fallback", Assert.IsType<TestRoute>(navigator.NavigateCalls[0].Route).Id);
         Assert.Equal(1, windowAttachment.AttachCalls);
+    }
+
+    [Fact]
+    public async Task StartAsync_InvalidDeferredRequestStore_ClearsStoreAndRunsFallback()
+    {
+        var diagnostics = new NavigationDiagnostics();
+        var events = new List<NavigationDiagnosticEvent>();
+        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+        var navigator = new RecordingRouterNavigator();
+        var deferredStore = new RecordingDeferredRequestStore
+        {
+            HasDeferredRequestsException = new JsonException("Deferred request JSON was corrupt.")
+        };
+        var services = new ServiceCollection()
+            .AddSingleton<IRouterNavigator>(navigator)
+            .AddSingleton(diagnostics)
+            .AddSingleton<IDeferredNavigationRequestStore>(deferredStore)
+            .BuildServiceProvider();
+        var dispatcher = new MauiExternalNavigationDispatcher(
+            services,
+            diagnostics);
+        var windowAttachment = new RecordingWindowAttachment();
+        var startup = new MauiRouterStartupService(
+            navigator,
+            windowAttachment,
+            dispatcher,
+            new MauiRouterStartupOptions
+            {
+                AppLinkGracePeriod = TimeSpan.Zero,
+                RestoreFromStore = false,
+                FallbackRequestFactory = static (_, _) => ValueTask.FromResult<RouterNavigationRequest?>(
+                    RouterNavigationRequest.FromRoute(
+                        new TestRoute("fallback"),
+                        NavigationRequestSource.InAppCommand))
+            },
+            services,
+            diagnostics);
+
+        var result = await StartOnMainThreadAsync(startup, new Window(new ContentPage()));
+
+        Assert.Equal(MauiRouterStartupOutcome.FallbackNavigated, result.Outcome);
+        Assert.Null(result.Exception);
+        Assert.Equal(1, deferredStore.HasDeferredRequestsCalls);
+        Assert.Equal(1, deferredStore.ClearCalls);
+        Assert.Single(navigator.NavigateCalls);
+        Assert.DoesNotContain(events, diagnosticEvent =>
+            diagnosticEvent.Kind == NavigationDiagnosticEventKind.StartupDeferredRequestPending);
+        Assert.Contains(events, diagnosticEvent =>
+            diagnosticEvent.Data.TryGetValue(NavigationDiagnosticDataKeys.RestoreReason, out var restoreReason) &&
+            Equals(restoreReason, "deferred-request-store-invalid") &&
+            diagnosticEvent.Data.TryGetValue(NavigationDiagnosticDataKeys.ExceptionType, out var exceptionType) &&
+            Equals(exceptionType, typeof(JsonException).FullName));
+    }
+
+    [Fact]
+    public async Task StartAsync_InvalidDeferredRequestStoreClearFailure_ReturnsFailed()
+    {
+        var navigator = new RecordingRouterNavigator();
+        var clearException = new IOException("Clear failed.");
+        var deferredStore = new RecordingDeferredRequestStore
+        {
+            HasDeferredRequestsException = new JsonException("Deferred request JSON was corrupt."),
+            ClearException = clearException
+        };
+        var services = new ServiceCollection()
+            .AddSingleton<IRouterNavigator>(navigator)
+            .AddSingleton(new NavigationDiagnostics())
+            .AddSingleton<IDeferredNavigationRequestStore>(deferredStore)
+            .BuildServiceProvider();
+        var dispatcher = new MauiExternalNavigationDispatcher(
+            services,
+            services.GetRequiredService<NavigationDiagnostics>());
+        var windowAttachment = new RecordingWindowAttachment();
+        var startup = new MauiRouterStartupService(
+            navigator,
+            windowAttachment,
+            dispatcher,
+            new MauiRouterStartupOptions
+            {
+                AppLinkGracePeriod = TimeSpan.Zero,
+                RestoreFromStore = false,
+                FallbackRequestFactory = static (_, _) => ValueTask.FromResult<RouterNavigationRequest?>(
+                    RouterNavigationRequest.FromRoute(
+                        new TestRoute("fallback"),
+                        NavigationRequestSource.InAppCommand))
+            },
+            services,
+            services.GetRequiredService<NavigationDiagnostics>());
+
+        var result = await StartOnMainThreadAsync(startup, new Window(new ContentPage()));
+
+        var exception = Assert.IsType<InvalidOperationException>(result.Exception);
+        Assert.Equal(MauiRouterStartupOutcome.Failed, result.Outcome);
+        Assert.Same(clearException, exception.InnerException);
+        Assert.Equal(1, deferredStore.HasDeferredRequestsCalls);
+        Assert.Equal(1, deferredStore.ClearCalls);
+        Assert.Empty(navigator.NavigateCalls);
     }
 
     [Fact]
@@ -125,6 +223,56 @@ public sealed class MauiRouterStartupServiceTests
             Assert.NotNull(window);
             Assert.Equal("main", windowId);
             AttachCalls++;
+        }
+    }
+
+    private sealed class RecordingDeferredRequestStore : IDeferredNavigationRequestStore
+    {
+        public Exception? HasDeferredRequestsException { get; init; }
+
+        public Exception? ClearException { get; init; }
+
+        public int HasDeferredRequestsCalls { get; private set; }
+
+        public int ClearCalls { get; private set; }
+
+        public ValueTask<bool> HasDeferredRequestsAsync(CancellationToken cancellationToken = default)
+        {
+            HasDeferredRequestsCalls++;
+            if (HasDeferredRequestsException is not null)
+            {
+                throw HasDeferredRequestsException;
+            }
+
+            return ValueTask.FromResult(false);
+        }
+
+        public ValueTask EnqueueAsync(
+            RouterNavigationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
+        public ValueTask<RouterNavigationRequest?> TryDequeueAsync(CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
+        public ValueTask<IReadOnlyList<RouterNavigationRequest>> DrainAsync(CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
+        public ValueTask ClearAsync(CancellationToken cancellationToken = default)
+        {
+            ClearCalls++;
+            if (ClearException is not null)
+            {
+                throw ClearException;
+            }
+
+            return ValueTask.CompletedTask;
         }
     }
 

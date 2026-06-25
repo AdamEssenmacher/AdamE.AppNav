@@ -1,3 +1,4 @@
+using System.Text.Json;
 using AdamE.MauiRouter.Maui.Requests;
 using AdamE.MauiRouter.Persistence;
 using AdamE.MauiRouter.Requests;
@@ -73,6 +74,37 @@ public sealed class MauiFileDeferredNavigationRequestStoreTests
             Assert.Equal("draft-1", restored.Metadata[draftId.Name]);
             Assert.False(restored.Metadata.ContainsKey(replyId.Name));
             Assert.Equal("abc-123", restored.Metadata["request-id"]);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+#if IOS
+    [Fact(Skip = IosSkipReason)]
+#else
+    [Fact]
+#endif
+    public async Task HasDeferredRequestsAsync_MalformedJson_ThrowsJsonException()
+    {
+        var routes = RouteTable.Create(builder => builder.MapRoute<TestRoute>("/stores/{id}"));
+        var directory = CreateStoreDirectory();
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "deferred-requests.json");
+
+        try
+        {
+            await File.WriteAllTextAsync(path, "{not-json");
+            var store = new MauiFileDeferredNavigationRequestStore(
+                routes,
+                new MauiFileDeferredNavigationRequestStoreOptions
+                {
+                    Path = path,
+                    BaseUri = BaseUri
+                });
+
+            await Assert.ThrowsAsync<JsonException>(() => store.HasDeferredRequestsAsync().AsTask());
         }
         finally
         {

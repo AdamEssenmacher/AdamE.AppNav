@@ -1,3 +1,4 @@
+using System.Text.Json;
 using AdamE.MauiRouter.Diagnostics;
 using AdamE.MauiRouter.Maui.AppLinks;
 using AdamE.MauiRouter.Navigation;
@@ -154,9 +155,11 @@ internal sealed class MauiRouterStartupService : IMauiRouterStartupService
             var hasDeferredRequests = false;
             if (_services.GetService(typeof(IDeferredNavigationRequestStore)) is IDeferredNavigationRequestStore deferredRequestStore)
             {
-                hasDeferredRequests = await deferredRequestStore
-                    .HasDeferredRequestsAsync(cancellationToken)
-                    .ConfigureAwait(false);
+                hasDeferredRequests = await HasDeferredRequestsOrRecoverAsync(
+                    deferredRequestStore,
+                    operationId,
+                    windowId,
+                    cancellationToken).ConfigureAwait(false);
 
                 if (hasDeferredRequests)
                 {
@@ -269,6 +272,49 @@ internal sealed class MauiRouterStartupService : IMauiRouterStartupService
                 FallbackNavigationResult: null,
                 ex);
         }
+    }
+
+    private async Task<bool> HasDeferredRequestsOrRecoverAsync(
+        IDeferredNavigationRequestStore store,
+        string operationId,
+        string windowId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await store.HasDeferredRequestsAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (IsRecoverableDeferredRequestStoreException(ex))
+        {
+            try
+            {
+                await store.ClearAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception clearException) when (clearException is not OperationCanceledException)
+            {
+                throw new InvalidOperationException(
+                    "Deferred navigation request store could not be cleared after invalid persisted data was detected.",
+                    clearException);
+            }
+
+            _diagnostics.Write(
+                NavigationDiagnosticEventKind.StartupStarted,
+                operationId,
+                "Invalid deferred navigation request store was cleared; startup will continue.",
+                StartupData(
+                    windowId,
+                    (NavigationDiagnosticDataKeys.RestoreReason, "deferred-request-store-invalid"),
+                    (NavigationDiagnosticDataKeys.StartupDeferredRequestPending, false),
+                    (NavigationDiagnosticDataKeys.ExceptionType, ex.GetType().FullName),
+                    (NavigationDiagnosticDataKeys.ExceptionMessage, ex.Message)));
+
+            return false;
+        }
+    }
+
+    private static bool IsRecoverableDeferredRequestStoreException(Exception exception)
+    {
+        return exception is JsonException or InvalidOperationException or NotSupportedException or FormatException;
     }
 
     private MauiRouterStartupResult Complete(
