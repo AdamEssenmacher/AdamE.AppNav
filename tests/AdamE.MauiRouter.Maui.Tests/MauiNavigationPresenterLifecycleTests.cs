@@ -105,16 +105,25 @@ public sealed class MauiNavigationPresenterLifecycleTests
     {
         var fixture = new PresenterFixture();
         var window = new Window();
+        var initialHandlerCounts = WindowLifecycleEventNames.ToDictionary(
+            eventName => eventName,
+            eventName => EventHandlerCount(window, eventName),
+            StringComparer.Ordinal);
 
         fixture.Presenter.AttachWindow(window);
         fixture.Presenter.AttachWindow(window);
+
+        foreach (var eventName in WindowLifecycleEventNames)
+        {
+            Assert.Equal(initialHandlerCounts[eventName] + 1, EventHandlerCount(window, eventName));
+        }
+
         fixture.Presenter.DetachWindow(window);
 
-        Assert.Equal(0, EventHandlerCount(window, "Activated"));
-        Assert.Equal(0, EventHandlerCount(window, "Deactivated"));
-        Assert.Equal(0, EventHandlerCount(window, "Stopped"));
-        Assert.Equal(0, EventHandlerCount(window, "Resumed"));
-        Assert.Equal(0, EventHandlerCount(window, "Destroying"));
+        foreach (var eventName in WindowLifecycleEventNames)
+        {
+            Assert.Equal(initialHandlerCounts[eventName], EventHandlerCount(window, eventName));
+        }
 
         fixture.Presenter.Dispose();
     }
@@ -1001,6 +1010,15 @@ public sealed class MauiNavigationPresenterLifecycleTests
     {
         return new NavigationPlan(new NavigationState(new[] { window }, window.Id));
     }
+
+    private static readonly string[] WindowLifecycleEventNames =
+    [
+        "Activated",
+        "Deactivated",
+        "Stopped",
+        "Resumed",
+        "Destroying"
+    ];
 
     private static int EventHandlerCount(Window window, string eventName)
     {
