@@ -1,3 +1,4 @@
+using System.Reflection;
 using AdamE.MauiRouter.Diagnostics;
 using AdamE.MauiRouter.Maui;
 using AdamE.MauiRouter.Maui.DependencyInjection;
@@ -97,6 +98,25 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.Null(presentationState.RootPage);
         Assert.Null(presentationState.AttachedWindow);
         Assert.Null(presentationState.AttachedWindowId);
+    }
+
+    [Fact]
+    public void AttachWindowSameWindowDoesNotDuplicateLifecycleHandlers()
+    {
+        var fixture = new PresenterFixture();
+        var window = new Window();
+
+        fixture.Presenter.AttachWindow(window);
+        fixture.Presenter.AttachWindow(window);
+        fixture.Presenter.DetachWindow(window);
+
+        Assert.Equal(0, EventHandlerCount(window, "Activated"));
+        Assert.Equal(0, EventHandlerCount(window, "Deactivated"));
+        Assert.Equal(0, EventHandlerCount(window, "Stopped"));
+        Assert.Equal(0, EventHandlerCount(window, "Resumed"));
+        Assert.Equal(0, EventHandlerCount(window, "Destroying"));
+
+        fixture.Presenter.Dispose();
     }
 
     [Fact]
@@ -980,6 +1000,24 @@ public sealed class MauiNavigationPresenterLifecycleTests
     private static NavigationPlan Plan(WindowNode window)
     {
         return new NavigationPlan(new NavigationState(new[] { window }, window.Id));
+    }
+
+    private static int EventHandlerCount(Window window, string eventName)
+    {
+        for (var type = window.GetType(); type is not null; type = type.BaseType)
+        {
+            var field = type.GetField(eventName, BindingFlags.Instance | BindingFlags.NonPublic);
+            if (field is null)
+            {
+                continue;
+            }
+
+            return field.GetValue(window) is MulticastDelegate handlers
+                ? handlers.GetInvocationList().Length
+                : 0;
+        }
+
+        throw new InvalidOperationException($"Window event backing field '{eventName}' was not found.");
     }
 
     private static StackNode Stack(string id, params RouteEntry[] entries)

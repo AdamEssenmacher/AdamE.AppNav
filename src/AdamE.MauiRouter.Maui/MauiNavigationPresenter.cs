@@ -153,7 +153,7 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(window);
 
-        if (_attachedWindow is not null && !ReferenceEquals(_attachedWindow, window))
+        if (_attachedWindow is not null)
         {
             UnsubscribeWindowLifecycle(_attachedWindow);
         }
