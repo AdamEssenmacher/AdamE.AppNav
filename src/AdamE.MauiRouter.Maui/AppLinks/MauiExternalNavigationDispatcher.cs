@@ -230,10 +230,12 @@ internal sealed class MauiExternalNavigationDispatcher : IMauiExternalNavigation
                 RequestData(request));
 
             var shouldStop = false;
+            var dispatchSucceeded = false;
             try
             {
                 var navigator = _services.GetRequiredService<IRouterNavigator>();
                 await navigator.NavigateAsync(request).ConfigureAwait(false);
+                dispatchSucceeded = true;
             }
             catch (Exception ex)
             {
@@ -247,13 +249,21 @@ internal sealed class MauiExternalNavigationDispatcher : IMauiExternalNavigation
             {
                 lock (_gate)
                 {
-                    if (_pending.Count > 0)
+                    if (dispatchSucceeded)
                     {
-                        _pending.Dequeue();
-                    }
+                        if (_pending.Count > 0)
+                        {
+                            _pending.Dequeue();
+                        }
 
-                    _deduped.Remove(request);
-                    if (!_ready || !_foregrounded || _pending.Count == 0)
+                        _deduped.Remove(request);
+                        if (!_ready || !_foregrounded || _pending.Count == 0)
+                        {
+                            _drainScheduled = false;
+                            shouldStop = true;
+                        }
+                    }
+                    else
                     {
                         _drainScheduled = false;
                         shouldStop = true;

@@ -46,23 +46,109 @@ public sealed class DeferredNavigationRequestReplayerTests
         await store.EnqueueAsync(first);
         await store.EnqueueAsync(second);
 
-        var navigator = new RecordingRouterNavigator(static request =>
-            request.Metadata.TryGetValue("throw", out var value) && Equals(value, true)
-                ? throw new InvalidOperationException("Replay failure.")
-                : new NavigationResult(request.Route!, new NavigationPlan(NavigationState.Empty), NavigationState.Empty, Presented: true));
+        var navigator = new RecordingRouterNavigator(static (request, _) =>
+        {
+            if (request.Metadata.TryGetValue("throw", out var value) && Equals(value, true))
+            {
+                throw new InvalidOperationException("Replay failure.");
+            }
+
+            return ValueTask.FromResult(new NavigationResult(
+                request.Route!,
+                new NavigationPlan(NavigationState.Empty),
+                NavigationState.Empty,
+                Presented: true));
+        });
         var replayer = new DeferredNavigationRequestReplayer(store, navigator);
 
         var result = await replayer.ReplayAsync();
 
         Assert.Equal(new[] { first, second }, navigator.Calls);
         Assert.Equal(new DeferredNavigationReplayResult(2, 1, 1), result);
+        Assert.True(await store.HasDeferredRequestsAsync());
+        Assert.Equal([first], await store.DrainAsync());
+    }
+
+    [Fact]
+    public async Task ReplayAsync_RetriesPreviouslyFailedRequestOnLaterPass()
+    {
+        var store = new InMemoryDeferredNavigationRequestStore();
+        var request = RouterNavigationRequest.FromRoute(new TestRoutes.StoreRoute("retry"), NavigationRequestSource.AppLink);
+        await store.EnqueueAsync(request);
+
+        var attempts = 0;
+        var navigator = new RecordingRouterNavigator((request, _) =>
+        {
+            attempts++;
+            return attempts == 1
+                ? throw new InvalidOperationException("Replay failure.")
+                : ValueTask.FromResult(new NavigationResult(
+                    request.Route!,
+                    new NavigationPlan(NavigationState.Empty),
+                    NavigationState.Empty,
+                    Presented: true));
+        });
+        var replayer = new DeferredNavigationRequestReplayer(store, navigator);
+
+        var firstPass = await replayer.ReplayAsync();
+
+        Assert.Equal(new DeferredNavigationReplayResult(1, 0, 1), firstPass);
+        Assert.Equal([request], await store.DrainAsync());
+
+        await store.EnqueueAsync(request);
+        var secondPass = await replayer.ReplayAsync();
+
+        Assert.Equal(new DeferredNavigationReplayResult(1, 1, 0), secondPass);
+        Assert.Equal([request, request], navigator.Calls);
         Assert.False(await store.HasDeferredRequestsAsync());
     }
 
-    private sealed class RecordingRouterNavigator(Func<RouterNavigationRequest, NavigationResult>? navigate = null) : IRouterNavigator
+    [Fact]
+    public async Task ReplayAsync_CancellationRequeuesFailedAndUnattemptedRequestsInOrder()
     {
-        private readonly Func<RouterNavigationRequest, NavigationResult> _navigate =
-            navigate ?? (request => new NavigationResult(request.Route!, new NavigationPlan(NavigationState.Empty), NavigationState.Empty, Presented: true));
+        var store = new InMemoryDeferredNavigationRequestStore();
+        var first = RouterNavigationRequest.FromRoute(new TestRoutes.StoreRoute("first"), NavigationRequestSource.AppLink);
+        var second = RouterNavigationRequest.FromRoute(new TestRoutes.StoreRoute("second"), NavigationRequestSource.Push);
+        var third = RouterNavigationRequest.FromRoute(new TestRoutes.StoreRoute("third"), NavigationRequestSource.Push);
+        await store.EnqueueAsync(first);
+        await store.EnqueueAsync(second);
+        await store.EnqueueAsync(third);
+
+        using var cancellationTokenSource = new CancellationTokenSource();
+        var navigator = new RecordingRouterNavigator((request, cancellationToken) =>
+        {
+            if (Equals(request, first))
+            {
+                throw new InvalidOperationException("Replay failure.");
+            }
+
+            cancellationTokenSource.Cancel();
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(new NavigationResult(
+                request.Route!,
+                new NavigationPlan(NavigationState.Empty),
+                NavigationState.Empty,
+                Presented: true));
+        });
+        var replayer = new DeferredNavigationRequestReplayer(store, navigator);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            replayer.ReplayAsync(cancellationTokenSource.Token).AsTask());
+
+        Assert.Equal([first, second], navigator.Calls);
+        Assert.Equal([first, second, third], await store.DrainAsync());
+    }
+
+    private sealed class RecordingRouterNavigator(
+        Func<RouterNavigationRequest, CancellationToken, ValueTask<NavigationResult>>? navigate = null)
+        : IRouterNavigator
+    {
+        private readonly Func<RouterNavigationRequest, CancellationToken, ValueTask<NavigationResult>> _navigate =
+            navigate ?? ((request, _) => ValueTask.FromResult(new NavigationResult(
+                request.Route!,
+                new NavigationPlan(NavigationState.Empty),
+                NavigationState.Empty,
+                Presented: true)));
 
         public List<RouterNavigationRequest> Calls { get; } = [];
 
@@ -85,7 +171,7 @@ public sealed class DeferredNavigationRequestReplayerTests
             CancellationToken cancellationToken = default)
         {
             Calls.Add(request);
-            return ValueTask.FromResult(_navigate(request));
+            return _navigate(request, cancellationToken);
         }
 
         public ValueTask<BackNavigationResult> BackAsync(string? windowId = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();

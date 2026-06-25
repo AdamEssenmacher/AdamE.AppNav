@@ -812,6 +812,7 @@ public sealed class SignInCompletionHandler(
         var result = await replayer.ReplayAsync(cancellationToken);
         if (result.FailedCount > 0)
         {
+            // Failed requests remain queued for a later replay attempt.
             // Log or surface an app-owned fallback.
         }
     }
@@ -1717,7 +1718,7 @@ protected override Window CreateWindow(IActivationState? activationState)
 }
 ```
 
-Startup waits up to `MauiRouterStartupOptions.AppLinkGracePeriod` for a buffered app link. If one is pending, startup gives it priority. Otherwise it tries snapshot restore, then the optional `FallbackRequestFactory`, then attaches the window even when no navigation occurs.
+Startup waits up to `MauiRouterStartupOptions.AppLinkGracePeriod` for a buffered app link. If one is pending, startup gives it priority. Otherwise it tries snapshot restore, then the optional `FallbackRequestFactory`, then attaches the window even when no navigation occurs. If app-link dispatch fails later, the buffered request stays pending so a later startup-adjacent trigger such as another dispatch or foreground transition can retry it without losing order.
 
 ### Native Container Projection
 

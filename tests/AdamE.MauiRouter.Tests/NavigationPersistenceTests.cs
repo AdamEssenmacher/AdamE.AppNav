@@ -426,12 +426,16 @@ public sealed class NavigationPersistenceTests
         Assert.True(result.Accepted);
         Assert.True(result.Presented);
         Assert.Equal(NavigationPlanKind.Restore, presenter.LastPlan!.Kind);
+        var expectedRoute = new TestRoutes.ProductDetailRoute("northwind", 123, "blue", "spring");
         var restoredTabs = Assert.IsType<TabsNode>(navigator.CurrentState.ActiveWindow!.Root);
         Assert.Equal("catalog", restoredTabs.SelectedTabId);
         var restoredStack = Assert.IsType<StackNode>(restoredTabs.SelectedBranch!.Content);
-        Assert.IsType<TestRoutes.ProductDetailRoute>(restoredStack.Top!.Route);
+        Assert.Equal(expectedRoute, restoredStack.Top!.Route);
         Assert.Single(navigator.History.Entries);
         Assert.Equal(history.Current!.Id, navigator.History.Current!.Id);
+        Assert.Equal(expectedRoute, navigator.History.Current!.Route);
+        Assert.Equal(navigator.CurrentState, navigator.History.Current!.State);
+        Assert.Equal(expectedRoute, navigator.History.Current!.Request.Route);
     }
 
     [Fact]
@@ -563,7 +567,8 @@ public sealed class NavigationPersistenceTests
                     new RouteEntry("home", new TestRoutes.StoreRoute("northwind"))
                 }))
         }, "main");
-        var snapshot = new NavigationSnapshotSerializer(TestRoutes.CreateTable()).CreateSnapshot(initialState, NavigationHistory.Empty);
+        var history = HistoryFor(initialState, new TestRoutes.StoreRoute("northwind"));
+        var snapshot = new NavigationSnapshotSerializer(TestRoutes.CreateTable()).CreateSnapshot(initialState, history);
         var rewrittenState = ModalCommerceState();
         var expectedRoute = new TestRoutes.ProductDetailRoute("northwind", 123);
         var presenter = new RecordingNavigationPresenter();
@@ -580,6 +585,61 @@ public sealed class NavigationPersistenceTests
         Assert.Equal(new TestRoutes.StoreRoute("northwind"), policy.LastRoute);
         Assert.Equal(rewrittenState, navigator.CurrentState);
         Assert.Equal(expectedRoute, presenter.LastContext!.Route);
+        Assert.Equal(history.Current!.Id, navigator.History.Current!.Id);
+        Assert.Equal(expectedRoute, navigator.History.Current!.Route);
+        Assert.Equal(rewrittenState, navigator.History.Current!.State);
+        Assert.Equal(expectedRoute, navigator.History.Current!.Request.Route);
+    }
+
+    [Fact]
+    public async Task RestorePlanPolicyRewrite_SavesNormalizedHistoryEntry()
+    {
+        var initialState = new NavigationState(new[]
+        {
+            new WindowNode(
+                "main",
+                new StackNode("home-stack", new[]
+                {
+                    new RouteEntry("home", new TestRoutes.StoreRoute("northwind"))
+                }))
+        }, "main");
+        var store = new InMemoryNavigationStateStore();
+        var history = HistoryFor(initialState, new TestRoutes.StoreRoute("northwind"));
+        var snapshot = new NavigationSnapshotSerializer(TestRoutes.CreateTable()).CreateSnapshot(initialState, history);
+        var rewrittenState = ModalCommerceState();
+        var expectedRoute = new TestRoutes.ProductDetailRoute("northwind", 123);
+        var navigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            TestNavigationPlanner.EchoStack(),
+            NullNavigationPresenter.Instance,
+            new RouterNavigatorOptions
+            {
+                Persistence = new NavigationPersistenceOptions
+                {
+                    Store = store,
+                    BaseUri = BaseUri,
+                    PersistModals = true
+                },
+                PlanPolicies = new[] { new RewritePlanPolicy(rewrittenState) }
+            });
+
+        var result = await navigator.RestoreAsync(snapshot);
+
+        Assert.True(result.Accepted);
+        Assert.NotNull(store.Snapshot);
+
+        var saved = new NavigationSnapshotSerializer(TestRoutes.CreateTable()).Restore(store.Snapshot!);
+
+        Assert.True(saved.Accepted);
+        var savedWindow = saved.State!.ActiveWindow!;
+        var savedModalStack = Assert.IsType<StackNode>(Assert.Single(savedWindow.Modals).Content);
+        Assert.Equal(expectedRoute, savedModalStack.Top!.Route);
+        Assert.Equal(history.Current!.Id, saved.History!.Current!.Id);
+        Assert.Equal(expectedRoute, saved.History!.Current!.Route);
+        var savedHistoryWindow = saved.History.Current!.State.ActiveWindow!;
+        var savedHistoryModalStack = Assert.IsType<StackNode>(Assert.Single(savedHistoryWindow.Modals).Content);
+        Assert.Equal(expectedRoute, savedHistoryModalStack.Top!.Route);
+        Assert.Equal(expectedRoute, saved.History.Current!.Request.Route);
     }
 
     [Fact]

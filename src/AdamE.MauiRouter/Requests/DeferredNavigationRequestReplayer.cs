@@ -15,26 +15,56 @@ public sealed class DeferredNavigationRequestReplayer(
         var replayed = 0;
         var failed = 0;
 
-        while (await deferredRequests.TryDequeueAsync(cancellationToken).ConfigureAwait(false) is { } request)
-        {
-            attempted++;
+        var drained = await deferredRequests.DrainAsync(cancellationToken).ConfigureAwait(false);
+        var failedRequests = new List<RouterNavigationRequest>();
+        var currentIndex = 0;
 
-            try
+        try
+        {
+            for (; currentIndex < drained.Count; currentIndex++)
             {
-                await navigator.NavigateAsync(request, cancellationToken).ConfigureAwait(false);
-                replayed++;
-            }
-            catch (Exception ex)
-            {
-                failed++;
-                logger?.LogError(
-                    ex,
-                    "Failed to replay deferred navigation request for route {Route} from source {Source}.",
-                    request.Route,
-                    request.Source);
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var request = drained[currentIndex];
+                attempted++;
+
+                try
+                {
+                    await navigator.NavigateAsync(request, cancellationToken).ConfigureAwait(false);
+                    replayed++;
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+                {
+                    failed++;
+                    failedRequests.Add(request);
+                    logger?.LogError(
+                        ex,
+                        "Failed to replay deferred navigation request for route {Route} from source {Source}.",
+                        request.Route,
+                        request.Source);
+                }
             }
         }
+        catch
+        {
+            await RequeueAsync(
+                failedRequests.Concat(drained.Skip(currentIndex)),
+                CancellationToken.None).ConfigureAwait(false);
+            throw;
+        }
+
+        await RequeueAsync(failedRequests, CancellationToken.None).ConfigureAwait(false);
 
         return new DeferredNavigationReplayResult(attempted, replayed, failed);
+    }
+
+    private async ValueTask RequeueAsync(
+        IEnumerable<RouterNavigationRequest> requests,
+        CancellationToken cancellationToken)
+    {
+        foreach (var request in requests)
+        {
+            await deferredRequests.EnqueueAsync(request, cancellationToken).ConfigureAwait(false);
+        }
     }
 }

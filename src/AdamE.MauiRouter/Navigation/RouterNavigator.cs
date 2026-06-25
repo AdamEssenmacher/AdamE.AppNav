@@ -951,7 +951,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
             }
 
             CurrentState = plan.TargetState;
-            History = restored.History;
+            History = NormalizeRestoredHistory(restored.History, CurrentState, finalRoute);
 
             if (options.SaveAfterRestore)
             {
@@ -1468,6 +1468,28 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
             : state.FindWindow(preferredWindowId) ?? state.ActiveWindow;
 
         return PresentedRouteResolver.FindPresentedRoute(window) ?? fallbackRoute;
+    }
+
+    private static NavigationHistory NormalizeRestoredHistory(
+        NavigationHistory history,
+        NavigationState currentState,
+        AppRoute finalRoute)
+    {
+        var current = history.Current;
+        if (current is null)
+        {
+            return history;
+        }
+
+        var entries = history.Entries.ToArray();
+        entries[history.CurrentIndex] = current with
+        {
+            Request = current.Request with { Route = finalRoute },
+            Route = finalRoute,
+            State = currentState
+        };
+
+        return new NavigationHistory(entries, history.CurrentIndex);
     }
 
     private void ThrowIfDisposed()

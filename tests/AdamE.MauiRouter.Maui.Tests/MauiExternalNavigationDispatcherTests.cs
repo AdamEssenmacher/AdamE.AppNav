@@ -171,6 +171,128 @@ public sealed class MauiExternalNavigationDispatcherTests
         Assert.Equal([firstRequest, secondRequest], navigator.Calls);
     }
 
+    [Fact]
+    public async Task DispatchFailure_RemainsPendingWithoutAutoRetry()
+    {
+        var request = RouterNavigationRequest.FromRoute(new TestRoute("first"), NavigationRequestSource.AppLink);
+        var navigator = new RecordingRouterNavigator((request, _) =>
+            throw new InvalidOperationException("Dispatch failed."));
+        var services = new ServiceCollection();
+        services.AddSingleton(new NavigationDiagnostics());
+        services.AddSingleton<IRouterNavigator>(navigator);
+        services.AddSingleton<MauiExternalNavigationDispatcher>();
+        services.AddSingleton<IMauiExternalNavigationDispatcher>(provider =>
+            provider.GetRequiredService<MauiExternalNavigationDispatcher>());
+
+        using var provider = services.BuildServiceProvider();
+        var dispatcher = provider.GetRequiredService<IMauiExternalNavigationDispatcher>();
+        var runtimeDispatcher = provider.GetRequiredService<MauiExternalNavigationDispatcher>();
+        runtimeDispatcher.MarkReady();
+        runtimeDispatcher.SetForegrounded(true);
+
+        dispatcher.Dispatch(request);
+        await WaitUntilAsync(() => navigator.Calls.Count == 1);
+        await Task.Delay(150);
+
+        Assert.Equal([request], navigator.Calls);
+        Assert.True(runtimeDispatcher.HasPendingRequests);
+    }
+
+    [Fact]
+    public async Task DispatchFailure_RetriesRetainedRequestOnLaterTrigger()
+    {
+        var request = RouterNavigationRequest.FromRoute(new TestRoute("first"), NavigationRequestSource.AppLink);
+        var attempts = 0;
+        var navigator = new RecordingRouterNavigator((request, _) =>
+        {
+            attempts++;
+            return attempts == 1
+                ? throw new InvalidOperationException("Dispatch failed.")
+                : ValueTask.FromResult(new NavigationResult(
+                    request.Route!,
+                    new NavigationPlan(NavigationState.Empty),
+                    NavigationState.Empty,
+                    Presented: true));
+        });
+        var services = new ServiceCollection();
+        services.AddSingleton(new NavigationDiagnostics());
+        services.AddSingleton<IRouterNavigator>(navigator);
+        services.AddSingleton<MauiExternalNavigationDispatcher>();
+        services.AddSingleton<IMauiExternalNavigationDispatcher>(provider =>
+            provider.GetRequiredService<MauiExternalNavigationDispatcher>());
+
+        using var provider = services.BuildServiceProvider();
+        var dispatcher = provider.GetRequiredService<IMauiExternalNavigationDispatcher>();
+        var runtimeDispatcher = provider.GetRequiredService<MauiExternalNavigationDispatcher>();
+        runtimeDispatcher.MarkReady();
+        runtimeDispatcher.SetForegrounded(true);
+
+        dispatcher.Dispatch(request);
+        await WaitUntilAsync(() => navigator.Calls.Count == 1);
+        Assert.True(runtimeDispatcher.HasPendingRequests);
+
+        runtimeDispatcher.SetForegrounded(false);
+        runtimeDispatcher.SetForegrounded(true);
+        await WaitUntilAsync(() => navigator.Calls.Count == 2);
+
+        Assert.Equal([request, request], navigator.Calls);
+        Assert.False(runtimeDispatcher.HasPendingRequests);
+    }
+
+    [Fact]
+    public async Task DispatchFailure_RetriesHeadBeforeLaterRequests()
+    {
+        var first = RouterNavigationRequest.FromRoute(new TestRoute("first"), NavigationRequestSource.AppLink);
+        var second = RouterNavigationRequest.FromRoute(new TestRoute("second"), NavigationRequestSource.Push);
+        var firstAttempts = 0;
+        var navigator = new RecordingRouterNavigator((request, _) =>
+        {
+            if (Equals(request, first))
+            {
+                firstAttempts++;
+                return firstAttempts == 1
+                    ? throw new InvalidOperationException("Dispatch failed.")
+                    : ValueTask.FromResult(new NavigationResult(
+                        request.Route!,
+                        new NavigationPlan(NavigationState.Empty),
+                        NavigationState.Empty,
+                        Presented: true));
+            }
+
+            return ValueTask.FromResult(new NavigationResult(
+                request.Route!,
+                new NavigationPlan(NavigationState.Empty),
+                NavigationState.Empty,
+                Presented: true));
+        });
+        var services = new ServiceCollection();
+        services.AddSingleton(new NavigationDiagnostics());
+        services.AddSingleton<IRouterNavigator>(navigator);
+        services.AddSingleton<MauiExternalNavigationDispatcher>();
+        services.AddSingleton<IMauiExternalNavigationDispatcher>(provider =>
+            provider.GetRequiredService<MauiExternalNavigationDispatcher>());
+
+        using var provider = services.BuildServiceProvider();
+        var dispatcher = provider.GetRequiredService<IMauiExternalNavigationDispatcher>();
+        var runtimeDispatcher = provider.GetRequiredService<MauiExternalNavigationDispatcher>();
+        runtimeDispatcher.MarkReady();
+        runtimeDispatcher.SetForegrounded(true);
+
+        dispatcher.Dispatch(first);
+        dispatcher.Dispatch(second);
+        await WaitUntilAsync(() => navigator.Calls.Count == 1);
+
+        Assert.Equal([first], navigator.Calls);
+        Assert.True(runtimeDispatcher.HasPendingRequests);
+
+        runtimeDispatcher.SetForegrounded(false);
+        runtimeDispatcher.SetForegrounded(true);
+        await WaitUntilAsync(() => navigator.Calls.Count == 3);
+
+        Assert.Equal([first, first, second], navigator.Calls);
+        Assert.False(runtimeDispatcher.HasPendingRequests);
+    }
+
     private static async Task WaitUntilAsync(Func<bool> predicate, int timeoutMs = 2000)
     {
         var started = Environment.TickCount64;
@@ -187,8 +309,17 @@ public sealed class MauiExternalNavigationDispatcherTests
 
     private sealed record TestRoute(string Id) : AppRoute;
 
-    private sealed class RecordingRouterNavigator : IRouterNavigator
+    private sealed class RecordingRouterNavigator(
+        Func<RouterNavigationRequest, CancellationToken, ValueTask<NavigationResult>>? navigate = null)
+        : IRouterNavigator
     {
+        private readonly Func<RouterNavigationRequest, CancellationToken, ValueTask<NavigationResult>> _navigate =
+            navigate ?? ((request, _) => ValueTask.FromResult(new NavigationResult(
+                request.Route!,
+                new NavigationPlan(NavigationState.Empty),
+                NavigationState.Empty,
+                Presented: true)));
+
         public List<RouterNavigationRequest> Calls { get; } = [];
 
         public NavigationState CurrentState => NavigationState.Empty;
@@ -210,11 +341,7 @@ public sealed class MauiExternalNavigationDispatcherTests
             CancellationToken cancellationToken = default)
         {
             Calls.Add(request);
-            return ValueTask.FromResult(new NavigationResult(
-                request.Route!,
-                new NavigationPlan(NavigationState.Empty),
-                NavigationState.Empty,
-                Presented: true));
+            return _navigate(request, cancellationToken);
         }
 
         public ValueTask<BackNavigationResult> BackAsync(string? windowId = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
