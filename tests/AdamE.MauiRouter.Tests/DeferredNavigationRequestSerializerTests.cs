@@ -20,7 +20,10 @@ public sealed class DeferredNavigationRequestSerializerTests
             .Ephemeral(replyId));
         var routes = RouteTable.Create(builder => builder.MapRoute<TestRoutes.StoreRoute>(
             "/stores/{storeId}",
-            route => route.QueryMetadata(missionId)));
+            route => route
+                .QueryMetadata(missionId)
+                .QueryMetadata(draftId)
+                .QueryMetadata(replyId)));
         var serializer = new DeferredNavigationRequestSerializer(routes, new DeferredNavigationRequestPersistenceOptions
         {
             BaseUri = BaseUri,

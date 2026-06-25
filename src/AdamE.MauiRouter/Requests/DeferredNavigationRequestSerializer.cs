@@ -63,7 +63,7 @@ public sealed class DeferredNavigationRequestSerializer
         var effectiveMetadata = MergeMetadata(routeMetadata, request.Metadata);
         return new NavigationRequestSnapshot(
             request.Uri?.ToString(),
-            _routes.FormatUri(route, _options.BaseUri, effectiveMetadata).ToString(),
+            FormatCanonicalRouteUri(route, effectiveMetadata),
             request.Source,
             request.WindowId,
             SerializeMetadata(effectiveMetadata ?? new Dictionary<string, object?>(StringComparer.Ordinal)),
@@ -201,6 +201,22 @@ public sealed class DeferredNavigationRequestSerializer
         }
 
         return serialized;
+    }
+
+    private string FormatCanonicalRouteUri(AppRoute route, IReadOnlyDictionary<string, object?>? metadata)
+    {
+        if (metadata is null || metadata.Count == 0)
+        {
+            return _routes.FormatUri(route, _options.BaseUri).ToString();
+        }
+
+        var request = new AppRouteRequest(route, metadata);
+        if (_options.RouteStateRegistry is { } routeStateRegistry)
+        {
+            request = routeStateRegistry.Canonicalize(request);
+        }
+
+        return _routes.FormatUri(request, _options.BaseUri).ToString();
     }
 
     private IReadOnlyDictionary<string, object?>? DeserializeMetadata(

@@ -339,7 +339,10 @@ public sealed class NavigationPersistenceTests
             .Ephemeral(replyId));
         var table = RouteTable.Create(routes => routes.MapRoute<TestRoutes.StoreRoute>(
             "/stores/{storeId}",
-            route => route.QueryMetadata(missionId)));
+            route => route
+                .QueryMetadata(missionId)
+                .QueryMetadata(draftId)
+                .QueryMetadata(replyId)));
         IReadOnlyDictionary<string, object?> metadata = new Dictionary<string, object?>
         {
             [missionId.Name] = "mission-1",

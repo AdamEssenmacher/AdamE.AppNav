@@ -135,7 +135,7 @@ internal sealed class NavigationSnapshotSerializer
     {
         return new RouteEntrySnapshot(
             entry.Id,
-            _routes.FormatUri(entry.Route, _options.BaseUri, entry.Metadata).ToString(),
+            FormatCanonicalRouteUri(entry.Route, entry.Metadata),
             entry.Transition is null ? null : CreateTransitionSnapshot(entry.Transition),
             SerializeMetadata(entry.Metadata));
     }
@@ -184,7 +184,7 @@ internal sealed class NavigationSnapshotSerializer
         var route = request.Route ?? fallbackRoute;
         return new NavigationRequestSnapshot(
             request.Uri?.ToString(),
-            _routes.FormatUri(route, _options.BaseUri, request.Metadata).ToString(),
+            FormatCanonicalRouteUri(route, request.Metadata),
             request.Source,
             request.WindowId,
             SerializeMetadata(request.Metadata),
@@ -668,6 +668,22 @@ internal sealed class NavigationSnapshotSerializer
         }
 
         return serialized;
+    }
+
+    private string FormatCanonicalRouteUri(AppRoute route, IReadOnlyDictionary<string, object?>? metadata)
+    {
+        if (metadata is null || metadata.Count == 0)
+        {
+            return _routes.FormatUri(route, _options.BaseUri).ToString();
+        }
+
+        var request = new AppRouteRequest(route, metadata);
+        if (_options.RouteStateRegistry is { } routeStateRegistry)
+        {
+            request = routeStateRegistry.Canonicalize(request);
+        }
+
+        return _routes.FormatUri(request, _options.BaseUri).ToString();
     }
 
     private IReadOnlyDictionary<string, object?>? DeserializeMetadata(
