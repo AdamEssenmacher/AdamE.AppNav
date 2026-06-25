@@ -234,6 +234,7 @@ public sealed class RepositoryContractTests
         Assert.Contains("Android predictive back is not implemented in v1", readme, StringComparison.Ordinal);
         Assert.Contains("V1 does not drive Android predictive-back gesture progress or preview transitions.", readme, StringComparison.Ordinal);
         Assert.DoesNotContain("For custom transitions", readme, StringComparison.Ordinal);
+        Assert.DoesNotContain("custom handler", readme, StringComparison.Ordinal);
         Assert.DoesNotContain("options.Transitions.Map", readme, StringComparison.Ordinal);
         Assert.DoesNotContain("Android back/predictive-back behavior", readme, StringComparison.Ordinal);
         Assert.DoesNotContain("PredictiveBack", readme, StringComparison.Ordinal);

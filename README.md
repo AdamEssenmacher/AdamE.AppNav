@@ -187,7 +187,7 @@ Until packages are published, consume the library with project references.
 | `netstandard` | Not targeted in v1 |
 | Source generators | Not included in v1 |
 | Attribute routing | Not included in v1 |
-| Navigation transitions | Typed stock, fade, slide, custom handler, and shared-element descriptors |
+| Navigation transitions | Typed stock, fade, slide, and shared-element descriptors |
 | Full multi-window orchestration | State model seam only in v1 |
 
 ## Projects
