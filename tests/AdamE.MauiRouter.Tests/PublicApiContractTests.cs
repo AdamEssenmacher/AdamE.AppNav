@@ -143,6 +143,7 @@ public sealed class PublicApiContractTests
                 "AdamE.MauiRouter.Maui.AppLinks.IMauiExternalNavigationDispatcher",
                 "AdamE.MauiRouter.Maui.AppLinks.MauiAppLinkProvenanceProviders",
                 "AdamE.MauiRouter.Maui.AppLinks.MauiRouterAppLinkBuilderExtensions",
+                "AdamE.MauiRouter.Maui.AppLinks.MauiRouterAppLinkOptions",
                 "AdamE.MauiRouter.Maui.DependencyInjection.MauiRouterServiceCollectionExtensions",
                 "AdamE.MauiRouter.Maui.IMauiPresentationState",
                 "AdamE.MauiRouter.Maui.IMauiRoutePageLifecycleHook",

@@ -1,5 +1,7 @@
 using AdamE.MauiRouter.Maui.AppLinks;
 using AdamE.MauiRouter.Requests;
+using AdamE.MauiRouter.Diagnostics;
+using Microsoft.Extensions.DependencyInjection;
 
 #if ANDROID
 using Android.Content;
@@ -30,6 +32,40 @@ public sealed class MauiAppLinkRequestFactoryTests
         var request = MauiAppLinkRequestFactory.FromUri(incoming);
 
         AssertProvenance(request, MauiAppLinkProvenanceProviders.MauiAppLink, incoming);
+    }
+
+    [Fact]
+    public void AppLinkOptionsDispatchRequestsByDefault()
+    {
+        var request = RouterNavigationRequest.FromUri(
+            new Uri("https://example.com/stores/northwind"),
+            NavigationRequestSource.AppLink);
+        using var provider = CreateAppLinkDispatcherProvider();
+        var dispatcher = provider.GetRequiredService<MauiExternalNavigationDispatcher>();
+
+        var dispatched = MauiRouterAppLinkBuilderExtensions.Dispatch(request, new MauiRouterAppLinkOptions());
+
+        Assert.True(dispatched);
+        Assert.True(dispatcher.HasPendingRequests);
+    }
+
+    [Fact]
+    public void AppLinkOptionsCanSuppressRequestDispatch()
+    {
+        var request = RouterNavigationRequest.FromUri(
+            new Uri("https://example.com/stores/northwind"),
+            NavigationRequestSource.AppLink);
+        var options = new MauiRouterAppLinkOptions
+        {
+            ShouldDispatch = static _ => false
+        };
+        using var provider = CreateAppLinkDispatcherProvider();
+        var dispatcher = provider.GetRequiredService<MauiExternalNavigationDispatcher>();
+
+        var dispatched = MauiRouterAppLinkBuilderExtensions.Dispatch(request, options);
+
+        Assert.False(dispatched);
+        Assert.False(dispatcher.HasPendingRequests);
     }
 
 #if ANDROID
@@ -88,5 +124,15 @@ public sealed class MauiAppLinkRequestFactoryTests
         Assert.Null(provenance.CorrelationId);
         Assert.Null(provenance.IsColdStart);
         Assert.Empty(provenance.Attributes);
+    }
+
+    private static ServiceProvider CreateAppLinkDispatcherProvider()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton(new NavigationDiagnostics());
+        services.AddSingleton<MauiExternalNavigationDispatcher>();
+        services.AddSingleton<IMauiExternalNavigationDispatcher>(provider =>
+            provider.GetRequiredService<MauiExternalNavigationDispatcher>());
+        return services.BuildServiceProvider();
     }
 }
