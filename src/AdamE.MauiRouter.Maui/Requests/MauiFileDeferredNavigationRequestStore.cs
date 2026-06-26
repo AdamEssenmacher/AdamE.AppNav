@@ -125,10 +125,15 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false);
+            // ClearAsync is the recovery escape hatch for invalid persisted data and must
+            // not depend on successfully deserializing the current on-disk snapshot.
             _requests.Clear();
             _deduped.Clear();
-            await PersistAsync(cancellationToken).ConfigureAwait(false);
+            _loaded = true;
+            if (File.Exists(_path))
+            {
+                File.Delete(_path);
+            }
         }
         finally
         {

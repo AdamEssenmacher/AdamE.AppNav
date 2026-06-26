@@ -117,6 +117,54 @@ public sealed class MauiFileDeferredNavigationRequestStoreTests
 #else
     [Fact]
 #endif
+    public async Task ClearAsync_MalformedJson_RemovesCorruptFileAndAllowsReuseOnSameInstance()
+    {
+        var routes = RouteTable.Create(builder => builder.MapRoute<TestRoute>("/stores/{id}"));
+        var directory = CreateStoreDirectory();
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "deferred-requests.json");
+
+        try
+        {
+            await File.WriteAllTextAsync(path, "{not-json");
+            var store = new MauiFileDeferredNavigationRequestStore(
+                routes,
+                new MauiFileDeferredNavigationRequestStoreOptions
+                {
+                    Path = path,
+                    BaseUri = BaseUri
+                });
+
+            await store.ClearAsync();
+
+            Assert.False(File.Exists(path));
+            Assert.False(await store.HasDeferredRequestsAsync());
+
+            var request = RouterNavigationRequest.FromRoute(new TestRoute("northwind"), NavigationRequestSource.AppLink);
+            await store.EnqueueAsync(request);
+
+            Assert.True(File.Exists(path));
+            var restored = await store.TryDequeueAsync();
+            Assert.NotNull(restored);
+            Assert.Equal(request.Route, restored.Route);
+            Assert.Equal(request.Source, restored.Source);
+            Assert.Equal(request.WindowId, restored.WindowId);
+            Assert.Equal(request.Disposition, restored.Disposition);
+            Assert.Equal(request.Uri, restored.Uri);
+            Assert.Empty(restored.Metadata);
+            Assert.False(await store.HasDeferredRequestsAsync());
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+#if IOS
+    [Fact(Skip = IosSkipReason)]
+#else
+    [Fact]
+#endif
     public async Task HasDeferredRequestsAsync_RetriesLoadAfterMalformedJsonIsCorrectedOnSameInstance()
     {
         var routes = RouteTable.Create(builder => builder.MapRoute<TestRoute>("/stores/{id}"));

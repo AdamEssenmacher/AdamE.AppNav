@@ -3,11 +3,13 @@ using System.Text.Json;
 using AdamE.MauiRouter.Diagnostics;
 using AdamE.MauiRouter.History;
 using AdamE.MauiRouter.Maui.AppLinks;
+using AdamE.MauiRouter.Maui.Requests;
 using AdamE.MauiRouter.Navigation;
 using AdamE.MauiRouter.Persistence;
 using AdamE.MauiRouter.Plans;
 using AdamE.MauiRouter.Presentation;
 using AdamE.MauiRouter.Requests;
+using AdamE.MauiRouter.Routing;
 using AdamE.MauiRouter.State;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Maui.Controls;
@@ -16,6 +18,8 @@ namespace AdamE.MauiRouter.Maui.Tests;
 
 public sealed class MauiRouterStartupServiceTests
 {
+    private static readonly Uri BaseUri = new("https://example.com/");
+
     [Fact]
     public async Task StartAsync_FallbackNavigation_UsesInjectedRouterNavigator()
     {
@@ -140,6 +144,76 @@ public sealed class MauiRouterStartupServiceTests
             Equals(restoreReason, "deferred-request-store-invalid") &&
             diagnosticEvent.Data.TryGetValue(NavigationDiagnosticDataKeys.ExceptionType, out var exceptionType) &&
             Equals(exceptionType, typeof(JsonException).FullName));
+    }
+
+    [Fact]
+    public async Task StartAsync_InvalidFileDeferredRequestStore_ClearsStoreAndRunsFallback()
+    {
+        var diagnostics = new NavigationDiagnostics();
+        var events = new List<NavigationDiagnosticEvent>();
+        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+        var navigator = new RecordingRouterNavigator();
+        var routes = RouteTable.Create(builder => builder.MapRoute<TestRoute>("/stores/{id}"));
+        var directory = CreateStoreDirectory();
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, MauiFileDeferredNavigationRequestStore.DefaultFileName);
+
+        try
+        {
+            await File.WriteAllTextAsync(path, "{not-json");
+            var deferredStore = new MauiFileDeferredNavigationRequestStore(
+                routes,
+                new MauiFileDeferredNavigationRequestStoreOptions
+                {
+                    Path = path,
+                    BaseUri = BaseUri
+                });
+            var services = new ServiceCollection()
+                .AddSingleton<IRouterNavigator>(navigator)
+                .AddSingleton(diagnostics)
+                .AddSingleton<IDeferredNavigationRequestStore>(deferredStore)
+                .BuildServiceProvider();
+            var dispatcher = new MauiExternalNavigationDispatcher(
+                services,
+                diagnostics);
+            var windowAttachment = new RecordingWindowAttachment();
+            var startup = new MauiRouterStartupService(
+                navigator,
+                windowAttachment,
+                dispatcher,
+                new MauiRouterStartupOptions
+                {
+                    AppLinkGracePeriod = TimeSpan.Zero,
+                    RestoreFromStore = false,
+                    FallbackRequestFactory = static (_, _) => ValueTask.FromResult<RouterNavigationRequest?>(
+                        RouterNavigationRequest.FromRoute(
+                            new TestRoute("fallback"),
+                            NavigationRequestSource.InAppCommand))
+                },
+                services,
+                diagnostics);
+
+            var result = await StartOnMainThreadAsync(startup, new Window(new ContentPage()));
+
+            Assert.Equal(MauiRouterStartupOutcome.FallbackNavigated, result.Outcome);
+            Assert.Null(result.Exception);
+            Assert.Single(navigator.NavigateCalls);
+            Assert.Equal("fallback", Assert.IsType<TestRoute>(navigator.NavigateCalls[0].Route).Id);
+            Assert.Equal(1, windowAttachment.AttachCalls);
+            Assert.False(await deferredStore.HasDeferredRequestsAsync());
+            Assert.False(File.Exists(path));
+            Assert.DoesNotContain(events, diagnosticEvent =>
+                diagnosticEvent.Kind == NavigationDiagnosticEventKind.StartupDeferredRequestPending);
+            Assert.Contains(events, diagnosticEvent =>
+                diagnosticEvent.Data.TryGetValue(NavigationDiagnosticDataKeys.RestoreReason, out var restoreReason) &&
+                Equals(restoreReason, "deferred-request-store-invalid") &&
+                diagnosticEvent.Data.TryGetValue(NavigationDiagnosticDataKeys.ExceptionType, out var exceptionType) &&
+                Equals(exceptionType, typeof(JsonException).FullName));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Fact]
@@ -362,5 +436,15 @@ public sealed class MauiRouterStartupServiceTests
         }
 
         public Task WhenReconciliationIdleAsync() => Task.CompletedTask;
+    }
+
+    private static string CreateStoreDirectory()
+    {
+#if IOS || MACCATALYST || ANDROID
+        var root = Microsoft.Maui.Storage.FileSystem.CacheDirectory;
+#else
+        var root = Path.GetTempPath();
+#endif
+        return Path.Combine(root, $"maui-router-startup-store-{Guid.NewGuid():N}");
     }
 }
