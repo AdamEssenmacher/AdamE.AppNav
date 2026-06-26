@@ -143,9 +143,9 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
             return;
         }
 
-        _loaded = true;
         if (!File.Exists(_path))
         {
+            _loaded = true;
             return;
         }
 
@@ -154,18 +154,29 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
             stream,
             JsonOptions,
             cancellationToken).ConfigureAwait(false);
-        if (snapshot is null)
-        {
-            return;
-        }
 
-        foreach (var request in _serializer.Restore(snapshot))
+        var restoredRequests = snapshot is null
+            ? Array.Empty<RouterNavigationRequest>()
+            : _serializer.Restore(snapshot);
+        var dedupedRequests = new HashSet<RouterNavigationRequest>(MauiNavigationRequestEquivalenceComparer.Instance);
+        var pendingRequests = new List<RouterNavigationRequest>(restoredRequests.Count);
+        foreach (var request in restoredRequests)
         {
-            if (_deduped.Add(request))
+            if (dedupedRequests.Add(request))
             {
-                _requests.Enqueue(request);
+                pendingRequests.Add(request);
             }
         }
+
+        _requests.Clear();
+        _deduped.Clear();
+        foreach (var request in pendingRequests)
+        {
+            _requests.Enqueue(request);
+            _deduped.Add(request);
+        }
+
+        _loaded = true;
     }
 
     private async Task PersistAsync(CancellationToken cancellationToken)

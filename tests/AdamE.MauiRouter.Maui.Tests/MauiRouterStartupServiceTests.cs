@@ -53,6 +53,44 @@ public sealed class MauiRouterStartupServiceTests
     }
 
     [Fact]
+    public async Task StartAsync_PendingAppLink_SkipsRestoreAndFallbackAndAttachesWindow()
+    {
+        var diagnostics = new NavigationDiagnostics();
+        var navigator = new RecordingRouterNavigator();
+        var services = new ServiceCollection()
+            .AddSingleton<IRouterNavigator>(navigator)
+            .AddSingleton(diagnostics)
+            .BuildServiceProvider();
+        var dispatcher = new MauiExternalNavigationDispatcher(services, diagnostics);
+        dispatcher.Dispatch(RouterNavigationRequest.FromRoute(new TestRoute("pending"), NavigationRequestSource.AppLink));
+
+        var windowAttachment = new RecordingWindowAttachment();
+        var startup = new MauiRouterStartupService(
+            navigator,
+            windowAttachment,
+            dispatcher,
+            new MauiRouterStartupOptions
+            {
+                AppLinkGracePeriod = TimeSpan.Zero,
+                RestoreFromStore = true,
+                FallbackRequestFactory = static (_, _) => ValueTask.FromResult<RouterNavigationRequest?>(
+                    RouterNavigationRequest.FromRoute(
+                        new TestRoute("fallback"),
+                        NavigationRequestSource.InAppCommand))
+            },
+            services,
+            diagnostics);
+
+        var result = await StartOnMainThreadAsync(startup, new Window(new ContentPage()));
+
+        Assert.Equal(MauiRouterStartupOutcome.AppLinkPending, result.Outcome);
+        Assert.Empty(navigator.NavigateCalls);
+        Assert.Equal(0, navigator.RestoreFromStoreCalls);
+        Assert.Equal(1, windowAttachment.AttachCalls);
+        Assert.True(dispatcher.HasPendingRequests);
+    }
+
+    [Fact]
     public async Task StartAsync_InvalidDeferredRequestStore_ClearsStoreAndRunsFallback()
     {
         var diagnostics = new NavigationDiagnostics();

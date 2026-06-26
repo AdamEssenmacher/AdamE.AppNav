@@ -172,7 +172,7 @@ public sealed class MauiExternalNavigationDispatcherTests
     }
 
     [Fact]
-    public async Task DispatchFailure_IsDroppedWithoutAutoRetry()
+    public async Task DispatchFailure_RemainsPendingAfterFailedAttempt()
     {
         var request = RouterNavigationRequest.FromRoute(new TestRoute("first"), NavigationRequestSource.AppLink);
         var navigator = new RecordingRouterNavigator((request, _) =>
@@ -195,15 +195,25 @@ public sealed class MauiExternalNavigationDispatcherTests
         await Task.Delay(150);
 
         Assert.Equal([request], navigator.Calls);
-        Assert.False(runtimeDispatcher.HasPendingRequests);
+        Assert.True(runtimeDispatcher.HasPendingRequests);
     }
 
     [Fact]
-    public async Task DispatchFailure_DoesNotRetryOnLaterTrigger()
+    public async Task DispatchFailure_RetriesRetainedRequestOnLaterForegroundTrigger()
     {
         var request = RouterNavigationRequest.FromRoute(new TestRoute("first"), NavigationRequestSource.AppLink);
+        var attempts = 0;
         var navigator = new RecordingRouterNavigator((request, _) =>
-            throw new InvalidOperationException("Dispatch failed."));
+        {
+            attempts++;
+            return attempts == 1
+                ? throw new InvalidOperationException("Dispatch failed.")
+                : ValueTask.FromResult(new NavigationResult(
+                    request.Route!,
+                    new NavigationPlan(NavigationState.Empty),
+                    NavigationState.Empty,
+                    Presented: true));
+        });
         var services = new ServiceCollection();
         services.AddSingleton(new NavigationDiagnostics());
         services.AddSingleton<IRouterNavigator>(navigator);
@@ -219,26 +229,34 @@ public sealed class MauiExternalNavigationDispatcherTests
 
         dispatcher.Dispatch(request);
         await WaitUntilAsync(() => navigator.Calls.Count == 1);
-        Assert.False(runtimeDispatcher.HasPendingRequests);
+        Assert.True(runtimeDispatcher.HasPendingRequests);
 
         runtimeDispatcher.SetForegrounded(false);
         runtimeDispatcher.SetForegrounded(true);
-        await Task.Delay(150);
+        await WaitUntilAsync(() => navigator.Calls.Count == 2);
 
-        Assert.Equal([request], navigator.Calls);
+        Assert.Equal([request, request], navigator.Calls);
         Assert.False(runtimeDispatcher.HasPendingRequests);
     }
 
     [Fact]
-    public async Task DispatchFailure_DropsFailedRequestAndContinuesLaterRequests()
+    public async Task DispatchFailure_RetainedHeadRunsBeforeLaterDispatchedRequests()
     {
         var first = RouterNavigationRequest.FromRoute(new TestRoute("first"), NavigationRequestSource.AppLink);
         var second = RouterNavigationRequest.FromRoute(new TestRoute("second"), NavigationRequestSource.Push);
+        var firstAttempts = 0;
         var navigator = new RecordingRouterNavigator((request, _) =>
         {
             if (Equals(request, first))
             {
-                throw new InvalidOperationException("Dispatch failed.");
+                firstAttempts++;
+                return firstAttempts == 1
+                    ? throw new InvalidOperationException("Dispatch failed.")
+                    : ValueTask.FromResult(new NavigationResult(
+                        request.Route!,
+                        new NavigationPlan(NavigationState.Empty),
+                        NavigationState.Empty,
+                        Presented: true));
             }
 
             return ValueTask.FromResult(new NavigationResult(
@@ -261,10 +279,16 @@ public sealed class MauiExternalNavigationDispatcherTests
         runtimeDispatcher.SetForegrounded(true);
 
         dispatcher.Dispatch(first);
-        dispatcher.Dispatch(second);
-        await WaitUntilAsync(() => navigator.Calls.Count == 2);
+        await WaitUntilAsync(() => navigator.Calls.Count == 1);
+        await Task.Delay(150);
 
-        Assert.Equal([first, second], navigator.Calls);
+        Assert.Equal([first], navigator.Calls);
+        Assert.True(runtimeDispatcher.HasPendingRequests);
+
+        dispatcher.Dispatch(second);
+        await WaitUntilAsync(() => navigator.Calls.Count == 3);
+
+        Assert.Equal([first, first, second], navigator.Calls);
         Assert.False(runtimeDispatcher.HasPendingRequests);
     }
 

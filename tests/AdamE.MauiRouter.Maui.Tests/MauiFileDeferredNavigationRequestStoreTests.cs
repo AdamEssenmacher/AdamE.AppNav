@@ -112,6 +112,57 @@ public sealed class MauiFileDeferredNavigationRequestStoreTests
         }
     }
 
+#if IOS
+    [Fact(Skip = IosSkipReason)]
+#else
+    [Fact]
+#endif
+    public async Task HasDeferredRequestsAsync_RetriesLoadAfterMalformedJsonIsCorrectedOnSameInstance()
+    {
+        var routes = RouteTable.Create(builder => builder.MapRoute<TestRoute>("/stores/{id}"));
+        var directory = CreateStoreDirectory();
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "deferred-requests.json");
+
+        try
+        {
+            await File.WriteAllTextAsync(path, "{not-json");
+            var store = new MauiFileDeferredNavigationRequestStore(
+                routes,
+                new MauiFileDeferredNavigationRequestStoreOptions
+                {
+                    Path = path,
+                    BaseUri = BaseUri
+                });
+
+            await Assert.ThrowsAsync<JsonException>(() => store.HasDeferredRequestsAsync().AsTask());
+
+            var serializer = new DeferredNavigationRequestSerializer(
+                routes,
+                new DeferredNavigationRequestPersistenceOptions
+                {
+                    BaseUri = BaseUri
+                });
+            var request = RouterNavigationRequest.FromRoute(new TestRoute("northwind"), NavigationRequestSource.AppLink);
+            var snapshot = serializer.CreateSnapshot([request]);
+            await File.WriteAllTextAsync(path, JsonSerializer.Serialize(snapshot));
+
+            Assert.True(await store.HasDeferredRequestsAsync());
+            var restored = await store.TryDequeueAsync();
+            Assert.NotNull(restored);
+            Assert.Equal(request.Route, restored.Route);
+            Assert.Equal(request.Source, restored.Source);
+            Assert.Equal(request.WindowId, restored.WindowId);
+            Assert.Equal(request.Disposition, restored.Disposition);
+            Assert.Equal(request.Uri, restored.Uri);
+            Assert.Empty(restored.Metadata);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     private static string CreateStoreDirectory()
     {
 #if IOS || MACCATALYST || ANDROID
