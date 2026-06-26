@@ -317,11 +317,26 @@ public sealed class MauiRouterStartupServiceTests
             BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(method);
 
-        var task = method!.Invoke(
+        var invocationResult = method!.Invoke(
             startup,
             [window, "main", CancellationToken.None]);
 
-        return Assert.IsType<Task<MauiRouterStartupResult>>(task);
+        return AsStartupTask(invocationResult);
+    }
+
+    private static Task<MauiRouterStartupResult> AsStartupTask(object? invocationResult)
+    {
+        if (invocationResult is Task<MauiRouterStartupResult> task)
+        {
+            return task;
+        }
+
+        var reflectedTask = invocationResult?
+            .GetType()
+            .GetProperty("Task", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?
+            .GetValue(invocationResult);
+
+        return Assert.IsAssignableFrom<Task<MauiRouterStartupResult>>(reflectedTask);
     }
 
     private sealed record TestRoute(string Id) : AppRoute;
