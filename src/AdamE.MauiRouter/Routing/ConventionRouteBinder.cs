@@ -7,6 +7,8 @@ namespace AdamE.MauiRouter.Routing;
 internal sealed class ConventionRouteBinder<TRoute>
     where TRoute : AppRoute
 {
+    private static readonly NullabilityInfoContext NullabilityContext = new();
+
     private readonly RouteTemplate _template;
     private readonly ConstructorInfo _constructor;
     private readonly IReadOnlyList<ConstructorArgument> _arguments;
@@ -41,6 +43,7 @@ internal sealed class ConventionRouteBinder<TRoute>
         var pathProperties = BindPathProperties(template, properties);
         ValidateQueryBindings(builder.QueryBindings, properties, pathProperties);
         var constructor = SelectConstructor(template, builder.QueryBindings);
+        ValidateQueryBoundConstructorParameters(constructor, builder.QueryBindings);
         var arguments = BindConstructorArguments(constructor, template, builder.QueryBindings);
 
         return new ConventionRouteBinder<TRoute>(
@@ -219,6 +222,34 @@ internal sealed class ConventionRouteBinder<TRoute>
         return candidates[0].Constructor;
     }
 
+    private static void ValidateQueryBoundConstructorParameters(
+        ConstructorInfo constructor,
+        IReadOnlyList<ConventionQueryBinding> queryBindings)
+    {
+        if (queryBindings.Count == 0)
+        {
+            return;
+        }
+
+        var queryBindingsByPropertyName = queryBindings.ToDictionary(
+            static binding => binding.Property.Name,
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var parameter in constructor.GetParameters())
+        {
+            if (!queryBindingsByPropertyName.TryGetValue(parameter.Name!, out var queryBinding) ||
+                IsMissingSafeQueryParameter(parameter))
+            {
+                continue;
+            }
+
+            throw new InvalidOperationException(
+                $"Convention query binding '{queryBinding.QueryName}' on route type '{typeof(TRoute).FullName}' " +
+                $"targets constructor parameter '{parameter.Name}', but query values are always optional. " +
+                "Make the parameter nullable or provide a default value.");
+        }
+    }
+
     private static IReadOnlySet<string> GetRequiredConstructorNames(
         RouteTemplate template,
         IReadOnlyList<ConventionQueryBinding> queryBindings)
@@ -254,6 +285,26 @@ internal sealed class ConventionRouteBinder<TRoute>
             requiredNames.Contains(parameter.Name!) ||
             parameter.HasDefaultValue ||
             parameter.IsOptional);
+    }
+
+    private static bool IsMissingSafeQueryParameter(ParameterInfo parameter)
+    {
+        if (parameter.HasDefaultValue || parameter.IsOptional)
+        {
+            return true;
+        }
+
+        if (Nullable.GetUnderlyingType(parameter.ParameterType) is not null)
+        {
+            return true;
+        }
+
+        if (parameter.ParameterType.IsValueType)
+        {
+            return false;
+        }
+
+        return NullabilityContext.Create(parameter).ReadState == NullabilityState.Nullable;
     }
 
     private static IReadOnlyList<ConstructorArgument> BindConstructorArguments(

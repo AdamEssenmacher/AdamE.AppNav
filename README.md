@@ -1072,7 +1072,7 @@ Custom constraints are treated conservatively during ambiguity validation. Equal
 Route matching uses deterministic precedence:
 
 ```text
-literal > constrained parameter > unconstrained parameter > optional parameter > catch-all
+literal > constrained parameter (including constrained optional parameter) > unconstrained parameter > unconstrained optional parameter > catch-all
 ```
 
 Exact shorter routes win over broader optional or catch-all routes when both can match the same URL. For example, `/docs` wins over `/docs/{*path}` for `/docs`, and `/stores/{storeId}` wins over `/stores/{storeId}/{section?}` for `/stores/northwind`. Registration order is only a final tie-breaker for non-ambiguous routes.
@@ -1113,6 +1113,10 @@ format => format
 By default, `QueryParam` omits null values. To emit empty values, pass `omitWhenNull: false`.
 
 If the formatter returns an enumerable value, `QueryParam` formats repeated keys. Strings are treated as scalar values.
+
+### Convention Routes
+
+`MapRoute<TRoute>` binds path parameters by member name and can bind query values with `Query(...)`. Because query values are always optional, any constructor parameter reached through a convention query binding must be nullable or provide a default value.
 
 ```csharp
 public sealed record SearchRoute(string StoreId, IReadOnlyList<string> Tags) : AppRoute;

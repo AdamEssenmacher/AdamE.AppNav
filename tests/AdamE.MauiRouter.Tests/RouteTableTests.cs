@@ -156,6 +156,24 @@ public sealed class RouteTableTests
     }
 
     [Fact]
+    public void ConstrainedOptionalRoutesBeatUnconstrainedRequiredRoutes()
+    {
+        var table = RouteTable.Create(routes => routes
+            .Map(
+                "/products/{slug}",
+                match => new ProductSlugRoute(match.Path("slug")),
+                format => format.PathParam("slug", route => route.Slug))
+            .Map(
+                "/products/{productId:int?}",
+                match => new OptionalProductRoute(match.PathOptional<int>("productId")),
+                format => format.PathParam("productId", route => route.ProductId)));
+
+        Assert.Equal(new OptionalProductRoute(123), table.Match(new Uri("/products/123", UriKind.Relative)).Route);
+        Assert.Equal(new ProductSlugRoute("abc"), table.Match(new Uri("/products/abc", UriKind.Relative)).Route);
+        Assert.Equal(new OptionalProductRoute(null), table.Match(new Uri("/products", UriKind.Relative)).Route);
+    }
+
+    [Fact]
     public void CatchAllPathParamsCaptureAndFormatRemainingPath()
     {
         var table = RouteTable.Create(routes => routes.Map(
@@ -226,6 +244,26 @@ public sealed class RouteTableTests
         Assert.Equal(
             "/stores/northwind/products/123",
             table.Format(new ConventionProductRoute("northwind", 123, null)));
+    }
+
+    [Fact]
+    public void ConventionRouteMapsDefaultedQueryRoute()
+    {
+        var table = RouteTable.Create(routes => routes.MapRoute<ConventionDefaultedQueryRoute>(
+            "/stores/{storeId}",
+            route => route.Query(value => value.Page)));
+
+        var withQuery = table.Match(new Uri("/stores/northwind?page=7", UriKind.Relative));
+        var withoutQuery = table.Match(new Uri("/stores/northwind", UriKind.Relative));
+
+        Assert.Equal(new ConventionDefaultedQueryRoute("northwind", 7), withQuery.Route);
+        Assert.Equal(new ConventionDefaultedQueryRoute("northwind"), withoutQuery.Route);
+        Assert.Equal(
+            "/stores/northwind?page=7",
+            table.Format(new ConventionDefaultedQueryRoute("northwind", 7)));
+        Assert.Equal(
+            "/stores/northwind?page=1",
+            table.Format(new ConventionDefaultedQueryRoute("northwind")));
     }
 
     [Fact]
@@ -442,6 +480,42 @@ public sealed class RouteTableTests
     }
 
     [Fact]
+    public void ConventionRouteRejectsNonNullableReferenceTypeQueryConstructorParameterAtRegistration()
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() => RouteTable.Create(routes =>
+            routes.MapRoute<RequiredReferenceQueryRoute>(
+                "/stores/{storeId}",
+                route => route.Query(value => value.Variant, "variant"))));
+
+        Assert.Contains("query values are always optional", exception.Message);
+        Assert.Contains("nullable or provide a default value", exception.Message);
+    }
+
+    [Fact]
+    public void ConventionRouteRejectsNonNullableValueTypeQueryConstructorParameterAtRegistration()
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() => RouteTable.Create(routes =>
+            routes.MapRoute<RequiredValueQueryRoute>(
+                "/stores/{storeId}",
+                route => route.Query(value => value.Page))));
+
+        Assert.Contains("query values are always optional", exception.Message);
+        Assert.Contains("nullable or provide a default value", exception.Message);
+    }
+
+    [Fact]
+    public void ConventionRouteRejectsObliviousReferenceTypeQueryConstructorParameterAtRegistration()
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() => RouteTable.Create(routes =>
+            routes.MapRoute<ObliviousQueryRoute>(
+                "/stores/{storeId}",
+                route => route.Query(value => value.Variant, "variant"))));
+
+        Assert.Contains("query values are always optional", exception.Message);
+        Assert.Contains("nullable or provide a default value", exception.Message);
+    }
+
+    [Fact]
     public void ConventionRouteRejectsUnsupportedQueryExpressionAtRegistration()
     {
         Assert.Throws<InvalidOperationException>(() => RouteTable.Create(routes =>
@@ -557,6 +631,20 @@ public sealed class RouteTableTests
                 $"/values/{{value:{rightConstraint}}}",
                 match => new RightConstrainedRoute(match.Path("value")),
                 format => format.PathParam("value", route => route.Value))));
+    }
+
+    [Fact]
+    public void OverlappingConstrainedRequiredAndOptionalTemplatesAreRejected()
+    {
+        Assert.Throws<InvalidOperationException>(() => RouteTable.Create(routes => routes
+            .Map(
+                "/{id:int}",
+                match => new RequiredProductIdRoute(match.Path<int>("id")),
+                format => format.PathParam("id", route => route.ProductId))
+            .Map(
+                "/{id:int?}",
+                match => new OptionalProductRoute(match.PathOptional<int>("id")),
+                format => format.PathParam("id", route => route.ProductId))));
     }
 
     [Fact]
@@ -713,6 +801,10 @@ public sealed class RouteTableTests
 
     private sealed record OptionalProductRoute(int? ProductId) : AppRoute;
 
+    private sealed record RequiredProductIdRoute(int ProductId) : AppRoute;
+
+    private sealed record ProductSlugRoute(string Slug) : AppRoute;
+
     private sealed record DocsRoute(string Path) : AppRoute;
 
     private sealed record DocsIndexRoute : AppRoute;
@@ -727,12 +819,22 @@ public sealed class RouteTableTests
 
     private sealed record ConventionProductRoute(string StoreId, int ProductId, string? Variant = null) : AppRoute;
 
+    private sealed record ConventionDefaultedQueryRoute(string StoreId, int Page = 1) : AppRoute;
+
     private sealed record ConventionQueryRoute(
         string StoreId,
         string? MissionId = null,
         string? CoverImageDraftId = null) : AppRoute;
 
     private sealed record ConventionAcronymQueryRoute(string Value, string? QRValue = null) : AppRoute;
+
+    private sealed record RequiredReferenceQueryRoute(string StoreId, string Variant) : AppRoute;
+
+    private sealed record RequiredValueQueryRoute(string StoreId, int Page) : AppRoute;
+
+#nullable disable
+    private sealed record ObliviousQueryRoute(string StoreId, string Variant) : AppRoute;
+#nullable restore
 
     private sealed record MissingPathMemberRoute(string Id) : AppRoute;
 
