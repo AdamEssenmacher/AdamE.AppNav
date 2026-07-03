@@ -385,9 +385,9 @@ public sealed class RouteTemplate
         public int Precedence =>
             Literal is not null ? 5 :
             Constraint is not null ? 4 :
+            IsCatchAll ? 1 :
             !IsOptional ? 3 :
-            !IsCatchAll ? 2 :
-            1;
+            2;
 
         public static TemplateSegment ForLiteral(string value) => new(value, null, null, false, false);
 

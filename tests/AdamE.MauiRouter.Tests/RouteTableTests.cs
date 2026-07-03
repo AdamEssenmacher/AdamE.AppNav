@@ -578,6 +578,23 @@ public sealed class RouteTableTests
     }
 
     [Fact]
+    public void RequiredParameterRoutesCanCoexistWithCatchAllRoutes()
+    {
+        var table = RouteTable.Create(routes => routes
+            .Map(
+                "/docs/{*path}",
+                match => new DocsRoute(match.Path("path")),
+                format => format.PathParam("path", route => route.Path))
+            .Map(
+                "/docs/{section}",
+                match => new ValueRoute(match.Path("section")),
+                format => format.PathParam("section", route => route.Value)));
+
+        Assert.Equal(new ValueRoute("guide"), table.Match(new Uri("/docs/guide", UriKind.Relative)).Route);
+        Assert.Equal(new DocsRoute("guides/install"), table.Match(new Uri("/docs/guides/install", UriKind.Relative)).Route);
+    }
+
+    [Fact]
     public void DuplicateTemplatesAreRejected()
     {
         Assert.Throws<InvalidOperationException>(() => RouteTable.Create(routes => routes
