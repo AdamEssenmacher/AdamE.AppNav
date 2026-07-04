@@ -51,45 +51,6 @@ public static class MauiRouterServiceCollectionExtensions
         return services;
     }
 
-    internal static IServiceCollection AddMauiRouter(
-        this IServiceCollection services,
-        RouteTable routes,
-        Action<MauiRouterPlannerOptions> configurePlanners,
-        Action<MauiRoutePageRegistry>? configurePages = null)
-    {
-        ArgumentNullException.ThrowIfNull(services);
-        ArgumentNullException.ThrowIfNull(routes);
-        ArgumentNullException.ThrowIfNull(configurePlanners);
-
-        var plannerOptions = new MauiRouterPlannerOptions();
-        configurePlanners(plannerOptions);
-        if (plannerOptions.Registrations.Count == 0)
-        {
-            throw new InvalidOperationException("At least one typed app route planner must be registered.");
-        }
-
-        services.AddMauiRouterCoreServices(routes);
-        if (configurePages is not null)
-        {
-            services.AddMauiRouterPages(configurePages);
-        }
-
-        foreach (var registration in plannerOptions.Registrations)
-        {
-            services.AddSingleton(
-                typeof(IAppRoutePlanner<>).MakeGenericType(registration.RouteType),
-                registration.PlannerType);
-            services.AddSingleton(
-                typeof(IAppRoutePlannerRegistration),
-                typeof(AppRoutePlannerRegistration<>).MakeGenericType(registration.RouteType));
-        }
-
-        services.AddSingleton<IAppNavigationPlanner, TypedAppNavigationPlanner>();
-        services.AddMauiRouterRuntime();
-
-        return services;
-    }
-
     public static IServiceCollection AddMauiRouterFileDeferredNavigationRequests(
         this IServiceCollection services,
         Action<MauiFileDeferredNavigationRequestStoreOptions>? configure = null)
@@ -166,7 +127,7 @@ public static class MauiRouterServiceCollectionExtensions
         services.AddMauiRouterPresentationServices();
         services.TryAddSingleton(provider =>
         {
-            var options = new RouterNavigatorOptions
+            var options = new RouterNavigatorFactoryOptions
             {
                 Diagnostics = provider.GetRequiredService<NavigationDiagnostics>(),
                 BackNavigator = provider.GetRequiredService<IBackNavigator>(),
@@ -176,15 +137,16 @@ public static class MauiRouterServiceCollectionExtensions
                 PlanPolicies = provider.GetServices<INavigationPlanPolicy>().ToArray()
             };
 
-            return new RouterNavigator(
-                provider.GetRequiredService<RouteTable>(),
-                provider.GetRequiredService<IAppNavigationPlanner>(),
-                provider.GetRequiredService<MauiNavigationPresenter>(),
-                options);
+            return new CoreRouterNavigator(
+                RouterNavigatorFactory.Create(
+                    provider.GetRequiredService<RouteTable>(),
+                    provider.GetRequiredService<IAppNavigationPlanner>(),
+                    provider.GetRequiredService<MauiNavigationPresenter>(),
+                    options));
         });
         services.TryAddSingleton<IMauiRouterRuntime>(provider =>
             new MauiRouterRuntime(
-                provider.GetRequiredService<RouterNavigator>(),
+                provider.GetRequiredService<CoreRouterNavigator>().Navigator,
                 provider.GetRequiredService<MauiNavigationPresenter>()));
         services.TryAddSingleton<IRouterNavigator>(provider => provider.GetRequiredService<IMauiRouterRuntime>());
         services.TryAddSingleton<IMauiWindowAttachment>(provider =>
@@ -224,6 +186,11 @@ public static class MauiRouterServiceCollectionExtensions
         }
 
         return options;
+    }
+
+    private sealed class CoreRouterNavigator(IRouterNavigator navigator)
+    {
+        public IRouterNavigator Navigator { get; } = navigator ?? throw new ArgumentNullException(nameof(navigator));
     }
 
     private interface IMauiRoutePageContributor

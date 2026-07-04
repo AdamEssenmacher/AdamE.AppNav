@@ -59,7 +59,7 @@ public sealed class MauiRouterNavigatorRegistrationTests
     }
 
     [Fact]
-    public void AddMauiRouterDiscoversPoliciesAndBackNavigatorFromDi()
+    public async Task AddMauiRouterDiscoversPoliciesAndBackNavigatorFromDi()
     {
         var services = new ServiceCollection();
         var requestPolicy = new RecordingRequestPolicy();
@@ -69,16 +69,21 @@ public sealed class MauiRouterNavigatorRegistrationTests
         services.AddSingleton<INavigationPlanPolicy>(planPolicy);
         services.AddSingleton<IBackNavigator>(backNavigator);
 
-        services.AddMauiRouter<ThrowingPlanner>(
+        services.AddMauiRouter<RecordingPlanner>(
             Routes(),
             pages => pages.MapPage<TestRoute>((_, _) => new TestPage()));
 
         using var provider = services.BuildServiceProvider();
-        var navigator = provider.GetRequiredService<RouterNavigator>();
+        var navigator = provider.GetRequiredService<IRouterNavigator>();
 
-        Assert.Contains(requestPolicy, ReadField<IReadOnlyList<INavigationRequestPolicy>>(navigator, "_requestPolicies"));
-        Assert.Contains(planPolicy, ReadField<IReadOnlyList<INavigationPlanPolicy>>(navigator, "_planPolicies"));
-        Assert.Same(backNavigator, ReadField<IBackNavigator>(navigator, "_backNavigator"));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            navigator.NavigateAsync(new TestRoute("registered"), NavigationRequestSource.Test).AsTask());
+        await navigator.BackAsync();
+
+        Assert.Equal(RecordingPlanPolicy.ExceptionMessage, exception.Message);
+        Assert.Equal(1, requestPolicy.ApplyCount);
+        Assert.Equal(1, planPolicy.ApplyCount);
+        Assert.Equal(1, backNavigator.CreateCount);
     }
 
     [Fact]
@@ -138,13 +143,6 @@ public sealed class MauiRouterNavigatorRegistrationTests
         });
     }
 
-    private static TField ReadField<TField>(object instance, string fieldName)
-    {
-        var field = instance.GetType().GetField(fieldName, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-        Assert.NotNull(field);
-        return Assert.IsAssignableFrom<TField>(field!.GetValue(instance));
-    }
-
     private sealed record TestRoute(string Id) : AppRoute;
 
     private sealed record InlineRoute(string Id) : AppRoute;
@@ -167,32 +165,53 @@ public sealed class MauiRouterNavigatorRegistrationTests
         }
     }
 
+    private sealed class RecordingPlanner : IAppNavigationPlanner
+    {
+        public ValueTask<NavigationPlan> CreatePlanAsync(
+            NavigationPlanningContext context,
+            CancellationToken cancellationToken = default)
+        {
+            return ValueTask.FromResult(new NavigationPlan(NavigationState.Empty));
+        }
+    }
+
     private sealed class RecordingRequestPolicy : INavigationRequestPolicy
     {
+        public int ApplyCount { get; private set; }
+
         public ValueTask<RouterNavigationRequest> ApplyAsync(
             NavigationRequestPolicyContext context,
             RouterNavigationRequest request,
             CancellationToken cancellationToken = default)
         {
+            ApplyCount++;
             return ValueTask.FromResult(request);
         }
     }
 
     private sealed class RecordingPlanPolicy : INavigationPlanPolicy
     {
+        public const string ExceptionMessage = "Plan policy invoked.";
+
+        public int ApplyCount { get; private set; }
+
         public ValueTask<NavigationPlan> ApplyAsync(
             NavigationPlanPolicyContext context,
             NavigationPlan plan,
             CancellationToken cancellationToken = default)
         {
-            return ValueTask.FromResult(plan);
+            ApplyCount++;
+            throw new InvalidOperationException(ExceptionMessage);
         }
     }
 
     private sealed class RecordingBackNavigator : IBackNavigator
     {
+        public int CreateCount { get; private set; }
+
         public NavigationPlan? CreateBackPlan(NavigationState state, string? windowId = null)
         {
+            CreateCount++;
             return null;
         }
     }

@@ -106,6 +106,18 @@ public sealed class RepositoryContractTests
     }
 
     [Fact]
+    public void CoreAssemblyDoesNotExposeInternalsToProductionMauiAdapter()
+    {
+        var assemblyInfo = File.ReadAllText(
+            Path.Combine(RepositoryRoot(), "src", "AdamE.MauiRouter", "AssemblyInfo.cs"));
+
+        Assert.DoesNotContain(
+            "InternalsVisibleTo(\"AdamE.MauiRouter.Maui\")",
+            assemblyInfo,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AppLinkHelpersCreateAppLinkRequests()
     {
         var appLinksDirectory = Path.Combine(RepositoryRoot(), "src", "AdamE.MauiRouter.Maui");

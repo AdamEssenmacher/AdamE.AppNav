@@ -19,7 +19,7 @@ internal interface IMauiRouterRuntime : IRouterNavigator
 }
 
 internal sealed class MauiRouterRuntime(
-    RouterNavigator navigator,
+    IRouterNavigator navigator,
     MauiNavigationPresenter presenter)
     : IMauiRouterRuntime, IMauiWindowAttachment
 {
