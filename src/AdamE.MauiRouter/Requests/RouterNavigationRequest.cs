@@ -18,7 +18,7 @@ public sealed record RouterNavigationRequest
         Route = route;
         Source = source;
         WindowId = windowId;
-        Metadata = metadata ?? CollectionSnapshot.Dictionary(null);
+        Metadata = metadata ?? CollectionSnapshot.MetadataDictionary(null);
         Timestamp = timestamp ?? DateTimeOffset.UtcNow;
         Disposition = disposition;
         Provenance = provenance;
@@ -32,12 +32,12 @@ public sealed record RouterNavigationRequest
 
     public string? WindowId { get; init; }
 
-    private IReadOnlyDictionary<string, object?> _metadata = CollectionSnapshot.Dictionary(null);
+    private IReadOnlyDictionary<string, object?> _metadata = CollectionSnapshot.MetadataDictionary(null);
 
     public IReadOnlyDictionary<string, object?> Metadata
     {
         get => _metadata;
-        init => _metadata = CollectionSnapshot.Dictionary(value);
+        init => _metadata = CollectionSnapshot.MetadataDictionary(value);
     }
 
     public DateTimeOffset Timestamp { get; init; }

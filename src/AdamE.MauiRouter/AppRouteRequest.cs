@@ -8,7 +8,7 @@ namespace AdamE.MauiRouter;
 /// </summary>
 public sealed record AppRouteRequest
 {
-    private IReadOnlyDictionary<string, object?> _metadata = CollectionSnapshot.Dictionary(null);
+    private IReadOnlyDictionary<string, object?> _metadata = CollectionSnapshot.MetadataDictionary(null);
 
     /// <summary>
     /// Creates an application route request for the supplied route and optional metadata.
@@ -18,7 +18,7 @@ public sealed record AppRouteRequest
         IReadOnlyDictionary<string, object?>? metadata = null)
     {
         Route = route ?? throw new ArgumentNullException(nameof(route));
-        Metadata = metadata ?? CollectionSnapshot.Dictionary(null);
+        Metadata = metadata ?? CollectionSnapshot.MetadataDictionary(null);
     }
 
     /// <summary>
@@ -32,7 +32,7 @@ public sealed record AppRouteRequest
     public IReadOnlyDictionary<string, object?> Metadata
     {
         get => _metadata;
-        init => _metadata = CollectionSnapshot.Dictionary(value);
+        init => _metadata = CollectionSnapshot.MetadataDictionary(value);
     }
 
     /// <summary>

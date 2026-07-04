@@ -32,6 +32,6 @@ public sealed record StackRouteStep<TRoute>
     public IReadOnlyDictionary<string, object?>? Metadata
     {
         get => _metadata;
-        init => _metadata = CollectionSnapshot.NullableDictionary(value);
+        init => _metadata = CollectionSnapshot.NullableMetadataDictionary(value);
     }
 }

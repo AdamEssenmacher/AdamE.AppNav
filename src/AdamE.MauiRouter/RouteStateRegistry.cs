@@ -4,7 +4,7 @@ namespace AdamE.MauiRouter;
 
 public sealed class RouteStateRegistry
 {
-    private static readonly IReadOnlyDictionary<string, object?> EmptyMetadata = CollectionSnapshot.Dictionary(null);
+    private static readonly IReadOnlyDictionary<string, object?> EmptyMetadata = CollectionSnapshot.MetadataDictionary(null);
     private readonly IReadOnlyDictionary<string, RouteStateRegistration> _registrations;
 
     internal RouteStateRegistry(IReadOnlyDictionary<string, RouteStateRegistration> registrations)
