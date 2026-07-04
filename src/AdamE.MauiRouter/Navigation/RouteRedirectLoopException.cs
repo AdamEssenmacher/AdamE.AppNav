@@ -1,24 +1,38 @@
 using AdamE.MauiRouter.Requests;
+using JetBrains.Annotations;
 
 namespace AdamE.MauiRouter.Navigation;
 
-public sealed class RouteRedirectLoopException : Exception
+/// <summary>
+/// Represents a request-policy redirect chain that exceeded the router's redirect limit or repeated a prior target.
+/// </summary>
+/// <param name="initialRequest">The navigation request that started redirect evaluation.</param>
+/// <param name="lastRequest">The final redirect target that caused loop detection or exceeded the redirect limit.</param>
+/// <param name="redirects">The redirect targets followed after the initial request.</param>
+/// <param name="message">The message that describes why redirect evaluation failed.</param>
+/// <remarks>
+/// The router throws this exception before mutating navigation state or history when request policies
+/// cannot produce a stable target. Inspect <see cref="Redirects"/> to diagnose the redirect chain.
+/// </remarks>
+public sealed class RouteRedirectLoopException(
+    RouterNavigationRequest initialRequest,
+    RouterNavigationRequest lastRequest,
+    IReadOnlyList<RouterNavigationRequest> redirects,
+    string message)
+    : Exception(message)
 {
-    public RouteRedirectLoopException(
-        RouterNavigationRequest initialRequest,
-        RouterNavigationRequest lastRequest,
-        IReadOnlyList<RouterNavigationRequest> redirects,
-        string message)
-        : base(message)
-    {
-        InitialRequest = initialRequest;
-        LastRequest = lastRequest;
-        Redirects = redirects.ToArray();
-    }
+    /// <summary>
+    /// Gets the navigation request that started redirect evaluation.
+    /// </summary>
+    [UsedImplicitly] public RouterNavigationRequest InitialRequest { get; } = initialRequest;
 
-    public RouterNavigationRequest InitialRequest { get; }
+    /// <summary>
+    /// Gets the redirect target that caused loop detection or exceeded the redirect limit.
+    /// </summary>
+    [UsedImplicitly] public RouterNavigationRequest LastRequest { get; } = lastRequest;
 
-    public RouterNavigationRequest LastRequest { get; }
-
-    public IReadOnlyList<RouterNavigationRequest> Redirects { get; }
+    /// <summary>
+    /// Gets the redirect targets followed after the initial request.
+    /// </summary>
+    [UsedImplicitly] public IReadOnlyList<RouterNavigationRequest> Redirects { get; } = redirects.ToArray();
 }

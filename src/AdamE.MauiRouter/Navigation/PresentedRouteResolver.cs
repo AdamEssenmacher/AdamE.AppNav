@@ -11,9 +11,11 @@ internal static class PresentedRouteResolver
             return null;
         }
 
+        // Modals are presented above the root navigation surface. The most recent modal is the
+        // visible route unless it hosts nested navigation content with its own visible route.
         if (window.Modals.Count > 0)
         {
-            var modal = window.Modals[^1];
+            ModalNode modal = window.Modals[^1];
             return modal.Content is null
                 ? modal.RouteEntry.Route
                 : FindTopRoute(modal.Content) ?? modal.RouteEntry.Route;
@@ -24,11 +26,13 @@ internal static class PresentedRouteResolver
 
     private static AppRoute? FindTopRoute(NavigationNode? node)
     {
+        // Walk through container nodes until reaching the route entry that best represents what
+        // the user sees. A modal's own route remains the fallback when its nested content is empty.
         return node switch
         {
             StackNode stack => stack.Top?.Route,
-            TabsNode tabs when tabs.SelectedBranch is not null => FindTopRoute(tabs.SelectedBranch.Content),
-            FlyoutNode flyout when flyout.SelectedBranch is not null => FindTopRoute(flyout.SelectedBranch.Content),
+            TabsNode { SelectedBranch: not null } tabs => FindTopRoute(tabs.SelectedBranch.Content),
+            FlyoutNode { SelectedBranch: not null } flyout => FindTopRoute(flyout.SelectedBranch.Content),
             ModalNode modal => modal.Content is null
                 ? modal.RouteEntry.Route
                 : FindTopRoute(modal.Content) ?? modal.RouteEntry.Route,
