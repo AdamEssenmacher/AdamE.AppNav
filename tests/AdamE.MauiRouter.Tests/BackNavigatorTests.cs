@@ -195,169 +195,97 @@ public sealed class BackNavigatorTests
     }
 
     [Fact]
-    public void BackReturnsToDefaultTabWhenSelectedStackCannotPop()
+    public void BackReturnsToDefaultBranchWhenSelectedStackCannotPop()
     {
         var state = new NavigationState(new[]
         {
             new WindowNode(
                 "main",
-                new TabsNode(
-                    "tabs",
+                new BranchHostNode(
+                    "branchHost",
                     new[]
                     {
                         new NavigationBranch("overview", "Overview", Stack("overview-stack", new TestRoute("overview"))),
                         new NavigationBranch("catalog", "Catalog", Stack("catalog-stack", new TestRoute("catalog")))
                     },
-                    SelectedTabId: "catalog",
-                    DefaultTabId: "overview"))
+                    SelectedBranchId: "catalog",
+                    DefaultBranchId: "overview"))
         }, "main");
 
         var plan = new DefaultBackNavigator().CreateBackPlan(state);
 
-        var tabs = Assert.IsType<TabsNode>(plan!.TargetState.ActiveWindow!.Root);
-        Assert.Equal("overview", tabs.SelectedTabId);
+        var branchHost = Assert.IsType<BranchHostNode>(plan!.TargetState.ActiveWindow!.Root);
+        Assert.Equal("overview", branchHost.SelectedBranchId);
     }
 
     [Fact]
-    public void BackPopsSelectedTabStackBeforeReturningToDefaultTab()
+    public void BackPopsSelectedBranchStackBeforeReturningToDefaultBranch()
     {
         var state = new NavigationState(new[]
         {
             new WindowNode(
                 "main",
-                new TabsNode(
-                    "tabs",
+                new BranchHostNode(
+                    "branchHost",
                     new[]
                     {
                         Branch("overview", Stack("overview-stack", new TestRoute("overview"))),
                         Branch("catalog", Stack("catalog-stack", new TestRoute("catalog"), new TestRoute("product")))
                     },
-                    SelectedTabId: "catalog",
-                    DefaultTabId: "overview"))
+                    SelectedBranchId: "catalog",
+                    DefaultBranchId: "overview"))
         }, "main");
 
         var plan = new DefaultBackNavigator().CreateBackPlan(state);
 
-        var tabs = Assert.IsType<TabsNode>(plan!.TargetState.ActiveWindow!.Root);
-        var catalogStack = Assert.IsType<StackNode>(tabs.SelectedBranch!.Content);
-        Assert.Equal("catalog", tabs.SelectedTabId);
+        var branchHost = Assert.IsType<BranchHostNode>(plan!.TargetState.ActiveWindow!.Root);
+        var catalogStack = Assert.IsType<StackNode>(branchHost.SelectedBranch!.Content);
+        Assert.Equal("catalog", branchHost.SelectedBranchId);
         Assert.Single(catalogStack.Entries);
         Assert.Equal("catalog", ((TestRoute)catalogStack.Top!.Route).Value);
     }
 
     [Fact]
-    public void BackDoesNotReturnToDefaultTabWhenTabFallbackIsDisabled()
+    public void BackDoesNotReturnToDefaultBranchWhenBranchFallbackIsDisabled()
     {
         var state = new NavigationState(new[]
         {
             new WindowNode(
                 "main",
-                new TabsNode(
-                    "tabs",
+                new BranchHostNode(
+                    "branchHost",
                     new[]
                     {
                         Branch("overview", Stack("overview-stack", new TestRoute("overview"))),
                         Branch("catalog", Stack("catalog-stack", new TestRoute("catalog")))
                     },
-                    SelectedTabId: "catalog",
-                    DefaultTabId: "overview"))
+                    SelectedBranchId: "catalog",
+                    DefaultBranchId: "overview"))
         }, "main");
 
         var plan = new DefaultBackNavigator(new BackNavigationOptions
         {
-            ReturnToDefaultTabBeforeLeaving = false
+            ReturnToDefaultBranchBeforeLeaving = false
         }).CreateBackPlan(state);
 
         Assert.Null(plan);
     }
 
     [Fact]
-    public void BackDoesNotReturnToMissingDefaultTab()
+    public void BackDoesNotReturnToMissingDefaultBranch()
     {
         var state = new NavigationState(new[]
         {
             new WindowNode(
                 "main",
-                new TabsNode(
-                    "tabs",
+                new BranchHostNode(
+                    "branchHost",
                     new[]
                     {
                         Branch("catalog", Stack("catalog-stack", new TestRoute("catalog")))
                     },
-                    SelectedTabId: "catalog",
-                    DefaultTabId: "missing"))
-        }, "main");
-
-        var plan = new DefaultBackNavigator().CreateBackPlan(state);
-
-        Assert.Null(plan);
-    }
-
-    [Fact]
-    public void BackReturnsToDefaultFlyoutItemWhenSelectedStackCannotPop()
-    {
-        var state = new NavigationState(new[]
-        {
-            new WindowNode(
-                "main",
-                new FlyoutNode(
-                    "flyout",
-                    new[]
-                    {
-                        Branch("overview", Stack("overview-stack", new TestRoute("overview"))),
-                        Branch("catalog", Stack("catalog-stack", new TestRoute("catalog")))
-                    },
-                    SelectedItemId: "catalog",
-                    DefaultItemId: "overview"))
-        }, "main");
-
-        var plan = new DefaultBackNavigator().CreateBackPlan(state);
-
-        var flyout = Assert.IsType<FlyoutNode>(plan!.TargetState.ActiveWindow!.Root);
-        Assert.Equal("overview", flyout.SelectedItemId);
-    }
-
-    [Fact]
-    public void BackDoesNotReturnToDefaultFlyoutItemWhenFlyoutFallbackIsDisabled()
-    {
-        var state = new NavigationState(new[]
-        {
-            new WindowNode(
-                "main",
-                new FlyoutNode(
-                    "flyout",
-                    new[]
-                    {
-                        Branch("overview", Stack("overview-stack", new TestRoute("overview"))),
-                        Branch("catalog", Stack("catalog-stack", new TestRoute("catalog")))
-                    },
-                    SelectedItemId: "catalog",
-                    DefaultItemId: "overview"))
-        }, "main");
-
-        var plan = new DefaultBackNavigator(new BackNavigationOptions
-        {
-            ReturnToDefaultFlyoutItemBeforeLeaving = false
-        }).CreateBackPlan(state);
-
-        Assert.Null(plan);
-    }
-
-    [Fact]
-    public void BackDoesNotReturnToMissingDefaultFlyoutItem()
-    {
-        var state = new NavigationState(new[]
-        {
-            new WindowNode(
-                "main",
-                new FlyoutNode(
-                    "flyout",
-                    new[]
-                    {
-                        Branch("catalog", Stack("catalog-stack", new TestRoute("catalog")))
-                    },
-                    SelectedItemId: "catalog",
-                    DefaultItemId: "missing"))
+                    SelectedBranchId: "catalog",
+                    DefaultBranchId: "missing"))
         }, "main");
 
         var plan = new DefaultBackNavigator().CreateBackPlan(state);

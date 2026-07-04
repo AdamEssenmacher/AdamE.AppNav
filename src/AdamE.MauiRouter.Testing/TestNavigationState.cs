@@ -26,38 +26,21 @@ public static class TestNavigationState
         return new NavigationBranch(id, title, content);
     }
 
-    public static TabsNode Tabs(
+    public static BranchHostNode BranchHost(
         string id,
-        string selectedTabId,
-        string? defaultTabId,
+        string selectedBranchId,
+        string? defaultBranchId,
         params NavigationBranch[] branches)
     {
-        return new TabsNode(id, branches.ToArray(), selectedTabId, defaultTabId);
+        return new BranchHostNode(id, branches.ToArray(), selectedBranchId, defaultBranchId);
     }
 
-    public static TabsNode Tabs(
+    public static BranchHostNode BranchHost(
         string id,
-        string selectedTabId,
+        string selectedBranchId,
         params NavigationBranch[] branches)
     {
-        return new TabsNode(id, branches.ToArray(), selectedTabId);
-    }
-
-    public static FlyoutNode Flyout(
-        string id,
-        string selectedItemId,
-        string? defaultItemId,
-        params NavigationBranch[] branches)
-    {
-        return new FlyoutNode(id, branches.ToArray(), selectedItemId, defaultItemId);
-    }
-
-    public static FlyoutNode Flyout(
-        string id,
-        string selectedItemId,
-        params NavigationBranch[] branches)
-    {
-        return new FlyoutNode(id, branches.ToArray(), selectedItemId);
+        return new BranchHostNode(id, branches.ToArray(), selectedBranchId);
     }
 
     public static ModalNode Modal(

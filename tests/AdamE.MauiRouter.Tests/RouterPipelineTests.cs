@@ -26,10 +26,10 @@ public sealed class RouterPipelineTests
         Assert.Equal(123, route.ProductId);
 
         var window = result.State.ActiveWindow!;
-        var tabs = Assert.IsType<TabsNode>(window.Root);
-        Assert.Equal("catalog", tabs.SelectedTabId);
+        var branchHost = Assert.IsType<BranchHostNode>(window.Root);
+        Assert.Equal("catalog", branchHost.SelectedBranchId);
 
-        var catalogBranch = Assert.Single(tabs.Branches, branch => branch.Id == "catalog");
+        var catalogBranch = Assert.Single(branchHost.Branches, branch => branch.Id == "catalog");
         var catalogStack = Assert.IsType<StackNode>(catalogBranch.Content);
         Assert.Equal(2, catalogStack.Entries.Count);
         Assert.Same(result.Plan, presenter.LastPlan);
@@ -208,8 +208,8 @@ public sealed class RouterPipelineTests
             {
                 new WindowNode(
                     "main",
-                    new TabsNode(
-                        "store-tabs",
+                    new BranchHostNode(
+                        "store-branchHost",
                         new[]
                         {
                             new NavigationBranch(
@@ -228,8 +228,8 @@ public sealed class RouterPipelineTests
                                     new RouteEntry("product-detail", detail)
                                 }))
                         },
-                        SelectedTabId: "catalog",
-                        DefaultTabId: "home"))
+                        SelectedBranchId: "catalog",
+                        DefaultBranchId: "home"))
             }, "main");
 
             return ValueTask.FromResult(new NavigationPlan(state));

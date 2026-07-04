@@ -6,13 +6,13 @@ MAUI's default navigation model inherits a page-first design from Xamarin.Forms,
 
 That distinction holds up less well now. Modern mobile apps receive navigation intent from everywhere: in-app taps, Universal Links, App Links, push notifications, QR codes, restore flows, and deferred replay after sign-in. Those should not require seven different navigation architectures.
 
-AdamE.MauiRouter starts from a different assumption: the durable navigation contract should be a route/URL, not a page push. A URL identifies where the user should be semantically. The app decides how that intent maps to authenticated state, tabs, stacks, modals, and the active MAUI presentation structure. The MAUI adapter then materializes native containers and reconciles native user gestures back into logical state and history.
+AdamE.MauiRouter starts from a different assumption: the durable navigation contract should be a route/URL, not a page push. A URL identifies where the user should be semantically. The app decides how that intent maps to authenticated state, branch hosts, stacks, modals, and the active MAUI presentation structure. The MAUI adapter then materializes native containers and reconciles native user gestures back into logical state and history.
 
 ```text
 https://example.com/stores/northwind/products/123?variant=blue&promo=spring
 
 Route matching  -> ProductDetailRoute("northwind", 123, "blue", "spring")
-App planning    -> store tabs, catalog selected, catalog stack, product detail
+App planning    -> store branch host, catalog selected, catalog stack, product detail
 Presentation    -> real MAUI TabbedPage, NavigationPage stack, ProductDetailPage
 ```
 
@@ -55,7 +55,7 @@ That becomes increasingly painful when navigation needs to answer questions like
 - Is this a cold-start navigation or a warm in-app navigation?
 - Should the route be allowed right now, normalized, redirected, deferred, or rejected?
 - If the user is signed out, should we bounce to login and replay later?
-- Given current app state, which tab, stack, modal, or active host should represent this route?
+- Given current app state, which branch, stack, modal, or active host should represent this route?
 
 MauiRouter keeps those concerns out of page constructors and ad hoc platform glue. It centralizes them in route matching, request policy, app planning, and presentation.
 
@@ -104,7 +104,7 @@ Example:
 3. A request policy validates origin and rewrites any legacy URL shape.
 4. An access policy sees that auth is required, redirects to login, and stores the original request for deferred replay.
 5. After sign-in, app code calls `ReplayAsync()` at the auth boundary.
-6. The planner maps the semantic route into the correct tab, stack, modal, and active presentation structure.
+6. The planner maps the semantic route into the correct branch, stack, modal, and active presentation structure.
 7. The MAUI presenter materializes native pages and preserves platform back behavior.
 
 That is a navigation flow, not just a deep-link flow. MauiRouter is designed to treat it as one system.
@@ -133,7 +133,7 @@ It does not copy `go_router` directly. MAUI still has native container and platf
 - app-owned planning with `IAppNavigationPlanner`
 - native MAUI presentation and bidirectional reconciliation
 
-That extra split is deliberate. It lets the app stay URL-native without pretending that native stacks, tabs, modals, app-link lifecycles, and swipe-back reconciliation do not exist.
+That extra split is deliberate. It lets the app stay URL-native without pretending that native stacks, branch hosts, modals, app-link lifecycles, and swipe-back reconciliation do not exist.
 
 ## Design Rules
 
@@ -239,7 +239,7 @@ public sealed record ProductDetailRoute(
     string? Promo = null) : AppRoute;
 ```
 
-Route matching does not decide tabs, stacks, flyouts, modals, pages, or windows.
+Route matching does not decide branch hosts, stacks, modals, pages, or windows.
 
 ### 2. App Planning
 
@@ -250,8 +250,8 @@ This is app-owned because the app knows how route meaning should map to structur
 ```text
 ProductDetailRoute
   -> WindowNode("main")
-  -> TabsNode("store-tabs")
-  -> selected tab: catalog
+  -> BranchHostNode("store-branchHost")
+  -> selected branch: catalog
   -> StackNode("catalog-stack")
   -> StoreCatalogRoute
   -> ProductDetailRoute
@@ -266,8 +266,8 @@ The MAUI presenter maps structural nodes to native MAUI containers:
 | Navigation node | MAUI surface |
 | --- | --- |
 | `StackNode` | `NavigationPage` |
-| `TabsNode` | `TabbedPage` |
-| `FlyoutNode` | `FlyoutPage` |
+| `BranchHostNode` | `TabbedPage` by default |
+| `BranchHostNode` | `FlyoutPage` when configured with `MapBranchHostAsFlyout(...)` |
 | `ModalNode` | Modal presentation |
 
 Presenters are also bidirectional. Native user events can reconcile back into logical navigation state.
@@ -356,7 +356,7 @@ Route table responsibilities:
 - Validate templates and reject ambiguous overlaps at build time.
 - Stay independent from MAUI pages and native containers.
 
-At this point the app has a URL contract, but no tabs, stacks, pages, auth rules, or platform behavior. Those are deliberately separate.
+At this point the app has a URL contract, but no branch hosts, stacks, pages, auth rules, or platform behavior. Those are deliberately separate.
 
 ### 3. Define Route Metadata
 
@@ -386,7 +386,7 @@ Canonical metadata can affect the durable URL, restorable metadata can survive n
 
 Implement `IAppNavigationPlanner` to turn a typed route into logical navigation state. The planner receives the matched route, the runtime request, current navigation state, and operation id, so app-specific structure decisions stay centralized.
 
-The commerce quick start uses one central planner because several route types share the same tab structure:
+The commerce quick start uses one central planner because several route types share the same branch-host structure:
 
 ```csharp
 using AdamE.MauiRouter;
@@ -402,8 +402,8 @@ public sealed class CommerceNavigationPlanner : IAppNavigationPlanner
     {
         var storeId = GetStoreId(context.Route);
 
-        var root = new TabsNode(
-            "store-tabs",
+        var root = new BranchHostNode(
+            "store-branchHost",
             new[]
             {
                 new NavigationBranch(
@@ -432,8 +432,8 @@ public sealed class CommerceNavigationPlanner : IAppNavigationPlanner
                         Entry("orders", new OrdersRoute(storeId))
                     }))
             },
-            SelectedTabId: GetSelectedTab(context.Route),
-            DefaultTabId: "home");
+            SelectedBranchId: GetSelectedBranch(context.Route),
+            DefaultBranchId: "home");
 
         var state = new NavigationState(
             new[]
@@ -481,7 +481,7 @@ public sealed class CommerceNavigationPlanner : IAppNavigationPlanner
         };
     }
 
-    private static string GetSelectedTab(AppRoute route)
+    private static string GetSelectedBranch(AppRoute route)
     {
         return route switch
         {
@@ -496,7 +496,7 @@ public sealed class CommerceNavigationPlanner : IAppNavigationPlanner
 
 The planner is where app-specific decisions belong:
 
-- Which tab is selected.
+- Which branch is selected.
 - Which stack contains a detail route.
 - Which branches exist.
 - Whether a route opens a modal.
@@ -555,6 +555,7 @@ public static class MauiProgram
 
 `AddMauiRouterStartup` is optional, but recommended for MAUI apps that want the standard cold-start sequence: app links first, then snapshot restore, then fallback navigation, then window attachment.
 If route-owned metadata participates in URL formatting or persistence, keep those keys app-owned in a `RouteStateRegistry` and register that registry with persistence services.
+Branch hosts are materialized as `TabbedPage` by default. Use `pages.MapBranchHostAsFlyout("host-id")` when a specific branch host should render as a MAUI `FlyoutPage`.
 
 ### 6. Create Pages With Route Constructor Parameters
 
@@ -815,7 +816,7 @@ public sealed class SignInCompletionHandler(
 
 ### The Planner Sees Route Meaning And App State
 
-After matching and request policy, the planner receives the typed route plus request context and current navigation state. That is where route meaning becomes tabs, stacks, modals, and windows.
+After matching and request policy, the planner receives the typed route plus request context and current navigation state. That is where route meaning becomes branch hosts, stacks, modals, and windows.
 
 ```csharp
 public ValueTask<NavigationPlan> CreatePlanAsync(
@@ -835,7 +836,7 @@ public ValueTask<NavigationPlan> CreatePlanAsync(
             ? rawCampaign as string
             : null;
 
-    var root = BuildStoreTabs(context.Route, campaign);
+    var root = BuildStoreBranchHost(context.Route, campaign);
     var existingWindow = context.CurrentState.FindWindow(windowId);
     var modals = cameFromPush && context.Route is ProductDetailRoute detail
         ? new[] { new ModalNode("product-alert", Entry("product-alert", detail)) }
@@ -1154,8 +1155,7 @@ Nodes describe structure, not pages.
 
 ```csharp
 WindowNode
-FlyoutNode
-TabsNode
+BranchHostNode
 StackNode
 ModalNode
 ```
@@ -1167,20 +1167,22 @@ Represents one logical app window.
 ```csharp
 new WindowNode(
     "main",
-    root: tabsNode,
+    root: branchHostNode,
     modals: modalNodes);
 ```
 
-#### `TabsNode`
+#### `BranchHostNode`
 
-Represents branch-aware tab navigation.
+Represents a platform-neutral host for multiple named branches. The node only tracks
+the available branches plus the selected and default branch ids; presentation adapters
+decide whether that host appears as tabs, a flyout, a carousel, or another native UI.
 
 ```csharp
-new TabsNode(
-    "store-tabs",
+new BranchHostNode(
+    "store-branchHost",
     branches,
-    SelectedTabId: "catalog",
-    DefaultTabId: "home");
+    SelectedBranchId: "catalog",
+    DefaultBranchId: "home");
 ```
 
 Each branch contains another `NavigationNode`, usually a `StackNode`.
@@ -1195,18 +1197,6 @@ new StackNode("catalog-stack", new[]
     new RouteEntry("catalog", new StoreCatalogRoute("northwind")),
     new RouteEntry("product-123", new ProductDetailRoute("northwind", 123))
 });
-```
-
-#### `FlyoutNode`
-
-Represents flyout navigation.
-
-```csharp
-new FlyoutNode(
-    "main-flyout",
-    branches,
-    SelectedItemId: "store",
-    DefaultItemId: "store");
 ```
 
 #### `ModalNode`
@@ -1620,8 +1610,7 @@ configured `IBackNavigator`, presents the returned plan, and records logical his
 var backNavigator = new DefaultBackNavigator(
     new BackNavigationOptions
     {
-        ReturnToDefaultTabBeforeLeaving = true,
-        ReturnToDefaultFlyoutItemBeforeLeaving = true
+        ReturnToDefaultBranchBeforeLeaving = true
     },
     diagnostics);
 
@@ -1651,11 +1640,10 @@ Default behavior:
 
 1. Let top modal content handle back.
 2. Dismiss the top modal when its content cannot go back.
-3. Delegate into the selected tab or flyout branch.
+3. Delegate into the selected branch.
 4. Pop the selected stack.
-5. Return to the default tab if configured.
-6. Return to the default flyout item if configured.
-7. Return `null` if no host accepts back navigation.
+5. Return to the default branch if configured.
+6. Return `null` if no host accepts back navigation.
 
 If no host accepts back navigation, the result is unhandled so the app can delegate to the platform.
 
@@ -1743,15 +1731,15 @@ The v1 MAUI presenter projects state into real MAUI containers.
 | State node | MAUI projection |
 | --- | --- |
 | `StackNode` | `NavigationPage` |
-| `TabsNode` | `TabbedPage` |
-| `FlyoutNode` | `FlyoutPage` |
+| `BranchHostNode` | `TabbedPage` by default |
+| `BranchHostNode` | `FlyoutPage` when configured with `MapBranchHostAsFlyout(...)` |
 | `ModalNode` | `PushModalAsync` / `PopModalAsync` |
 
 This is deliberate. Native containers preserve platform behavior such as swipe-back, Android back behavior, tab UX, modal presentation, and native-backed transition surfaces.
 
 ### Incremental Updates
 
-The presenter tries to reuse existing host containers when host ids and route entry ids still line up. It preserves tab and flyout branch pages by branch id, diffs navigation stacks by common route-entry prefix, and releases removed page scopes.
+The presenter tries to reuse existing host containers when host ids and route entry ids still line up. It preserves branch pages by branch id, diffs navigation stacks by common route-entry prefix, and releases removed page scopes.
 
 For example, if a catalog stack changes from:
 
@@ -1765,7 +1753,7 @@ to:
 catalog -> product-123
 ```
 
-the presenter can push a product page onto the existing `NavigationPage` instead of replacing the whole tab host.
+the presenter can push a product page onto the existing `NavigationPage` instead of replacing the whole branch host.
 
 ### Reconciliation
 
@@ -1842,7 +1830,7 @@ The sample planner creates:
 
 ```text
 WindowNode("main")
-  TabsNode("store-tabs", selected: "catalog", default: "home")
+  BranchHostNode("store-branchHost", selected: "catalog", default: "home")
     home -> StackNode("home-stack")
       StoreHomeRoute("northwind")
     catalog -> StackNode("catalog-stack")
@@ -1868,7 +1856,7 @@ TabbedPage
   Orders tab -> NavigationPage
 ```
 
-The query values `variant` and `promo` modify the product route. They do not select tabs or define host structure.
+The query values `variant` and `promo` modify the product route. They do not select a branch host or define host structure.
 
 ## Recipes
 
@@ -2063,8 +2051,8 @@ var state = TestNavigationState.State(
     "main",
     TestNavigationState.Window(
         "main",
-        TestNavigationState.Tabs(
-            "store-tabs",
+        TestNavigationState.BranchHost(
+            "store-branchHost",
             "catalog",
             "home",
             TestNavigationState.Branch("home", "Home", TestNavigationState.Stack("home-stack")),
@@ -2073,8 +2061,8 @@ var state = TestNavigationState.State(
                 TestNavigationState.Entry("catalog", new StoreCatalogRoute("northwind")),
                 TestNavigationState.Entry("product", new ProductDetailRoute("northwind", 123)))))));
 
-var tabs = NavigationStateAssert.SelectedTabs(state, "catalog");
-var catalogStack = NavigationStateAssert.SelectedBranch<StackNode>(tabs, "catalog");
+var branchHost = NavigationStateAssert.SelectedBranchHost(state, "catalog");
+var catalogStack = NavigationStateAssert.SelectedBranch<StackNode>(branchHost, "catalog");
 NavigationStateAssert.StackRouteTypes(
     catalogStack,
     typeof(StoreCatalogRoute),
@@ -2260,7 +2248,7 @@ These are intentional v1 boundaries:
 - No attribute routing.
 - No full deferred deep-link or attribution SDK replacement.
 - No complete multi-window orchestration beyond core state seams.
-- No custom tab or flyout selection animations in the first transition slice.
+- No custom branch-host selection animations in the first transition slice.
 - No virtual-host-only renderer as the default MAUI experience.
 
 ## Roadmap Ideas
@@ -2287,7 +2275,7 @@ Likely future work:
 | Navigation plan | Intended mutation from current state to target state. |
 | Presenter | Adapter that materializes state into UI. |
 | Reconciliation | Native UI event updating logical state/history. |
-| Host | Structural UI container such as tabs, flyout, stack, modal, or window. |
+| Host | Structural container such as a branch host, stack, modal, or window. |
 | Route entry | A route placed into a structural node, usually a stack or modal. |
 
 ## License

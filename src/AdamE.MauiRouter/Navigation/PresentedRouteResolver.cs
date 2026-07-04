@@ -31,8 +31,7 @@ internal static class PresentedRouteResolver
         return node switch
         {
             StackNode stack => stack.Top?.Route,
-            TabsNode { SelectedBranch: not null } tabs => FindTopRoute(tabs.SelectedBranch.Content),
-            FlyoutNode { SelectedBranch: not null } flyout => FindTopRoute(flyout.SelectedBranch.Content),
+            BranchHostNode { SelectedBranch: not null } branchHost => FindTopRoute(branchHost.SelectedBranch.Content),
             ModalNode modal => modal.Content is null
                 ? modal.RouteEntry.Route
                 : FindTopRoute(modal.Content) ?? modal.RouteEntry.Route,

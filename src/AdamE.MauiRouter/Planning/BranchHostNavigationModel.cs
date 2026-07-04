@@ -3,38 +3,38 @@ using AdamE.MauiRouter.State;
 namespace AdamE.MauiRouter.Planning;
 
 /// <summary>
-/// Provides canonical tabs creation and contextual branch mutation for an application's semantic routes.
+/// Provides canonical branch-host creation and contextual branch mutation for an application's semantic routes.
 /// </summary>
-public sealed class TabsNavigationModel<TRoute>
+public sealed class BranchHostNavigationModel<TRoute>
     where TRoute : AppRoute
 {
-    private readonly IReadOnlyList<TabsBranchDefinition<TRoute>> _branches;
-    private readonly IReadOnlyDictionary<string, TabsBranchDefinition<TRoute>> _branchesById;
-    private readonly IReadOnlyDictionary<Type, TabsRouteRecipe<TRoute>> _recipes;
+    private readonly IReadOnlyList<BranchHostBranchDefinition<TRoute>> _branches;
+    private readonly IReadOnlyDictionary<string, BranchHostBranchDefinition<TRoute>> _branchesById;
+    private readonly IReadOnlyDictionary<Type, BranchHostRouteRecipe<TRoute>> _recipes;
     private readonly string _defaultWindowId;
-    private readonly string _defaultTabsId;
+    private readonly string _defaultBranchHostId;
 
-    internal TabsNavigationModel(
+    internal BranchHostNavigationModel(
         string defaultWindowId,
-        string defaultTabsId,
-        IReadOnlyList<TabsBranchDefinition<TRoute>> branches,
-        IReadOnlyDictionary<Type, TabsRouteRecipe<TRoute>> recipes)
+        string defaultBranchHostId,
+        IReadOnlyList<BranchHostBranchDefinition<TRoute>> branches,
+        IReadOnlyDictionary<Type, BranchHostRouteRecipe<TRoute>> recipes)
     {
         _defaultWindowId = defaultWindowId;
-        _defaultTabsId = defaultTabsId;
+        _defaultBranchHostId = defaultBranchHostId;
         _branches = branches.ToArray();
         _branchesById = _branches.ToDictionary(static branch => branch.Id, StringComparer.Ordinal);
         _recipes = recipes;
     }
 
     /// <summary>
-    /// Creates a tabs-navigation model from the supplied configuration.
+    /// Creates a branch-host navigation model from the supplied configuration.
     /// </summary>
-    public static TabsNavigationModel<TRoute> Create(Action<TabsNavigationModelBuilder<TRoute>> configure)
+    public static BranchHostNavigationModel<TRoute> Create(Action<BranchHostNavigationModelBuilder<TRoute>> configure)
     {
         ArgumentNullException.ThrowIfNull(configure);
 
-        var builder = new TabsNavigationModelBuilder<TRoute>();
+        var builder = new BranchHostNavigationModelBuilder<TRoute>();
         configure(builder);
         return builder.Build();
     }
@@ -55,28 +55,28 @@ public sealed class TabsNavigationModel<TRoute>
     }
 
     /// <summary>
-    /// Creates the canonical tabs navigation state for the supplied route and metadata.
+    /// Creates the canonical branch-host navigation state for the supplied route and metadata.
     /// </summary>
     public NavigationState CreateCanonicalState(
         TRoute route,
         IReadOnlyDictionary<string, object?>? metadata = null,
         string? windowId = null,
-        string? tabsId = null)
+        string? branchHostId = null)
     {
         ArgumentNullException.ThrowIfNull(route);
 
         var resolvedWindowId = string.IsNullOrWhiteSpace(windowId) ? _defaultWindowId : windowId;
-        var resolvedTabsId = string.IsNullOrWhiteSpace(tabsId) ? _defaultTabsId : tabsId;
+        var resolvedBranchHostId = string.IsNullOrWhiteSpace(branchHostId) ? _defaultBranchHostId : branchHostId;
 
         return new NavigationState(
             [
-                new WindowNode(resolvedWindowId, CreateCanonicalTabsNode(route, metadata, resolvedTabsId))
+                new WindowNode(resolvedWindowId, CreateCanonicalBranchHostNode(route, metadata, resolvedBranchHostId))
             ],
             resolvedWindowId);
     }
 
     /// <summary>
-    /// Attempts to create a contextual tabs navigation state for the supplied route and current tabs tree.
+    /// Attempts to create a contextual branch-host navigation state for the supplied route and current branch-host tree.
     /// </summary>
     public NavigationState? TryCreateContextualState(
         NavigationState currentState,
@@ -87,8 +87,8 @@ public sealed class TabsNavigationModel<TRoute>
         ArgumentNullException.ThrowIfNull(currentState);
         ArgumentNullException.ThrowIfNull(route);
 
-        if (currentState.ActiveWindow is not { Root: TabsNode currentTabs } window ||
-            currentTabs.SelectedBranch is not { Content: StackNode currentSelectedStack } selectedBranch ||
+        if (currentState.ActiveWindow is not { Root: BranchHostNode currentBranchHost } window ||
+            currentBranchHost.SelectedBranch is not { Content: StackNode currentSelectedStack } selectedBranch ||
             currentSelectedStack.Entries.Count == 0 ||
             currentSelectedStack.Entries[0].Route is not TRoute currentRootRoute)
         {
@@ -98,7 +98,7 @@ public sealed class TabsNavigationModel<TRoute>
         var recipe = GetRecipe(route);
         if (!IsEligible(currentRootRoute, route, recipe.ContextualEligibility) ||
             !_branchesById.TryGetValue(recipe.BranchId, out var owningBranch) ||
-            currentTabs.Branches.FirstOrDefault(branch => StringComparer.Ordinal.Equals(branch.Id, recipe.BranchId)) is not { Content: StackNode currentOwningStack } currentBranch)
+            currentBranchHost.Branches.FirstOrDefault(branch => StringComparer.Ordinal.Equals(branch.Id, recipe.BranchId)) is not { Content: StackNode currentOwningStack } currentBranch)
         {
             return null;
         }
@@ -124,18 +124,18 @@ public sealed class TabsNavigationModel<TRoute>
             return null;
         }
 
-        var nextTabs = currentTabs.ReplaceBranch(currentBranch with { Content = nextOwningStack }) with
+        var nextBranchHost = currentBranchHost.ReplaceBranch(currentBranch with { Content = nextOwningStack }) with
         {
-            SelectedTabId = owningBranch.Id
+            SelectedBranchId = owningBranch.Id
         };
 
-        return currentState.ReplaceWindow(window with { Root = nextTabs });
+        return currentState.ReplaceWindow(window with { Root = nextBranchHost });
     }
 
-    private TabsNode CreateCanonicalTabsNode(
+    private BranchHostNode CreateCanonicalBranchHostNode(
         TRoute route,
         IReadOnlyDictionary<string, object?>? metadata,
-        string tabsId)
+        string branchHostId)
     {
         var recipe = GetRecipe(route);
         var branches = new NavigationBranch[_branches.Count];
@@ -144,20 +144,20 @@ public sealed class TabsNavigationModel<TRoute>
         {
             var branch = _branches[i];
             var stack = StringComparer.Ordinal.Equals(branch.Id, recipe.BranchId)
-                ? CreateCanonicalBranchStack(branch, route, metadata, BuildBranchStackId(tabsId, branch.Id))
-                : CreateSanitizedBranchStack(branch, route, tabsId);
+                ? CreateCanonicalBranchStack(branch, route, metadata, BuildBranchStackId(branchHostId, branch.Id))
+                : CreateSanitizedBranchStack(branch, route, branchHostId);
             branches[i] = new NavigationBranch(branch.Id, branch.Title, stack);
         }
 
-        return new TabsNode(
-            tabsId,
+        return new BranchHostNode(
+            branchHostId,
             branches,
             recipe.BranchId,
             _branches[0].Id);
     }
 
     private StackNode CreateCanonicalBranchStack(
-        TabsBranchDefinition<TRoute> branch,
+        BranchHostBranchDefinition<TRoute> branch,
         TRoute route,
         IReadOnlyDictionary<string, object?>? metadata,
         string stackId)
@@ -166,15 +166,15 @@ public sealed class TabsNavigationModel<TRoute>
     }
 
     private StackNode CreateSanitizedBranchStack(
-        TabsBranchDefinition<TRoute> branch,
+        BranchHostBranchDefinition<TRoute> branch,
         TRoute scopedRoute,
-        string tabsId)
+        string branchHostId)
     {
         var rootRoute = branch.RootRouteFactory(scopedRoute) ??
                         throw new InvalidOperationException(
-                            $"Tabs branch '{branch.Id}' returned a null root route.");
+                            $"Branch-host branch '{branch.Id}' returned a null root route.");
         return new StackNode(
-            BuildBranchStackId(tabsId, branch.Id),
+            BuildBranchStackId(branchHostId, branch.Id),
             [CreateEntry(rootRoute)]);
     }
 
@@ -203,7 +203,7 @@ public sealed class TabsNavigationModel<TRoute>
             if (!_recipes.ContainsKey(step.Route.GetType()))
             {
                 throw new InvalidOperationException(
-                    $"Tabs route step '{step.Route.GetType().FullName}' must be registered before it can participate in tabs planning.");
+                    $"Branch-host route step '{step.Route.GetType().FullName}' must be registered before it can participate in branch-host planning.");
             }
 
             entries.Add(CreateEntry(step.Route, step.Metadata));
@@ -344,7 +344,7 @@ public sealed class TabsNavigationModel<TRoute>
                StringComparer.Ordinal.Equals(currentScope, targetScope);
     }
 
-    private bool IsBranchRoot(TabsBranchDefinition<TRoute> branch, TRoute route)
+    private bool IsBranchRoot(BranchHostBranchDefinition<TRoute> branch, TRoute route)
     {
         return EqualityComparer<TRoute>.Default.Equals(branch.RootRouteFactory(route), route);
     }
@@ -360,19 +360,19 @@ public sealed class TabsNavigationModel<TRoute>
         return GetRecipe(route).ScopeKeyFactory?.Invoke(route);
     }
 
-    private TabsRouteRecipe<TRoute> GetRecipe(TRoute route)
+    private BranchHostRouteRecipe<TRoute> GetRecipe(TRoute route)
     {
         if (!_recipes.TryGetValue(route.GetType(), out var recipe))
         {
             throw new InvalidOperationException(
-                $"Route '{route.GetType().FullName}' is not registered in this tabs navigation model.");
+                $"Route '{route.GetType().FullName}' is not registered in this branch-host navigation model.");
         }
 
         return recipe;
     }
 
-    private static string BuildBranchStackId(string tabsId, string branchId)
+    private static string BuildBranchStackId(string branchHostId, string branchId)
     {
-        return $"{tabsId}:{branchId}";
+        return $"{branchHostId}:{branchId}";
     }
 }

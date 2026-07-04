@@ -35,9 +35,9 @@ public sealed class NavigationPersistenceTests
         Assert.NotNull(restored.State);
         Assert.NotNull(restored.History);
 
-        var tabs = Assert.IsType<TabsNode>(restored.State.ActiveWindow!.Root);
-        Assert.Equal("catalog", tabs.SelectedTabId);
-        var catalog = Assert.IsType<StackNode>(tabs.SelectedBranch!.Content);
+        var branchHost = Assert.IsType<BranchHostNode>(restored.State.ActiveWindow!.Root);
+        Assert.Equal("catalog", branchHost.SelectedBranchId);
+        var catalog = Assert.IsType<StackNode>(branchHost.SelectedBranch!.Content);
         var product = Assert.IsType<TestRoutes.ProductDetailRoute>(catalog.Top!.Route);
         Assert.Equal(123, product.ProductId);
         Assert.Equal("blue", product.Variant);
@@ -228,11 +228,85 @@ public sealed class NavigationPersistenceTests
         var restored = serializer.Restore(deserialized!);
 
         Assert.True(restored.Accepted);
-        var tabs = Assert.IsType<TabsNode>(restored.State!.ActiveWindow!.Root);
-        Assert.Equal("catalog", tabs.SelectedTabId);
-        var catalog = Assert.IsType<StackNode>(tabs.SelectedBranch!.Content);
+        var branchHost = Assert.IsType<BranchHostNode>(restored.State!.ActiveWindow!.Root);
+        Assert.Equal("catalog", branchHost.SelectedBranchId);
+        var catalog = Assert.IsType<StackNode>(branchHost.SelectedBranch!.Content);
         Assert.IsType<SharedElementNavigationTransition>(catalog.Top!.Transition);
         Assert.Equal(NavigationSnapshot.CurrentSchemaVersion, deserialized!.SchemaVersion);
+    }
+
+    [Theory]
+    [InlineData("tabs", "selectedTabId", "defaultTabId")]
+    [InlineData("flyout", "selectedItemId", "defaultItemId")]
+    public void NavigationSnapshotJsonRestoresLegacyBranchHostNodeKinds(
+        string kind,
+        string selectedPropertyName,
+        string defaultPropertyName)
+    {
+        var json = $$"""
+        {
+          "schemaVersion": 3,
+          "state": {
+            "windows": [
+              {
+                "id": "main",
+                "root": {
+                  "kind": "{{kind}}",
+                  "id": "legacy-host",
+                  "branches": [
+                    {
+                      "id": "home",
+                      "title": "Home",
+                      "content": {
+                        "kind": "stack",
+                        "id": "home-stack",
+                        "entries": [
+                          {
+                            "id": "home",
+                            "routeUri": "/stores/northwind",
+                            "transition": null,
+                            "metadata": null
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "catalog",
+                      "title": "Catalog",
+                      "content": {
+                        "kind": "stack",
+                        "id": "catalog-stack",
+                        "entries": [
+                          {
+                            "id": "catalog",
+                            "routeUri": "/stores/northwind/catalog",
+                            "transition": null,
+                            "metadata": null
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "{{selectedPropertyName}}": "catalog",
+                  "{{defaultPropertyName}}": "home"
+                },
+                "modals": []
+              }
+            ],
+            "activeWindowId": "main"
+          }
+        }
+        """;
+        var snapshot = JsonSerializer.Deserialize<NavigationSnapshot>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var serializer = new NavigationSnapshotSerializer(TestRoutes.CreateTable());
+
+        var restored = serializer.Restore(snapshot!);
+
+        Assert.True(restored.Accepted);
+        var branchHost = Assert.IsType<BranchHostNode>(restored.State!.ActiveWindow!.Root);
+        Assert.Equal("legacy-host", branchHost.Id);
+        Assert.Equal("catalog", branchHost.SelectedBranchId);
+        Assert.Equal("home", branchHost.DefaultBranchId);
     }
 
     [Fact]
@@ -430,9 +504,9 @@ public sealed class NavigationPersistenceTests
         Assert.True(result.Presented);
         Assert.Equal(NavigationPlanKind.Restore, presenter.LastPlan!.Kind);
         var expectedRoute = new TestRoutes.ProductDetailRoute("northwind", 123, "blue", "spring");
-        var restoredTabs = Assert.IsType<TabsNode>(navigator.CurrentState.ActiveWindow!.Root);
-        Assert.Equal("catalog", restoredTabs.SelectedTabId);
-        var restoredStack = Assert.IsType<StackNode>(restoredTabs.SelectedBranch!.Content);
+        var restoredBranchHost = Assert.IsType<BranchHostNode>(navigator.CurrentState.ActiveWindow!.Root);
+        Assert.Equal("catalog", restoredBranchHost.SelectedBranchId);
+        var restoredStack = Assert.IsType<StackNode>(restoredBranchHost.SelectedBranch!.Content);
         Assert.Equal(expectedRoute, restoredStack.Top!.Route);
         Assert.Single(navigator.History.Entries);
         Assert.Equal(history.Current!.Id, navigator.History.Current!.Id);
@@ -792,8 +866,8 @@ public sealed class NavigationPersistenceTests
         {
             new WindowNode(
                 "main",
-                new TabsNode(
-                    "store-tabs",
+                new BranchHostNode(
+                    "store-branchHost",
                     new[]
                     {
                         new NavigationBranch(

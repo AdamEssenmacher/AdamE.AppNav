@@ -7,6 +7,7 @@ namespace AdamE.MauiRouter.Maui;
 public sealed class MauiRoutePageRegistry
 {
     private readonly Dictionary<Type, Func<IServiceProvider, RouteEntry, Page>> _pageFactories = new();
+    private readonly Dictionary<string, MauiBranchHostPresentation> _branchHostPresentations = new(StringComparer.Ordinal);
 
     /// <summary>
     /// Adds page mappings from a reusable module.
@@ -48,6 +49,45 @@ public sealed class MauiRoutePageRegistry
         return this;
     }
 
+    /// <summary>
+    /// Configures how the MAUI presenter should materialize a branch host with the specified id.
+    /// </summary>
+    /// <param name="branchHostId">The id of the branch host in router state.</param>
+    /// <param name="presentation">The MAUI presentation to use for the branch host.</param>
+    /// <returns>The same registry instance for mapping chaining.</returns>
+    public MauiRoutePageRegistry MapBranchHost(string branchHostId, MauiBranchHostPresentation presentation)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(branchHostId);
+
+        if (!Enum.IsDefined(presentation))
+        {
+            throw new ArgumentOutOfRangeException(nameof(presentation), presentation, "The branch host presentation is not supported.");
+        }
+
+        _branchHostPresentations[branchHostId] = presentation;
+        return this;
+    }
+
+    /// <summary>
+    /// Configures the MAUI presenter to materialize a branch host as a <see cref="TabbedPage"/>.
+    /// </summary>
+    /// <param name="branchHostId">The id of the branch host in router state.</param>
+    /// <returns>The same registry instance for mapping chaining.</returns>
+    public MauiRoutePageRegistry MapBranchHostAsTabs(string branchHostId)
+    {
+        return MapBranchHost(branchHostId, MauiBranchHostPresentation.Tabs);
+    }
+
+    /// <summary>
+    /// Configures the MAUI presenter to materialize a branch host as a <see cref="FlyoutPage"/>.
+    /// </summary>
+    /// <param name="branchHostId">The id of the branch host in router state.</param>
+    /// <returns>The same registry instance for mapping chaining.</returns>
+    public MauiRoutePageRegistry MapBranchHostAsFlyout(string branchHostId)
+    {
+        return MapBranchHost(branchHostId, MauiBranchHostPresentation.Flyout);
+    }
+
     internal void Apply(MauiRoutePageRegistry other)
     {
         ArgumentNullException.ThrowIfNull(other);
@@ -55,6 +95,11 @@ public sealed class MauiRoutePageRegistry
         foreach (var (routeType, factory) in other._pageFactories)
         {
             _pageFactories[routeType] = factory;
+        }
+
+        foreach (var (branchHostId, presentation) in other._branchHostPresentations)
+        {
+            _branchHostPresentations[branchHostId] = presentation;
         }
     }
 
@@ -69,5 +114,14 @@ public sealed class MauiRoutePageRegistry
 
         page = factory(services, entry);
         return true;
+    }
+
+    internal MauiBranchHostPresentation GetBranchHostPresentation(string branchHostId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(branchHostId);
+
+        return _branchHostPresentations.TryGetValue(branchHostId, out var presentation)
+            ? presentation
+            : MauiBranchHostPresentation.Tabs;
     }
 }

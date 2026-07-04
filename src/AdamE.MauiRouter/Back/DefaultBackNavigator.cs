@@ -8,14 +8,14 @@ namespace AdamE.MauiRouter.Back;
 /// Provides MauiRouter's default host-aware logical back-navigation behavior.
 /// </summary>
 /// <param name="options">
-/// Optional fallback behavior for tab and flyout hosts, or <see langword="null"/> to use the defaults.
+/// Optional fallback behavior for branch hosts, or <see langword="null"/> to use the defaults.
 /// </param>
 /// <param name="diagnostics">
 /// Optional diagnostics pipeline used to report back-planning decisions, or <see langword="null"/> to suppress diagnostics.
 /// </param>
 /// <remarks>
 /// The default navigator first gives modal content and selected child hosts a chance to go back,
-/// then falls back to modal dismissal, stack popping, and configured tab/flyout default-branch selection.
+/// then falls back to modal dismissal, stack popping, and configured default-branch selection.
 /// </remarks>
 public sealed class DefaultBackNavigator(
     BackNavigationOptions? options = null,
@@ -98,8 +98,7 @@ public sealed class DefaultBackNavigator(
         return node switch
         {
             StackNode stack => TryBackStack(stack),
-            TabsNode tabs => TryBackTabs(tabs),
-            FlyoutNode flyout => TryBackFlyout(flyout),
+            BranchHostNode branchHost => TryBackBranchHost(branchHost),
             // Window-level modal dismissal is handled from WindowNode.Modals. A nested
             // modal node can only delegate back navigation into its content.
             ModalNode { Content: not null } modal => TryBack(modal.Content) is { } result
@@ -121,55 +120,28 @@ public sealed class DefaultBackNavigator(
             "Back navigation will pop the selected stack.");
     }
 
-    private NodeBackResult? TryBackTabs(TabsNode tabs)
+    private NodeBackResult? TryBackBranchHost(BranchHostNode branchHost)
     {
-        NavigationBranch? selectedBranch = tabs.SelectedBranch;
+        NavigationBranch? selectedBranch = branchHost.SelectedBranch;
         if (selectedBranch is not null)
         {
             NodeBackResult? childBack = TryBack(selectedBranch.Content);
             if (childBack is not null)
             {
                 return new NodeBackResult(
-                    tabs.ReplaceBranch(selectedBranch with { Content = childBack.Node }),
+                    branchHost.ReplaceBranch(selectedBranch with { Content = childBack.Node }),
                     childBack.Reason);
             }
         }
 
-        if (_options.ReturnToDefaultTabBeforeLeaving &&
-            !string.IsNullOrWhiteSpace(tabs.DefaultTabId) &&
-            !StringComparer.Ordinal.Equals(tabs.SelectedTabId, tabs.DefaultTabId) &&
-            tabs.Branches.Any(branch => StringComparer.Ordinal.Equals(branch.Id, tabs.DefaultTabId)))
+        if (_options.ReturnToDefaultBranchBeforeLeaving &&
+            !string.IsNullOrWhiteSpace(branchHost.DefaultBranchId) &&
+            !StringComparer.Ordinal.Equals(branchHost.SelectedBranchId, branchHost.DefaultBranchId) &&
+            branchHost.Branches.Any(branch => StringComparer.Ordinal.Equals(branch.Id, branchHost.DefaultBranchId)))
         {
             return new NodeBackResult(
-                tabs with { SelectedTabId = tabs.DefaultTabId },
-                "Back navigation will return to the default tab.");
-        }
-
-        return null;
-    }
-
-    private NodeBackResult? TryBackFlyout(FlyoutNode flyout)
-    {
-        NavigationBranch? selectedBranch = flyout.SelectedBranch;
-        if (selectedBranch is not null)
-        {
-            NodeBackResult? childBack = TryBack(selectedBranch.Content);
-            if (childBack is not null)
-            {
-                return new NodeBackResult(
-                    flyout.ReplaceBranch(selectedBranch with { Content = childBack.Node }),
-                    childBack.Reason);
-            }
-        }
-
-        if (_options.ReturnToDefaultFlyoutItemBeforeLeaving &&
-            !string.IsNullOrWhiteSpace(flyout.DefaultItemId) &&
-            !StringComparer.Ordinal.Equals(flyout.SelectedItemId, flyout.DefaultItemId) &&
-            flyout.Branches.Any(branch => StringComparer.Ordinal.Equals(branch.Id, flyout.DefaultItemId)))
-        {
-            return new NodeBackResult(
-                flyout with { SelectedItemId = flyout.DefaultItemId },
-                "Back navigation will return to the default flyout item.");
+                branchHost with { SelectedBranchId = branchHost.DefaultBranchId },
+                "Back navigation will return to the default branch.");
         }
 
         return null;

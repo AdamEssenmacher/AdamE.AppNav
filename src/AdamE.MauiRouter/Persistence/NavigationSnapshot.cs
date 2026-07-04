@@ -6,7 +6,7 @@ namespace AdamE.MauiRouter.Persistence;
 
 public sealed record NavigationSnapshot
 {
-    public const int CurrentSchemaVersion = 3;
+    public const int CurrentSchemaVersion = 4;
 
     public int SchemaVersion { get; init; } = CurrentSchemaVersion;
 
@@ -33,8 +33,9 @@ public sealed record WindowNodeSnapshot(
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
 [JsonDerivedType(typeof(StackNodeSnapshot), "stack")]
-[JsonDerivedType(typeof(TabsNodeSnapshot), "tabs")]
-[JsonDerivedType(typeof(FlyoutNodeSnapshot), "flyout")]
+[JsonDerivedType(typeof(BranchHostNodeSnapshot), "branchHost")]
+[JsonDerivedType(typeof(LegacyTabsNodeSnapshot), "tabs")]
+[JsonDerivedType(typeof(LegacyFlyoutNodeSnapshot), "flyout")]
 [JsonDerivedType(typeof(ModalNodeSnapshot), "modal")]
 public abstract record NavigationNodeSnapshot(string Id);
 
@@ -42,17 +43,27 @@ public sealed record StackNodeSnapshot(
     string Id,
     IReadOnlyList<RouteEntrySnapshot> Entries) : NavigationNodeSnapshot(Id);
 
-public sealed record TabsNodeSnapshot(
+public sealed record BranchHostNodeSnapshot(
+    string Id,
+    IReadOnlyList<NavigationBranchSnapshot> Branches,
+    string SelectedBranchId,
+    string? DefaultBranchId) : NavigationNodeSnapshot(Id);
+
+internal abstract record LegacyBranchHostNodeSnapshot(
+    string Id,
+    IReadOnlyList<NavigationBranchSnapshot> Branches) : NavigationNodeSnapshot(Id);
+
+internal sealed record LegacyTabsNodeSnapshot(
     string Id,
     IReadOnlyList<NavigationBranchSnapshot> Branches,
     string SelectedTabId,
-    string? DefaultTabId) : NavigationNodeSnapshot(Id);
+    string? DefaultTabId) : LegacyBranchHostNodeSnapshot(Id, Branches);
 
-public sealed record FlyoutNodeSnapshot(
+internal sealed record LegacyFlyoutNodeSnapshot(
     string Id,
     IReadOnlyList<NavigationBranchSnapshot> Branches,
     string SelectedItemId,
-    string? DefaultItemId) : NavigationNodeSnapshot(Id);
+    string? DefaultItemId) : LegacyBranchHostNodeSnapshot(Id, Branches);
 
 public sealed record ModalNodeSnapshot(
     string Id,

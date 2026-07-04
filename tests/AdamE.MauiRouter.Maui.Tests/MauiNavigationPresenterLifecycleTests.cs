@@ -165,13 +165,13 @@ public sealed class MauiNavigationPresenterLifecycleTests
     }
 
     [Fact]
-    public async Task GetTopPresentedPageReturnsLeafPageForSelectedTabBranch()
+    public async Task GetTopPresentedPageReturnsLeafPageForSelectedBranch()
     {
         var fixture = new PresenterFixture();
         IMauiPresentationState presentationState = fixture.Presenter;
 
-        var tabs = new TabsNode(
-            "store-tabs",
+        var branchHost = new BranchHostNode(
+            "store-branchHost",
             new[]
             {
                 new NavigationBranch("home", "Home", Stack("home-stack", Entry("home"))),
@@ -181,7 +181,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
             "catalog");
 
         await fixture.Presenter.ApplyAsync(
-            Plan(tabs),
+            Plan(branchHost),
             Context(new TestPageRoute("catalog")));
 
         var tabbedPage = Assert.IsType<TabbedPage>(fixture.Presenter.CurrentPage);
@@ -195,7 +195,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
     [Fact]
     public async Task GetTopPresentedPageReturnsLeafPageForFlyoutDetailBranch()
     {
-        var fixture = new PresenterFixture();
+        var fixture = new PresenterFixture(pages => pages.MapBranchHostAsFlyout("store-flyout"));
         IMauiPresentationState presentationState = fixture.Presenter;
 
         var branches = new[]
@@ -203,7 +203,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
             new NavigationBranch("home", "Home", Stack("home-stack", Entry("home"))),
             new NavigationBranch("catalog", "Catalog", Stack("catalog-stack", Entry("catalog")))
         };
-        var flyout = new FlyoutNode("store-flyout", branches, "catalog", "catalog");
+        var flyout = new BranchHostNode("store-flyout", branches, "catalog", "catalog");
 
         await fixture.Presenter.ApplyAsync(
             Plan(flyout),
@@ -652,8 +652,8 @@ public sealed class MauiNavigationPresenterLifecycleTests
                         new ModalNode(
                             "cart-modal",
                             new RouteEntry("cart-modal-route", new TestPageRoute("cart-shell")),
-                            new TabsNode(
-                                "cart-tabs",
+                            new BranchHostNode(
+                                "cart-branchHost",
                                 new[]
                                 {
                                     new NavigationBranch("summary", "Summary", Stack("summary-stack", Entry("summary"))),
@@ -822,14 +822,14 @@ public sealed class MauiNavigationPresenterLifecycleTests
     }
 
     [Fact]
-    public async Task NativeTabSelectionReconcilesSelectedTab()
+    public async Task NativeTabSelectionReconcilesSelectedBranch()
     {
         var fixture = new PresenterFixture();
         NavigationReconciliation? reconciliation = null;
         fixture.Presenter.ReconciliationRequested += (_, args) => reconciliation = args.Reconciliation;
 
-        var tabs = new TabsNode(
-            "store-tabs",
+        var branchHost = new BranchHostNode(
+            "store-branchHost",
             new[]
             {
                 new NavigationBranch("home", "Home", Stack("home-stack", Entry("home"))),
@@ -839,28 +839,28 @@ public sealed class MauiNavigationPresenterLifecycleTests
             "home");
 
         await fixture.Presenter.ApplyAsync(
-            Plan(tabs),
+            Plan(branchHost),
             Context(new TestPageRoute("home")));
 
         var tabbedPage = Assert.IsType<TabbedPage>(fixture.Presenter.CurrentPage);
         tabbedPage.CurrentPage = tabbedPage.Children[1];
 
-        var updatedTabs = Assert.IsType<TabsNode>(reconciliation?.TargetState.ActiveWindow?.Root);
-        Assert.Equal("catalog", updatedTabs.SelectedTabId);
+        var updatedBranchHost = Assert.IsType<BranchHostNode>(reconciliation?.TargetState.ActiveWindow?.Root);
+        Assert.Equal("catalog", updatedBranchHost.SelectedBranchId);
         Assert.Equal(NavigationReconciliationSource.TabChanged, reconciliation!.Source);
 
         fixture.Presenter.Dispose();
     }
 
     [Fact]
-    public async Task NativeTabSelectionInsideModalContentReconcilesSelectedTab()
+    public async Task NativeTabSelectionInsideModalContentReconcilesSelectedBranch()
     {
         var fixture = new PresenterFixture();
         NavigationReconciliation? reconciliation = null;
         fixture.Presenter.ReconciliationRequested += (_, args) => reconciliation = args.Reconciliation;
 
-        var modalTabs = new TabsNode(
-            "cart-tabs",
+        var modalBranchHost = new BranchHostNode(
+            "cart-branchHost",
             new[]
             {
                 new NavigationBranch("home", "Home", Stack("home-stack", Entry("home"))),
@@ -879,7 +879,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
                         new ModalNode(
                             "cart-modal",
                             new RouteEntry("cart-modal-route", new TestPageRoute("cart-shell")),
-                            modalTabs)
+                            modalBranchHost)
                     })),
             Context(new TestPageRoute("home")));
 
@@ -888,8 +888,8 @@ public sealed class MauiNavigationPresenterLifecycleTests
         modalTabbedPage.CurrentPage = modalTabbedPage.Children[1];
 
         var modal = Assert.Single(reconciliation?.TargetState.ActiveWindow?.Modals ?? []);
-        var updatedTabs = Assert.IsType<TabsNode>(modal.Content);
-        Assert.Equal("catalog", updatedTabs.SelectedTabId);
+        var updatedBranchHost = Assert.IsType<BranchHostNode>(modal.Content);
+        Assert.Equal("catalog", updatedBranchHost.SelectedBranchId);
         var activeWindow = Assert.IsType<WindowNode>(reconciliation!.TargetState.ActiveWindow);
         Assert.IsType<StackNode>(activeWindow.Root);
         Assert.Equal(NavigationReconciliationSource.TabChanged, reconciliation!.Source);
@@ -900,7 +900,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
     [Fact]
     public async Task NativeFlyoutSelectionReconcilesSelectedBranch()
     {
-        var fixture = new PresenterFixture();
+        var fixture = new PresenterFixture(pages => pages.MapBranchHostAsFlyout("store-flyout"));
         NavigationReconciliation? reconciliation = null;
         fixture.Presenter.ReconciliationRequested += (_, args) => reconciliation = args.Reconciliation;
 
@@ -909,7 +909,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
             new NavigationBranch("home", "Home", Stack("home-stack", Entry("home"))),
             new NavigationBranch("catalog", "Catalog", Stack("catalog-stack", Entry("catalog")))
         };
-        var flyout = new FlyoutNode("store-flyout", branches, "home", "home");
+        var flyout = new BranchHostNode("store-flyout", branches, "home", "home");
 
         await fixture.Presenter.ApplyAsync(
             Plan(flyout),
@@ -920,8 +920,8 @@ public sealed class MauiNavigationPresenterLifecycleTests
         var collectionView = Assert.IsType<CollectionView>(menu.Content);
         collectionView.SelectedItem = branches[1];
 
-        var updatedFlyout = Assert.IsType<FlyoutNode>(reconciliation?.TargetState.ActiveWindow?.Root);
-        Assert.Equal("catalog", updatedFlyout.SelectedItemId);
+        var updatedFlyout = Assert.IsType<BranchHostNode>(reconciliation?.TargetState.ActiveWindow?.Root);
+        Assert.Equal("catalog", updatedFlyout.SelectedBranchId);
         Assert.Equal(NavigationReconciliationSource.OtherNativeEvent, reconciliation!.Source);
 
         fixture.Presenter.Dispose();
@@ -930,7 +930,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
     [Fact]
     public async Task NativeFlyoutSelectionInsideModalContentReconcilesSelectedBranch()
     {
-        var fixture = new PresenterFixture();
+        var fixture = new PresenterFixture(pages => pages.MapBranchHostAsFlyout("cart-flyout"));
         NavigationReconciliation? reconciliation = null;
         fixture.Presenter.ReconciliationRequested += (_, args) => reconciliation = args.Reconciliation;
 
@@ -950,7 +950,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
                         new ModalNode(
                             "cart-modal",
                             new RouteEntry("cart-modal-route", new TestPageRoute("cart-shell")),
-                            new FlyoutNode("cart-flyout", branches, "home", "home"))
+                            new BranchHostNode("cart-flyout", branches, "home", "home"))
                     })),
             Context(new TestPageRoute("home")));
 
@@ -961,8 +961,8 @@ public sealed class MauiNavigationPresenterLifecycleTests
         collectionView.SelectedItem = branches[1];
 
         var modal = Assert.Single(reconciliation?.TargetState.ActiveWindow?.Modals ?? []);
-        var updatedFlyout = Assert.IsType<FlyoutNode>(modal.Content);
-        Assert.Equal("catalog", updatedFlyout.SelectedItemId);
+        var updatedFlyout = Assert.IsType<BranchHostNode>(modal.Content);
+        Assert.Equal("catalog", updatedFlyout.SelectedBranchId);
         var activeWindow = Assert.IsType<WindowNode>(reconciliation!.TargetState.ActiveWindow);
         Assert.IsType<StackNode>(activeWindow.Root);
         Assert.Equal(NavigationReconciliationSource.OtherNativeEvent, reconciliation!.Source);
@@ -1050,14 +1050,21 @@ public sealed class MauiNavigationPresenterLifecycleTests
 
     private sealed class PresenterFixture
     {
-        public PresenterFixture()
+        public PresenterFixture(Action<MauiRoutePageRegistry>? configurePages = null)
         {
             Diagnostics = new NavigationDiagnostics();
             Diagnostics.AddObserver(Observer);
-            Presenter = new MauiNavigationPresenter(Factory, diagnostics: Diagnostics);
+            PresentationOptions = new MauiRoutePresentationOptions();
+            configurePages?.Invoke(PresentationOptions.Pages);
+            Presenter = new MauiNavigationPresenter(
+                Factory,
+                diagnostics: Diagnostics,
+                presentationOptions: PresentationOptions);
         }
 
         public InstrumentedRoutePageFactory Factory { get; } = new();
+
+        public MauiRoutePresentationOptions PresentationOptions { get; }
 
         public RecordingNavigationDiagnosticObserver Observer { get; } = new();
 

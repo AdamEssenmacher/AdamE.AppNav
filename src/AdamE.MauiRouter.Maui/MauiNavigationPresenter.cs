@@ -24,6 +24,7 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         BindableProperty.CreateAttached("RouterModalId", typeof(string), typeof(MauiNavigationPresenter), null);
 
     private readonly IMauiRoutePageFactory _pageFactory;
+    private readonly MauiRoutePresentationOptions _presentationOptions;
     private readonly MauiExternalNavigationDispatcher? _externalNavigationDispatcher;
     private readonly NavigationDiagnostics _diagnostics;
     private readonly MauiNavigationTransitionService? _transitions;
@@ -46,9 +47,11 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         IMauiRoutePageFactory pageFactory,
         MauiExternalNavigationDispatcher? externalNavigationDispatcher = null,
         NavigationDiagnostics? diagnostics = null,
-        MauiNavigationTransitionService? transitions = null)
+        MauiNavigationTransitionService? transitions = null,
+        MauiRoutePresentationOptions? presentationOptions = null)
     {
         _pageFactory = pageFactory ?? throw new ArgumentNullException(nameof(pageFactory));
+        _presentationOptions = presentationOptions ?? new MauiRoutePresentationOptions();
         _externalNavigationDispatcher = externalNavigationDispatcher;
         _diagnostics = diagnostics ?? NavigationDiagnostics.None;
         _transitions = transitions;
@@ -319,20 +322,23 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
                 operationId,
                 isNavigationTarget,
                 cancellationToken),
-            TabsNode tabs => await MaterializeTabsAsync(
-                tabs,
-                existingPage as TabbedPage,
-                planTransition,
-                operationId,
-                isNavigationTarget,
-                cancellationToken),
-            FlyoutNode flyout => await MaterializeFlyoutAsync(
-                flyout,
-                existingPage as FlyoutPage,
-                planTransition,
-                operationId,
-                isNavigationTarget,
-                cancellationToken),
+            BranchHostNode branchHost => _presentationOptions.Pages.GetBranchHostPresentation(branchHost.Id) switch
+            {
+                MauiBranchHostPresentation.Flyout => await MaterializeFlyoutBranchHostAsync(
+                    branchHost,
+                    existingPage as FlyoutPage,
+                    planTransition,
+                    operationId,
+                    isNavigationTarget,
+                    cancellationToken),
+                _ => await MaterializeTabbedBranchHostAsync(
+                    branchHost,
+                    existingPage as TabbedPage,
+                    planTransition,
+                    operationId,
+                    isNavigationTarget,
+                    cancellationToken)
+            },
             ModalNode modal => modal.Content is null
                 ? CreateRoutePage(modal.RouteEntry)
                 : await MaterializeNodeAsync(
@@ -500,10 +506,7 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         return node switch
         {
             StackNode stack when StringComparer.Ordinal.Equals(stack.Id, stackId) => stack,
-            TabsNode tabs => tabs.Branches
-                .Select(branch => FindStack(branch.Content, stackId))
-                .FirstOrDefault(stack => stack is not null),
-            FlyoutNode flyout => flyout.Branches
+            BranchHostNode branchHost => branchHost.Branches
                 .Select(branch => FindStack(branch.Content, stackId))
                 .FirstOrDefault(stack => stack is not null),
             ModalNode modal => FindStack(modal.Content, stackId),
@@ -511,20 +514,20 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         };
     }
 
-    private async Task<Page> MaterializeTabsAsync(
-        TabsNode tabs,
+    private async Task<Page> MaterializeTabbedBranchHostAsync(
+        BranchHostNode branchHost,
         TabbedPage? existingPage,
         NavigationTransition? planTransition,
         string operationId,
         bool isNavigationTarget,
         CancellationToken cancellationToken)
     {
-        var tabbedPage = existingPage is not null && StringComparer.Ordinal.Equals(GetHostId(existingPage), tabs.Id)
+        var tabbedPage = existingPage is not null && StringComparer.Ordinal.Equals(GetHostId(existingPage), branchHost.Id)
             ? existingPage
             : new TabbedPage();
         var createdTabbedPage = !ReferenceEquals(tabbedPage, existingPage);
 
-        SetHostId(tabbedPage, tabs.Id);
+        SetHostId(tabbedPage, branchHost.Id);
 
         if (createdTabbedPage)
         {
@@ -533,7 +536,7 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
 
         TrackTabbedPage(tabbedPage);
 
-        var desiredBranchIds = tabs.Branches
+        var desiredBranchIds = branchHost.Branches
             .Select(branch => branch.Id)
             .ToHashSet(StringComparer.Ordinal);
 
@@ -546,11 +549,11 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         }
 
         Page? selectedPage = null;
-        for (var i = 0; i < tabs.Branches.Count; i++)
+        for (var i = 0; i < branchHost.Branches.Count; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var branch = tabs.Branches[i];
+            var branch = branchHost.Branches[i];
             var existingBranchPage = tabbedPage.Children.FirstOrDefault(child =>
                 StringComparer.Ordinal.Equals(GetBranchId(child), branch.Id));
             var page = await MaterializeNodeAsync(
@@ -558,7 +561,7 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
                 existingBranchPage,
                 planTransition,
                 operationId,
-                isNavigationTarget && StringComparer.Ordinal.Equals(branch.Id, tabs.SelectedTabId),
+                isNavigationTarget && StringComparer.Ordinal.Equals(branch.Id, branchHost.SelectedBranchId),
                 cancellationToken);
             page.Title = branch.Title;
             SetBranchId(page, branch.Id);
@@ -581,7 +584,7 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
                 tabbedPage.Children.Insert(Math.Min(i, tabbedPage.Children.Count), page);
             }
 
-            if (StringComparer.Ordinal.Equals(branch.Id, tabs.SelectedTabId))
+            if (StringComparer.Ordinal.Equals(branch.Id, branchHost.SelectedBranchId))
             {
                 selectedPage = page;
             }
@@ -591,50 +594,50 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         return tabbedPage;
     }
 
-    private async Task<Page> MaterializeFlyoutAsync(
-        FlyoutNode flyout,
+    private async Task<Page> MaterializeFlyoutBranchHostAsync(
+        BranchHostNode branchHost,
         FlyoutPage? existingPage,
         NavigationTransition? planTransition,
         string operationId,
         bool isNavigationTarget,
         CancellationToken cancellationToken)
     {
-        var flyoutPage = existingPage is not null && StringComparer.Ordinal.Equals(GetHostId(existingPage), flyout.Id)
+        var flyoutPage = existingPage is not null && StringComparer.Ordinal.Equals(GetHostId(existingPage), branchHost.Id)
             ? existingPage
             : new FlyoutPage();
         var createdFlyoutPage = !ReferenceEquals(flyoutPage, existingPage);
 
-        SetHostId(flyoutPage, flyout.Id);
+        SetHostId(flyoutPage, branchHost.Id);
 
         if (createdFlyoutPage)
         {
             WritePageLifecycle(NavigationDiagnosticEventKind.PresentationPageCreated, flyoutPage, "FlyoutPage was created.");
         }
 
-        RemoveStaleFlyoutBranchPages(flyout);
+        RemoveStaleFlyoutBranchPages(branchHost);
 
         if (flyoutPage.Flyout is MauiFlyoutMenuPage oldMenu)
         {
             UntrackFlyoutMenu(oldMenu);
         }
 
-        var menu = new MauiFlyoutMenuPage(flyout.Branches, flyout.SelectedItemId);
+        var menu = new MauiFlyoutMenuPage(branchHost.Branches, branchHost.SelectedBranchId);
         WritePageLifecycle(NavigationDiagnosticEventKind.PresentationPageCreated, menu, "Flyout menu page was created.");
-        EventHandler<string> selectedItemChanged = async (_, selectedItemId) =>
+        EventHandler<string> selectedItemChanged = async (_, selectedBranchId) =>
         {
             if (_suppressReconciliation)
             {
                 return;
             }
 
-            var selectedBranch = menu.FindBranch(selectedItemId);
+            var selectedBranch = menu.FindBranch(selectedBranchId);
             if (selectedBranch is null)
             {
                 return;
             }
 
             flyoutPage.Detail = await MaterializeFlyoutBranchAsync(
-                flyout.Id,
+                branchHost.Id,
                 selectedBranch,
                 flyoutPage.Detail,
                 null,
@@ -642,7 +645,7 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
                 isNavigationTarget: true,
                 CancellationToken.None);
             flyoutPage.IsPresented = false;
-            ReconcileSelectedFlyoutItem(flyoutPage, flyout.Id, selectedItemId);
+            ReconcileSelectedFlyoutItem(flyoutPage, branchHost.Id, selectedBranchId);
         };
         menu.SelectedItemChanged += selectedItemChanged;
         _flyoutMenuHandlers[menu] = selectedItemChanged;
@@ -653,11 +656,11 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
             "Flyout menu selection handler was attached.");
         flyoutPage.Flyout = menu;
 
-        var branch = flyout.SelectedBranch ?? flyout.Branches.FirstOrDefault();
+        var branch = branchHost.SelectedBranch ?? branchHost.Branches.FirstOrDefault();
         flyoutPage.Detail = branch is null
             ? CreateEmptyPage()
             : await MaterializeFlyoutBranchAsync(
-                flyout.Id,
+                branchHost.Id,
                 branch,
                 flyoutPage.Detail,
                 planTransition,
@@ -704,14 +707,14 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         return page;
     }
 
-    private void RemoveStaleFlyoutBranchPages(FlyoutNode flyout)
+    private void RemoveStaleFlyoutBranchPages(BranchHostNode branchHost)
     {
-        var validKeys = flyout.Branches
-            .Select(branch => FlyoutBranchKey(flyout.Id, branch.Id))
+        var validKeys = branchHost.Branches
+            .Select(branch => FlyoutBranchKey(branchHost.Id, branch.Id))
             .ToHashSet(StringComparer.Ordinal);
 
         foreach (var stale in _flyoutBranchPages
-                     .Where(pair => pair.Key.StartsWith($"{flyout.Id}:", StringComparison.Ordinal) && !validKeys.Contains(pair.Key))
+                     .Where(pair => pair.Key.StartsWith($"{branchHost.Id}:", StringComparison.Ordinal) && !validKeys.Contains(pair.Key))
                      .ToArray())
         {
             _flyoutBranchPages.Remove(stale.Key);
@@ -805,7 +808,7 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
             cancellationToken);
     }
 
-    private static int CommonModalPrefix(IReadOnlyList<Page> pages, IReadOnlyList<ModalNode> modals)
+    private int CommonModalPrefix(IReadOnlyList<Page> pages, IReadOnlyList<ModalNode> modals)
     {
         var count = Math.Min(pages.Count, modals.Count);
         var common = 0;
@@ -822,7 +825,7 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         return common;
     }
 
-    private static bool ModalPageMatches(Page page, ModalNode modal)
+    private bool ModalPageMatches(Page page, ModalNode modal)
     {
         if (!StringComparer.Ordinal.Equals(GetModalId(page), modal.Id))
         {
@@ -834,17 +837,20 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
             : CanReuseNodePage(modal.Content, page);
     }
 
-    private static bool CanReuseNodePage(NavigationNode node, Page? existingPage)
+    private bool CanReuseNodePage(NavigationNode node, Page? existingPage)
     {
         return node switch
         {
             StackNode stack => existingPage is NavigationPage navigationPage &&
                                StringComparer.Ordinal.Equals(GetHostId(navigationPage), stack.Id) &&
                                StackRootMatches(navigationPage, stack),
-            TabsNode tabs => existingPage is TabbedPage tabbedPage &&
-                             StringComparer.Ordinal.Equals(GetHostId(tabbedPage), tabs.Id),
-            FlyoutNode flyout => existingPage is FlyoutPage flyoutPage &&
-                                 StringComparer.Ordinal.Equals(GetHostId(flyoutPage), flyout.Id),
+            BranchHostNode branchHost => _presentationOptions.Pages.GetBranchHostPresentation(branchHost.Id) switch
+            {
+                MauiBranchHostPresentation.Flyout => existingPage is FlyoutPage flyoutPage &&
+                                                     StringComparer.Ordinal.Equals(GetHostId(flyoutPage), branchHost.Id),
+                _ => existingPage is TabbedPage tabbedPage &&
+                     StringComparer.Ordinal.Equals(GetHostId(tabbedPage), branchHost.Id)
+            },
             ModalNode modal => modal.Content is null
                 ? existingPage is not null &&
                   StringComparer.Ordinal.Equals(GetRouteEntryId(existingPage), modal.RouteEntry.Id)
@@ -1297,15 +1303,15 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         }
 
         var selectedBranchId = GetBranchId(tabbedPage.CurrentPage);
-        var tabsId = GetHostId(tabbedPage);
-        if (string.IsNullOrWhiteSpace(selectedBranchId) || string.IsNullOrWhiteSpace(tabsId))
+        var branchHostId = GetHostId(tabbedPage);
+        if (string.IsNullOrWhiteSpace(selectedBranchId) || string.IsNullOrWhiteSpace(branchHostId))
         {
             return;
         }
 
         var updatedWindow = UpdateWindowForPresentedNode(
             tabbedPage,
-            node => UpdateTabsSelection(node, tabsId, selectedBranchId));
+            node => UpdateBranchHostSelection(node, branchHostId, selectedBranchId));
         if (updatedWindow is null)
         {
             return;
@@ -1356,11 +1362,11 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
     private void ReconcileSelectedFlyoutItem(
         FlyoutPage flyoutPage,
         string flyoutId,
-        string selectedItemId)
+        string selectedBranchId)
     {
         var updatedWindow = UpdateWindowForPresentedNode(
             flyoutPage,
-            node => UpdateFlyoutSelection(node, flyoutId, selectedItemId));
+            node => UpdateBranchHostSelection(node, flyoutId, selectedBranchId));
         if (updatedWindow is null)
         {
             return;
@@ -1519,36 +1525,17 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
             new NavigationReconciliationRequestedEventArgs(new NavigationReconciliation(state, source, route, reason)));
     }
 
-    private static NavigationNode? UpdateTabsSelection(NavigationNode node, string tabsId, string selectedBranchId)
+    private static NavigationNode? UpdateBranchHostSelection(NavigationNode node, string branchHostId, string selectedBranchId)
     {
         return node switch
         {
-            TabsNode tabs when StringComparer.Ordinal.Equals(tabs.Id, tabsId) =>
-                tabs.Branches.Any(branch => StringComparer.Ordinal.Equals(branch.Id, selectedBranchId))
-                    ? tabs with { SelectedTabId = selectedBranchId }
+            BranchHostNode branchHost when StringComparer.Ordinal.Equals(branchHost.Id, branchHostId) =>
+                branchHost.Branches.Any(branch => StringComparer.Ordinal.Equals(branch.Id, selectedBranchId))
+                    ? branchHost with { SelectedBranchId = selectedBranchId }
                     : null,
-            TabsNode tabs => UpdateSelectedBranch(tabs, child => UpdateTabsSelection(child, tabsId, selectedBranchId)),
-            FlyoutNode flyout => UpdateSelectedBranch(flyout, child => UpdateTabsSelection(child, tabsId, selectedBranchId)),
+            BranchHostNode branchHost => UpdateSelectedBranch(branchHost, child => UpdateBranchHostSelection(child, branchHostId, selectedBranchId)),
             ModalNode modal when modal.Content is not null =>
-                UpdateTabsSelection(modal.Content, tabsId, selectedBranchId) is { } updated
-                    ? modal with { Content = updated }
-                    : null,
-            _ => null
-        };
-    }
-
-    private static NavigationNode? UpdateFlyoutSelection(NavigationNode node, string flyoutId, string selectedItemId)
-    {
-        return node switch
-        {
-            FlyoutNode flyout when StringComparer.Ordinal.Equals(flyout.Id, flyoutId) =>
-                flyout.Branches.Any(branch => StringComparer.Ordinal.Equals(branch.Id, selectedItemId))
-                    ? flyout with { SelectedItemId = selectedItemId }
-                    : null,
-            TabsNode tabs => UpdateSelectedBranch(tabs, child => UpdateFlyoutSelection(child, flyoutId, selectedItemId)),
-            FlyoutNode flyout => UpdateSelectedBranch(flyout, child => UpdateFlyoutSelection(child, flyoutId, selectedItemId)),
-            ModalNode modal when modal.Content is not null =>
-                UpdateFlyoutSelection(modal.Content, flyoutId, selectedItemId) is { } updated
+                UpdateBranchHostSelection(modal.Content, branchHostId, selectedBranchId) is { } updated
                     ? modal with { Content = updated }
                     : null,
             _ => null
@@ -1564,8 +1551,7 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         {
             StackNode stack when StringComparer.Ordinal.Equals(stack.Id, stackId) =>
                 UpdateStackEntriesFromNative(stack, remainingRouteEntryIds),
-            TabsNode tabs => UpdateSelectedBranch(tabs, child => UpdateStackFromNative(child, stackId, remainingRouteEntryIds)),
-            FlyoutNode flyout => UpdateSelectedBranch(flyout, child => UpdateStackFromNative(child, stackId, remainingRouteEntryIds)),
+            BranchHostNode branchHost => UpdateSelectedBranch(branchHost, child => UpdateStackFromNative(child, stackId, remainingRouteEntryIds)),
             ModalNode modal when modal.Content is not null =>
                 UpdateStackFromNative(modal.Content, stackId, remainingRouteEntryIds) is { } updated
                     ? modal with { Content = updated }
@@ -1600,9 +1586,9 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         return stack with { Entries = updatedEntries };
     }
 
-    private static NavigationNode? UpdateSelectedBranch(TabsNode tabs, Func<NavigationNode, NavigationNode?> update)
+    private static NavigationNode? UpdateSelectedBranch(BranchHostNode branchHost, Func<NavigationNode, NavigationNode?> update)
     {
-        var selectedBranch = tabs.SelectedBranch;
+        var selectedBranch = branchHost.SelectedBranch;
         if (selectedBranch is null)
         {
             return null;
@@ -1611,21 +1597,7 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         var updatedContent = update(selectedBranch.Content);
         return updatedContent is null
             ? null
-            : tabs.ReplaceBranch(selectedBranch with { Content = updatedContent });
-    }
-
-    private static NavigationNode? UpdateSelectedBranch(FlyoutNode flyout, Func<NavigationNode, NavigationNode?> update)
-    {
-        var selectedBranch = flyout.SelectedBranch;
-        if (selectedBranch is null)
-        {
-            return null;
-        }
-
-        var updatedContent = update(selectedBranch.Content);
-        return updatedContent is null
-            ? null
-            : flyout.ReplaceBranch(selectedBranch with { Content = updatedContent });
+            : branchHost.ReplaceBranch(selectedBranch with { Content = updatedContent });
     }
 
     private static AppRoute? FindTopRoute(NavigationNode node)
@@ -1633,8 +1605,7 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         return node switch
         {
             StackNode stack => stack.Top?.Route,
-            TabsNode tabs when tabs.SelectedBranch is not null => FindTopRoute(tabs.SelectedBranch.Content),
-            FlyoutNode flyout when flyout.SelectedBranch is not null => FindTopRoute(flyout.SelectedBranch.Content),
+            BranchHostNode branchHost when branchHost.SelectedBranch is not null => FindTopRoute(branchHost.SelectedBranch.Content),
             ModalNode modal => modal.RouteEntry.Route,
             _ => null
         };

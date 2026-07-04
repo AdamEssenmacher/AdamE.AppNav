@@ -224,28 +224,28 @@ public sealed class TestingHarnessTests
             "catalog-stack",
             TestNavigationState.Entry("catalog", new TestRoutes.CatalogRoute("northwind")),
             TestNavigationState.Entry("product", productRoute));
-        var tabs = TestNavigationState.Tabs(
-            "tabs",
+        var branchHost = TestNavigationState.BranchHost(
+            "branchHost",
             "catalog",
             "home",
             TestNavigationState.Branch("home", "Home", TestNavigationState.Stack("home-stack")),
             TestNavigationState.Branch("catalog", "Catalog", catalogStack));
         var window = TestNavigationState.Window(
             "main",
-            tabs,
+            branchHost,
             new[] { TestNavigationState.Modal("store-modal", TestNavigationState.Entry("store", modalRoute)) });
         var state = TestNavigationState.State("main", window);
 
         Assert.Equal(window, NavigationStateAssert.ActiveWindow(state, "main"));
-        var selectedTabs = NavigationStateAssert.SelectedTabs(state, "catalog");
-        var selectedStack = NavigationStateAssert.SelectedBranch<StackNode>(selectedTabs, "catalog");
+        var selectedBranchHost = NavigationStateAssert.SelectedBranchHost(state, "catalog");
+        var selectedStack = NavigationStateAssert.SelectedBranch<StackNode>(selectedBranchHost, "catalog");
         NavigationStateAssert.StackRouteTypes(
             selectedStack,
             typeof(TestRoutes.CatalogRoute),
             typeof(TestRoutes.ProductDetailRoute));
         Assert.Equal(productRoute, NavigationStateAssert.StackTop<TestRoutes.ProductDetailRoute>(selectedStack));
         Assert.Equal(modalRoute, NavigationStateAssert.ModalRoute<TestRoutes.StoreRoute>(window));
-        Assert.Throws<NavigationAssertionException>(() => NavigationStateAssert.SelectedTabs(state, "home"));
+        Assert.Throws<NavigationAssertionException>(() => NavigationStateAssert.SelectedBranchHost(state, "home"));
     }
 
     [Fact]

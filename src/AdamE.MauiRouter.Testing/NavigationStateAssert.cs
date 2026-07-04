@@ -36,67 +36,41 @@ public static class NavigationStateAssert
         return root;
     }
 
-    public static TabsNode SelectedTabs(NavigationState state, string expectedTabId)
+    public static BranchHostNode SelectedBranchHost(NavigationState state, string expectedBranchId)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(expectedTabId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(expectedBranchId);
 
-        var tabs = Root<TabsNode>(state);
-        if (!StringComparer.Ordinal.Equals(tabs.SelectedTabId, expectedTabId))
+        var branchHost = Root<BranchHostNode>(state);
+        if (!StringComparer.Ordinal.Equals(branchHost.SelectedBranchId, expectedBranchId))
         {
             throw new NavigationAssertionException(
-                $"Expected selected tab '{expectedTabId}', but found '{tabs.SelectedTabId}'.");
+                $"Expected selected branch '{expectedBranchId}', but found '{branchHost.SelectedBranchId}'.");
         }
 
-        return tabs;
+        return branchHost;
     }
 
-    public static TNode SelectedBranch<TNode>(TabsNode tabs, string branchId)
+    public static TNode SelectedBranch<TNode>(BranchHostNode branchHost, string branchId)
         where TNode : NavigationNode
     {
-        ArgumentNullException.ThrowIfNull(tabs);
-        var branch = tabs.Branches.FirstOrDefault(candidate => StringComparer.Ordinal.Equals(candidate.Id, branchId));
+        ArgumentNullException.ThrowIfNull(branchHost);
+        var branch = branchHost.Branches.FirstOrDefault(candidate => StringComparer.Ordinal.Equals(candidate.Id, branchId));
         if (branch is null)
         {
             throw new NavigationAssertionException(
-                $"Expected tabs '{tabs.Id}' to contain branch '{branchId}', but branches were: {DescribeBranches(tabs.Branches)}.");
+                $"Expected branch host '{branchHost.Id}' to contain branch '{branchId}', but branches were: {DescribeBranches(branchHost.Branches)}.");
         }
 
-        if (!StringComparer.Ordinal.Equals(tabs.SelectedTabId, branchId))
+        if (!StringComparer.Ordinal.Equals(branchHost.SelectedBranchId, branchId))
         {
             throw new NavigationAssertionException(
-                $"Expected tabs '{tabs.Id}' branch '{branchId}' to be selected, but selected tab was '{tabs.SelectedTabId}'.");
+                $"Expected branch host '{branchHost.Id}' branch '{branchId}' to be selected, but selected branch was '{branchHost.SelectedBranchId}'.");
         }
 
         if (branch.Content is not TNode content)
         {
             throw new NavigationAssertionException(
-                $"Expected tabs branch '{branchId}' content to be '{typeof(TNode).FullName}', but found '{DescribeNode(branch.Content)}'.");
-        }
-
-        return content;
-    }
-
-    public static TNode SelectedBranch<TNode>(FlyoutNode flyout, string branchId)
-        where TNode : NavigationNode
-    {
-        ArgumentNullException.ThrowIfNull(flyout);
-        var branch = flyout.Branches.FirstOrDefault(candidate => StringComparer.Ordinal.Equals(candidate.Id, branchId));
-        if (branch is null)
-        {
-            throw new NavigationAssertionException(
-                $"Expected flyout '{flyout.Id}' to contain branch '{branchId}', but branches were: {DescribeBranches(flyout.Branches)}.");
-        }
-
-        if (!StringComparer.Ordinal.Equals(flyout.SelectedItemId, branchId))
-        {
-            throw new NavigationAssertionException(
-                $"Expected flyout '{flyout.Id}' branch '{branchId}' to be selected, but selected item was '{flyout.SelectedItemId}'.");
-        }
-
-        if (branch.Content is not TNode content)
-        {
-            throw new NavigationAssertionException(
-                $"Expected flyout branch '{branchId}' content to be '{typeof(TNode).FullName}', but found '{DescribeNode(branch.Content)}'.");
+                $"Expected branch '{branchId}' content to be '{typeof(TNode).FullName}', but found '{DescribeNode(branch.Content)}'.");
         }
 
         return content;

@@ -3,7 +3,7 @@ using AdamE.MauiRouter.State;
 
 namespace AdamE.MauiRouter.Tests;
 
-public sealed class TabsNavigationModelTests
+public sealed class BranchHostNavigationModelTests
 {
     [Fact]
     public void CreateCanonicalState_BuildsAllBranchesAndSelectsOwningBranch()
@@ -16,9 +16,9 @@ public sealed class TabsNavigationModelTests
 
         var state = model.CreateCanonicalState(new CatalogDetailRoute("scope-1", "detail-1"), metadata);
 
-        var tabs = AssertTabs(state, selectedTabId: "catalog", "overview", "catalog", "orders");
+        var branchHost = AssertBranchHost(state, selectedBranchId: "catalog", "overview", "catalog", "orders");
         AssertBranchStack(
-            tabs,
+            branchHost,
             "overview",
             entry =>
             {
@@ -26,7 +26,7 @@ public sealed class TabsNavigationModelTests
                 Assert.Null(entry.Metadata);
             });
         AssertBranchStack(
-            tabs,
+            branchHost,
             "catalog",
             entry =>
             {
@@ -39,7 +39,7 @@ public sealed class TabsNavigationModelTests
                 Assert.Equal("deep-link", entry.Metadata!["origin"]);
             });
         AssertBranchStack(
-            tabs,
+            branchHost,
             "orders",
             entry =>
             {
@@ -60,14 +60,14 @@ public sealed class TabsNavigationModelTests
             ContextualStackMutationKind.Push);
 
         Assert.NotNull(nextState);
-        var tabs = AssertTabs(nextState!, selectedTabId: "catalog", "overview", "catalog", "orders");
-        AssertBranchRoutes(tabs, "overview", typeof(OverviewRoute));
-        AssertBranchRoutes(tabs, "catalog", typeof(CatalogRootRoute), typeof(CatalogDetailRoute), typeof(CatalogAccessoryRoute));
-        AssertBranchRoutes(tabs, "orders", typeof(OrdersRootRoute));
+        var branchHost = AssertBranchHost(nextState!, selectedBranchId: "catalog", "overview", "catalog", "orders");
+        AssertBranchRoutes(branchHost, "overview", typeof(OverviewRoute));
+        AssertBranchRoutes(branchHost, "catalog", typeof(CatalogRootRoute), typeof(CatalogDetailRoute), typeof(CatalogAccessoryRoute));
+        AssertBranchRoutes(branchHost, "orders", typeof(OrdersRootRoute));
     }
 
     [Fact]
-    public void TryCreateContextualState_CrossTabNavigationSelectsOwningBranchAndPreservesSourceBranchStack()
+    public void TryCreateContextualState_CrossBranchNavigationSelectsOwningBranchAndPreservesSourceBranchStack()
     {
         var model = CreateModel();
         var currentState = model.CreateCanonicalState(new CatalogDetailRoute("scope-1", "detail-1"));
@@ -78,9 +78,9 @@ public sealed class TabsNavigationModelTests
             ContextualStackMutationKind.Push);
 
         Assert.NotNull(nextState);
-        var tabs = AssertTabs(nextState!, selectedTabId: "orders", "overview", "catalog", "orders");
-        AssertBranchRoutes(tabs, "catalog", typeof(CatalogRootRoute), typeof(CatalogDetailRoute));
-        AssertBranchRoutes(tabs, "orders", typeof(OrdersRootRoute), typeof(OrdersDetailRoute));
+        var branchHost = AssertBranchHost(nextState!, selectedBranchId: "orders", "overview", "catalog", "orders");
+        AssertBranchRoutes(branchHost, "catalog", typeof(CatalogRootRoute), typeof(CatalogDetailRoute));
+        AssertBranchRoutes(branchHost, "orders", typeof(OrdersRootRoute), typeof(OrdersDetailRoute));
     }
 
     [Fact]
@@ -99,10 +99,10 @@ public sealed class TabsNavigationModelTests
             ContextualStackMutationKind.ReplaceTop);
 
         Assert.NotNull(nextState);
-        var tabs = AssertTabs(nextState!, selectedTabId: "orders", "overview", "catalog", "orders");
-        AssertBranchRoutes(tabs, "catalog", typeof(CatalogRootRoute), typeof(CatalogDetailRoute));
+        var branchHost = AssertBranchHost(nextState!, selectedBranchId: "orders", "overview", "catalog", "orders");
+        AssertBranchRoutes(branchHost, "catalog", typeof(CatalogRootRoute), typeof(CatalogDetailRoute));
         AssertBranchStack(
-            tabs,
+            branchHost,
             "orders",
             entry => Assert.IsType<OrdersRootRoute>(entry.Route),
             entry =>
@@ -113,7 +113,7 @@ public sealed class TabsNavigationModelTests
     }
 
     [Fact]
-    public void TryCreateContextualState_TabRootNavigationCollapsesOnlyOwningBranch()
+    public void TryCreateContextualState_BranchRootNavigationCollapsesOnlyOwningBranch()
     {
         var model = CreateModel();
         var currentState = model.CreateCanonicalState(new CatalogDetailRoute("scope-1", "detail-1"));
@@ -128,9 +128,9 @@ public sealed class TabsNavigationModelTests
             ContextualStackMutationKind.Push);
 
         Assert.NotNull(nextState);
-        var tabs = AssertTabs(nextState!, selectedTabId: "catalog", "overview", "catalog", "orders");
-        AssertBranchRoutes(tabs, "catalog", typeof(CatalogRootRoute));
-        AssertBranchRoutes(tabs, "orders", typeof(OrdersRootRoute), typeof(OrdersDetailRoute));
+        var branchHost = AssertBranchHost(nextState!, selectedBranchId: "catalog", "overview", "catalog", "orders");
+        AssertBranchRoutes(branchHost, "catalog", typeof(CatalogRootRoute));
+        AssertBranchRoutes(branchHost, "orders", typeof(OrdersRootRoute), typeof(OrdersDetailRoute));
     }
 
     [Fact]
@@ -150,9 +150,9 @@ public sealed class TabsNavigationModelTests
     [Fact]
     public void Create_RejectsDuplicateBranches()
     {
-        var error = Assert.Throws<InvalidOperationException>(() => TabsNavigationModel<TestRoute>.Create(builder =>
+        var error = Assert.Throws<InvalidOperationException>(() => BranchHostNavigationModel<TestRoute>.Create(builder =>
         {
-            builder.CanonicalSurface("main", "tabs");
+            builder.CanonicalSurface("main", "branchHost");
             builder.Branch("overview", "Overview", route => new OverviewRoute(route.ScopeId));
             builder.Branch("overview", "Overview Duplicate", route => new OverviewRoute(route.ScopeId));
         }));
@@ -163,9 +163,9 @@ public sealed class TabsNavigationModelTests
     [Fact]
     public void Create_RejectsDuplicateRouteRegistrations()
     {
-        var error = Assert.Throws<InvalidOperationException>(() => TabsNavigationModel<TestRoute>.Create(builder =>
+        var error = Assert.Throws<InvalidOperationException>(() => BranchHostNavigationModel<TestRoute>.Create(builder =>
         {
-            builder.CanonicalSurface("main", "tabs");
+            builder.CanonicalSurface("main", "branchHost");
             builder.Branch("overview", "Overview", route => new OverviewRoute(route.ScopeId));
             builder.Map<OverviewRoute>("overview", recipe => recipe.EntryId(route => $"scope:{route.ScopeId}:overview"));
             builder.Map<OverviewRoute>("overview", recipe => recipe.EntryId(route => $"scope:{route.ScopeId}:overview-duplicate"));
@@ -177,9 +177,9 @@ public sealed class TabsNavigationModelTests
     [Fact]
     public void Create_RejectsMissingBranchOwnership()
     {
-        var error = Assert.Throws<InvalidOperationException>(() => TabsNavigationModel<TestRoute>.Create(builder =>
+        var error = Assert.Throws<InvalidOperationException>(() => BranchHostNavigationModel<TestRoute>.Create(builder =>
         {
-            builder.CanonicalSurface("main", "tabs");
+            builder.CanonicalSurface("main", "branchHost");
             builder.Branch("overview", "Overview", route => new OverviewRoute(route.ScopeId));
             builder.Map<OverviewRoute>("missing", recipe => recipe.EntryId(route => $"scope:{route.ScopeId}:overview"));
         }));
@@ -190,9 +190,9 @@ public sealed class TabsNavigationModelTests
     [Fact]
     public void CreateCanonicalState_RejectsUnregisteredRoutesReferencedByRecipes()
     {
-        var model = TabsNavigationModel<TestRoute>.Create(builder =>
+        var model = BranchHostNavigationModel<TestRoute>.Create(builder =>
         {
-            builder.CanonicalSurface("main", "tabs");
+            builder.CanonicalSurface("main", "branchHost");
             builder.Branch("overview", "Overview", route => new OverviewRoute(route.ScopeId));
             builder.Map<BrokenRoute>("overview", recipe => recipe
                 .EntryId(route => $"scope:{route.ScopeId}:broken")
@@ -209,11 +209,11 @@ public sealed class TabsNavigationModelTests
         Assert.Contains("must be registered", error.Message, StringComparison.Ordinal);
     }
 
-    private static TabsNavigationModel<TestRoute> CreateModel()
+    private static BranchHostNavigationModel<TestRoute> CreateModel()
     {
-        return TabsNavigationModel<TestRoute>.Create(builder =>
+        return BranchHostNavigationModel<TestRoute>.Create(builder =>
         {
-            builder.CanonicalSurface("main", "tabs");
+            builder.CanonicalSurface("main", "branchHost");
 
             builder.Branch("overview", "Overview", route => new OverviewRoute(route.ScopeId));
             builder.Branch("catalog", "Catalog", route => new CatalogRootRoute(route.ScopeId));
@@ -256,29 +256,29 @@ public sealed class TabsNavigationModelTests
         });
     }
 
-    private static TabsNode AssertTabs(
+    private static BranchHostNode AssertBranchHost(
         NavigationState state,
-        string selectedTabId,
+        string selectedBranchId,
         params string[] expectedBranchIds)
     {
-        var tabs = Assert.IsType<TabsNode>(state.ActiveWindow?.Root);
-        Assert.Equal(selectedTabId, tabs.SelectedTabId);
-        Assert.Equal(expectedBranchIds, tabs.Branches.Select(static branch => branch.Id).ToArray());
-        return tabs;
+        var branchHost = Assert.IsType<BranchHostNode>(state.ActiveWindow?.Root);
+        Assert.Equal(selectedBranchId, branchHost.SelectedBranchId);
+        Assert.Equal(expectedBranchIds, branchHost.Branches.Select(static branch => branch.Id).ToArray());
+        return branchHost;
     }
 
-    private static void AssertBranchRoutes(TabsNode tabs, string branchId, params Type[] routeTypes)
+    private static void AssertBranchRoutes(BranchHostNode branchHost, string branchId, params Type[] routeTypes)
     {
-        var stack = AssertBranchStackNode(tabs, branchId);
+        var stack = AssertBranchStackNode(branchHost, branchId);
         Assert.Equal(routeTypes, stack.Entries.Select(static entry => entry.Route.GetType()).ToArray());
     }
 
     private static void AssertBranchStack(
-        TabsNode tabs,
+        BranchHostNode branchHost,
         string branchId,
         params Action<RouteEntry>[] assertions)
     {
-        var stack = AssertBranchStackNode(tabs, branchId);
+        var stack = AssertBranchStackNode(branchHost, branchId);
         Assert.Equal(assertions.Length, stack.Entries.Count);
 
         for (var i = 0; i < assertions.Length; i++)
@@ -287,9 +287,9 @@ public sealed class TabsNavigationModelTests
         }
     }
 
-    private static StackNode AssertBranchStackNode(TabsNode tabs, string branchId)
+    private static StackNode AssertBranchStackNode(BranchHostNode branchHost, string branchId)
     {
-        var branch = Assert.Single(tabs.Branches, branch => StringComparer.Ordinal.Equals(branch.Id, branchId));
+        var branch = Assert.Single(branchHost.Branches, branch => StringComparer.Ordinal.Equals(branch.Id, branchId));
         return Assert.IsType<StackNode>(branch.Content);
     }
 

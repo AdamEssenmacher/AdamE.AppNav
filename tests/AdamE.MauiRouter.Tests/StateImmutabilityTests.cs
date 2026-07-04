@@ -36,19 +36,19 @@ public sealed class StateImmutabilityTests
         {
             new("catalog", "Catalog", stack)
         };
-        var tabs = new TabsNode("tabs", branches, "catalog", "catalog");
-        var flyout = new FlyoutNode("flyout", branches, "catalog", "catalog");
+        var branchHost = new BranchHostNode("branchHost", branches, "catalog", "catalog");
+        var flyout = new BranchHostNode("flyout", branches, "catalog", "catalog");
         branches.Add(new NavigationBranch("cart", "Cart", Stack("cart-stack", "cart")));
 
         var modals = new List<ModalNode>
         {
             new("promo-modal", Entry("promo"))
         };
-        var window = new WindowNode("main", tabs, modals);
+        var window = new WindowNode("main", branchHost, modals);
         modals.Add(new ModalNode("cart-modal", Entry("cart-modal")));
 
         Assert.Single(stack.Entries);
-        Assert.Single(tabs.Branches);
+        Assert.Single(branchHost.Branches);
         Assert.Single(flyout.Branches);
         Assert.Single(window.Modals);
     }

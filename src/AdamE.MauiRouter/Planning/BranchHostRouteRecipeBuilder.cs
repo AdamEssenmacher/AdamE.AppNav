@@ -1,9 +1,9 @@
 namespace AdamE.MauiRouter.Planning;
 
 /// <summary>
-/// Configures canonical and contextual tabs behavior for a specific application route type.
+/// Configures canonical and contextual branch-host behavior for a specific application route type.
 /// </summary>
-public sealed class TabsRouteRecipeBuilder<TRouteBase, TRoute> : ITabsRouteRecipeBuilder<TRouteBase>
+public sealed class BranchHostRouteRecipeBuilder<TRouteBase, TRoute> : IBranchHostRouteRecipeBuilder<TRouteBase>
     where TRouteBase : AppRoute
     where TRoute : TRouteBase
 {
@@ -15,7 +15,7 @@ public sealed class TabsRouteRecipeBuilder<TRouteBase, TRoute> : ITabsRouteRecip
     private Func<TRoute, IReadOnlyDictionary<string, object?>?, IReadOnlyList<StackRouteStep<TRouteBase>>>? _contextualTailFactory;
     private ContextualStackEligibility _contextualEligibility = ContextualStackEligibility.MatchingScope;
 
-    internal TabsRouteRecipeBuilder(string branchId)
+    internal BranchHostRouteRecipeBuilder(string branchId)
     {
         _branchId = branchId;
     }
@@ -23,7 +23,7 @@ public sealed class TabsRouteRecipeBuilder<TRouteBase, TRoute> : ITabsRouteRecip
     /// <summary>
     /// Sets the route-entry identifier factory for this route type.
     /// </summary>
-    public TabsRouteRecipeBuilder<TRouteBase, TRoute> EntryId(Func<TRoute, string> entryIdFactory)
+    public BranchHostRouteRecipeBuilder<TRouteBase, TRoute> EntryId(Func<TRoute, string> entryIdFactory)
     {
         _entryIdFactory = entryIdFactory ?? throw new ArgumentNullException(nameof(entryIdFactory));
         return this;
@@ -32,7 +32,7 @@ public sealed class TabsRouteRecipeBuilder<TRouteBase, TRoute> : ITabsRouteRecip
     /// <summary>
     /// Sets the contextual scope key factory for this route type.
     /// </summary>
-    public TabsRouteRecipeBuilder<TRouteBase, TRoute> ScopeKey(Func<TRoute, string?> scopeKeyFactory)
+    public BranchHostRouteRecipeBuilder<TRouteBase, TRoute> ScopeKey(Func<TRoute, string?> scopeKeyFactory)
     {
         _scopeKeyFactory = scopeKeyFactory ?? throw new ArgumentNullException(nameof(scopeKeyFactory));
         return this;
@@ -41,7 +41,7 @@ public sealed class TabsRouteRecipeBuilder<TRouteBase, TRoute> : ITabsRouteRecip
     /// <summary>
     /// Sets the contextual slot identifier factory for this route type.
     /// </summary>
-    public TabsRouteRecipeBuilder<TRouteBase, TRoute> SlotId(Func<TRoute, string?> slotIdFactory)
+    public BranchHostRouteRecipeBuilder<TRouteBase, TRoute> SlotId(Func<TRoute, string?> slotIdFactory)
     {
         _slotIdFactory = slotIdFactory ?? throw new ArgumentNullException(nameof(slotIdFactory));
         return this;
@@ -50,7 +50,7 @@ public sealed class TabsRouteRecipeBuilder<TRouteBase, TRoute> : ITabsRouteRecip
     /// <summary>
     /// Sets the canonical branch-stack recipe for this route type.
     /// </summary>
-    public TabsRouteRecipeBuilder<TRouteBase, TRoute> Canonical(
+    public BranchHostRouteRecipeBuilder<TRouteBase, TRoute> Canonical(
         Func<TRoute, IReadOnlyDictionary<string, object?>?, IReadOnlyList<StackRouteStep<TRouteBase>>> canonicalFactory)
     {
         _canonicalFactory = canonicalFactory ?? throw new ArgumentNullException(nameof(canonicalFactory));
@@ -60,7 +60,7 @@ public sealed class TabsRouteRecipeBuilder<TRouteBase, TRoute> : ITabsRouteRecip
     /// <summary>
     /// Sets the contextual branch-tail recipe for this route type.
     /// </summary>
-    public TabsRouteRecipeBuilder<TRouteBase, TRoute> ContextualTail(
+    public BranchHostRouteRecipeBuilder<TRouteBase, TRoute> ContextualTail(
         Func<TRoute, IReadOnlyDictionary<string, object?>?, IReadOnlyList<StackRouteStep<TRouteBase>>> contextualTailFactory)
     {
         _contextualTailFactory = contextualTailFactory ?? throw new ArgumentNullException(nameof(contextualTailFactory));
@@ -70,23 +70,23 @@ public sealed class TabsRouteRecipeBuilder<TRouteBase, TRoute> : ITabsRouteRecip
     /// <summary>
     /// Sets whether contextual planning requires a matching scope.
     /// </summary>
-    public TabsRouteRecipeBuilder<TRouteBase, TRoute> ContextualEligibility(ContextualStackEligibility contextualEligibility)
+    public BranchHostRouteRecipeBuilder<TRouteBase, TRoute> ContextualEligibility(ContextualStackEligibility contextualEligibility)
     {
         _contextualEligibility = contextualEligibility;
         return this;
     }
 
-    Type ITabsRouteRecipeBuilder<TRouteBase>.RouteType => typeof(TRoute);
+    Type IBranchHostRouteRecipeBuilder<TRouteBase>.RouteType => typeof(TRoute);
 
-    TabsRouteRecipe<TRouteBase> ITabsRouteRecipeBuilder<TRouteBase>.Build()
+    BranchHostRouteRecipe<TRouteBase> IBranchHostRouteRecipeBuilder<TRouteBase>.Build()
     {
         if (_entryIdFactory is null)
         {
             throw new InvalidOperationException(
-                $"Tabs route recipe '{typeof(TRoute).FullName}' must define an entry id factory.");
+                $"Branch-host route recipe '{typeof(TRoute).FullName}' must define an entry id factory.");
         }
 
-        return new TabsRouteRecipe<TRouteBase>(
+        return new BranchHostRouteRecipe<TRouteBase>(
             typeof(TRoute),
             _branchId,
             route => _entryIdFactory((TRoute)route),
@@ -102,15 +102,15 @@ public sealed class TabsRouteRecipeBuilder<TRouteBase, TRoute> : ITabsRouteRecip
     }
 }
 
-internal interface ITabsRouteRecipeBuilder<TRouteBase>
+internal interface IBranchHostRouteRecipeBuilder<TRouteBase>
     where TRouteBase : AppRoute
 {
     Type RouteType { get; }
 
-    TabsRouteRecipe<TRouteBase> Build();
+    BranchHostRouteRecipe<TRouteBase> Build();
 }
 
-internal sealed record TabsRouteRecipe<TRouteBase>(
+internal sealed record BranchHostRouteRecipe<TRouteBase>(
     Type RouteType,
     string BranchId,
     Func<TRouteBase, string> EntryIdFactory,

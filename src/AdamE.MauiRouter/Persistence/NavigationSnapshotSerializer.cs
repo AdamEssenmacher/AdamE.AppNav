@@ -37,7 +37,7 @@ internal sealed class NavigationSnapshotSerializer
     {
         ArgumentNullException.ThrowIfNull(snapshot);
 
-        if (snapshot.SchemaVersion != NavigationSnapshot.CurrentSchemaVersion)
+        if (snapshot.SchemaVersion is not 3 and not NavigationSnapshot.CurrentSchemaVersion)
         {
             return NavigationRestoreResult.Rejected(
                 $"Navigation snapshot schema version {snapshot.SchemaVersion} is not supported.",
@@ -45,7 +45,7 @@ internal sealed class NavigationSnapshotSerializer
                 {
                     new RouteDiagnostic(
                         "snapshot.schema.unsupported",
-                        $"Expected schema version {NavigationSnapshot.CurrentSchemaVersion}, received {snapshot.SchemaVersion}.")
+                            $"Expected schema version 3 or {NavigationSnapshot.CurrentSchemaVersion}, received {snapshot.SchemaVersion}.")
                 });
         }
 
@@ -100,16 +100,11 @@ internal sealed class NavigationSnapshotSerializer
             StackNode stack => new StackNodeSnapshot(
                 stack.Id,
                 stack.Entries.Select(CreateRouteEntrySnapshot).ToArray()),
-            TabsNode tabs => new TabsNodeSnapshot(
-                tabs.Id,
-                tabs.Branches.Select(CreateBranchSnapshot).ToArray(),
-                tabs.SelectedTabId,
-                tabs.DefaultTabId),
-            FlyoutNode flyout => new FlyoutNodeSnapshot(
-                flyout.Id,
-                flyout.Branches.Select(CreateBranchSnapshot).ToArray(),
-                flyout.SelectedItemId,
-                flyout.DefaultItemId),
+            BranchHostNode branchHost => new BranchHostNodeSnapshot(
+                branchHost.Id,
+                branchHost.Branches.Select(CreateBranchSnapshot).ToArray(),
+                branchHost.SelectedBranchId,
+                branchHost.DefaultBranchId),
             ModalNode modal => CreateModalSnapshot(modal),
             _ => throw new NotSupportedException($"Navigation node '{node.GetType().FullName}' cannot be snapshotted.")
         };
@@ -279,10 +274,12 @@ internal sealed class NavigationSnapshotSerializer
         {
             case StackNodeSnapshot stack:
                 return TryRestoreStack(stack, strict, out node, out diagnostics);
-            case TabsNodeSnapshot tabs:
-                return TryRestoreTabs(tabs, strict, out node, out diagnostics);
-            case FlyoutNodeSnapshot flyout:
-                return TryRestoreFlyout(flyout, strict, out node, out diagnostics);
+            case BranchHostNodeSnapshot branchHost:
+                return TryRestoreBranchHost(branchHost, strict, out node, out diagnostics);
+            case LegacyTabsNodeSnapshot tabs:
+                return TryRestoreLegacyTabs(tabs, strict, out node, out diagnostics);
+            case LegacyFlyoutNodeSnapshot flyout:
+                return TryRestoreLegacyFlyout(flyout, strict, out node, out diagnostics);
             case ModalNodeSnapshot modal:
                 return TryRestoreModal(modal, strict, out node, out diagnostics);
             default:
@@ -328,8 +325,8 @@ internal sealed class NavigationSnapshotSerializer
         return true;
     }
 
-    private bool TryRestoreTabs(
-        TabsNodeSnapshot snapshot,
+    private bool TryRestoreBranchHost(
+        BranchHostNodeSnapshot snapshot,
         bool strict,
         out NavigationNode? node,
         out IReadOnlyList<RouteDiagnostic> diagnostics)
@@ -341,12 +338,12 @@ internal sealed class NavigationSnapshotSerializer
             return false;
         }
 
-        node = new TabsNode(snapshot.Id, branches, snapshot.SelectedTabId, snapshot.DefaultTabId);
+        node = new BranchHostNode(snapshot.Id, branches, snapshot.SelectedBranchId, snapshot.DefaultBranchId);
         return true;
     }
 
-    private bool TryRestoreFlyout(
-        FlyoutNodeSnapshot snapshot,
+    private bool TryRestoreLegacyTabs(
+        LegacyTabsNodeSnapshot snapshot,
         bool strict,
         out NavigationNode? node,
         out IReadOnlyList<RouteDiagnostic> diagnostics)
@@ -358,7 +355,24 @@ internal sealed class NavigationSnapshotSerializer
             return false;
         }
 
-        node = new FlyoutNode(snapshot.Id, branches, snapshot.SelectedItemId, snapshot.DefaultItemId);
+        node = new BranchHostNode(snapshot.Id, branches, snapshot.SelectedTabId, snapshot.DefaultTabId);
+        return true;
+    }
+
+    private bool TryRestoreLegacyFlyout(
+        LegacyFlyoutNodeSnapshot snapshot,
+        bool strict,
+        out NavigationNode? node,
+        out IReadOnlyList<RouteDiagnostic> diagnostics)
+    {
+        var branches = new List<NavigationBranch>(snapshot.Branches.Count);
+        if (!TryRestoreBranches(snapshot.Branches, strict, branches, out diagnostics))
+        {
+            node = null;
+            return false;
+        }
+
+        node = new BranchHostNode(snapshot.Id, branches, snapshot.SelectedItemId, snapshot.DefaultItemId);
         return true;
     }
 
