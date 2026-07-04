@@ -4,6 +4,19 @@ using AdamE.MauiRouter.State;
 
 namespace AdamE.MauiRouter.Back;
 
+/// <summary>
+/// Provides MauiRouter's default host-aware logical back-navigation behavior.
+/// </summary>
+/// <param name="options">
+/// Optional fallback behavior for tab and flyout hosts, or <see langword="null"/> to use the defaults.
+/// </param>
+/// <param name="diagnostics">
+/// Optional diagnostics pipeline used to report back-planning decisions, or <see langword="null"/> to suppress diagnostics.
+/// </param>
+/// <remarks>
+/// The default navigator first gives modal content and selected child hosts a chance to go back,
+/// then falls back to modal dismissal, stack popping, and configured tab/flyout default-branch selection.
+/// </remarks>
 public sealed class DefaultBackNavigator(
     BackNavigationOptions? options = null,
     NavigationDiagnostics? diagnostics = null)
@@ -12,23 +25,31 @@ public sealed class DefaultBackNavigator(
     private readonly BackNavigationOptions _options = options ?? BackNavigationOptions.Default;
     private readonly NavigationDiagnostics _diagnostics = diagnostics ?? NavigationDiagnostics.None;
 
+    /// <summary>
+    /// Creates a back-navigation plan for a state and optional window id.
+    /// </summary>
+    /// <param name="state">The current router state before back navigation is applied.</param>
+    /// <param name="windowId">
+    /// The window to navigate within, or <see langword="null"/> to use the active window.
+    /// Blank values are treated the same as <see langword="null"/>.
+    /// </param>
+    /// <returns>
+    /// A back-navigation plan, or <see langword="null"/> when the current state cannot handle back navigation.
+    /// </returns>
     public NavigationPlan? CreateBackPlan(NavigationState state, string? windowId = null)
     {
-        return CreateBackPlan(state, windowId, Guid.NewGuid().ToString("N"));
+        return CreateBackPlan(new BackNavigationContext(state, windowId, Guid.NewGuid().ToString("N")));
     }
 
-    internal NavigationPlan? CreateBackPlan(
-        NavigationState state,
-        string? windowId,
-        string operationId)
+    /// <inheritdoc />
+    public NavigationPlan? CreateBackPlan(BackNavigationContext context)
     {
-        ArgumentNullException.ThrowIfNull(state);
-        ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
+        ArgumentNullException.ThrowIfNull(context);
 
-        WindowNode? window = ResolveWindow(state, windowId);
+        WindowNode? window = context.Window;
         if (window is null)
         {
-            _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, operationId, "No active window was available for back navigation.");
+            _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, context.OperationId, "No active window was available for back navigation.");
             return null;
         }
 
@@ -40,34 +61,34 @@ public sealed class DefaultBackNavigator(
             {
                 var updatedModals = window.Modals.ToArray();
                 updatedModals[^1] = topModal with { Content = modalBackResult.Node };
-                _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, operationId, modalBackResult.Reason);
+                _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, context.OperationId, modalBackResult.Reason);
                 return new NavigationPlan(
-                    state.ReplaceWindow(window with { Modals = updatedModals }),
+                    ReplaceWindow(context, window with { Modals = updatedModals }),
                     NavigationPlanKind.Back,
                     modalBackResult.Reason);
             }
 
             WindowNode updatedWindow = window with { Modals = RemoveLast(window.Modals) };
-            _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, operationId, "Back navigation will dismiss the top modal.");
-            return new NavigationPlan(state.ReplaceWindow(updatedWindow), NavigationPlanKind.Back, "Dismiss modal");
+            _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, context.OperationId, "Back navigation will dismiss the top modal.");
+            return new NavigationPlan(ReplaceWindow(context, updatedWindow), NavigationPlanKind.Back, "Dismiss modal");
         }
 
         if (window.Root is null)
         {
-            _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, operationId, "The active window has no root node.");
+            _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, context.OperationId, "The active window has no root node.");
             return null;
         }
 
         NodeBackResult? backResult = TryBack(window.Root);
         if (backResult is null)
         {
-            _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, operationId, "No host accepted back navigation.");
+            _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, context.OperationId, "No host accepted back navigation.");
             return null;
         }
 
-        _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, operationId, backResult.Reason);
+        _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, context.OperationId, backResult.Reason);
         return new NavigationPlan(
-            state.ReplaceWindow(window with { Root = backResult.Node }),
+            ReplaceWindow(context, window with { Root = backResult.Node }),
             NavigationPlanKind.Back,
             backResult.Reason);
     }
@@ -154,11 +175,12 @@ public sealed class DefaultBackNavigator(
         return null;
     }
 
-    private static WindowNode? ResolveWindow(NavigationState state, string? windowId)
+    private static NavigationState ReplaceWindow(BackNavigationContext context, WindowNode window)
     {
-        return string.IsNullOrWhiteSpace(windowId)
-            ? state.ActiveWindow
-            : state.FindWindow(windowId);
+        var state = context.State.ReplaceWindow(window);
+        return context.UsesActiveWindow && !string.IsNullOrWhiteSpace(context.ResolvedWindowId)
+            ? state with { ActiveWindowId = context.ResolvedWindowId }
+            : state;
     }
 
     private static IReadOnlyList<T> RemoveLast<T>(IReadOnlyList<T> source)

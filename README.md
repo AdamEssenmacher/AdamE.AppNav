@@ -1612,7 +1612,9 @@ DiagnosticObserverFailed
 
 ### Back Planning
 
-`DefaultBackNavigator` creates host-aware back plans.
+`DefaultBackNavigator` creates host-aware back plans. Apps normally call
+`IRouterNavigator.BackAsync()`, which builds a `BackNavigationContext` for the
+configured `IBackNavigator`, presents the returned plan, and records logical history.
 
 ```csharp
 var backNavigator = new DefaultBackNavigator(
@@ -1626,16 +1628,36 @@ var backNavigator = new DefaultBackNavigator(
 NavigationPlan? backPlan = backNavigator.CreateBackPlan(navigator.CurrentState);
 ```
 
+Custom back navigators implement the context-aware `IBackNavigator` API:
+
+```csharp
+public sealed class AppBackNavigator : IBackNavigator
+{
+    public NavigationPlan? CreateBackPlan(BackNavigationContext context)
+    {
+        WindowNode? window = context.Window;
+        if (window is null)
+        {
+            return null;
+        }
+
+        // Return a NavigationPlan for app-specific semantic back behavior.
+        return null;
+    }
+}
+```
+
 Default behavior:
 
-1. Dismiss the top modal.
-2. Delegate into the selected host branch.
-3. Pop the selected stack.
-4. Return to the default tab if configured.
-5. Return to the default flyout item if configured.
-6. Return `null` if no host accepts back navigation.
+1. Let top modal content handle back.
+2. Dismiss the top modal when its content cannot go back.
+3. Delegate into the selected tab or flyout branch.
+4. Pop the selected stack.
+5. Return to the default tab if configured.
+6. Return to the default flyout item if configured.
+7. Return `null` if no host accepts back navigation.
 
-Apps normally call `IRouterNavigator.BackAsync()`, which asks the configured back navigator for a plan, presents it, and records logical history. If no host accepts back navigation, the result is unhandled so the app can delegate to the platform.
+If no host accepts back navigation, the result is unhandled so the app can delegate to the platform.
 
 ## MAUI Adapter Guide
 

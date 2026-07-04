@@ -587,31 +587,33 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         using var activity = StartActivity("Navigation.Back", operationId, NavigationRequestSource.InAppCommand.ToString());
         var timer = Stopwatch.StartNew();
 
+        var backContext = new BackNavigationContext(CurrentState, windowId, operationId);
+        var diagnosticWindowId = backContext.ResolvedWindowId ?? backContext.RequestedWindowId ?? CurrentState.ActiveWindowId;
+        var diagnosticWindowName = diagnosticWindowId ?? "active";
+
         _diagnostics.Write(
             NavigationDiagnosticEventKind.BackStarted,
             operationId,
-            windowId ?? CurrentState.ActiveWindowId ?? "active",
-            Data((NavigationDiagnosticDataKeys.WindowId, windowId ?? CurrentState.ActiveWindowId)));
+            diagnosticWindowName,
+            Data((NavigationDiagnosticDataKeys.WindowId, diagnosticWindowId)));
 
         try
         {
-            var plan = _backNavigator is DefaultBackNavigator defaultBackNavigator
-                ? defaultBackNavigator.CreateBackPlan(CurrentState, windowId, operationId)
-                : _backNavigator.CreateBackPlan(CurrentState, windowId);
+            var plan = _backNavigator.CreateBackPlan(backContext);
             if (plan is null)
             {
                 _diagnostics.Write(
                     NavigationDiagnosticEventKind.BackUnhandled,
                     operationId,
                     "No host accepted back navigation.",
-                    Duration(timer, (NavigationDiagnosticDataKeys.WindowId, windowId ?? CurrentState.ActiveWindowId)));
+                    Duration(timer, (NavigationDiagnosticDataKeys.WindowId, diagnosticWindowId)));
                 activity?.SetStatus(ActivityStatusCode.Ok);
                 return BackNavigationResult.Unhandled;
             }
 
-            var resolvedWindowId = string.IsNullOrWhiteSpace(windowId) ? CurrentState.ActiveWindowId : windowId;
+            var resolvedWindowId = backContext.ResolvedWindowId ?? backContext.RequestedWindowId;
             var route = ResolvePresentedRoute(plan.TargetState, resolvedWindowId, new BackRoute());
-            var request = RouterNavigationRequest.FromRoute(route, NavigationRequestSource.InAppCommand, windowId);
+            var request = RouterNavigationRequest.FromRoute(route, NavigationRequestSource.InAppCommand, resolvedWindowId);
 
             _diagnostics.Write(
                 NavigationDiagnosticEventKind.PresentationStarted,

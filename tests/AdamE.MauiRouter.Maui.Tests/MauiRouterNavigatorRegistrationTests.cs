@@ -209,7 +209,7 @@ public sealed class MauiRouterNavigatorRegistrationTests
     {
         public int CreateCount { get; private set; }
 
-        public NavigationPlan? CreateBackPlan(NavigationState state, string? windowId = null)
+        public NavigationPlan? CreateBackPlan(BackNavigationContext context)
         {
             CreateCount++;
             return null;

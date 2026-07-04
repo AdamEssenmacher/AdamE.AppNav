@@ -15,6 +15,7 @@ public sealed class PublicApiContractTests
             [
                 "AdamE.MauiRouter.AppRoute",
                 "AdamE.MauiRouter.AppRouteRequest",
+                "AdamE.MauiRouter.Back.BackNavigationContext",
                 "AdamE.MauiRouter.Back.BackNavigationOptions",
                 "AdamE.MauiRouter.Back.DefaultBackNavigator",
                 "AdamE.MauiRouter.Back.IBackNavigator",

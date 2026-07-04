@@ -108,6 +108,7 @@ public sealed class BackNavigatorTests
         var stack = Assert.IsType<StackNode>(plan!.TargetState.FindWindow("main")!.Root);
         Assert.Single(stack.Entries);
         Assert.Equal("main", ((TestRoute)stack.Top!.Route).Value);
+        Assert.Equal("main", plan.TargetState.ActiveWindowId);
     }
 
     [Fact]
@@ -121,6 +122,76 @@ public sealed class BackNavigatorTests
         var plan = new DefaultBackNavigator().CreateBackPlan(state, "missing");
 
         Assert.Null(plan);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void BackNavigationContextWithNullOrBlankWindowIdResolvesActiveWindow(string? windowId)
+    {
+        var state = new NavigationState(new[]
+        {
+            new WindowNode("main", Stack("main-stack", new TestRoute("main"))),
+            new WindowNode("secondary", Stack("secondary-stack", new TestRoute("secondary")))
+        }, "secondary");
+
+        var context = new BackNavigationContext(state, windowId, "operation");
+
+        Assert.True(context.UsesActiveWindow);
+        Assert.Same(state, context.State);
+        Assert.Equal(windowId, context.RequestedWindowId);
+        Assert.Equal("operation", context.OperationId);
+        Assert.Equal("secondary", context.Window?.Id);
+        Assert.Equal("secondary", context.ResolvedWindowId);
+    }
+
+    [Fact]
+    public void BackNavigationContextWithStaleActiveWindowIdFallsBackToFirstWindow()
+    {
+        var state = new NavigationState(new[]
+        {
+            new WindowNode("main", Stack("main-stack", new TestRoute("main")))
+        }, "missing");
+
+        var context = new BackNavigationContext(state, null, "operation");
+
+        Assert.True(context.UsesActiveWindow);
+        Assert.Equal("main", context.Window?.Id);
+        Assert.Equal("main", context.ResolvedWindowId);
+    }
+
+    [Fact]
+    public void BackNavigationContextWithExplicitMissingWindowIdDoesNotResolveWindow()
+    {
+        var state = new NavigationState(new[]
+        {
+            new WindowNode("main", Stack("main-stack", new TestRoute("main")))
+        }, "main");
+
+        var context = new BackNavigationContext(state, "missing", "operation");
+
+        Assert.False(context.UsesActiveWindow);
+        Assert.Equal("missing", context.RequestedWindowId);
+        Assert.Null(context.Window);
+        Assert.Null(context.ResolvedWindowId);
+    }
+
+    [Fact]
+    public void BackWithExplicitSecondaryWindowPreservesActiveWindow()
+    {
+        var state = new NavigationState(new[]
+        {
+            new WindowNode("main", Stack("main-stack", new TestRoute("main"))),
+            new WindowNode("secondary", Stack("secondary-stack", new TestRoute("secondary"), new TestRoute("secondary-detail")))
+        }, "main");
+
+        var plan = new DefaultBackNavigator().CreateBackPlan(state, "secondary");
+
+        Assert.Equal("main", plan!.TargetState.ActiveWindowId);
+        var secondaryStack = Assert.IsType<StackNode>(plan.TargetState.FindWindow("secondary")!.Root);
+        Assert.Single(secondaryStack.Entries);
+        Assert.Equal("secondary", ((TestRoute)secondaryStack.Top!.Route).Value);
     }
 
     [Fact]
@@ -382,6 +453,47 @@ public sealed class BackNavigatorTests
         Assert.Equal(started.OperationId, completed.OperationId);
     }
 
+    [Fact]
+    public async Task RouterBackAsyncPassesOperationContextToCustomBackNavigator()
+    {
+        var diagnostics = new NavigationDiagnostics();
+        var events = new List<NavigationDiagnosticEvent>();
+        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+        var backNavigator = new RecordingBackNavigator();
+        var initialState = new NavigationState(new[]
+        {
+            new WindowNode(
+                "main",
+                new StackNode("catalog-stack", new[]
+                {
+                    new RouteEntry("catalog", new TestRoutes.CatalogRoute("northwind")),
+                    new RouteEntry("product", new TestRoutes.ProductDetailRoute("northwind", 123))
+                }))
+        }, "missing");
+        var navigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            TestNavigationPlanner.EchoStack(),
+            NullNavigationPresenter.Instance,
+            new RouterNavigatorOptions
+            {
+                BackNavigator = backNavigator,
+                Diagnostics = diagnostics,
+                InitialState = initialState
+            });
+
+        await navigator.BackAsync();
+
+        var started = Assert.Single(events, diagnosticEvent => diagnosticEvent.Kind == NavigationDiagnosticEventKind.BackStarted);
+        var unhandled = Assert.Single(events, diagnosticEvent => diagnosticEvent.Kind == NavigationDiagnosticEventKind.BackUnhandled);
+        Assert.NotNull(backNavigator.Context);
+        Assert.Equal(started.OperationId, backNavigator.Context.OperationId);
+        Assert.True(backNavigator.Context.UsesActiveWindow);
+        Assert.Equal("main", backNavigator.Context.ResolvedWindowId);
+        Assert.Equal("main", backNavigator.Context.Window?.Id);
+        Assert.Equal("main", started.Data[NavigationDiagnosticDataKeys.WindowId]);
+        Assert.Equal("main", unhandled.Data[NavigationDiagnosticDataKeys.WindowId]);
+    }
+
     private static NavigationBranch Branch(string id, NavigationNode content)
     {
         return new NavigationBranch(id, id, content);
@@ -398,4 +510,15 @@ public sealed class BackNavigatorTests
     }
 
     private sealed record TestRoute(string Value) : AppRoute;
+
+    private sealed class RecordingBackNavigator : IBackNavigator
+    {
+        public BackNavigationContext? Context { get; private set; }
+
+        public NavigationPlan? CreateBackPlan(BackNavigationContext context)
+        {
+            Context = context;
+            return null;
+        }
+    }
 }
