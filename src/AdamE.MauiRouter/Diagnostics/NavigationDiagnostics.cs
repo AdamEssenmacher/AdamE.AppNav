@@ -20,7 +20,7 @@ public sealed class NavigationDiagnostics
     /// </summary>
     public static NavigationDiagnostics None { get; } = new(enabled: false, logger: null);
 
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly List<INavigationDiagnosticObserver> _observers = new();
     private readonly bool _enabled;
     private readonly ILogger? _logger;
@@ -122,8 +122,8 @@ public sealed class NavigationDiagnostics
             return;
         }
 
-        var effectiveSeverity = severity ?? InferSeverity(kind);
-        var effectivePhase = phase ?? InferPhase(kind);
+        LogLevel effectiveSeverity = severity ?? InferSeverity(kind);
+        NavigationDiagnosticPhase effectivePhase = phase ?? InferPhase(kind);
         var diagnosticEvent = new NavigationDiagnosticEvent(
             kind,
             operationId,
@@ -147,11 +147,16 @@ public sealed class NavigationDiagnostics
         // Observer callbacks must never become part of the navigation control flow.
         if (eventWritten is not null)
         {
-            foreach (EventHandler<NavigationDiagnosticEvent> handler in eventWritten.GetInvocationList())
+            foreach (Delegate handler in eventWritten.GetInvocationList())
             {
+                if (handler is not EventHandler<NavigationDiagnosticEvent> eventHandler)
+                {
+                    continue;
+                }
+
                 try
                 {
-                    handler(this, diagnosticEvent);
+                    eventHandler(this, diagnosticEvent);
                 }
                 catch (Exception ex)
                 {
@@ -160,7 +165,7 @@ public sealed class NavigationDiagnostics
             }
         }
 
-        foreach (var observer in observers)
+        foreach (INavigationDiagnosticObserver observer in observers)
         {
             try
             {
@@ -208,11 +213,16 @@ public sealed class NavigationDiagnostics
             return;
         }
 
-        foreach (EventHandler<NavigationDiagnosticEvent> handler in eventWritten.GetInvocationList())
+        foreach (Delegate handler in eventWritten.GetInvocationList())
         {
+            if (handler is not EventHandler<NavigationDiagnosticEvent> eventHandler)
+            {
+                continue;
+            }
+
             try
             {
-                handler(this, failureEvent);
+                eventHandler(this, failureEvent);
             }
             catch
             {
@@ -242,7 +252,7 @@ public sealed class NavigationDiagnostics
     // preserve the values that belonged to this specific diagnostic event.
     private static void MirrorToActivity(NavigationDiagnosticEvent diagnosticEvent)
     {
-        var activity = Activity.Current;
+        Activity? activity = Activity.Current;
         if (activity is null)
         {
             return;
