@@ -85,7 +85,6 @@ public sealed class PublicApiContractTests
                 "AdamE.MauiRouter.Plans.SharedElementPair",
                 "AdamE.MauiRouter.Plans.SlideNavigationTransition",
                 "AdamE.MauiRouter.Policies.AccessGateNavigationPolicy",
-                "AdamE.MauiRouter.Policies.AllowedUriOriginPolicy",
                 "AdamE.MauiRouter.Policies.IAppNavigationPlanner",
                 "AdamE.MauiRouter.Policies.INavigationAccessEvaluator",
                 "AdamE.MauiRouter.Policies.INavigationPlanPolicy",

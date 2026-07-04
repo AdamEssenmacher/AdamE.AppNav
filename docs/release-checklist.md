@@ -54,7 +54,7 @@ The release-confidence workflow runs core tests, MAUI adapter build, Commerce Ma
 ## Manual Smoke Checks
 
 - No Shell or Prism dependency appears in source or samples.
-- Commerce uses app-link startup, trusted origins, fallback routing, persistence, and shared-element ids.
+- Commerce uses app-link startup, fallback routing, persistence, and shared-element ids.
 - App-link cold start prefers the incoming link over restored snapshots.
 - Persistence restore rejects corrupt or unsupported snapshots without mutating state/history.
 - Logs contain no unhandled exceptions, stale hidden shared-element views, failed native delegates, or missing cleanup diagnostics.

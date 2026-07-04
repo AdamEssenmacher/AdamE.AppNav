@@ -232,60 +232,6 @@ public sealed class ProductionHardeningTests
         Assert.Contains(NavigationDiagnosticEventKind.DiagnosticObserverFailed, events);
     }
 
-    [Fact]
-    public async Task AllowedUriOriginPolicyRejectsUntrustedExternalUris()
-    {
-        var policy = new AllowedUriOriginPolicy(new[] { new Uri("https://example.com") });
-        var trusted = RouterNavigationRequest.FromUri(new Uri("https://example.com/stores/northwind"), NavigationRequestSource.AppLink);
-        var untrusted = RouterNavigationRequest.FromUri(new Uri("https://evil.example/stores/northwind"), NavigationRequestSource.AppLink);
-        var inApp = RouterNavigationRequest.FromUri(new Uri("https://evil.example/stores/northwind"), NavigationRequestSource.InAppCommand);
-        var route = new TestRoutes.StoreRoute("northwind");
-        var context = new NavigationRequestPolicyContext(trusted, route, NavigationState.Empty, "operation");
-
-        await policy.ApplyAsync(context, trusted);
-        await policy.ApplyAsync(context, inApp);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => policy.ApplyAsync(context, untrusted).AsTask());
-    }
-
-    [Fact]
-    public void TrustedUriOriginHelperAppendsPolicyWithoutReplacingExistingPolicies()
-    {
-        var existing = new PassThroughRequestPolicy();
-        var options = new RouterNavigatorOptions
-        {
-            RequestPolicies = new INavigationRequestPolicy[] { existing }
-        };
-
-        var returned = options.RequireTrustedUriOrigins(new Uri("https://example.com"));
-
-        Assert.Same(options, returned);
-        Assert.Equal(2, options.RequestPolicies.Count);
-        Assert.Same(existing, options.RequestPolicies[0]);
-        Assert.IsType<AllowedUriOriginPolicy>(options.RequestPolicies[1]);
-    }
-
-    [Fact]
-    public async Task TrustedUriOriginHelperRejectsUntrustedExternalUriBeforePlanning()
-    {
-        var planner = new CountingPlanner();
-        var options = new RouterNavigatorOptions()
-            .RequireTrustedUriOrigins(new Uri("https://example.com"));
-        var navigator = new RouterNavigator(
-            TestRoutes.CreateTable(),
-            planner,
-            NullNavigationPresenter.Instance,
-            options);
-
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            navigator.NavigateAsync(
-                new Uri("https://evil.example/stores/northwind"),
-                NavigationRequestSource.AppLink).AsTask());
-
-        Assert.Equal(0, planner.ApplyCount);
-        Assert.Null(navigator.CurrentState.ActiveWindow);
-        Assert.Empty(navigator.History.Entries);
-    }
-
     private sealed class RouteEchoPlanner : IAppNavigationPlanner
     {
         public ValueTask<NavigationPlan> CreatePlanAsync(

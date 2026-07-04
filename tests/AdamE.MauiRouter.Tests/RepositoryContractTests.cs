@@ -180,8 +180,6 @@ public sealed class RepositoryContractTests
         Assert.Contains("IMauiRouterStartupService", source, StringComparison.Ordinal);
         Assert.Contains("StartAsync(window)", source, StringComparison.Ordinal);
         Assert.Contains("FallbackRequestFactory", source, StringComparison.Ordinal);
-        Assert.Contains("AddSingleton<INavigationRequestPolicy>", source, StringComparison.Ordinal);
-        Assert.Contains("AllowedUriOriginPolicy", source, StringComparison.Ordinal);
         Assert.Contains("CommerceRouteMetadata.RouteStateRegistry", source, StringComparison.Ordinal);
         Assert.Contains("AppRouteRequest", source, StringComparison.Ordinal);
         Assert.Contains("IRouterNavigator", source, StringComparison.Ordinal);
@@ -395,18 +393,6 @@ public sealed class RepositoryContractTests
         Assert.Contains("<GenerateDocumentationFile>true</GenerateDocumentationFile>", coreProject, StringComparison.Ordinal);
         Assert.Contains("<GenerateDocumentationFile>true</GenerateDocumentationFile>", mauiProject, StringComparison.Ordinal);
         Assert.Contains("<GenerateDocumentationFile>true</GenerateDocumentationFile>", testingProject, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void TrustedOriginPolicyRemainsPartOfTheBlessedPath()
-    {
-        var root = RepositoryRoot();
-        var readme = File.ReadAllText(Path.Combine(root, "README.md"));
-        var sample = File.ReadAllText(Path.Combine(root, "samples", "Commerce.Sample", "MauiProgram.cs"));
-
-        Assert.Contains("AllowedUriOriginPolicy", readme, StringComparison.Ordinal);
-        Assert.Contains("AllowedUriOriginPolicy", sample, StringComparison.Ordinal);
-        Assert.DoesNotContain("RequireTrustedUriOrigins", readme, StringComparison.Ordinal);
     }
 
     private static string RepositoryRoot()

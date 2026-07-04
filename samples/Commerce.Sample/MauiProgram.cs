@@ -2,7 +2,6 @@
 using AdamE.MauiRouter.Maui.DependencyInjection;
 using AdamE.MauiRouter.Maui.AppLinks;
 using AdamE.MauiRouter.Maui.Persistence;
-using AdamE.MauiRouter.Policies;
 using AdamE.MauiRouter.Requests;
 using Commerce.Sample.Navigation;
 using Commerce.Sample.Pages;
@@ -43,8 +42,6 @@ public static class MauiProgram
 						new Uri("https://example.com/stores/northwind/products/123?variant=blue&promo=spring&campaign=spring-launch"),
 						NavigationRequestSource.Restore));
 		});
-		builder.Services.AddSingleton<INavigationRequestPolicy>(_ =>
-			new AllowedUriOriginPolicy(new[] { new Uri("https://example.com") }));
 		builder.Services.AddMauiRouter<CommerceNavigationPlanner>(
 			SampleRouteTable.Create(),
 			options => options

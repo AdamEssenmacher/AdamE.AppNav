@@ -513,7 +513,6 @@ Register the route table, planner, diagnostics, persistence, page mappings, app-
 using AdamE.MauiRouter.Diagnostics;
 using AdamE.MauiRouter.Maui.AppLinks;
 using AdamE.MauiRouter.Maui.DependencyInjection;
-using AdamE.MauiRouter.Policies;
 using AdamE.MauiRouter.Requests;
 
 public static class MauiProgram
@@ -532,8 +531,6 @@ public static class MauiProgram
             options.BaseUri = new Uri("https://example.com/");
             options.RouteStateRegistry = CommerceRouteMetadata.RouteStateRegistry;
         });
-        builder.Services.AddSingleton<INavigationRequestPolicy>(_ =>
-            new AllowedUriOriginPolicy(new[] { new Uri("https://example.com") }));
         builder.Services.AddMauiRouter<CommerceNavigationPlanner>(
             SampleRouteTable.Create(),
             pages => pages
@@ -556,7 +553,6 @@ public static class MauiProgram
 }
 ```
 
-`AllowedUriOriginPolicy` is optional, but recommended for external sources such as app links, push links, and QR links. Register it as an `INavigationRequestPolicy` so `AddMauiRouter` discovers it automatically.
 `AddMauiRouterStartup` is optional, but recommended for MAUI apps that want the standard cold-start sequence: app links first, then snapshot restore, then fallback navigation, then window attachment.
 If route-owned metadata participates in URL formatting or persistence, keep those keys app-owned in a `RouteStateRegistry` and register that registry with persistence services.
 
@@ -730,14 +726,12 @@ var request = AppRouteRequest
 
 The `RouteStateRegistry` decides which metadata is canonical, restorable, or ephemeral. That keeps campaign, return-path, and trace-style data out of page constructors while still making it available to route formatting, persistence, policies, and planning when the app chooses.
 
-### Policies Centralize Trust, Compatibility, And Auth
+### Policies Centralize Compatibility And Auth
 
 Register request policies as services. `AddMauiRouter` discovers them and applies them before planning and presentation.
 
 ```csharp
 builder.Services.AddMauiRouterFileDeferredNavigationRequests();
-builder.Services.AddSingleton<INavigationRequestPolicy>(_ =>
-    new AllowedUriOriginPolicy(new[] { new Uri("https://example.com") }));
 builder.Services.AddSingleton<INavigationRequestPolicy, LegacyProductUrlPolicy>();
 builder.Services.AddSingleton<INavigationAccessEvaluator, CommerceAccessEvaluator>();
 builder.Services.AddSingleton<INavigationRequestPolicy, AccessGateNavigationPolicy>();
@@ -1652,9 +1646,6 @@ The MAUI adapter is intentionally separate from core. Core does not reference MA
 Most apps should use `AddMauiRouter<TPlanner>()`, register app-owned `INavigationRequestPolicy` services, and keep page maps on `MauiRoutePageRegistry`.
 
 ```csharp
-builder.Services.AddSingleton<INavigationRequestPolicy>(_ =>
-    new AllowedUriOriginPolicy(new[] { new Uri("https://example.com") }));
-
 builder.Services.AddMauiRouter<CommerceNavigationPlanner>(
     SampleRouteTable.Create(),
     pages => pages
@@ -1910,17 +1901,6 @@ externalNavigationDispatcher.Dispatch(
             originalUri: scannedUri,
             correlationId: scanId)));
 ```
-
-### Trust Only Known External Link Origins
-
-Register `AllowedUriOriginPolicy` as an `INavigationRequestPolicy` for external request sources.
-
-```csharp
-builder.Services.AddSingleton<INavigationRequestPolicy>(_ =>
-    new AllowedUriOriginPolicy(new[] { new Uri("https://example.com") }));
-```
-
-The policy applies to app links, push links, and QR links by default. In-app commands are not blocked by this policy.
 
 ### Use A Policy To Redirect
 
