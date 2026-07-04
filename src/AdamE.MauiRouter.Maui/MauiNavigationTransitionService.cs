@@ -2,6 +2,7 @@ using System.Diagnostics;
 using AdamE.MauiRouter.Diagnostics;
 using AdamE.MauiRouter.Plans;
 using AdamE.MauiRouter.State;
+using Microsoft.Extensions.Logging;
 using Microsoft.Maui.Controls;
 
 namespace AdamE.MauiRouter.Maui;
@@ -85,7 +86,7 @@ internal sealed class MauiNavigationTransitionService
             operationId,
             reason,
             data,
-            NavigationDiagnosticSeverity.Warning);
+            LogLevel.Warning);
     }
 
     internal ValueTask ApplyFallbackAsync(

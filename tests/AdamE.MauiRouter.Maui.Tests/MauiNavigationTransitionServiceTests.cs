@@ -3,6 +3,7 @@ using AdamE.MauiRouter.Maui;
 using AdamE.MauiRouter.Plans;
 using AdamE.MauiRouter.State;
 using AdamE.MauiRouter.Testing;
+using Microsoft.Extensions.Logging;
 using Microsoft.Maui.Controls;
 
 namespace AdamE.MauiRouter.Maui.Tests;
@@ -88,7 +89,7 @@ public sealed class MauiNavigationTransitionServiceTests
 
         Assert.Equal(new[] { true }, animatedValues);
         var fallback = observer.Single(NavigationDiagnosticEventKind.PresentationTransitionFallback);
-        Assert.Equal(NavigationDiagnosticSeverity.Warning, fallback.Severity);
+        Assert.Equal(LogLevel.Warning, fallback.Severity);
         Assert.Equal(typeof(SharedElementNavigationTransition).FullName, fallback.Data[NavigationDiagnosticDataKeys.TransitionType]);
         Assert.Equal("missing-product-image->missing-product-image", fallback.Data[NavigationDiagnosticDataKeys.TransitionElementIds]);
     }
@@ -117,7 +118,7 @@ public sealed class MauiNavigationTransitionServiceTests
 
         Assert.Equal(1, nativeOperationCount);
         var fallback = observer.Single(NavigationDiagnosticEventKind.PresentationTransitionFallback);
-        Assert.Equal(NavigationDiagnosticSeverity.Warning, fallback.Severity);
+        Assert.Equal(LogLevel.Warning, fallback.Severity);
         Assert.Equal(typeof(SharedElementNavigationTransition).FullName, fallback.Data[NavigationDiagnosticDataKeys.TransitionType]);
         Assert.Equal("missing-product-image->missing-product-image", fallback.Data[NavigationDiagnosticDataKeys.TransitionElementIds]);
     }

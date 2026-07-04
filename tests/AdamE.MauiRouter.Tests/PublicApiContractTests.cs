@@ -24,7 +24,6 @@ public sealed class PublicApiContractTests
                 "AdamE.MauiRouter.Diagnostics.NavigationDiagnosticEvent",
                 "AdamE.MauiRouter.Diagnostics.NavigationDiagnosticEventKind",
                 "AdamE.MauiRouter.Diagnostics.NavigationDiagnosticPhase",
-                "AdamE.MauiRouter.Diagnostics.NavigationDiagnosticSeverity",
                 "AdamE.MauiRouter.Diagnostics.NavigationDiagnostics",
                 "AdamE.MauiRouter.History.NavigationHistory",
                 "AdamE.MauiRouter.History.NavigationHistoryEntry",

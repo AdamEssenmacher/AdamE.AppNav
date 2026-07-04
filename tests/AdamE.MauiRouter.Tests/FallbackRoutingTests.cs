@@ -6,6 +6,7 @@ using AdamE.MauiRouter.Presentation;
 using AdamE.MauiRouter.Requests;
 using AdamE.MauiRouter.Routing;
 using AdamE.MauiRouter.State;
+using Microsoft.Extensions.Logging;
 
 namespace AdamE.MauiRouter.Tests;
 
@@ -49,7 +50,7 @@ public sealed class FallbackRoutingTests
         var fallbackSelected = Assert.Single(events, diagnosticEvent =>
             diagnosticEvent.Kind == NavigationDiagnosticEventKind.RouteFallbackSelected);
         Assert.Equal(NavigationDiagnosticPhase.RouteMatching, fallbackSelected.Phase);
-        Assert.Equal(NavigationDiagnosticSeverity.Information, fallbackSelected.Severity);
+        Assert.Equal(LogLevel.Information, fallbackSelected.Severity);
         Assert.Equal(uri.ToString(), fallbackSelected.Data[NavigationDiagnosticDataKeys.Uri]);
         Assert.Equal("route.not_matched", fallbackSelected.Data[NavigationDiagnosticDataKeys.RouteDiagnosticCode]);
         Assert.Equal(typeof(NotFoundRoute).FullName, fallbackSelected.Data[NavigationDiagnosticDataKeys.RouteType]);

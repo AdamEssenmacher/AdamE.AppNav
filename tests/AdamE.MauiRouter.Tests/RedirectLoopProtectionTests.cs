@@ -5,6 +5,7 @@ using AdamE.MauiRouter.Policies;
 using AdamE.MauiRouter.Presentation;
 using AdamE.MauiRouter.Requests;
 using AdamE.MauiRouter.State;
+using Microsoft.Extensions.Logging;
 
 namespace AdamE.MauiRouter.Tests;
 
@@ -42,7 +43,7 @@ public sealed class RedirectLoopProtectionTests
             diagnosticEvent.Kind == NavigationDiagnosticEventKind.RequestRedirected);
         Assert.False(string.IsNullOrWhiteSpace(redirected.OperationId));
         Assert.Equal(NavigationDiagnosticPhase.RequestPolicy, redirected.Phase);
-        Assert.Equal(NavigationDiagnosticSeverity.Information, redirected.Severity);
+        Assert.Equal(LogLevel.Information, redirected.Severity);
         Assert.Equal(1, redirected.Data[NavigationDiagnosticDataKeys.RedirectCount]);
         Assert.Contains("closed", Assert.IsType<string>(redirected.Data[NavigationDiagnosticDataKeys.RedirectFrom]));
         Assert.Contains("open", Assert.IsType<string>(redirected.Data[NavigationDiagnosticDataKeys.RedirectTo]));
@@ -91,7 +92,7 @@ public sealed class RedirectLoopProtectionTests
             diagnosticEvent.Kind == NavigationDiagnosticEventKind.RequestRedirectLoopDetected);
         Assert.False(string.IsNullOrWhiteSpace(loopDetected.OperationId));
         Assert.Equal(NavigationDiagnosticPhase.RequestPolicy, loopDetected.Phase);
-        Assert.Equal(NavigationDiagnosticSeverity.Error, loopDetected.Severity);
+        Assert.Equal(LogLevel.Error, loopDetected.Severity);
         Assert.Equal(typeof(DelegateRequestPolicy).FullName, loopDetected.Data[NavigationDiagnosticDataKeys.PolicyType]);
         Assert.Equal(2, loopDetected.Data[NavigationDiagnosticDataKeys.RedirectCount]);
         Assert.Contains("b", Assert.IsType<string>(loopDetected.Data[NavigationDiagnosticDataKeys.RedirectFrom]));

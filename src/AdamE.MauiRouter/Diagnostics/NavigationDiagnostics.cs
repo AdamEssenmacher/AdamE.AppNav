@@ -3,8 +3,21 @@ using Microsoft.Extensions.Logging;
 
 namespace AdamE.MauiRouter.Diagnostics;
 
+/// <summary>
+/// Emits navigation diagnostics to observers, an optional logger, and the current
+/// <see cref="Activity"/>.
+/// </summary>
+/// <remarks>
+/// A diagnostics instance is intentionally lightweight and can be shared by router services.
+/// Events are delivered synchronously to observers after they are mirrored to logging and
+/// tracing. Observer failures do not interrupt navigation; they are converted into
+/// <see cref="NavigationDiagnosticEventKind.DiagnosticObserverFailed"/> events.
+/// </remarks>
 public sealed class NavigationDiagnostics
 {
+    /// <summary>
+    /// Gets a disabled diagnostics instance that ignores subscribers, observers, and write calls.
+    /// </summary>
     public static NavigationDiagnostics None { get; } = new(enabled: false, logger: null);
 
     private readonly object _gate = new();
@@ -13,6 +26,10 @@ public sealed class NavigationDiagnostics
     private readonly ILogger? _logger;
     private EventHandler<NavigationDiagnosticEvent>? _eventWritten;
 
+    /// <summary>
+    /// Initializes a diagnostics instance that emits events and optionally mirrors them to a logger.
+    /// </summary>
+    /// <param name="logger">The logger that should receive diagnostic events, or <see langword="null"/> to skip logging.</param>
     public NavigationDiagnostics(ILogger? logger = null)
         : this(enabled: true, logger)
     {
@@ -24,6 +41,13 @@ public sealed class NavigationDiagnostics
         _logger = logger;
     }
 
+    /// <summary>
+    /// Occurs when a navigation diagnostic event is written.
+    /// </summary>
+    /// <remarks>
+    /// Handlers are invoked synchronously. Exceptions thrown by handlers are isolated from
+    /// navigation and reported as diagnostic observer failures.
+    /// </remarks>
     public event EventHandler<NavigationDiagnosticEvent>? EventWritten
     {
         add
@@ -53,6 +77,14 @@ public sealed class NavigationDiagnostics
         }
     }
 
+    /// <summary>
+    /// Adds an observer that will receive subsequent navigation diagnostic events.
+    /// </summary>
+    /// <param name="observer">The observer to notify when events are written.</param>
+    /// <remarks>
+    /// Observers are retained for the lifetime of this diagnostics instance. Use
+    /// <see cref="EventWritten"/> instead when subscription removal is required.
+    /// </remarks>
     public void AddObserver(INavigationObserver observer)
     {
         ArgumentNullException.ThrowIfNull(observer);
@@ -68,12 +100,21 @@ public sealed class NavigationDiagnostics
         }
     }
 
+    /// <summary>
+    /// Writes a navigation diagnostic event.
+    /// </summary>
+    /// <param name="kind">The event kind that identifies what happened.</param>
+    /// <param name="operationId">The correlation identifier for the navigation operation.</param>
+    /// <param name="message">A human-readable message for logs and diagnostics.</param>
+    /// <param name="data">Optional structured metadata for the event.</param>
+    /// <param name="severity">An explicit severity, or <see langword="null"/> to infer one from <paramref name="kind"/>.</param>
+    /// <param name="phase">An explicit phase, or <see langword="null"/> to infer one from <paramref name="kind"/>.</param>
     public void Write(
         NavigationDiagnosticEventKind kind,
         string operationId,
         string message,
         IReadOnlyDictionary<string, object?>? data = null,
-        NavigationDiagnosticSeverity? severity = null,
+        LogLevel? severity = null,
         NavigationDiagnosticPhase? phase = null)
     {
         if (!_enabled)
@@ -103,6 +144,7 @@ public sealed class NavigationDiagnostics
             observers = _observers.ToArray();
         }
 
+        // Observer callbacks must never become part of the navigation control flow.
         if (eventWritten is not null)
         {
             foreach (EventHandler<NavigationDiagnosticEvent> handler in eventWritten.GetInvocationList())
@@ -131,6 +173,8 @@ public sealed class NavigationDiagnostics
         }
     }
 
+    // Observer failure events are mirrored to logger/activity and event handlers only. Sending
+    // them to INavigationObserver instances could recursively call the observer that just failed.
     private void WriteObserverFailure(
         NavigationDiagnosticEventKind originalKind,
         string operationId,
@@ -147,7 +191,7 @@ public sealed class NavigationDiagnostics
                 [NavigationDiagnosticDataKeys.ExceptionType] = exception.GetType().FullName,
                 [NavigationDiagnosticDataKeys.ExceptionMessage] = exception.Message
             },
-            NavigationDiagnosticSeverity.Error,
+            LogLevel.Error,
             NavigationDiagnosticPhase.Diagnostics);
 
         MirrorToLogger(failureEvent);
@@ -185,7 +229,7 @@ public sealed class NavigationDiagnostics
         }
 
         _logger.Log(
-            ToLogLevel(diagnosticEvent.Severity),
+            diagnosticEvent.Severity,
             "Navigation {Kind} ({Phase}) operation {OperationId}: {Message} {@Data}",
             diagnosticEvent.Kind,
             diagnosticEvent.Phase,
@@ -194,6 +238,8 @@ public sealed class NavigationDiagnostics
             diagnosticEvent.Data);
     }
 
+    // Activity tags keep the latest value queryable on Activity.Current, while ActivityEvent tags
+    // preserve the values that belonged to this specific diagnostic event.
     private static void MirrorToActivity(NavigationDiagnosticEvent diagnosticEvent)
     {
         var activity = Activity.Current;
@@ -223,20 +269,6 @@ public sealed class NavigationDiagnostics
             tags));
     }
 
-    private static LogLevel ToLogLevel(NavigationDiagnosticSeverity severity)
-    {
-        return severity switch
-        {
-            NavigationDiagnosticSeverity.Trace => LogLevel.Trace,
-            NavigationDiagnosticSeverity.Debug => LogLevel.Debug,
-            NavigationDiagnosticSeverity.Information => LogLevel.Information,
-            NavigationDiagnosticSeverity.Warning => LogLevel.Warning,
-            NavigationDiagnosticSeverity.Error => LogLevel.Error,
-            NavigationDiagnosticSeverity.Critical => LogLevel.Critical,
-            _ => LogLevel.Information
-        };
-    }
-
     private static string ToActivityTagName(string dataKey)
     {
         return dataKey switch
@@ -264,25 +296,25 @@ public sealed class NavigationDiagnostics
         };
     }
 
-    private static NavigationDiagnosticSeverity InferSeverity(NavigationDiagnosticEventKind kind)
+    private static LogLevel InferSeverity(NavigationDiagnosticEventKind kind)
     {
         return kind.ToString().EndsWith("Failed", StringComparison.Ordinal) ||
                kind is NavigationDiagnosticEventKind.NavigationFailed or
                    NavigationDiagnosticEventKind.RequestRedirectLoopDetected or
                    NavigationDiagnosticEventKind.DiagnosticObserverFailed
-            ? NavigationDiagnosticSeverity.Error
+            ? LogLevel.Error
             : kind is NavigationDiagnosticEventKind.RouteNotMatched or NavigationDiagnosticEventKind.BackUnhandled
-                ? NavigationDiagnosticSeverity.Warning
+                ? LogLevel.Warning
                 : kind is NavigationDiagnosticEventKind.RestoreRejected
-                    ? NavigationDiagnosticSeverity.Warning
+                    ? LogLevel.Warning
                 : kind is NavigationDiagnosticEventKind.PresentationPageCreated or
                     NavigationDiagnosticEventKind.PresentationPageReleased or
                     NavigationDiagnosticEventKind.PresentationHandlerAttached or
                     NavigationDiagnosticEventKind.PresentationHandlerDetached
-                    ? NavigationDiagnosticSeverity.Debug
+                    ? LogLevel.Debug
                 : kind.ToString().EndsWith("Started", StringComparison.Ordinal)
-                    ? NavigationDiagnosticSeverity.Debug
-                    : NavigationDiagnosticSeverity.Information;
+                    ? LogLevel.Debug
+                    : LogLevel.Information;
     }
 
     private static NavigationDiagnosticPhase InferPhase(NavigationDiagnosticEventKind kind)

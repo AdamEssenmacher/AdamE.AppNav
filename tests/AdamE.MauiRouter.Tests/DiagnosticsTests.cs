@@ -83,7 +83,7 @@ public sealed class DiagnosticsTests
 
         var routeMatched = Assert.Single(events, diagnosticEvent => diagnosticEvent.Kind == NavigationDiagnosticEventKind.RouteMatched);
         Assert.Equal(NavigationDiagnosticPhase.RouteMatching, routeMatched.Phase);
-        Assert.Equal(NavigationDiagnosticSeverity.Information, routeMatched.Severity);
+        Assert.Equal(LogLevel.Information, routeMatched.Severity);
         Assert.Equal("/stores/{storeId}/products/{productId:int}", routeMatched.Data[NavigationDiagnosticDataKeys.RouteTemplate]);
         Assert.Equal("branch", routeMatched.Data[NavigationDiagnosticDataKeys.ProvenanceProvider]);
         Assert.Equal(incomingUri.ToString(), routeMatched.Data[NavigationDiagnosticDataKeys.ProvenanceOriginalUri]);
@@ -119,7 +119,7 @@ public sealed class DiagnosticsTests
 
         var notMatched = Assert.Single(events, diagnosticEvent => diagnosticEvent.Kind == NavigationDiagnosticEventKind.RouteNotMatched);
         Assert.Equal(NavigationDiagnosticPhase.RouteMatching, notMatched.Phase);
-        Assert.Equal(NavigationDiagnosticSeverity.Warning, notMatched.Severity);
+        Assert.Equal(LogLevel.Warning, notMatched.Severity);
         Assert.Equal("route.value.invalid", notMatched.Data[NavigationDiagnosticDataKeys.RouteDiagnosticCode]);
         Assert.Equal("/products/{productId}", notMatched.Data[NavigationDiagnosticDataKeys.RouteTemplate]);
         Assert.Equal(typeof(InvalidProductRoute).FullName, notMatched.Data[NavigationDiagnosticDataKeys.RouteType]);
@@ -265,7 +265,7 @@ public sealed class DiagnosticsTests
         var pageCreated = Assert.Single(events, diagnosticEvent =>
             diagnosticEvent.Kind == NavigationDiagnosticEventKind.PresentationPageCreated);
         Assert.Equal(NavigationDiagnosticPhase.Presentation, pageCreated.Phase);
-        Assert.Equal(NavigationDiagnosticSeverity.Debug, pageCreated.Severity);
+        Assert.Equal(LogLevel.Debug, pageCreated.Severity);
         Assert.Equal("SamplePage", pageCreated.Data[NavigationDiagnosticDataKeys.PageType]);
         Assert.Equal("root", pageCreated.Data[NavigationDiagnosticDataKeys.HostId]);
         Assert.Equal("catalog", pageCreated.Data[NavigationDiagnosticDataKeys.BranchId]);
@@ -276,7 +276,7 @@ public sealed class DiagnosticsTests
         var presenterDisposed = Assert.Single(events, diagnosticEvent =>
             diagnosticEvent.Kind == NavigationDiagnosticEventKind.PresentationPresenterDisposed);
         Assert.Equal(NavigationDiagnosticPhase.Presentation, presenterDisposed.Phase);
-        Assert.Equal(NavigationDiagnosticSeverity.Information, presenterDisposed.Severity);
+        Assert.Equal(LogLevel.Information, presenterDisposed.Severity);
     }
 
     [Fact]
@@ -309,14 +309,14 @@ public sealed class DiagnosticsTests
         var startupStarted = Assert.Single(events, diagnosticEvent =>
             diagnosticEvent.Kind == NavigationDiagnosticEventKind.StartupStarted);
         Assert.Equal(NavigationDiagnosticPhase.Startup, startupStarted.Phase);
-        Assert.Equal(NavigationDiagnosticSeverity.Debug, startupStarted.Severity);
+        Assert.Equal(LogLevel.Debug, startupStarted.Severity);
         Assert.Equal("main", startupStarted.Data[NavigationDiagnosticDataKeys.WindowId]);
         Assert.Equal(250d, startupStarted.Data[NavigationDiagnosticDataKeys.AppLinkGraceMs]);
 
         var startupCompleted = Assert.Single(events, diagnosticEvent =>
             diagnosticEvent.Kind == NavigationDiagnosticEventKind.StartupCompleted);
         Assert.Equal(NavigationDiagnosticPhase.Startup, startupCompleted.Phase);
-        Assert.Equal(NavigationDiagnosticSeverity.Information, startupCompleted.Severity);
+        Assert.Equal(LogLevel.Information, startupCompleted.Severity);
         Assert.Equal("Restored", startupCompleted.Data[NavigationDiagnosticDataKeys.StartupOutcome]);
     }
 
@@ -344,7 +344,7 @@ public sealed class DiagnosticsTests
         var transition = Assert.Single(events, diagnosticEvent =>
             diagnosticEvent.Kind == NavigationDiagnosticEventKind.PresentationTransitionCompleted);
         Assert.Equal(NavigationDiagnosticPhase.Presentation, transition.Phase);
-        Assert.Equal(NavigationDiagnosticSeverity.Information, transition.Severity);
+        Assert.Equal(LogLevel.Information, transition.Severity);
         Assert.Equal("StackPush", transition.Data[NavigationDiagnosticDataKeys.TransitionOperation]);
         Assert.Contains(activity.Tags, tag =>
             tag.Key == "navigation.transition_type" &&
