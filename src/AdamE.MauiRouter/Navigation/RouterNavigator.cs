@@ -595,7 +595,9 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
 
         try
         {
-            var plan = _backNavigator.CreateBackPlan(CurrentState, windowId);
+            var plan = _backNavigator is DefaultBackNavigator defaultBackNavigator
+                ? defaultBackNavigator.CreateBackPlan(CurrentState, windowId, operationId)
+                : _backNavigator.CreateBackPlan(CurrentState, windowId);
             if (plan is null)
             {
                 _diagnostics.Write(

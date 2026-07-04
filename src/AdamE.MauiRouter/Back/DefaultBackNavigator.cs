@@ -4,25 +4,28 @@ using AdamE.MauiRouter.State;
 
 namespace AdamE.MauiRouter.Back;
 
-public sealed class DefaultBackNavigator : IBackNavigator
+public sealed class DefaultBackNavigator(
+    BackNavigationOptions? options = null,
+    NavigationDiagnostics? diagnostics = null)
+    : IBackNavigator
 {
-    private readonly BackNavigationOptions _options;
-    private readonly NavigationDiagnostics _diagnostics;
-
-    public DefaultBackNavigator(
-        BackNavigationOptions? options = null,
-        NavigationDiagnostics? diagnostics = null)
-    {
-        _options = options ?? BackNavigationOptions.Default;
-        _diagnostics = diagnostics ?? NavigationDiagnostics.None;
-    }
+    private readonly BackNavigationOptions _options = options ?? BackNavigationOptions.Default;
+    private readonly NavigationDiagnostics _diagnostics = diagnostics ?? NavigationDiagnostics.None;
 
     public NavigationPlan? CreateBackPlan(NavigationState state, string? windowId = null)
     {
-        ArgumentNullException.ThrowIfNull(state);
+        return CreateBackPlan(state, windowId, Guid.NewGuid().ToString("N"));
+    }
 
-        var operationId = Guid.NewGuid().ToString("N");
-        var window = state.FindWindow(windowId ?? state.ActiveWindowId);
+    internal NavigationPlan? CreateBackPlan(
+        NavigationState state,
+        string? windowId,
+        string operationId)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
+
+        WindowNode? window = ResolveWindow(state, windowId);
         if (window is null)
         {
             _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, operationId, "No active window was available for back navigation.");
@@ -31,7 +34,7 @@ public sealed class DefaultBackNavigator : IBackNavigator
 
         if (window.Modals.Count > 0)
         {
-            var topModal = window.Modals[^1];
+            ModalNode topModal = window.Modals[^1];
             if (topModal.Content is not null &&
                 TryBack(topModal.Content) is { } modalBackResult)
             {
@@ -44,7 +47,7 @@ public sealed class DefaultBackNavigator : IBackNavigator
                     modalBackResult.Reason);
             }
 
-            var updatedWindow = window with { Modals = RemoveLast(window.Modals) };
+            WindowNode updatedWindow = window with { Modals = RemoveLast(window.Modals) };
             _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, operationId, "Back navigation will dismiss the top modal.");
             return new NavigationPlan(state.ReplaceWindow(updatedWindow), NavigationPlanKind.Back, "Dismiss modal");
         }
@@ -55,7 +58,7 @@ public sealed class DefaultBackNavigator : IBackNavigator
             return null;
         }
 
-        var backResult = TryBack(window.Root);
+        NodeBackResult? backResult = TryBack(window.Root);
         if (backResult is null)
         {
             _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, operationId, "No host accepted back navigation.");
@@ -76,8 +79,10 @@ public sealed class DefaultBackNavigator : IBackNavigator
             StackNode stack => TryBackStack(stack),
             TabsNode tabs => TryBackTabs(tabs),
             FlyoutNode flyout => TryBackFlyout(flyout),
-            ModalNode modal when modal.Content is not null => TryBack(modal.Content) is { } result
-                ? new NodeBackResult(modal with { Content = result.Node }, result.Reason)
+            // Window-level modal dismissal is handled from WindowNode.Modals. A nested
+            // modal node can only delegate back navigation into its content.
+            ModalNode { Content: not null } modal => TryBack(modal.Content) is { } result
+                ? result with { Node = modal with { Content = result.Node } }
                 : null,
             _ => null
         };
@@ -97,10 +102,10 @@ public sealed class DefaultBackNavigator : IBackNavigator
 
     private NodeBackResult? TryBackTabs(TabsNode tabs)
     {
-        var selectedBranch = tabs.SelectedBranch;
+        NavigationBranch? selectedBranch = tabs.SelectedBranch;
         if (selectedBranch is not null)
         {
-            var childBack = TryBack(selectedBranch.Content);
+            NodeBackResult? childBack = TryBack(selectedBranch.Content);
             if (childBack is not null)
             {
                 return new NodeBackResult(
@@ -124,10 +129,10 @@ public sealed class DefaultBackNavigator : IBackNavigator
 
     private NodeBackResult? TryBackFlyout(FlyoutNode flyout)
     {
-        var selectedBranch = flyout.SelectedBranch;
+        NavigationBranch? selectedBranch = flyout.SelectedBranch;
         if (selectedBranch is not null)
         {
-            var childBack = TryBack(selectedBranch.Content);
+            NodeBackResult? childBack = TryBack(selectedBranch.Content);
             if (childBack is not null)
             {
                 return new NodeBackResult(
@@ -149,11 +154,18 @@ public sealed class DefaultBackNavigator : IBackNavigator
         return null;
     }
 
+    private static WindowNode? ResolveWindow(NavigationState state, string? windowId)
+    {
+        return string.IsNullOrWhiteSpace(windowId)
+            ? state.ActiveWindow
+            : state.FindWindow(windowId);
+    }
+
     private static IReadOnlyList<T> RemoveLast<T>(IReadOnlyList<T> source)
     {
         if (source.Count <= 1)
         {
-            return Array.Empty<T>();
+            return [];
         }
 
         var result = new T[source.Count - 1];
