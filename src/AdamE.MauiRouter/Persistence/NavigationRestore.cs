@@ -62,7 +62,7 @@ public sealed record NavigationRestoreContext(
     NavigationState CurrentState,
     string OperationId);
 
-public sealed record NavigationRestoreDecision(bool Accepted, string? Reason)
+public readonly record struct NavigationRestoreDecision(bool Accepted, string? Reason)
 {
     public static NavigationRestoreDecision Accept(string? reason = null)
     {

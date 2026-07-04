@@ -1,7 +1,9 @@
 using System.Reflection;
 using AdamE.MauiRouter.Maui;
 using AdamE.MauiRouter.Navigation;
+using AdamE.MauiRouter.Persistence;
 using AdamE.MauiRouter.Plans;
+using AdamE.MauiRouter.Requests;
 
 namespace AdamE.MauiRouter.Tests;
 
@@ -135,6 +137,14 @@ public sealed class PublicApiContractTests
                 "AdamE.MauiRouter.State.StackNode",
                 "AdamE.MauiRouter.State.WindowNode"
             ]);
+    }
+
+    [Fact]
+    public void PublicResultTypesUseValueSemantics()
+    {
+        Assert.True(typeof(BackNavigationResult).IsValueType);
+        Assert.True(typeof(NavigationRestoreDecision).IsValueType);
+        Assert.True(typeof(DeferredNavigationReplayResult).IsValueType);
     }
 
     [Fact]

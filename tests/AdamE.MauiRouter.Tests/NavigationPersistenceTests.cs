@@ -633,6 +633,31 @@ public sealed class NavigationPersistenceTests
     }
 
     [Fact]
+    public async Task DefaultRestoreDecisionRejectsRestoreWithFallbackReason()
+    {
+        var state = CommerceState();
+        var snapshot = new NavigationSnapshotSerializer(TestRoutes.CreateTable()).CreateSnapshot(state, NavigationHistory.Empty);
+        var navigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            TestNavigationPlanner.EchoStack(),
+            NullNavigationPresenter.Instance,
+            new RouterNavigatorOptions
+            {
+                Persistence = new NavigationPersistenceOptions
+                {
+                    RestorePolicies = new[] { new DefaultRestoreDecisionPolicy() }
+                }
+            });
+
+        var result = await navigator.RestoreAsync(snapshot);
+
+        Assert.False(result.Accepted);
+        Assert.Equal("Navigation restore was rejected by policy.", result.RejectionReason);
+        Assert.Empty(navigator.History.Entries);
+        Assert.Null(navigator.CurrentState.ActiveWindow);
+    }
+
+    [Fact]
     public async Task RestorePlanPolicyRewriteFinalizesPresentedRouteForPresenterContext()
     {
         var initialState = new NavigationState(new[]
@@ -1082,6 +1107,16 @@ public sealed class NavigationPersistenceTests
         {
             LastRoute = context.Route;
             return ValueTask.FromResult(plan with { TargetState = rewrittenState });
+        }
+    }
+
+    private sealed class DefaultRestoreDecisionPolicy : INavigationRestorePolicy
+    {
+        public ValueTask<NavigationRestoreDecision> EvaluateAsync(
+            NavigationRestoreContext context,
+            CancellationToken cancellationToken = default)
+        {
+            return ValueTask.FromResult(default(NavigationRestoreDecision));
         }
     }
 

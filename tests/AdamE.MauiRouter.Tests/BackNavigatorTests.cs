@@ -11,6 +11,22 @@ namespace AdamE.MauiRouter.Tests;
 public sealed class BackNavigatorTests
 {
     [Fact]
+    public void DefaultBackNavigationResultRepresentsUnhandledBack()
+    {
+        BackNavigationResult result = default;
+
+        Assert.Equal(BackNavigationResult.Unhandled, result);
+        Assert.False(result.Handled);
+        Assert.Null(result.HandledNavigationResult);
+    }
+
+    [Fact]
+    public void HandledBackNavigationResultRequiresNavigationResult()
+    {
+        Assert.Throws<ArgumentNullException>(() => BackNavigationResult.HandledBy(null!));
+    }
+
+    [Fact]
     public void BackDismissesModalBeforeHostContent()
     {
         var state = new NavigationState(new[]

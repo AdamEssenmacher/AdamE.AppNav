@@ -1,6 +1,6 @@
 namespace AdamE.MauiRouter.Requests;
 
-public sealed record DeferredNavigationReplayResult(
+public readonly record struct DeferredNavigationReplayResult(
     int AttemptedCount,
     int ReplayedCount,
     int FailedCount)

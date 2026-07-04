@@ -86,11 +86,12 @@ public sealed class DefaultBackNavigator(
             return null;
         }
 
-        _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, context.OperationId, backResult.Reason);
+        var acceptedBackResult = backResult.Value;
+        _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, context.OperationId, acceptedBackResult.Reason);
         return new NavigationPlan(
-            ReplaceWindow(context, window with { Root = backResult.Node }),
+            ReplaceWindow(context, window with { Root = acceptedBackResult.Node }),
             NavigationPlanKind.Back,
-            backResult.Reason);
+            acceptedBackResult.Reason);
     }
 
     private NodeBackResult? TryBack(NavigationNode node)
@@ -125,8 +126,7 @@ public sealed class DefaultBackNavigator(
         NavigationBranch? selectedBranch = branchHost.SelectedBranch;
         if (selectedBranch is not null)
         {
-            NodeBackResult? childBack = TryBack(selectedBranch.Content);
-            if (childBack is not null)
+            if (TryBack(selectedBranch.Content) is { } childBack)
             {
                 return new NodeBackResult(
                     branchHost.ReplaceBranch(selectedBranch with { Content = childBack.Node }),
@@ -171,5 +171,5 @@ public sealed class DefaultBackNavigator(
         return result;
     }
 
-    private sealed record NodeBackResult(NavigationNode Node, string Reason);
+    private readonly record struct NodeBackResult(NavigationNode Node, string Reason);
 }

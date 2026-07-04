@@ -17,7 +17,9 @@ namespace AdamE.MauiRouter.Navigation;
 /// Prefer <see cref="Unhandled"/> and <see cref="HandledBy"/> when creating results so the
 /// handled flag and result payload stay consistent.
 /// </remarks>
-public sealed record BackNavigationResult(bool Handled, [UsedImplicitly] NavigationResult? HandledNavigationResult = null)
+public readonly record struct BackNavigationResult(
+    bool Handled,
+    [UsedImplicitly] NavigationResult? HandledNavigationResult = null)
 {
     /// <summary>
     /// Gets a result for a back request that no router host could handle.

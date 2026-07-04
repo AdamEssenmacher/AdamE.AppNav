@@ -11,6 +11,18 @@ namespace AdamE.MauiRouter.Tests;
 public sealed class DeferredNavigationRequestReplayerTests
 {
     [Fact]
+    public void DefaultReplayResultRepresentsNoDeferredWork()
+    {
+        DeferredNavigationReplayResult result = default;
+
+        Assert.Equal(0, result.AttemptedCount);
+        Assert.Equal(0, result.ReplayedCount);
+        Assert.Equal(0, result.FailedCount);
+        Assert.False(result.HadDeferredRequests);
+        Assert.False(result.ReplayedAny);
+    }
+
+    [Fact]
     public async Task ReplayAsync_ReplaysDeferredRequestsInFifoOrder()
     {
         var store = new InMemoryDeferredNavigationRequestStore();
