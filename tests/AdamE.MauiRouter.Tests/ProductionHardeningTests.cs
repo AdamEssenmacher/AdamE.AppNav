@@ -134,7 +134,7 @@ public sealed class ProductionHardeningTests
         var handled = await navigator.BackAsync();
 
         Assert.True(handled.Handled);
-        var route = Assert.IsType<TestRoutes.CatalogRoute>(handled.NavigationResult!.Route);
+        var route = Assert.IsType<TestRoutes.CatalogRoute>(handled.HandledNavigationResult!.Route);
         Assert.Equal("northwind", route.StoreId);
         Assert.Equal(route, navigator.History.Current!.Route);
         var modal = Assert.Single(navigator.CurrentState.ActiveWindow!.Modals);
@@ -174,7 +174,7 @@ public sealed class ProductionHardeningTests
         var handled = await navigator.BackAsync();
 
         Assert.True(handled.Handled);
-        Assert.Equal(lowerModalRoute, handled.NavigationResult!.Route);
+        Assert.Equal(lowerModalRoute, handled.HandledNavigationResult!.Route);
         Assert.Equal(lowerModalRoute, navigator.History.Current!.Route);
         Assert.Single(navigator.CurrentState.ActiveWindow!.Modals);
         var remainingModal = Assert.Single(navigator.CurrentState.ActiveWindow.Modals);
@@ -209,7 +209,7 @@ public sealed class ProductionHardeningTests
 
         Assert.True(handled.Handled);
         Assert.Equal("main", navigator.CurrentState.ActiveWindowId);
-        Assert.Equal(secondaryRoute, handled.NavigationResult!.Route);
+        Assert.Equal(secondaryRoute, handled.HandledNavigationResult!.Route);
         Assert.Equal(secondaryRoute, navigator.History.Current!.Route);
         var secondaryWindow = navigator.CurrentState.FindWindow("secondary");
         var secondaryStack = Assert.IsType<StackNode>(secondaryWindow!.Root);
