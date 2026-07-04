@@ -6,6 +6,19 @@ public sealed class RouteTableBuilder
     private RouteConstraintRegistry _constraints = RouteConstraintRegistry.BuiltIn;
     private int _nextOrder;
 
+    /// <summary>
+    /// Adds route definitions from a reusable module.
+    /// </summary>
+    /// <param name="module">The module that will add route definitions to this builder.</param>
+    /// <returns>The same builder instance for registration chaining.</returns>
+    public RouteTableBuilder AddModule(IRouteTableModule module)
+    {
+        ArgumentNullException.ThrowIfNull(module);
+
+        module.MapRoutes(this);
+        return this;
+    }
+
     public RouteTableBuilder AddConstraint(
         string name,
         Func<string, bool> matches,

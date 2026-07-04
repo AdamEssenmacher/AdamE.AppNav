@@ -5,6 +5,23 @@ namespace AdamE.MauiRouter.Tests;
 public sealed class RouteTableTests
 {
     [Fact]
+    public void AddModuleAddsRouteDefinitionsAndReturnsBuilder()
+    {
+        var module = new ModuleRoutes();
+        RouteTableBuilder? returned = null;
+
+        var table = RouteTable.Create(routes =>
+        {
+            returned = routes.AddModule(module);
+        });
+
+        var result = table.Match(new Uri("/modules/northwind", UriKind.Relative));
+
+        Assert.NotNull(returned);
+        Assert.Equal(new ModuleRoute("northwind"), result.Route);
+    }
+
+    [Fact]
     public void MatchParsesTypedPathAndQueryValues()
     {
         var table = TestRoutes.CreateTable();
@@ -866,6 +883,16 @@ public sealed class RouteTableTests
     private sealed record NewProductRoute : AppRoute;
 
     private sealed record NoUsableConstructorRoute(string Value, string Extra) : AppRoute;
+
+    private sealed record ModuleRoute(string Value) : AppRoute;
+
+    private sealed class ModuleRoutes : IRouteTableModule
+    {
+        public void MapRoutes(RouteTableBuilder routes)
+        {
+            routes.MapRoute<ModuleRoute>("/modules/{value}");
+        }
+    }
 
     private static readonly RouteMetadataKey<string> MissionIdMetadata = new("missionId");
 

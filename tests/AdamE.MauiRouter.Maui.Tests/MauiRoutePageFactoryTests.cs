@@ -7,6 +7,21 @@ namespace AdamE.MauiRouter.Maui.Tests;
 public sealed class MauiRoutePageFactoryTests
 {
     [Fact]
+    public void CreatePage_AddModuleMapsPagesAndReturnsRegistry()
+    {
+        using var provider = new ServiceCollection().BuildServiceProvider();
+        var options = new MauiRoutePresentationOptions();
+
+        var returned = options.Pages.AddModule(new ModulePages());
+        var factory = new MauiRoutePageFactory(provider, options);
+
+        var page = factory.CreatePage(new RouteEntry("module-route", new ModulePageRoute()));
+
+        Assert.Same(options.Pages, returned);
+        Assert.IsType<ModuleMappedPage>(page);
+    }
+
+    [Fact]
     public void CreatePage_MapPageFromServices_ResolvesPageFromDI()
     {
         var services = new ServiceCollection();
@@ -93,11 +108,23 @@ public sealed class MauiRoutePageFactoryTests
 
     private sealed record DerivedMappedRoute : BaseMappedRoute;
 
+    private sealed record ModulePageRoute : AppRoute;
+
     private sealed class PageDependency;
 
     private sealed class BaseMappedPage : ContentPage;
 
     private sealed class DerivedMappedPage : ContentPage;
+
+    private sealed class ModuleMappedPage : ContentPage;
+
+    private sealed class ModulePages : IMauiRoutePageModule
+    {
+        public void MapPages(MauiRoutePageRegistry pages)
+        {
+            pages.MapPage<ModulePageRoute>((_, _) => new ModuleMappedPage());
+        }
+    }
 
     private sealed class ServiceResolvedPage(PageDependency dependency) : ContentPage
     {

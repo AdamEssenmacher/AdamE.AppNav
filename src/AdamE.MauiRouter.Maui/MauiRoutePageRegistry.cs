@@ -8,6 +8,19 @@ public sealed class MauiRoutePageRegistry
 {
     private readonly Dictionary<Type, Func<IServiceProvider, RouteEntry, Page>> _pageFactories = new();
 
+    /// <summary>
+    /// Adds page mappings from a reusable module.
+    /// </summary>
+    /// <param name="module">The module that will add page mappings to this registry.</param>
+    /// <returns>The same registry instance for mapping chaining.</returns>
+    public MauiRoutePageRegistry AddModule(IMauiRoutePageModule module)
+    {
+        ArgumentNullException.ThrowIfNull(module);
+
+        module.MapPages(this);
+        return this;
+    }
+
     public MauiRoutePageRegistry MapPage<TRoute, TPage>()
         where TRoute : AppRoute
         where TPage : Page
