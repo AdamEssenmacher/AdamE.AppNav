@@ -1059,7 +1059,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
 
         public InstrumentedRoutePageFactory Factory { get; } = new();
 
-        public RecordingNavigationObserver Observer { get; } = new();
+        public RecordingNavigationDiagnosticObserver Observer { get; } = new();
 
         public NavigationDiagnostics Diagnostics { get; }
 

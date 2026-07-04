@@ -123,9 +123,9 @@ public sealed class MauiNavigationTransitionServiceTests
         Assert.Equal("missing-product-image->missing-product-image", fallback.Data[NavigationDiagnosticDataKeys.TransitionElementIds]);
     }
 
-    private static MauiNavigationTransitionService CreateService(out RecordingNavigationObserver observer)
+    private static MauiNavigationTransitionService CreateService(out RecordingNavigationDiagnosticObserver observer)
     {
-        observer = new RecordingNavigationObserver();
+        observer = new RecordingNavigationDiagnosticObserver();
         var diagnostics = new NavigationDiagnostics();
         diagnostics.AddObserver(observer);
 

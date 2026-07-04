@@ -18,7 +18,7 @@ public sealed class PublicApiContractTests
                 "AdamE.MauiRouter.Back.BackNavigationOptions",
                 "AdamE.MauiRouter.Back.DefaultBackNavigator",
                 "AdamE.MauiRouter.Back.IBackNavigator",
-                "AdamE.MauiRouter.Diagnostics.INavigationObserver",
+                "AdamE.MauiRouter.Diagnostics.INavigationDiagnosticObserver",
                 "AdamE.MauiRouter.Diagnostics.NavigationActivitySources",
                 "AdamE.MauiRouter.Diagnostics.NavigationDiagnosticDataKeys",
                 "AdamE.MauiRouter.Diagnostics.NavigationDiagnosticEvent",

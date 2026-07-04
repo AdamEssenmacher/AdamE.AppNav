@@ -2,13 +2,13 @@ using AdamE.MauiRouter.Diagnostics;
 
 namespace AdamE.MauiRouter.Testing;
 
-public sealed class RecordingNavigationObserver : INavigationObserver
+public sealed class RecordingNavigationDiagnosticObserver : INavigationDiagnosticObserver
 {
     private readonly List<NavigationDiagnosticEvent> _events = new();
 
     public IReadOnlyList<NavigationDiagnosticEvent> Events => _events.ToArray();
 
-    public void OnNavigationEvent(NavigationDiagnosticEvent diagnosticEvent)
+    public void OnNavigationDiagnosticEvent(NavigationDiagnosticEvent diagnosticEvent)
     {
         _events.Add(diagnosticEvent);
     }

@@ -113,9 +113,9 @@ public sealed class MauiNavigationPresenterTransitionTests
         presenter.Dispose();
     }
 
-    private static MauiNavigationPresenter CreatePresenter(out RecordingNavigationObserver observer)
+    private static MauiNavigationPresenter CreatePresenter(out RecordingNavigationDiagnosticObserver observer)
     {
-        observer = new RecordingNavigationObserver();
+        observer = new RecordingNavigationDiagnosticObserver();
         var diagnostics = new NavigationDiagnostics();
         diagnostics.AddObserver(observer);
         var transitions = new MauiNavigationTransitionService(diagnostics);

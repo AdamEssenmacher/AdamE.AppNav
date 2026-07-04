@@ -9,11 +9,11 @@ namespace AdamE.MauiRouter.Diagnostics;
 /// navigation and are reported as <see cref="NavigationDiagnosticEventKind.DiagnosticObserverFailed"/>
 /// events.
 /// </remarks>
-public interface INavigationObserver
+public interface INavigationDiagnosticObserver
 {
     /// <summary>
     /// Handles a diagnostic event emitted by the router.
     /// </summary>
     /// <param name="diagnosticEvent">The event that describes a router operation, phase, and related data.</param>
-    void OnNavigationEvent(NavigationDiagnosticEvent diagnosticEvent);
+    void OnNavigationDiagnosticEvent(NavigationDiagnosticEvent diagnosticEvent);
 }

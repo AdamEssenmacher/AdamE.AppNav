@@ -249,9 +249,9 @@ public sealed class TestingHarnessTests
     }
 
     [Fact]
-    public void RecordingNavigationObserverCapturesFiltersAndClearsEvents()
+    public void RecordingNavigationDiagnosticObserverCapturesFiltersAndClearsEvents()
     {
-        var observer = new RecordingNavigationObserver();
+        var observer = new RecordingNavigationDiagnosticObserver();
         var diagnostics = new NavigationDiagnostics();
         diagnostics.AddObserver(observer);
 

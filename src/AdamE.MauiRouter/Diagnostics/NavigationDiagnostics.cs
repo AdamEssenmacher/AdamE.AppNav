@@ -21,7 +21,7 @@ public sealed class NavigationDiagnostics
     public static NavigationDiagnostics None { get; } = new(enabled: false, logger: null);
 
     private readonly object _gate = new();
-    private readonly List<INavigationObserver> _observers = new();
+    private readonly List<INavigationDiagnosticObserver> _observers = new();
     private readonly bool _enabled;
     private readonly ILogger? _logger;
     private EventHandler<NavigationDiagnosticEvent>? _eventWritten;
@@ -85,7 +85,7 @@ public sealed class NavigationDiagnostics
     /// Observers are retained for the lifetime of this diagnostics instance. Use
     /// <see cref="EventWritten"/> instead when subscription removal is required.
     /// </remarks>
-    public void AddObserver(INavigationObserver observer)
+    public void AddObserver(INavigationDiagnosticObserver observer)
     {
         ArgumentNullException.ThrowIfNull(observer);
 
@@ -137,7 +137,7 @@ public sealed class NavigationDiagnostics
         MirrorToActivity(diagnosticEvent);
 
         EventHandler<NavigationDiagnosticEvent>? eventWritten;
-        INavigationObserver[] observers;
+        INavigationDiagnosticObserver[] observers;
         lock (_gate)
         {
             eventWritten = _eventWritten;
@@ -164,7 +164,7 @@ public sealed class NavigationDiagnostics
         {
             try
             {
-                observer.OnNavigationEvent(diagnosticEvent);
+                observer.OnNavigationDiagnosticEvent(diagnosticEvent);
             }
             catch (Exception ex)
             {
@@ -174,7 +174,7 @@ public sealed class NavigationDiagnostics
     }
 
     // Observer failure events are mirrored to logger/activity and event handlers only. Sending
-    // them to INavigationObserver instances could recursively call the observer that just failed.
+    // them to INavigationDiagnosticObserver instances could recursively call the observer that just failed.
     private void WriteObserverFailure(
         NavigationDiagnosticEventKind originalKind,
         string operationId,
