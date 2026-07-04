@@ -129,6 +129,19 @@ public sealed class StateImmutabilityTests
         Assert.Equal("first", ((TestRoute)history.Current!.Route).Value);
     }
 
+    [Fact]
+    public void NavigationHistoryRejectsInvalidCurrentIndex()
+    {
+        var entries = new[]
+        {
+            HistoryEntry("first")
+        };
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => new NavigationHistory(Array.Empty<NavigationHistoryEntry>(), 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new NavigationHistory(entries, -1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new NavigationHistory(entries, entries.Length));
+    }
+
     private static StackNode Stack(string id, params string[] routeValues)
     {
         return new StackNode(id, routeValues.Select(Entry).ToArray());
