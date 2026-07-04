@@ -195,10 +195,6 @@ public sealed class PublicApiContractTests
             firstParameterType == typeof(Persistence.NavigationRestoreOptions) &&
             secondParameterType == typeof(CancellationToken));
 
-        Assert.Contains(methods, static method =>
-            method.Name == nameof(IRouterNavigator.WhenReconciliationIdleAsync) &&
-            method.GetParameters().Length == 0);
-
         Assert.Equal(
             3,
             methods.Count(static method =>

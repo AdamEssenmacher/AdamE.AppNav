@@ -138,11 +138,6 @@ internal sealed class MauiRouterRuntime(
         return navigator.RestoreFromStoreAsync(options, cancellationToken);
     }
 
-    public Task WhenReconciliationIdleAsync()
-    {
-        return navigator.WhenReconciliationIdleAsync();
-    }
-
     public void AttachWindow(Window window, string windowId)
     {
         presenter.AttachWindow(window, windowId);

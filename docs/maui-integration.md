@@ -98,7 +98,7 @@ A common cold-start sequence is:
 
 ## Other Public Runtime Seams
 
-`IRouterNavigator` also exposes URI navigation overloads and advanced public operations such as `ReconcileAsync(...)`, `RestoreAsync(...)`, `RestoreFromStoreAsync(...)`, and `WhenReconciliationIdleAsync()`. Those are useful for host-owned orchestration, testing, and explicit runtime control.
+`IRouterNavigator` also exposes URI navigation overloads and advanced public operations such as `ReconcileAsync(...)`, `RestoreAsync(...)`, and `RestoreFromStoreAsync(...)`. Those are useful for host-owned orchestration, testing, and explicit runtime control.
 
 ## Notes
 

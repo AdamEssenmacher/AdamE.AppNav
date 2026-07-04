@@ -322,7 +322,6 @@ public sealed class RepositoryContractTests
         Assert.Contains("`NavigateAsync(Uri...)` starts from a URL directly.", readme, StringComparison.Ordinal);
         Assert.Contains("`ReconcileAsync(...)` accepts an explicit `NavigationReconciliation`", readme, StringComparison.Ordinal);
         Assert.Contains("`RestoreAsync(...)` and `RestoreFromStoreAsync(...)` drive snapshot restore directly.", readme, StringComparison.Ordinal);
-        Assert.Contains("`WhenReconciliationIdleAsync()` waits for queued reconciliation work to drain", readme, StringComparison.Ordinal);
         Assert.DoesNotContain("options.InitialRequest", readme, StringComparison.Ordinal);
         Assert.DoesNotContain("Planner and presenter tests:", readme, StringComparison.Ordinal);
         Assert.DoesNotContain("Framework-neutral route, planner, presenter, diagnostics, and state test helpers.", readme, StringComparison.Ordinal);

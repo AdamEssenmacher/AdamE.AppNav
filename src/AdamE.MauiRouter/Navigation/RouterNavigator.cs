@@ -256,7 +256,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         }
     }
 
-    public Task WhenReconciliationIdleAsync()
+    internal Task WhenReconciliationIdleAsync()
     {
         lock (_reconciliationGate)
         {

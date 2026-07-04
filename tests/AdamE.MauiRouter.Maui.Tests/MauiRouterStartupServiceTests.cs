@@ -449,8 +449,6 @@ public sealed class MauiRouterStartupServiceTests
             RestoreFromStoreCalls++;
             return ValueTask.FromResult(RestoreFromStoreResult);
         }
-
-        public Task WhenReconciliationIdleAsync() => Task.CompletedTask;
     }
 
     private static string CreateStoreDirectory()

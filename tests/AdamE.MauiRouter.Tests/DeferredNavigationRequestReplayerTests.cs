@@ -178,6 +178,5 @@ public sealed class DeferredNavigationRequestReplayerTests
         public ValueTask<NavigationResult> ReconcileAsync(NavigationReconciliation reconciliation, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<NavigationRestoreResult> RestoreAsync(NavigationSnapshot snapshot, NavigationRestoreOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<NavigationRestoreResult> RestoreFromStoreAsync(NavigationRestoreOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task WhenReconciliationIdleAsync() => Task.CompletedTask;
     }
 }

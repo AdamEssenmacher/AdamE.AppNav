@@ -1328,7 +1328,6 @@ Additional public operations:
 
 - `ReconcileAsync(...)` accepts an explicit `NavigationReconciliation`; this is useful for host-owned or test-driven reconciliation.
 - `RestoreAsync(...)` and `RestoreFromStoreAsync(...)` drive snapshot restore directly.
-- `WhenReconciliationIdleAsync()` waits for queued reconciliation work to drain; this is useful in host or test coordination.
 
 ### Policies
 
