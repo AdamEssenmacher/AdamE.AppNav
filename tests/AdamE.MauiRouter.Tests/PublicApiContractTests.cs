@@ -126,7 +126,6 @@ public sealed class PublicApiContractTests
                 "AdamE.MauiRouter.Maui.IMauiRoutePageLifecycleHook",
                 "AdamE.MauiRouter.Maui.IMauiRoutePageModule",
                 "AdamE.MauiRouter.Maui.IMauiRouterStartupService",
-                "AdamE.MauiRouter.Maui.MauiBranchHostPresentation",
                 "AdamE.MauiRouter.Maui.MauiRoutePageRegistry",
                 "AdamE.MauiRouter.Maui.MauiRoutePageReuseKind",
                 "AdamE.MauiRouter.Maui.MauiRoutePageUpdateContext",

@@ -193,31 +193,6 @@ public sealed class MauiNavigationPresenterLifecycleTests
     }
 
     [Fact]
-    public async Task GetTopPresentedPageReturnsLeafPageForFlyoutDetailBranch()
-    {
-        var fixture = new PresenterFixture(pages => pages.MapBranchHostAsFlyout("store-flyout"));
-        IMauiPresentationState presentationState = fixture.Presenter;
-
-        var branches = new[]
-        {
-            new NavigationBranch("home", "Home", Stack("home-stack", Entry("home"))),
-            new NavigationBranch("catalog", "Catalog", Stack("catalog-stack", Entry("catalog")))
-        };
-        var flyout = new BranchHostNode("store-flyout", branches, "catalog", "catalog");
-
-        await fixture.Presenter.ApplyAsync(
-            Plan(flyout),
-            Context(new TestPageRoute("catalog")));
-
-        var flyoutPage = Assert.IsType<FlyoutPage>(fixture.Presenter.CurrentPage);
-        var detailPage = Assert.IsType<NavigationPage>(flyoutPage.Detail);
-
-        Assert.Same(detailPage.CurrentPage, presentationState.GetTopPresentedPage());
-
-        fixture.Presenter.Dispose();
-    }
-
-    [Fact]
     public async Task GetTopPresentedPagePrefersTopModalPage()
     {
         var fixture = new PresenterFixture();
@@ -970,79 +945,6 @@ public sealed class MauiNavigationPresenterLifecycleTests
         var activeWindow = Assert.IsType<WindowNode>(reconciliation!.TargetState.ActiveWindow);
         Assert.IsType<StackNode>(activeWindow.Root);
         Assert.Equal(NavigationReconciliationSource.TabChanged, reconciliation!.Source);
-
-        fixture.Presenter.Dispose();
-    }
-
-    [Fact]
-    public async Task NativeFlyoutSelectionReconcilesSelectedBranch()
-    {
-        var fixture = new PresenterFixture(pages => pages.MapBranchHostAsFlyout("store-flyout"));
-        NavigationReconciliation? reconciliation = null;
-        fixture.Presenter.ReconciliationRequested += (_, args) => reconciliation = args.Reconciliation;
-
-        var branches = new[]
-        {
-            new NavigationBranch("home", "Home", Stack("home-stack", Entry("home"))),
-            new NavigationBranch("catalog", "Catalog", Stack("catalog-stack", Entry("catalog")))
-        };
-        var flyout = new BranchHostNode("store-flyout", branches, "home", "home");
-
-        await fixture.Presenter.ApplyAsync(
-            Plan(flyout),
-            Context(new TestPageRoute("home")));
-
-        var flyoutPage = Assert.IsType<FlyoutPage>(fixture.Presenter.CurrentPage);
-        var menu = Assert.IsAssignableFrom<ContentPage>(flyoutPage.Flyout);
-        var collectionView = Assert.IsType<CollectionView>(menu.Content);
-        collectionView.SelectedItem = branches[1];
-
-        var updatedFlyout = Assert.IsType<BranchHostNode>(reconciliation?.TargetState.ActiveWindow?.Root);
-        Assert.Equal("catalog", updatedFlyout.SelectedBranchId);
-        Assert.Equal(NavigationReconciliationSource.OtherNativeEvent, reconciliation!.Source);
-
-        fixture.Presenter.Dispose();
-    }
-
-    [Fact]
-    public async Task NativeFlyoutSelectionInsideModalContentReconcilesSelectedBranch()
-    {
-        var fixture = new PresenterFixture(pages => pages.MapBranchHostAsFlyout("cart-flyout"));
-        NavigationReconciliation? reconciliation = null;
-        fixture.Presenter.ReconciliationRequested += (_, args) => reconciliation = args.Reconciliation;
-
-        var branches = new[]
-        {
-            new NavigationBranch("home", "Home", Stack("home-stack", Entry("home"))),
-            new NavigationBranch("catalog", "Catalog", Stack("catalog-stack", Entry("catalog")))
-        };
-
-        await fixture.Presenter.ApplyAsync(
-            Plan(
-                new WindowNode(
-                    "main",
-                    Stack("schools", Entry("schools")),
-                    new[]
-                    {
-                        new ModalNode(
-                            "cart-modal",
-                            new RouteEntry("cart-modal-route", new TestPageRoute("cart-shell")),
-                            new BranchHostNode("cart-flyout", branches, "home", "home"))
-                    })),
-            Context(new TestPageRoute("home")));
-
-        var rootNavigationPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
-        var modalFlyoutPage = Assert.IsType<FlyoutPage>(Assert.Single(rootNavigationPage.Navigation.ModalStack));
-        var menu = Assert.IsAssignableFrom<ContentPage>(modalFlyoutPage.Flyout);
-        var collectionView = Assert.IsType<CollectionView>(menu.Content);
-        collectionView.SelectedItem = branches[1];
-
-        var modal = Assert.Single(reconciliation?.TargetState.ActiveWindow?.Modals ?? []);
-        var updatedFlyout = Assert.IsType<BranchHostNode>(modal.Content);
-        Assert.Equal("catalog", updatedFlyout.SelectedBranchId);
-        var activeWindow = Assert.IsType<WindowNode>(reconciliation!.TargetState.ActiveWindow);
-        Assert.IsType<StackNode>(activeWindow.Root);
-        Assert.Equal(NavigationReconciliationSource.OtherNativeEvent, reconciliation!.Source);
 
         fixture.Presenter.Dispose();
     }

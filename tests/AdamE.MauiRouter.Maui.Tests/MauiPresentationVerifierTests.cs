@@ -49,25 +49,6 @@ public sealed class MauiPresentationVerifierTests
     }
 
     [Fact]
-    public void VerifyAcceptsMatchingFlyoutBranchHost()
-    {
-        var options = new MauiRoutePresentationOptions();
-        options.Pages.MapBranchHostAsFlyout("flyout");
-        var branchHost = BranchHost("flyout", "catalog");
-        var flyoutPage = new FlyoutPage
-        {
-            Flyout = new ContentPage { Title = "Menu" },
-            Detail = StackPage("catalog-stack", "catalog")
-        };
-        MauiPresentationMetadata.SetHostId(flyoutPage, "flyout");
-        MauiPresentationMetadata.SetBranchId(flyoutPage.Detail, "catalog");
-
-        var mismatch = Verify(State(branchHost), flyoutPage, options);
-
-        Assert.Null(mismatch);
-    }
-
-    [Fact]
     public async Task VerifyAcceptsMatchingModal()
     {
         var root = Stack("stack", Entry("home"));

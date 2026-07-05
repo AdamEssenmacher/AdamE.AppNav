@@ -146,7 +146,7 @@ That extra split is deliberate. It lets the app stay URL-native without pretendi
 - App planning is where route meaning meets current application state.
 - MAUI pages are adapter artifacts, never core state.
 - Presenters should preserve native containers and prefer incremental native mutations over wholesale container replacement whenever possible.
-- Presenters are bidirectional: native stack pops, modal dismissals, tab changes, flyout selection, and other native user-driven events may reconcile back into logical state and history.
+- Presenters are bidirectional: native stack pops, modal dismissals, tab changes, and other native user-driven events may reconcile back into logical state and history.
 
 For a MAUI integration walkthrough, see [docs/maui-integration.md](docs/maui-integration.md). For provenance field ownership, see [docs/provenance.md](docs/provenance.md).
 
@@ -173,7 +173,7 @@ Until packages are published, consume the library with project references.
 | --- | --- |
 | Core target frameworks | `net9.0`, `net10.0` |
 | MAUI adapter targets | Android, iOS, Mac Catalyst |
-| MAUI containers | `NavigationPage`, `TabbedPage`, `FlyoutPage`, modal navigation |
+| MAUI containers | `NavigationPage`, `TabbedPage`, modal navigation |
 | Page creation | DI-backed page factories |
 | URL matching | Fluent runtime route table |
 | Route formatting | Fluent runtime formatters |
@@ -265,8 +265,7 @@ The MAUI presenter maps structural nodes to native MAUI containers:
 | Navigation node | MAUI surface |
 | --- | --- |
 | `StackNode` | `NavigationPage` |
-| `BranchHostNode` | `TabbedPage` by default |
-| `BranchHostNode` | `FlyoutPage` when configured with `MapBranchHostAsFlyout(...)` |
+| `BranchHostNode` | `TabbedPage` |
 | `ModalNode` | Modal presentation |
 
 Presenters are also bidirectional. Native user events can reconcile back into logical navigation state.
@@ -554,7 +553,7 @@ public static class MauiProgram
 
 `AddMauiRouterStartup` is optional, but recommended for MAUI apps that want the standard cold-start sequence: app links first, deferred request detection, fallback navigation, then window attachment.
 If route-owned metadata participates in URL formatting or deferred request persistence, keep those keys app-owned in a `RouteStateRegistry` and register that registry with deferred request persistence services.
-Branch hosts are materialized as `TabbedPage` by default. Use `pages.MapBranchHostAsFlyout("host-id")` when a specific branch host should render as a MAUI `FlyoutPage`.
+Branch hosts are materialized as `TabbedPage`.
 
 ### 6. Create Pages With Route Constructor Parameters
 
@@ -1174,7 +1173,7 @@ new WindowNode(
 
 Represents a platform-neutral host for multiple named branches. The node only tracks
 the available branches plus the selected and default branch ids; presentation adapters
-decide whether that host appears as tabs, a flyout, a carousel, or another native UI.
+decide how that host appears in native UI.
 
 ```csharp
 new BranchHostNode(
@@ -1640,8 +1639,7 @@ The v1 MAUI presenter projects state into real MAUI containers.
 | State node | MAUI projection |
 | --- | --- |
 | `StackNode` | `NavigationPage` |
-| `BranchHostNode` | `TabbedPage` by default |
-| `BranchHostNode` | `FlyoutPage` when configured with `MapBranchHostAsFlyout(...)` |
+| `BranchHostNode` | `TabbedPage` |
 | `ModalNode` | `PushModalAsync` / `PopModalAsync` |
 
 This is deliberate. Native containers preserve platform behavior such as swipe-back, Android back behavior, tab UX, and modal presentation.

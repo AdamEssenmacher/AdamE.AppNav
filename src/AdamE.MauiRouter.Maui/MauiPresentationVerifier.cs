@@ -59,7 +59,7 @@ internal sealed class MauiPresentationVerifier : IMauiPresentationVerifier
 
     private static MauiPresentationVerificationMismatch? VerifyRootlessModalHost(Page page)
     {
-        return page is NavigationPage or TabbedPage or FlyoutPage
+        return page is NavigationPage or TabbedPage
             ? Mismatch("$.root", "synthetic root page", DescribePage(page))
             : null;
     }
@@ -73,11 +73,7 @@ internal sealed class MauiPresentationVerifier : IMauiPresentationVerifier
         return node switch
         {
             StackNode stack => VerifyStack(stack, page, path),
-            BranchHostNode branchHost => presentationOptions.Pages.GetBranchHostPresentation(branchHost.Id) switch
-            {
-                MauiBranchHostPresentation.Flyout => VerifyFlyoutBranchHost(branchHost, page, path, presentationOptions),
-                _ => VerifyTabbedBranchHost(branchHost, page, path, presentationOptions)
-            },
+            BranchHostNode branchHost => VerifyTabbedBranchHost(branchHost, page, path, presentationOptions),
             ModalNode modal => modal.Content is null
                 ? VerifyRoutePage(modal.RouteEntry, page, path)
                 : VerifyNode(modal.Content, page, path, presentationOptions),
@@ -89,7 +85,7 @@ internal sealed class MauiPresentationVerifier : IMauiPresentationVerifier
     {
         if (stack.Entries.Count == 0)
         {
-            return page is NavigationPage or TabbedPage or FlyoutPage
+            return page is NavigationPage or TabbedPage
                 ? Mismatch(path, "empty stack page", DescribePage(page))
                 : null;
         }
@@ -171,38 +167,6 @@ internal sealed class MauiPresentationVerifier : IMauiPresentationVerifier
         return StringComparer.Ordinal.Equals(selectedBranchId, branchHost.SelectedBranchId)
             ? null
             : Mismatch($"{path}.selectedBranchId", branchHost.SelectedBranchId, selectedBranchId ?? "null");
-    }
-
-    private static MauiPresentationVerificationMismatch? VerifyFlyoutBranchHost(
-        BranchHostNode branchHost,
-        Page? page,
-        string path,
-        MauiRoutePresentationOptions presentationOptions)
-    {
-        if (page is not FlyoutPage flyoutPage)
-        {
-            return Mismatch(path, $"FlyoutPage host '{branchHost.Id}'", DescribePage(page));
-        }
-
-        var hostMismatch = VerifyHostId(flyoutPage, branchHost.Id, path);
-        if (hostMismatch is not null)
-        {
-            return hostMismatch;
-        }
-
-        var selectedBranch = branchHost.SelectedBranch;
-        if (selectedBranch is null)
-        {
-            return Mismatch($"{path}.selectedBranchId", branchHost.SelectedBranchId, "missing");
-        }
-
-        var detailBranchId = MauiPresentationMetadata.GetBranchId(flyoutPage.Detail);
-        if (!StringComparer.Ordinal.Equals(detailBranchId, selectedBranch.Id))
-        {
-            return Mismatch($"{path}.detail.branchId", selectedBranch.Id, detailBranchId ?? "null");
-        }
-
-        return VerifyNode(selectedBranch.Content, flyoutPage.Detail, $"{path}.detail.content", presentationOptions);
     }
 
     private static MauiPresentationVerificationMismatch? VerifyModals(

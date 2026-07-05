@@ -37,7 +37,7 @@ public sealed class StateImmutabilityTests
             new("catalog", "Catalog", stack)
         };
         var branchHost = new BranchHostNode("branchHost", branches, "catalog", "catalog");
-        var flyout = new BranchHostNode("flyout", branches, "catalog", "catalog");
+        var secondaryBranchHost = new BranchHostNode("secondary-branchHost", branches, "catalog", "catalog");
         branches.Add(new NavigationBranch("cart", "Cart", Stack("cart-stack", "cart")));
 
         var modals = new List<ModalNode>
@@ -49,7 +49,7 @@ public sealed class StateImmutabilityTests
 
         Assert.Single(stack.Entries);
         Assert.Single(branchHost.Branches);
-        Assert.Single(flyout.Branches);
+        Assert.Single(secondaryBranchHost.Branches);
         Assert.Single(window.Modals);
     }
 

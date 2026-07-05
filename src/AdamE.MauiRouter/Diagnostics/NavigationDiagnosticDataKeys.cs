@@ -156,7 +156,7 @@ public static class NavigationDiagnosticDataKeys
     public const string HostId = "hostId";
 
     /// <summary>
-    /// Logical branch identifier associated with a tab, flyout item, or other branch host.
+    /// Logical branch identifier associated with a tab or other branch host.
     /// </summary>
     public const string BranchId = "branchId";
 

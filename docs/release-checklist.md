@@ -66,4 +66,4 @@ The release-confidence workflow runs core tests, MAUI adapter build, Commerce Ma
 - No MVU presenter.
 - No complete multi-window orchestration.
 - No route matcher trie/indexing performance work.
-- No custom tab/flyout selection animation.
+- No custom tab selection animation.

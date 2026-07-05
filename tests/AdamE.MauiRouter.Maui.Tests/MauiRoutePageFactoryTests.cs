@@ -22,24 +22,6 @@ public sealed class MauiRoutePageFactoryTests
     }
 
     [Fact]
-    public void BranchHostPresentationMappingsDefaultToTabsAndCanBeMerged()
-    {
-        var pages = new MauiRoutePageRegistry();
-        var contributorPages = new MauiRoutePageRegistry()
-            .MapBranchHostAsFlyout("menu")
-            .MapBranchHostAsTabs("store");
-
-        pages.MapBranchHostAsFlyout("store");
-        pages.Apply(contributorPages);
-
-        Assert.Equal(MauiBranchHostPresentation.Tabs, new MauiRoutePageRegistry().GetBranchHostPresentation("store"));
-        Assert.Equal(MauiBranchHostPresentation.Tabs, pages.GetBranchHostPresentation("store"));
-        Assert.Equal(MauiBranchHostPresentation.Flyout, pages.GetBranchHostPresentation("menu"));
-        Assert.Throws<ArgumentException>(() => pages.MapBranchHostAsFlyout(" "));
-        Assert.Throws<ArgumentOutOfRangeException>(() => pages.MapBranchHost("store", (MauiBranchHostPresentation)42));
-    }
-
-    [Fact]
     public void CreatePage_MapPageFromServices_ResolvesPageFromDI()
     {
         var services = new ServiceCollection();

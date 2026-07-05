@@ -18,8 +18,6 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
     private readonly NavigationDiagnostics _diagnostics;
     private readonly Dictionary<NavigationPage, string> _navigationPageStackIds = new(PageReferenceComparer<NavigationPage>.Instance);
     private readonly Dictionary<NavigationPage, HashSet<Page>> _navigationPageKnownPages = new(PageReferenceComparer<NavigationPage>.Instance);
-    private readonly Dictionary<string, Page> _flyoutBranchPages = new(StringComparer.Ordinal);
-    private readonly Dictionary<MauiFlyoutMenuPage, EventHandler<string>> _flyoutMenuHandlers = new(PageReferenceComparer<MauiFlyoutMenuPage>.Instance);
     private readonly HashSet<TabbedPage> _trackedTabbedPages = new(PageReferenceComparer<TabbedPage>.Instance);
     private readonly HashSet<Page> _trackedModalPages = new(PageReferenceComparer<Page>.Instance);
     private readonly HashSet<Page> _releasedPages = new(PageReferenceComparer<Page>.Instance);
@@ -91,11 +89,6 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
             DetachPageTree(currentPage);
         }
 
-        foreach (var cachedPage in _flyoutBranchPages.Values.ToArray())
-        {
-            DetachPageTree(cachedPage);
-        }
-
         foreach (var navigationPage in _navigationPageStackIds.Keys.ToArray())
         {
             UntrackNavigationPage(navigationPage);
@@ -111,11 +104,6 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
             UntrackModalPage(modalPage);
         }
 
-        foreach (var menu in _flyoutMenuHandlers.Keys.ToArray())
-        {
-            UntrackFlyoutMenu(menu);
-        }
-
         if (_attachedWindow is not null)
         {
             UnsubscribeWindowLifecycle(_attachedWindow);
@@ -126,8 +114,6 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         _attachedWindowId = null;
         _navigationPageStackIds.Clear();
         _navigationPageKnownPages.Clear();
-        _flyoutBranchPages.Clear();
-        _flyoutMenuHandlers.Clear();
         _trackedTabbedPages.Clear();
         _trackedModalPages.Clear();
         _releasedPages.Clear();
@@ -306,21 +292,12 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
                 operationId,
                 isNavigationTarget,
                 cancellationToken),
-            BranchHostNode branchHost => _presentationOptions.Pages.GetBranchHostPresentation(branchHost.Id) switch
-            {
-                MauiBranchHostPresentation.Flyout => await MaterializeFlyoutBranchHostAsync(
-                    branchHost,
-                    existingPage as FlyoutPage,
-                    operationId,
-                    isNavigationTarget,
-                    cancellationToken),
-                _ => await MaterializeTabbedBranchHostAsync(
-                    branchHost,
-                    existingPage as TabbedPage,
-                    operationId,
-                    isNavigationTarget,
-                    cancellationToken)
-            },
+            BranchHostNode branchHost => await MaterializeTabbedBranchHostAsync(
+                branchHost,
+                existingPage as TabbedPage,
+                operationId,
+                isNavigationTarget,
+                cancellationToken),
             ModalNode modal => modal.Content is null
                 ? CreateRoutePage(modal.RouteEntry)
                 : await MaterializeNodeAsync(
@@ -515,129 +492,6 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         return tabbedPage;
     }
 
-    private async Task<Page> MaterializeFlyoutBranchHostAsync(
-        BranchHostNode branchHost,
-        FlyoutPage? existingPage,
-        string operationId,
-        bool isNavigationTarget,
-        CancellationToken cancellationToken)
-    {
-        var flyoutPage = existingPage is not null && StringComparer.Ordinal.Equals(GetHostId(existingPage), branchHost.Id)
-            ? existingPage
-            : new FlyoutPage();
-        var createdFlyoutPage = !ReferenceEquals(flyoutPage, existingPage);
-
-        SetHostId(flyoutPage, branchHost.Id);
-
-        if (createdFlyoutPage)
-        {
-            WritePageLifecycle(NavigationDiagnosticEventKind.PresentationPageCreated, flyoutPage, "FlyoutPage was created.");
-        }
-
-        RemoveStaleFlyoutBranchPages(branchHost);
-
-        if (flyoutPage.Flyout is MauiFlyoutMenuPage oldMenu)
-        {
-            UntrackFlyoutMenu(oldMenu);
-        }
-
-        var menu = new MauiFlyoutMenuPage(branchHost.Branches, branchHost.SelectedBranchId);
-        WritePageLifecycle(NavigationDiagnosticEventKind.PresentationPageCreated, menu, "Flyout menu page was created.");
-        EventHandler<string> selectedItemChanged = async (_, selectedBranchId) =>
-        {
-            if (_suppressReconciliation)
-            {
-                return;
-            }
-
-            var selectedBranch = menu.FindBranch(selectedBranchId);
-            if (selectedBranch is null)
-            {
-                return;
-            }
-
-            flyoutPage.Detail = await MaterializeFlyoutBranchAsync(
-                branchHost.Id,
-                selectedBranch,
-                flyoutPage.Detail,
-                LifecycleOperationId(),
-                isNavigationTarget: true,
-                CancellationToken.None);
-            flyoutPage.IsPresented = false;
-            ReconcileSelectedFlyoutItem(flyoutPage, branchHost.Id, selectedBranchId);
-        };
-        menu.SelectedItemChanged += selectedItemChanged;
-        _flyoutMenuHandlers[menu] = selectedItemChanged;
-        WriteHandlerLifecycle(
-            NavigationDiagnosticEventKind.PresentationHandlerAttached,
-            menu,
-            "MauiFlyoutMenuPage.SelectedItemChanged",
-            "Flyout menu selection handler was attached.");
-        flyoutPage.Flyout = menu;
-
-        var branch = branchHost.SelectedBranch ?? branchHost.Branches.FirstOrDefault();
-        flyoutPage.Detail = branch is null
-            ? CreateEmptyPage()
-            : await MaterializeFlyoutBranchAsync(
-                branchHost.Id,
-                branch,
-                flyoutPage.Detail,
-                operationId,
-                isNavigationTarget,
-                cancellationToken);
-
-        return flyoutPage;
-    }
-
-    private async Task<Page> MaterializeFlyoutBranchAsync(
-        string flyoutId,
-        NavigationBranch branch,
-        Page? currentDetail,
-        string operationId,
-        bool isNavigationTarget,
-        CancellationToken cancellationToken)
-    {
-        var key = FlyoutBranchKey(flyoutId, branch.Id);
-        _flyoutBranchPages.TryGetValue(key, out var cachedPage);
-
-        var existingPage = cachedPage ?? (StringComparer.Ordinal.Equals(GetBranchId(currentDetail), branch.Id) ? currentDetail : null);
-        var page = await MaterializeNodeAsync(
-            branch.Content,
-            existingPage,
-            operationId,
-            isNavigationTarget,
-            cancellationToken);
-        page.Title = branch.Title;
-        SetBranchId(page, branch.Id);
-
-        if (cachedPage is not null && !ReferenceEquals(cachedPage, page))
-        {
-            DetachPageTree(cachedPage);
-        }
-        else if (cachedPage is null && existingPage is not null && !ReferenceEquals(existingPage, page))
-        {
-            DetachPageTree(existingPage);
-        }
-
-        _flyoutBranchPages[key] = page;
-        return page;
-    }
-
-    private void RemoveStaleFlyoutBranchPages(BranchHostNode branchHost)
-    {
-        var validKeys = branchHost.Branches
-            .Select(branch => FlyoutBranchKey(branchHost.Id, branch.Id))
-            .ToHashSet(StringComparer.Ordinal);
-
-        foreach (var stale in _flyoutBranchPages
-                     .Where(pair => pair.Key.StartsWith($"{branchHost.Id}:", StringComparison.Ordinal) && !validKeys.Contains(pair.Key))
-                     .ToArray())
-        {
-            _flyoutBranchPages.Remove(stale.Key);
-            DetachPageTree(stale.Value);
-        }
-    }
-
     private async Task ApplyModalsAsync(
         Page root,
         IReadOnlyList<ModalNode> modals,
@@ -719,13 +573,8 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
             StackNode stack => existingPage is NavigationPage navigationPage &&
                                StringComparer.Ordinal.Equals(GetHostId(navigationPage), stack.Id) &&
                                StackRootMatches(navigationPage, stack),
-            BranchHostNode branchHost => _presentationOptions.Pages.GetBranchHostPresentation(branchHost.Id) switch
-            {
-                MauiBranchHostPresentation.Flyout => existingPage is FlyoutPage flyoutPage &&
-                                                     StringComparer.Ordinal.Equals(GetHostId(flyoutPage), branchHost.Id),
-                _ => existingPage is TabbedPage tabbedPage &&
-                     StringComparer.Ordinal.Equals(GetHostId(tabbedPage), branchHost.Id)
-            },
+            BranchHostNode branchHost => existingPage is TabbedPage tabbedPage &&
+                                         StringComparer.Ordinal.Equals(GetHostId(tabbedPage), branchHost.Id),
             ModalNode modal => modal.Content is null
                 ? existingPage is not null &&
                   StringComparer.Ordinal.Equals(GetRouteEntryId(existingPage), modal.RouteEntry.Id)
@@ -816,8 +665,7 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
     {
         return existingPage is not null &&
                existingPage is not NavigationPage &&
-               existingPage is not TabbedPage &&
-               existingPage is not FlyoutPage
+               existingPage is not TabbedPage
             ? existingPage
             : CreateEmptyPage();
     }
@@ -882,7 +730,6 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
             {
                 NavigationPage navigationPage when navigationPage.CurrentPage is not null => navigationPage.CurrentPage,
                 TabbedPage tabbedPage when tabbedPage.CurrentPage is not null => tabbedPage.CurrentPage,
-                FlyoutPage flyoutPage when flyoutPage.Detail is not null => flyoutPage.Detail,
                 _ => null
             };
 
@@ -1016,19 +863,6 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         }
     }
 
-    private void UntrackFlyoutMenu(MauiFlyoutMenuPage menu)
-    {
-        if (_flyoutMenuHandlers.Remove(menu, out var handler))
-        {
-            menu.SelectedItemChanged -= handler;
-            WriteHandlerLifecycle(
-                NavigationDiagnosticEventKind.PresentationHandlerDetached,
-                menu,
-                "MauiFlyoutMenuPage.SelectedItemChanged",
-                "Flyout menu selection handler was detached.");
-        }
-    }
-
     private void DetachPageTree(Page page)
     {
         DetachPageTree(page, new HashSet<Page>(PageReferenceComparer<Page>.Instance));
@@ -1067,34 +901,6 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
                 foreach (var child in tabbedPage.Children.ToArray())
                 {
                     DetachPageTree(child, visited);
-                }
-
-                break;
-            case FlyoutPage flyoutPage:
-                var flyoutId = GetHostId(flyoutPage);
-                if (flyoutPage.Flyout is MauiFlyoutMenuPage menu)
-                {
-                    UntrackFlyoutMenu(menu);
-                    DetachPageTree(menu, visited);
-                }
-
-                if (!string.IsNullOrWhiteSpace(flyoutId))
-                {
-                    foreach (var branchPage in _flyoutBranchPages
-                                 .Where(pair => pair.Key.StartsWith($"{flyoutId}:", StringComparison.Ordinal))
-                                 .ToArray())
-                    {
-                        _flyoutBranchPages.Remove(branchPage.Key);
-                        if (!ReferenceEquals(branchPage.Value, flyoutPage.Detail))
-                        {
-                            DetachPageTree(branchPage.Value, visited);
-                        }
-                    }
-                }
-
-                if (flyoutPage.Detail is not null)
-                {
-                    DetachPageTree(flyoutPage.Detail, visited);
                 }
 
                 break;
@@ -1202,23 +1008,6 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         DetachPageTree(page);
         var updatedState = _lastState.ReplaceWindow(window with { Modals = remainingModals });
         RequestReconciliation(updatedState, NavigationReconciliationSource.ModalDismissed, "Native modal dismissal changed.");
-    }
-
-    private void ReconcileSelectedFlyoutItem(
-        FlyoutPage flyoutPage,
-        string flyoutId,
-        string selectedBranchId)
-    {
-        var updatedWindow = UpdateWindowForPresentedNode(
-            flyoutPage,
-            node => UpdateBranchHostSelection(node, flyoutId, selectedBranchId));
-        if (updatedWindow is null)
-        {
-            return;
-        }
-
-        var updatedState = _lastState.ReplaceWindow(updatedWindow);
-        RequestReconciliation(updatedState, NavigationReconciliationSource.OtherNativeEvent, "Native flyout selection changed.");
     }
 
     private void ReconcileStackFromNative(string stackId, NavigationPage navigationPage)
@@ -1335,9 +1124,6 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         {
             NavigationPage navigationPage => navigationPage.Navigation.NavigationStack.Any(page => ContainsPageInStructuralTree(page, target)),
             TabbedPage tabbedPage => tabbedPage.Children.Any(page => ContainsPageInStructuralTree(page, target)),
-            FlyoutPage flyoutPage =>
-                (flyoutPage.Flyout is not null && ContainsPageInStructuralTree(flyoutPage.Flyout, target)) ||
-                (flyoutPage.Detail is not null && ContainsPageInStructuralTree(flyoutPage.Detail, target)),
             _ => false
         };
     }
@@ -1554,11 +1340,6 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
     private static string CreateOperationId()
     {
         return Guid.NewGuid().ToString("N");
-    }
-
-    private static string FlyoutBranchKey(string flyoutId, string branchId)
-    {
-        return $"{flyoutId}:{branchId}";
     }
 
     private static void SetHostId(BindableObject bindableObject, string id)
