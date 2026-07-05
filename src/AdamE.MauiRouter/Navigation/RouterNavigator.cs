@@ -26,11 +26,14 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
     private readonly ActivitySource _activitySource;
     private readonly SemaphoreSlim _operationLock = new(1, 1);
     private readonly object _reconciliationGate = new();
+    private readonly object _navigationCommittedGate = new();
+    private readonly Queue<NavigationCommittedEventArgs> _pendingNavigationCommittedEvents = new();
     private readonly int _maxRedirects;
     private readonly int _maxHistoryEntries;
     private readonly NavigationPersistenceOptions? _persistence;
     private readonly NavigationSnapshotSerializer? _snapshotSerializer;
     private Task _reconciliationQueue = Task.CompletedTask;
+    private bool _publishingNavigationCommitted;
     private bool _disposed;
 
     public RouterNavigator(
@@ -1322,6 +1325,37 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
             return;
         }
 
+        lock (_navigationCommittedGate)
+        {
+            _pendingNavigationCommittedEvents.Enqueue(eventArgs);
+            if (_publishingNavigationCommitted)
+            {
+                return;
+            }
+
+            _publishingNavigationCommitted = true;
+        }
+
+        while (true)
+        {
+            NavigationCommittedEventArgs nextEventArgs;
+            lock (_navigationCommittedGate)
+            {
+                if (_pendingNavigationCommittedEvents.Count == 0)
+                {
+                    _publishingNavigationCommitted = false;
+                    return;
+                }
+
+                nextEventArgs = _pendingNavigationCommittedEvents.Dequeue();
+            }
+
+            PublishNavigationCommittedNow(nextEventArgs);
+        }
+    }
+
+    private void PublishNavigationCommittedNow(NavigationCommittedEventArgs eventArgs)
+    {
         var handlers = NavigationCommitted;
         if (handlers is null)
         {
@@ -1341,7 +1375,14 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
             }
             catch (Exception ex)
             {
-                WriteNavigationCommittedHandlerFailure(eventArgs, ex);
+                try
+                {
+                    WriteNavigationCommittedHandlerFailure(eventArgs, ex);
+                }
+                catch
+                {
+                    // Subscriber failures must never become navigation control flow.
+                }
             }
         }
     }

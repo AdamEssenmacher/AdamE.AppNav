@@ -164,6 +164,8 @@ public sealed class NavigationCommittedTests
         Assert.Same(navigator.CurrentState, committed.CurrentState);
         Assert.Same(navigator.History, committed.CurrentHistory);
         Assert.Equal(history.Current!.Id, navigator.History.Current!.Id);
+        Assert.Equal(history.Current.Id, committed.CurrentHistory.Current!.Id);
+        Assert.NotEqual(committed.OperationId, committed.CurrentHistory.Current.Id);
     }
 
     [Fact]
@@ -286,19 +288,19 @@ public sealed class NavigationCommittedTests
     }
 
     [Fact]
-    public async Task SubscriberCanStartFollowUpNavigationWithoutDeadlocking()
+    public async Task SubscribersReceiveOriginalCommitBeforeReentrantFollowUpCommit()
     {
         var navigator = new RouterNavigator(
             TestRoutes.CreateTable(),
             TestNavigationPlanner.EchoStack(),
             NullNavigationPresenter.Instance);
-        var committedRoutes = new List<AppRoute>();
+        var observed = new List<string>();
         NavigationResult? followUpResult = null;
         var followUpTimedOut = false;
 
         navigator.NavigationCommitted += (_, eventArgs) =>
         {
-            committedRoutes.Add(eventArgs.Route);
+            observed.Add($"first:{eventArgs.Route.GetType().Name}");
             if (eventArgs.Route is not TestRoutes.StoreRoute)
             {
                 return;
@@ -315,15 +317,23 @@ public sealed class NavigationCommittedTests
 
             followUpResult = followUpTask.GetAwaiter().GetResult();
         };
+        navigator.NavigationCommitted += (_, eventArgs) =>
+        {
+            observed.Add($"second:{eventArgs.Route.GetType().Name}");
+        };
 
         await navigator.NavigateAsync(new TestRoutes.StoreRoute("northwind"), NavigationRequestSource.Test);
 
         Assert.False(followUpTimedOut);
         Assert.NotNull(followUpResult);
-        Assert.Collection(
-            committedRoutes,
-            route => Assert.IsType<TestRoutes.StoreRoute>(route),
-            route => Assert.IsType<TestRoutes.CatalogRoute>(route));
+        Assert.Equal(
+            [
+                "first:StoreRoute",
+                "second:StoreRoute",
+                "first:CatalogRoute",
+                "second:CatalogRoute"
+            ],
+            observed);
         Assert.IsType<TestRoutes.CatalogRoute>(navigator.History.Current!.Route);
     }
 

@@ -37,8 +37,12 @@ public sealed class NavigationCommittedEventArgs : EventArgs
     }
 
     /// <summary>
-    /// Gets the correlation identifier shared by diagnostics and history for the operation.
+    /// Gets the diagnostic correlation identifier for the committed router operation.
     /// </summary>
+    /// <remarks>
+    /// Restore commits preserve restored history entry identifiers, so this value can differ from
+    /// <see cref="CurrentHistory"/>.<see cref="NavigationHistory.Current"/>.<see cref="NavigationHistoryEntry.Id"/>.
+    /// </remarks>
     public string OperationId { get; }
 
     /// <summary>
