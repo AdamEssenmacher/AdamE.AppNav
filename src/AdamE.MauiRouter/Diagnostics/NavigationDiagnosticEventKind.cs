@@ -86,7 +86,7 @@ public enum NavigationDiagnosticEventKind
     PresentationPageReleased,
 
     /// <summary>
-    /// A presentation adapter attached an event handler or lifecycle callback.
+    /// A presentation adapter attached an event handler or lifecycle callback to a page or host object.
     /// </summary>
     PresentationHandlerAttached,
 
@@ -96,12 +96,12 @@ public enum NavigationDiagnosticEventKind
     PresentationHandlerDetached,
 
     /// <summary>
-    /// A presentation adapter or presenter was disposed.
+    /// A presentation adapter or presenter was disposed of.
     /// </summary>
     PresentationPresenterDisposed,
 
     /// <summary>
-    /// Presentation completed native operations but the live host tree did not match the target navigation state.
+    /// Presentation completed native operations, but the live host tree did not match the target navigation state.
     /// </summary>
     PresentationVerificationFailed = 60,
 
@@ -146,7 +146,7 @@ public enum NavigationDiagnosticEventKind
     StartupFailed,
 
     /// <summary>
-    /// Reconciliation from host-observed navigation state has started.
+    /// Reconciliation from the host-observed navigation state has started.
     /// </summary>
     ReconciliationStarted,
 
@@ -156,7 +156,7 @@ public enum NavigationDiagnosticEventKind
     ReconciliationCompleted,
 
     /// <summary>
-    /// Reconciliation from host-observed navigation state failed.
+    /// Reconciliation from the host-observed navigation state failed.
     /// </summary>
     ReconciliationFailed,
 
@@ -176,7 +176,7 @@ public enum NavigationDiagnosticEventKind
     BackCompleted,
 
     /// <summary>
-    /// Logical back navigation was not handled by the router.
+    /// The router did not handle logical back navigation.
     /// </summary>
     BackUnhandled,
 
