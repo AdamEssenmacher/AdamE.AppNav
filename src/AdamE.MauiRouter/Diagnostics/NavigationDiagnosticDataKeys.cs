@@ -111,7 +111,7 @@ public static class NavigationDiagnosticDataKeys
     public const string PolicyType = "policyType";
 
     /// <summary>
-    /// Number of redirects followed while applying request policies.
+    /// The number of redirects followed while applying request policies.
     /// </summary>
     public const string RedirectCount = "redirectCount";
 
@@ -201,7 +201,7 @@ public static class NavigationDiagnosticDataKeys
     public const string StartupOutcome = "startupOutcome";
 
     /// <summary>
-    /// Indicates whether startup detected pending deferred navigation requests.
+    /// Indicates whether the startup detected pending deferred navigation requests.
     /// </summary>
     public const string StartupDeferredRequestPending = "startupDeferredRequestPending";
 
