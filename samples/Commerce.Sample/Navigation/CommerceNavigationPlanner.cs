@@ -13,7 +13,7 @@ public sealed class CommerceNavigationPlanner : IAppNavigationPlanner
         CancellationToken cancellationToken = default)
     {
         var storeId = GetStoreId(context.Route);
-        var root = new TabsNode(
+        var root = new BranchHostNode(
             "store-tabs",
             new[]
             {
@@ -40,8 +40,8 @@ public sealed class CommerceNavigationPlanner : IAppNavigationPlanner
                         Entry("orders", new OrdersRoute(storeId))
                     }))
             },
-            SelectedTabId: GetSelectedTab(context.Route),
-            DefaultTabId: "home");
+            SelectedBranchId: GetSelectedTab(context.Route),
+            DefaultBranchId: "home");
 
         var state = new NavigationState(
             new[]
