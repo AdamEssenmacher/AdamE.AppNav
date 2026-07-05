@@ -398,6 +398,8 @@ public sealed class NavigationDiagnostics
                 NavigationDiagnosticEventKind.AppLinkDispatched or
                 NavigationDiagnosticEventKind.AppLinkFailed =>
                 NavigationDiagnosticPhase.AppLink,
+            NavigationDiagnosticEventKind.NavigationCommittedHandlerFailed =>
+                NavigationDiagnosticPhase.Navigation,
             NavigationDiagnosticEventKind.DiagnosticObserverFailed =>
                 NavigationDiagnosticPhase.Diagnostics,
             _ => NavigationDiagnosticPhase.Navigation
