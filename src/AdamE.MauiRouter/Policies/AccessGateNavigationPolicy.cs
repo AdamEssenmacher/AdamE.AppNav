@@ -15,19 +15,15 @@ public sealed class AccessGateNavigationPolicy(
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(request);
 
-        var decision = await evaluator
+        NavigationAccessDecision decision = await evaluator
             .EvaluateAsync(context, cancellationToken)
             .ConfigureAwait(false);
 
         if (decision.IsAllowed)
-        {
             return request;
-        }
 
         if (decision.DeferOriginalRequest)
-        {
             await deferredRequests.EnqueueAsync(request, cancellationToken).ConfigureAwait(false);
-        }
 
         return decision.RedirectRequest! with
         {

@@ -2,15 +2,11 @@ using AdamE.MauiRouter.Plans;
 
 namespace AdamE.MauiRouter.Policies;
 
-internal sealed class AppRoutePlannerRegistration<TRoute> : IAppRoutePlannerRegistration
+internal sealed class AppRoutePlannerRegistration<TRoute>(IAppRoutePlanner<TRoute> planner)
+    : IAppRoutePlannerRegistration
     where TRoute : AppRoute
 {
-    private readonly IAppRoutePlanner<TRoute> _planner;
-
-    public AppRoutePlannerRegistration(IAppRoutePlanner<TRoute> planner)
-    {
-        _planner = planner ?? throw new ArgumentNullException(nameof(planner));
-    }
+    private readonly IAppRoutePlanner<TRoute> _planner = planner ?? throw new ArgumentNullException(nameof(planner));
 
     public Type RouteType => typeof(TRoute);
 
@@ -21,10 +17,8 @@ internal sealed class AppRoutePlannerRegistration<TRoute> : IAppRoutePlannerRegi
         ArgumentNullException.ThrowIfNull(context);
 
         if (context.Route is not TRoute route)
-        {
             throw new InvalidOperationException(
                 $"Planner for route type '{typeof(TRoute).FullName}' cannot handle route type '{context.Route.GetType().FullName}'.");
-        }
 
         var typedContext = new NavigationPlanningContext<TRoute>(
             context.Request,

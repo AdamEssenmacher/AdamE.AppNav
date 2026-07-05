@@ -10,8 +10,13 @@ public sealed class StackRouteRecipeBuilder<TRouteBase, TRoute> : IStackRouteRec
     private Func<TRoute, string>? _entryIdFactory;
     private Func<TRoute, string?>? _scopeKeyFactory;
     private Func<TRoute, string?>? _slotIdFactory;
-    private Func<TRoute, IReadOnlyDictionary<string, object?>?, IReadOnlyList<StackRouteStep<TRouteBase>>>? _canonicalFactory;
-    private Func<TRoute, IReadOnlyDictionary<string, object?>?, IReadOnlyList<StackRouteStep<TRouteBase>>>? _contextualTailFactory;
+
+    private Func<TRoute, IReadOnlyDictionary<string, object?>?, IReadOnlyList<StackRouteStep<TRouteBase>>>?
+        _canonicalFactory;
+
+    private Func<TRoute, IReadOnlyDictionary<string, object?>?, IReadOnlyList<StackRouteStep<TRouteBase>>>?
+        _contextualTailFactory;
+
     private ContextualStackEligibility _contextualEligibility = ContextualStackEligibility.MatchingScope;
     private ContextualStackPushBehavior _contextualPushBehavior = ContextualStackPushBehavior.AppendTail;
 
@@ -21,6 +26,7 @@ public sealed class StackRouteRecipeBuilder<TRouteBase, TRoute> : IStackRouteRec
     public StackRouteRecipeBuilder<TRouteBase, TRoute> EntryId(Func<TRoute, string> entryIdFactory)
     {
         _entryIdFactory = entryIdFactory ?? throw new ArgumentNullException(nameof(entryIdFactory));
+
         return this;
     }
 
@@ -30,6 +36,7 @@ public sealed class StackRouteRecipeBuilder<TRouteBase, TRoute> : IStackRouteRec
     public StackRouteRecipeBuilder<TRouteBase, TRoute> ScopeKey(Func<TRoute, string?> scopeKeyFactory)
     {
         _scopeKeyFactory = scopeKeyFactory ?? throw new ArgumentNullException(nameof(scopeKeyFactory));
+
         return this;
     }
 
@@ -39,6 +46,7 @@ public sealed class StackRouteRecipeBuilder<TRouteBase, TRoute> : IStackRouteRec
     public StackRouteRecipeBuilder<TRouteBase, TRoute> SlotId(Func<TRoute, string?> slotIdFactory)
     {
         _slotIdFactory = slotIdFactory ?? throw new ArgumentNullException(nameof(slotIdFactory));
+
         return this;
     }
 
@@ -49,6 +57,7 @@ public sealed class StackRouteRecipeBuilder<TRouteBase, TRoute> : IStackRouteRec
         Func<TRoute, IReadOnlyDictionary<string, object?>?, IReadOnlyList<StackRouteStep<TRouteBase>>> canonicalFactory)
     {
         _canonicalFactory = canonicalFactory ?? throw new ArgumentNullException(nameof(canonicalFactory));
+
         return this;
     }
 
@@ -56,39 +65,43 @@ public sealed class StackRouteRecipeBuilder<TRouteBase, TRoute> : IStackRouteRec
     /// Sets the contextual tail recipe for this route type.
     /// </summary>
     public StackRouteRecipeBuilder<TRouteBase, TRoute> ContextualTail(
-        Func<TRoute, IReadOnlyDictionary<string, object?>?, IReadOnlyList<StackRouteStep<TRouteBase>>> contextualTailFactory)
+        Func<TRoute, IReadOnlyDictionary<string, object?>?, IReadOnlyList<StackRouteStep<TRouteBase>>>
+            contextualTailFactory)
     {
-        _contextualTailFactory = contextualTailFactory ?? throw new ArgumentNullException(nameof(contextualTailFactory));
+        _contextualTailFactory =
+            contextualTailFactory ?? throw new ArgumentNullException(nameof(contextualTailFactory));
+
         return this;
     }
 
     /// <summary>
     /// Sets whether contextual planning requires a matching scope.
     /// </summary>
-    public StackRouteRecipeBuilder<TRouteBase, TRoute> ContextualEligibility(ContextualStackEligibility contextualEligibility)
+    public StackRouteRecipeBuilder<TRouteBase, TRoute> ContextualEligibility(
+        ContextualStackEligibility contextualEligibility)
     {
         _contextualEligibility = contextualEligibility;
+
         return this;
     }
 
     /// <summary>
     /// Sets how contextual planning applies this route when the current stack is eligible.
     /// </summary>
-    public StackRouteRecipeBuilder<TRouteBase, TRoute> ContextualPushBehavior(ContextualStackPushBehavior contextualPushBehavior)
+    // ReSharper disable once UnusedMethodReturnValue.Global
+    public StackRouteRecipeBuilder<TRouteBase, TRoute> ContextualPushBehavior(
+        ContextualStackPushBehavior contextualPushBehavior)
     {
         _contextualPushBehavior = contextualPushBehavior;
+
         return this;
     }
-
-    Type IStackRouteRecipeBuilder<TRouteBase>.RouteType => typeof(TRoute);
 
     StackRouteRecipe<TRouteBase> IStackRouteRecipeBuilder<TRouteBase>.Build()
     {
         if (_entryIdFactory is null)
-        {
             throw new InvalidOperationException(
                 $"Stack route recipe '{typeof(TRoute).FullName}' must define an entry id factory.");
-        }
 
         return new StackRouteRecipe<TRouteBase>(
             typeof(TRoute),
@@ -109,8 +122,6 @@ public sealed class StackRouteRecipeBuilder<TRouteBase, TRoute> : IStackRouteRec
 internal interface IStackRouteRecipeBuilder<TRouteBase>
     where TRouteBase : AppRoute
 {
-    Type RouteType { get; }
-
     StackRouteRecipe<TRouteBase> Build();
 }
 
@@ -120,7 +131,8 @@ internal sealed record StackRouteRecipe<TRouteBase>(
     Func<TRouteBase, string?>? ScopeKeyFactory,
     Func<TRouteBase, string?>? SlotIdFactory,
     Func<TRouteBase, IReadOnlyDictionary<string, object?>?, IReadOnlyList<StackRouteStep<TRouteBase>>> CanonicalFactory,
-    Func<TRouteBase, IReadOnlyDictionary<string, object?>?, IReadOnlyList<StackRouteStep<TRouteBase>>> ContextualTailFactory,
+    Func<TRouteBase, IReadOnlyDictionary<string, object?>?, IReadOnlyList<StackRouteStep<TRouteBase>>>
+        ContextualTailFactory,
     ContextualStackEligibility ContextualEligibility,
     ContextualStackPushBehavior ContextualPushBehavior)
     where TRouteBase : AppRoute;
