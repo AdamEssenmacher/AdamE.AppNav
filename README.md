@@ -33,6 +33,7 @@ MauiRouter deliberately separates route identity, route-owned metadata, and runt
 - `RouteStateRegistry` classifies metadata as canonical, restorable, or ephemeral.
 
 That split matters because it keeps route constructors focused on durable identity while still letting the app attach URL-affecting, persistence-affecting, or policy/planning-visible metadata when needed.
+Route records should use stable domain values and should not carry pages, view models, services, callbacks, native handles, or runtime provenance.
 
 Typical examples:
 
@@ -1150,6 +1151,8 @@ The state model can represent multiple windows, even though complete multi-windo
 ### Navigation Nodes
 
 Nodes describe structure, not pages.
+Node ids are stable structural ids. They identify windows, branch hosts, stacks,
+modals, and branches inside logical navigation state; they are not page names.
 
 ```csharp
 WindowNode
@@ -1218,7 +1221,17 @@ new RouteEntry(
     Metadata: null);
 ```
 
-The `Id` should be stable within the host. The MAUI presenter uses entry ids to decide whether pages can be reused or whether stack changes are needed.
+The `Id` is the presenter's reuse identity within a single `StackNode`. It should
+be stable for the logical stack entry the app wants to reuse. Duplicate entry ids
+inside one stack are invalid because presenters use them to decide whether pages
+can be reused or whether stack changes are needed. The same entry id may appear
+in independent stacks, branches, or windows.
+
+Planning recipes expose related but separate identity concepts:
+
+- `EntryId` creates the `RouteEntry.Id` that drives presenter reuse inside a stack.
+- `SlotId` identifies the contextual replacement/merge slot, such as "current product detail".
+- `ScopeKey` identifies contextual eligibility, such as the current store, tenant, or account.
 
 ### `NavigationPlan`
 

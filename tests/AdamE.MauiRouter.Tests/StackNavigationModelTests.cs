@@ -117,6 +117,48 @@ public sealed class StackNavigationModelTests
     }
 
     [Fact]
+    public void TryCreateContextualState_PushExistingEntryRewindsStack()
+    {
+        var model = CreateModel();
+        var currentState = model.CreateCanonicalState(new DetailRoute("scope-1", "detail-1"));
+        currentState = model.TryCreateContextualState(
+            currentState,
+            new SecondaryRoute("scope-1", "secondary-1"),
+            ContextualStackMutationKind.Push)!;
+
+        var nextState = model.TryCreateContextualState(
+            currentState,
+            new DetailRoute("scope-1", "detail-1"),
+            ContextualStackMutationKind.Push);
+
+        Assert.NotNull(nextState);
+        AssertStackRoutes(nextState!, typeof(RootRoute), typeof(DetailRoute));
+    }
+
+    [Fact]
+    public void TryCreateContextualState_PushSlotMatchReplacesExistingEntryBeforeAppendingTail()
+    {
+        var model = CreateModel();
+        var currentState = model.CreateCanonicalState(new TabChildRoute("scope-1", "child-1"));
+
+        var nextState = model.TryCreateContextualState(
+            currentState,
+            new TabChildRoute("scope-1", "child-2"),
+            ContextualStackMutationKind.Push);
+
+        Assert.NotNull(nextState);
+        AssertStack(
+            nextState!,
+            entry => Assert.IsType<RootRoute>(entry.Route),
+            entry => Assert.IsType<TabTwoRoute>(entry.Route),
+            entry =>
+            {
+                var route = Assert.IsType<TabChildRoute>(entry.Route);
+                Assert.Equal("child-2", route.ChildId);
+            });
+    }
+
+    [Fact]
     public void TryCreateContextualState_ReplaceWithCanonicalStackPreservesCurrentWindowAndStack()
     {
         var model = CreateModel();
@@ -142,6 +184,52 @@ public sealed class StackNavigationModelTests
     {
         var model = CreateModel();
         var currentState = model.CreateCanonicalState(new TabChildRoute("scope-1", "child-1"));
+
+        var nextState = model.TryCreateContextualState(
+            currentState,
+            new TabChildRoute("scope-1", "child-2"),
+            ContextualStackMutationKind.ReplaceTop);
+
+        Assert.NotNull(nextState);
+        AssertStack(
+            nextState!,
+            entry => Assert.IsType<RootRoute>(entry.Route),
+            entry => Assert.IsType<TabTwoRoute>(entry.Route),
+            entry =>
+            {
+                var route = Assert.IsType<TabChildRoute>(entry.Route);
+                Assert.Equal("child-2", route.ChildId);
+            });
+    }
+
+    [Fact]
+    public void TryCreateContextualState_ReplaceTopExistingEntryRewindsStack()
+    {
+        var model = CreateModel();
+        var currentState = model.CreateCanonicalState(new DetailRoute("scope-1", "detail-1"));
+        currentState = model.TryCreateContextualState(
+            currentState,
+            new SecondaryRoute("scope-1", "secondary-1"),
+            ContextualStackMutationKind.Push)!;
+
+        var nextState = model.TryCreateContextualState(
+            currentState,
+            new RootRoute("scope-1"),
+            ContextualStackMutationKind.ReplaceTop);
+
+        Assert.NotNull(nextState);
+        AssertStackRoutes(nextState!, typeof(RootRoute));
+    }
+
+    [Fact]
+    public void TryCreateContextualState_ReplaceTopSlotMatchRewindsBeforeAppendingTail()
+    {
+        var model = CreateModel();
+        var currentState = model.CreateCanonicalState(new TabChildRoute("scope-1", "child-1"));
+        currentState = model.TryCreateContextualState(
+            currentState,
+            new SecondaryRoute("scope-1", "secondary-1"),
+            ContextualStackMutationKind.Push)!;
 
         var nextState = model.TryCreateContextualState(
             currentState,

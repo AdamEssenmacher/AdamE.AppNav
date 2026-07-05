@@ -21,7 +21,7 @@ public sealed class BranchHostRouteRecipeBuilder<TRouteBase, TRoute> : IBranchHo
     }
 
     /// <summary>
-    /// Sets the route-entry identifier factory for this route type.
+    /// Sets the presenter reuse identifier factory for entries of this route type.
     /// </summary>
     public BranchHostRouteRecipeBuilder<TRouteBase, TRoute> EntryId(Func<TRoute, string> entryIdFactory)
     {
@@ -30,7 +30,7 @@ public sealed class BranchHostRouteRecipeBuilder<TRouteBase, TRoute> : IBranchHo
     }
 
     /// <summary>
-    /// Sets the contextual scope key factory for this route type.
+    /// Sets the contextual eligibility key factory for this route type.
     /// </summary>
     public BranchHostRouteRecipeBuilder<TRouteBase, TRoute> ScopeKey(Func<TRoute, string?> scopeKeyFactory)
     {
@@ -39,7 +39,7 @@ public sealed class BranchHostRouteRecipeBuilder<TRouteBase, TRoute> : IBranchHo
     }
 
     /// <summary>
-    /// Sets the contextual slot identifier factory for this route type.
+    /// Sets the contextual replacement/merge identifier factory for this route type.
     /// </summary>
     public BranchHostRouteRecipeBuilder<TRouteBase, TRoute> SlotId(Func<TRoute, string?> slotIdFactory)
     {

@@ -236,66 +236,24 @@ public sealed class BranchHostNavigationModel<TRoute>
         var nextEntries = currentEntries
             .Take(preservedCount)
             .ToList();
-        MergeReplacementTail(nextEntries, BuildContextualTailEntries(route, metadata));
+        AppendTail(nextEntries, BuildContextualTailEntries(route, metadata));
         return nextEntries;
     }
 
     private void AppendTail(List<RouteEntry> entries, IReadOnlyList<RouteEntry> tailEntries)
     {
-        if (tailEntries.Count == 0)
+        foreach (var tailEntry in tailEntries)
         {
-            return;
-        }
-
-        for (var i = 0; i < tailEntries.Count; i++)
-        {
-            if (i == 0)
+            var matchIndex = FindMatchingEntryIndex(entries, tailEntry);
+            if (matchIndex >= 0)
             {
-                EnsureTail(entries, tailEntries[i]);
+                entries[matchIndex] = tailEntry;
+                entries.RemoveRange(matchIndex + 1, entries.Count - matchIndex - 1);
                 continue;
             }
 
-            entries.Add(tailEntries[i]);
+            entries.Add(tailEntry);
         }
-    }
-
-    private void MergeReplacementTail(List<RouteEntry> preservedEntries, IReadOnlyList<RouteEntry> replacementTail)
-    {
-        if (replacementTail.Count == 0)
-        {
-            return;
-        }
-
-        if (preservedEntries.LastOrDefault() is { } lastEntry &&
-            ShouldReplaceWith(lastEntry, replacementTail[0]))
-        {
-            preservedEntries[^1] = replacementTail[0];
-            for (var i = 1; i < replacementTail.Count; i++)
-            {
-                preservedEntries.Add(replacementTail[i]);
-            }
-
-            return;
-        }
-
-        preservedEntries.AddRange(replacementTail);
-    }
-
-    private void EnsureTail(List<RouteEntry> entries, RouteEntry requiredEntry)
-    {
-        if (entries.LastOrDefault() is not { } lastEntry)
-        {
-            entries.Add(requiredEntry);
-            return;
-        }
-
-        if (ShouldReplaceWith(lastEntry, requiredEntry))
-        {
-            entries[^1] = requiredEntry;
-            return;
-        }
-
-        entries.Add(requiredEntry);
     }
 
     private bool ShouldReplaceWith(RouteEntry existingEntry, RouteEntry replacementEntry)
@@ -306,6 +264,19 @@ public sealed class BranchHostNavigationModel<TRoute>
         }
 
         return AreSameSlot(existingEntry, replacementEntry);
+    }
+
+    private int FindMatchingEntryIndex(IReadOnlyList<RouteEntry> entries, RouteEntry replacementEntry)
+    {
+        for (var i = 0; i < entries.Count; i++)
+        {
+            if (ShouldReplaceWith(entries[i], replacementEntry))
+            {
+                return i;
+            }
+        }
+
+        return -1;
     }
 
     private bool AreSameSlot(RouteEntry left, RouteEntry right)
