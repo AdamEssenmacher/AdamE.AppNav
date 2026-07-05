@@ -9,11 +9,10 @@ public sealed class AccessGateNavigationPolicy(
 {
     public async ValueTask<RouterNavigationRequest> ApplyAsync(
         NavigationRequestPolicyContext context,
-        RouterNavigationRequest request,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(context);
-        ArgumentNullException.ThrowIfNull(request);
+        RouterNavigationRequest request = context.Request;
 
         NavigationAccessDecision decision = await evaluator
             .EvaluateAsync(context, cancellationToken)

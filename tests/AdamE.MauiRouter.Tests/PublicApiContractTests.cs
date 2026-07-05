@@ -4,6 +4,7 @@ using AdamE.MauiRouter.History;
 using AdamE.MauiRouter.Maui;
 using AdamE.MauiRouter.Navigation;
 using AdamE.MauiRouter.Plans;
+using AdamE.MauiRouter.Policies;
 using AdamE.MauiRouter.Requests;
 using AdamE.MauiRouter.Testing;
 
@@ -129,6 +130,19 @@ public sealed class PublicApiContractTests
         Assert.DoesNotContain(
             typeof(RouterTestNavigatorOptions).GetProperties(BindingFlags.Public | BindingFlags.Instance),
             static property => property.Name == "InitialHistory");
+    }
+
+    [Fact]
+    public void NavigationRequestPolicyUsesContextOnlyApplySurface()
+    {
+        var method = Assert.Single(typeof(INavigationRequestPolicy).GetMethods(BindingFlags.Public | BindingFlags.Instance));
+        ParameterInfo[] parameters = method.GetParameters();
+
+        Assert.Equal(nameof(INavigationRequestPolicy.ApplyAsync), method.Name);
+        Assert.Equal(2, parameters.Length);
+        Assert.Equal(typeof(NavigationRequestPolicyContext), parameters[0].ParameterType);
+        Assert.Equal(typeof(CancellationToken), parameters[1].ParameterType);
+        Assert.True(parameters[1].HasDefaultValue);
     }
 
     [Fact]

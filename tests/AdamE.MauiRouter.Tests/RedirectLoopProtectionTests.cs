@@ -17,11 +17,15 @@ public sealed class RedirectLoopProtectionTests
         var diagnostics = new NavigationDiagnostics();
         var events = new List<NavigationDiagnosticEvent>();
         diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
-        var firstPolicy = new DelegateRequestPolicy((context, request) =>
+        var firstPolicy = new DelegateRequestPolicy(context =>
             context.Route is RedirectRoute { Value: "closed" }
-                ? RouterNavigationRequest.FromRoute(new RedirectRoute("open"), request.Source, request.WindowId, request.Metadata)
-                : request);
-        var secondPolicy = new DelegateRequestPolicy((_, request) => request);
+                ? RouterNavigationRequest.FromRoute(
+                    new RedirectRoute("open"),
+                    context.Request.Source,
+                    context.Request.WindowId,
+                    context.Request.Metadata)
+                : context.Request);
+        var secondPolicy = new DelegateRequestPolicy(context => context.Request);
         var navigator = new RouterNavigator(
             TestRoutes.CreateTable(),
             new RecordingPlanner(),
@@ -59,14 +63,22 @@ public sealed class RedirectLoopProtectionTests
         var diagnostics = new NavigationDiagnostics();
         var events = new List<NavigationDiagnosticEvent>();
         diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
-        var firstPolicy = new DelegateRequestPolicy((context, request) =>
+        var firstPolicy = new DelegateRequestPolicy(context =>
             context.Route is RedirectRoute { Value: "a" }
-                ? RouterNavigationRequest.FromRoute(new RedirectRoute("b"), request.Source, request.WindowId, request.Metadata)
-                : request);
-        var secondPolicy = new DelegateRequestPolicy((context, request) =>
+                ? RouterNavigationRequest.FromRoute(
+                    new RedirectRoute("b"),
+                    context.Request.Source,
+                    context.Request.WindowId,
+                    context.Request.Metadata)
+                : context.Request);
+        var secondPolicy = new DelegateRequestPolicy(context =>
             context.Route is RedirectRoute { Value: "b" }
-                ? RouterNavigationRequest.FromRoute(new RedirectRoute("a"), request.Source, request.WindowId, request.Metadata)
-                : request);
+                ? RouterNavigationRequest.FromRoute(
+                    new RedirectRoute("a"),
+                    context.Request.Source,
+                    context.Request.WindowId,
+                    context.Request.Metadata)
+                : context.Request);
         var navigator = new RouterNavigator(
             TestRoutes.CreateTable(),
             new RecordingPlanner(),
@@ -104,10 +116,14 @@ public sealed class RedirectLoopProtectionTests
     [Fact]
     public async Task RedirectChainLongerThanMaxRedirectsThrows()
     {
-        var policy = new DelegateRequestPolicy((context, request) =>
+        var policy = new DelegateRequestPolicy(context =>
             context.Route is CountRoute countRoute
-                ? RouterNavigationRequest.FromRoute(new CountRoute(countRoute.Value + 1), request.Source, request.WindowId, request.Metadata)
-                : request);
+                ? RouterNavigationRequest.FromRoute(
+                    new CountRoute(countRoute.Value + 1),
+                    context.Request.Source,
+                    context.Request.WindowId,
+                    context.Request.Metadata)
+                : context.Request);
         var navigator = new RouterNavigator(
             TestRoutes.CreateTable(),
             new RecordingPlanner(),
@@ -132,8 +148,12 @@ public sealed class RedirectLoopProtectionTests
     [Fact]
     public async Task MaxRedirectsZeroRejectsFirstTargetChangingPolicyResult()
     {
-        var policy = new DelegateRequestPolicy((_, request) =>
-            RouterNavigationRequest.FromRoute(new RedirectRoute("blocked"), request.Source, request.WindowId, request.Metadata));
+        var policy = new DelegateRequestPolicy(context =>
+            RouterNavigationRequest.FromRoute(
+                new RedirectRoute("blocked"),
+                context.Request.Source,
+                context.Request.WindowId,
+                context.Request.Metadata));
         var navigator = new RouterNavigator(
             TestRoutes.CreateTable(),
             new RecordingPlanner(),
@@ -160,8 +180,9 @@ public sealed class RedirectLoopProtectionTests
         var events = new List<NavigationDiagnosticEventKind>();
         diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent.Kind);
         var planner = new RecordingPlanner();
-        var metadataPolicy = new DelegateRequestPolicy((_, request) =>
+        var metadataPolicy = new DelegateRequestPolicy(context =>
         {
+            RouterNavigationRequest request = context.Request;
             var metadata = new Dictionary<string, object?>(request.Metadata)
             {
                 ["normalized"] = true
@@ -173,7 +194,7 @@ public sealed class RedirectLoopProtectionTests
                 Timestamp = request.Timestamp.AddMinutes(5)
             };
         });
-        var nextPolicy = new DelegateRequestPolicy((_, request) => request);
+        var nextPolicy = new DelegateRequestPolicy(context => context.Request);
         var navigator = new RouterNavigator(
             TestRoutes.CreateTable(),
             planner,
@@ -199,10 +220,14 @@ public sealed class RedirectLoopProtectionTests
         var diagnostics = new NavigationDiagnostics();
         var events = new List<NavigationDiagnosticEventKind>();
         diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent.Kind);
-        var policy = new DelegateRequestPolicy((context, request) =>
+        var policy = new DelegateRequestPolicy(context =>
             context.Route is MissingRoute
-                ? RouterNavigationRequest.FromRoute(new TestRoutes.StoreRoute("northwind"), request.Source, request.WindowId, request.Metadata)
-                : request);
+                ? RouterNavigationRequest.FromRoute(
+                    new TestRoutes.StoreRoute("northwind"),
+                    context.Request.Source,
+                    context.Request.WindowId,
+                    context.Request.Metadata)
+                : context.Request);
         var navigator = new RouterNavigator(
             TestRoutes.CreateTable(),
             new RecordingPlanner(),
@@ -243,9 +268,9 @@ public sealed class RedirectLoopProtectionTests
 
     private sealed class DelegateRequestPolicy : INavigationRequestPolicy
     {
-        private readonly Func<NavigationRequestPolicyContext, RouterNavigationRequest, RouterNavigationRequest> _apply;
+        private readonly Func<NavigationRequestPolicyContext, RouterNavigationRequest> _apply;
 
-        public DelegateRequestPolicy(Func<NavigationRequestPolicyContext, RouterNavigationRequest, RouterNavigationRequest> apply)
+        public DelegateRequestPolicy(Func<NavigationRequestPolicyContext, RouterNavigationRequest> apply)
         {
             _apply = apply;
         }
@@ -254,11 +279,10 @@ public sealed class RedirectLoopProtectionTests
 
         public ValueTask<RouterNavigationRequest> ApplyAsync(
             NavigationRequestPolicyContext context,
-            RouterNavigationRequest request,
             CancellationToken cancellationToken = default)
         {
             CallCount++;
-            return ValueTask.FromResult(_apply(context, request));
+            return ValueTask.FromResult(_apply(context));
         }
     }
 

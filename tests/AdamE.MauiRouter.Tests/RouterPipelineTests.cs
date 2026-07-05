@@ -71,6 +71,49 @@ public sealed class RouterPipelineTests
     }
 
     [Fact]
+    public async Task RequestPolicyReceivesFullNavigationContext()
+    {
+        var policy = new ContextCapturingPolicy();
+        var initialState = TestNavigationState.State(
+            "main",
+            TestNavigationState.Window(
+                "main",
+                TestNavigationState.Stack(
+                    "catalog-stack",
+                    TestNavigationState.Entry("catalog", new TestRoutes.CatalogRoute("northwind")))));
+        var navigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            new RequestCapturingPlanner(),
+            NullNavigationPresenter.Instance,
+            new RouterNavigatorOptions
+            {
+                InitialState = initialState,
+                RequestPolicies =
+                [
+                    policy
+                ]
+            });
+        var request = RouterNavigationRequest.FromRoute(
+            new TestRoutes.StoreRoute("northwind"),
+            NavigationRequestSource.AppLink,
+            "secondary",
+            new Dictionary<string, object?> { ["origin"] = "policy-context" },
+            RouterNavigationDisposition.ReplaceCurrent);
+
+        await navigator.NavigateAsync(request);
+
+        var context = policy.LastContext;
+        Assert.NotNull(context);
+        Assert.Equal(request.Source, context!.Request.Source);
+        Assert.Equal(request.WindowId, context.Request.WindowId);
+        Assert.Equal(request.Disposition, context.Request.Disposition);
+        Assert.Equal("policy-context", context.Request.Metadata["origin"]);
+        Assert.Equal(new TestRoutes.StoreRoute("northwind"), context.Route);
+        Assert.Same(initialState, context.CurrentState);
+        Assert.False(string.IsNullOrWhiteSpace(context.OperationId));
+    }
+
+    [Fact]
     public async Task RedirectedRequestPreservesIncomingDispositionWhenPolicyDoesNotOverrideIt()
     {
         var planner = new DispositionCapturingPlanner();
@@ -457,9 +500,9 @@ public sealed class RouterPipelineTests
     {
         public ValueTask<RouterNavigationRequest> ApplyAsync(
             NavigationRequestPolicyContext context,
-            RouterNavigationRequest request,
             CancellationToken cancellationToken = default)
         {
+            RouterNavigationRequest request = context.Request;
             return request.Route is TestRoutes.StoreRoute storeRoute
                 ? ValueTask.FromResult(RouterNavigationRequest.FromRoute(
                     new TestRoutes.CatalogRoute(storeRoute.StoreId),
@@ -470,13 +513,26 @@ public sealed class RouterPipelineTests
         }
     }
 
+    private sealed class ContextCapturingPolicy : INavigationRequestPolicy
+    {
+        public NavigationRequestPolicyContext? LastContext { get; private set; }
+
+        public ValueTask<RouterNavigationRequest> ApplyAsync(
+            NavigationRequestPolicyContext context,
+            CancellationToken cancellationToken = default)
+        {
+            LastContext = context;
+            return ValueTask.FromResult(context.Request);
+        }
+    }
+
     private sealed class ProvenanceReplacingRedirectPolicy(NavigationRequestProvenance provenance) : INavigationRequestPolicy
     {
         public ValueTask<RouterNavigationRequest> ApplyAsync(
             NavigationRequestPolicyContext context,
-            RouterNavigationRequest request,
             CancellationToken cancellationToken = default)
         {
+            RouterNavigationRequest request = context.Request;
             return request.Route is TestRoutes.StoreRoute storeRoute
                 ? ValueTask.FromResult(RouterNavigationRequest.FromRoute(
                     new TestRoutes.CatalogRoute(storeRoute.StoreId),

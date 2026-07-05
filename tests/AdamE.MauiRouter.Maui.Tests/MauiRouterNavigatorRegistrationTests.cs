@@ -179,7 +179,6 @@ public sealed class MauiRouterNavigatorRegistrationTests
 
         public ValueTask<RouterNavigationRequest> ApplyAsync(
             NavigationRequestPolicyContext context,
-            RouterNavigationRequest request,
             CancellationToken cancellationToken = default)
         {
             ApplyCount++;
