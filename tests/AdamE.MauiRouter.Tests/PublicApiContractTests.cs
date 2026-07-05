@@ -33,8 +33,6 @@ public sealed class PublicApiContractTests
                 "AdamE.MauiRouter.History.NavigationHistoryEntry",
                 "AdamE.MauiRouter.Navigation.BackNavigationResult",
                 "AdamE.MauiRouter.Navigation.IRouterNavigator",
-                "AdamE.MauiRouter.Navigation.NavigationCommitKind",
-                "AdamE.MauiRouter.Navigation.NavigationCommittedEventArgs",
                 "AdamE.MauiRouter.Navigation.NavigationFallbackContext",
                 "AdamE.MauiRouter.Navigation.NavigationResult",
                 "AdamE.MauiRouter.Navigation.RouteRedirectLoopException",
@@ -181,10 +179,7 @@ public sealed class PublicApiContractTests
     public void RouterNavigatorInterfaceIncludesRuntimeNavigationSurface()
     {
         var methods = typeof(IRouterNavigator).GetMethods();
-        var navigationCommitted = Assert.Single(
-            typeof(IRouterNavigator).GetEvents(),
-            static eventInfo => eventInfo.Name == nameof(IRouterNavigator.NavigationCommitted));
-        Assert.Equal(typeof(EventHandler<NavigationCommittedEventArgs>), navigationCommitted.EventHandlerType);
+        Assert.Empty(typeof(IRouterNavigator).GetEvents());
 
         Assert.Contains(methods, static method =>
             method.Name == nameof(IRouterNavigator.ReconcileAsync) &&
@@ -233,7 +228,6 @@ public sealed class PublicApiContractTests
         Assert.Equal(56, (int)NavigationDiagnosticEventKind.AppLinkDispatched);
         Assert.Equal(57, (int)NavigationDiagnosticEventKind.AppLinkFailed);
         Assert.Equal(58, (int)NavigationDiagnosticEventKind.DiagnosticObserverFailed);
-        Assert.Equal(59, (int)NavigationDiagnosticEventKind.NavigationCommittedHandlerFailed);
         Assert.Equal(60, (int)NavigationDiagnosticEventKind.PresentationVerificationFailed);
     }
 

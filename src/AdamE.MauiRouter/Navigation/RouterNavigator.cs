@@ -26,14 +26,11 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
     private readonly ActivitySource _activitySource;
     private readonly SemaphoreSlim _operationLock = new(1, 1);
     private readonly object _reconciliationGate = new();
-    private readonly object _navigationCommittedGate = new();
-    private readonly Queue<NavigationCommittedEventArgs> _pendingNavigationCommittedEvents = new();
     private readonly int _maxRedirects;
     private readonly int _maxHistoryEntries;
     private readonly NavigationPersistenceOptions? _persistence;
     private readonly NavigationSnapshotSerializer? _snapshotSerializer;
     private Task _reconciliationQueue = Task.CompletedTask;
-    private bool _publishingNavigationCommitted;
     private bool _disposed;
 
     public RouterNavigator(
@@ -77,8 +74,6 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
     public NavigationState CurrentState { get; private set; }
 
     public NavigationHistory History { get; private set; }
-
-    public event EventHandler<NavigationCommittedEventArgs>? NavigationCommitted;
 
     public ValueTask<NavigationResult> NavigateAsync(
         Uri uri,
@@ -174,19 +169,14 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         ThrowIfDisposed();
 
         await _operationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-        NavigationOperationResult<NavigationResult> operation;
         try
         {
-            operation = await NavigateCoreAsync(request, cancellationToken).ConfigureAwait(false);
-            EnqueueNavigationCommitted(operation.Committed);
+            return await NavigateCoreAsync(request, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             _operationLock.Release();
         }
-
-        DrainNavigationCommitted();
-        return operation.Result;
     }
 
     public async ValueTask<BackNavigationResult> BackAsync(
@@ -196,19 +186,14 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         ThrowIfDisposed();
 
         await _operationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-        NavigationOperationResult<BackNavigationResult> operation;
         try
         {
-            operation = await BackCoreAsync(windowId, cancellationToken).ConfigureAwait(false);
-            EnqueueNavigationCommitted(operation.Committed);
+            return await BackCoreAsync(windowId, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             _operationLock.Release();
         }
-
-        DrainNavigationCommitted();
-        return operation.Result;
     }
 
     public async ValueTask<NavigationResult> ReconcileAsync(
@@ -219,23 +204,18 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         ThrowIfDisposed();
 
         await _operationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-        NavigationOperationResult<NavigationResult> operation;
         try
         {
             var request = RouterNavigationRequest.FromRoute(
                 reconciliation.Route ?? new ReconciledRoute(reconciliation.Source.ToString()),
                 NavigationRequestSource.NativeReconciliation);
 
-            operation = await ReconcileCoreAsync(request, reconciliation, cancellationToken).ConfigureAwait(false);
-            EnqueueNavigationCommitted(operation.Committed);
+            return await ReconcileCoreAsync(request, reconciliation, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             _operationLock.Release();
         }
-
-        DrainNavigationCommitted();
-        return operation.Result;
     }
 
     public async ValueTask<NavigationRestoreResult> RestoreAsync(
@@ -247,20 +227,15 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         ThrowIfDisposed();
 
         await _operationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-        NavigationOperationResult<NavigationRestoreResult> operation;
         try
         {
-            operation = await RestoreCoreAsync(snapshot, options ?? new NavigationRestoreOptions(), cancellationToken)
+            return await RestoreCoreAsync(snapshot, options ?? new NavigationRestoreOptions(), cancellationToken)
                 .ConfigureAwait(false);
-            EnqueueNavigationCommitted(operation.Committed);
         }
         finally
         {
             _operationLock.Release();
         }
-
-        DrainNavigationCommitted();
-        return operation.Result;
     }
 
     public async ValueTask<NavigationRestoreResult> RestoreFromStoreAsync(
@@ -270,20 +245,15 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         ThrowIfDisposed();
 
         await _operationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-        NavigationOperationResult<NavigationRestoreResult> operation;
         try
         {
-            operation = await RestoreFromStoreCoreAsync(options ?? new NavigationRestoreOptions(), cancellationToken)
+            return await RestoreFromStoreCoreAsync(options ?? new NavigationRestoreOptions(), cancellationToken)
                 .ConfigureAwait(false);
-            EnqueueNavigationCommitted(operation.Committed);
         }
         finally
         {
             _operationLock.Release();
         }
-
-        DrainNavigationCommitted();
-        return operation.Result;
     }
 
     internal Task WhenReconciliationIdleAsync()
@@ -306,7 +276,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         _disposed = true;
     }
 
-    private async ValueTask<NavigationOperationResult<NavigationResult>> NavigateCoreAsync(
+    private async ValueTask<NavigationResult> NavigateCoreAsync(
         RouterNavigationRequest request,
         CancellationToken cancellationToken)
     {
@@ -428,7 +398,6 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                 throw;
             }
 
-            var previousState = CurrentState;
             CurrentState = plan.TargetState;
             History = History.Push(
                 CreateHistoryEntry(operationId, finalizedRequest, finalRoute, CurrentState, plan.Reason),
@@ -436,19 +405,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
             await SaveSnapshotIfConfiguredAsync(operationId, cancellationToken).ConfigureAwait(false);
             activity?.SetStatus(ActivityStatusCode.Ok);
 
-            var result = new NavigationResult(finalRoute, plan, CurrentState, Presented: true);
-            return new NavigationOperationResult<NavigationResult>(
-                result,
-                CreateNavigationCommittedEventArgs(
-                    operationId,
-                    NavigationCommitKind.Navigate,
-                    finalizedRequest,
-                    finalRoute,
-                    plan,
-                    previousState,
-                    CurrentState,
-                    History,
-                    presented: true));
+            return new NavigationResult(finalRoute, plan, CurrentState, Presented: true);
         }
         catch (Exception ex)
         {
@@ -622,7 +579,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         }
     }
 
-    private async ValueTask<NavigationOperationResult<BackNavigationResult>> BackCoreAsync(
+    private async ValueTask<BackNavigationResult> BackCoreAsync(
         string? windowId,
         CancellationToken cancellationToken)
     {
@@ -651,9 +608,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                     "No host accepted back navigation.",
                     Duration(timer, (NavigationDiagnosticDataKeys.WindowId, diagnosticWindowId)));
                 activity?.SetStatus(ActivityStatusCode.Ok);
-                return new NavigationOperationResult<BackNavigationResult>(
-                    BackNavigationResult.Unhandled,
-                    Committed: null);
+                return BackNavigationResult.Unhandled;
             }
 
             var resolvedWindowId = backContext.ResolvedWindowId ?? backContext.RequestedWindowId;
@@ -690,7 +645,6 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                 throw;
             }
 
-            var previousState = CurrentState;
             CurrentState = plan.TargetState;
             History = History.Push(CreateHistoryEntry(operationId, request, route, CurrentState, plan.Reason), _maxHistoryEntries);
             await SaveSnapshotIfConfiguredAsync(operationId, cancellationToken).ConfigureAwait(false);
@@ -701,19 +655,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                 plan.Reason ?? "Back handled.",
                 Duration(timer, (NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
             activity?.SetStatus(ActivityStatusCode.Ok);
-            var result = BackNavigationResult.HandledBy(new NavigationResult(route, plan, CurrentState, Presented: true));
-            return new NavigationOperationResult<BackNavigationResult>(
-                result,
-                CreateNavigationCommittedEventArgs(
-                    operationId,
-                    NavigationCommitKind.Back,
-                    request,
-                    route,
-                    plan,
-                    previousState,
-                    CurrentState,
-                    History,
-                    presented: true));
+            return BackNavigationResult.HandledBy(new NavigationResult(route, plan, CurrentState, Presented: true));
         }
         catch (Exception ex)
         {
@@ -723,7 +665,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         }
     }
 
-    private async ValueTask<NavigationOperationResult<NavigationResult>> ReconcileCoreAsync(
+    private async ValueTask<NavigationResult> ReconcileCoreAsync(
         RouterNavigationRequest request,
         NavigationReconciliation reconciliation,
         CancellationToken cancellationToken)
@@ -809,7 +751,6 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                 throw;
             }
 
-            var previousState = CurrentState;
             CurrentState = plan.TargetState;
             History = History.Push(
                 CreateHistoryEntry(operationId, finalizedRequest, finalRoute, CurrentState, plan.Reason),
@@ -822,19 +763,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                 reconciliation.Source.ToString(),
                 Duration(timer, (NavigationDiagnosticDataKeys.ReconciliationSource, reconciliation.Source.ToString())));
             activity?.SetStatus(ActivityStatusCode.Ok);
-            var result = new NavigationResult(finalRoute, plan, CurrentState, Presented: false);
-            return new NavigationOperationResult<NavigationResult>(
-                result,
-                CreateNavigationCommittedEventArgs(
-                    operationId,
-                    NavigationCommitKind.Reconcile,
-                    finalizedRequest,
-                    finalRoute,
-                    plan,
-                    previousState,
-                    CurrentState,
-                    History,
-                    presented: false));
+            return new NavigationResult(finalRoute, plan, CurrentState, Presented: false);
         }
         catch (Exception ex)
         {
@@ -844,7 +773,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         }
     }
 
-    private async ValueTask<NavigationOperationResult<NavigationRestoreResult>> RestoreFromStoreCoreAsync(
+    private async ValueTask<NavigationRestoreResult> RestoreFromStoreCoreAsync(
         NavigationRestoreOptions options,
         CancellationToken cancellationToken)
     {
@@ -856,7 +785,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
             var result = NavigationRestoreResult.Rejected("No navigation state store is configured.");
             WriteRestoreRejected(operationId, result);
             activity?.SetTag("navigation.restore_outcome", "rejected");
-            return new NavigationOperationResult<NavigationRestoreResult>(result, Committed: null);
+            return result;
         }
 
         var loadTimer = Stopwatch.StartNew();
@@ -886,9 +815,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                 loadTimer,
                 (NavigationDiagnosticDataKeys.SnapshotStoreType, store.GetType().FullName));
             activity?.SetTag("navigation.restore_outcome", "rejected");
-            return new NavigationOperationResult<NavigationRestoreResult>(
-                NavigationRestoreResult.Rejected($"Navigation snapshot load failed: {ex.Message}"),
-                Committed: null);
+            return NavigationRestoreResult.Rejected($"Navigation snapshot load failed: {ex.Message}");
         }
 
         if (snapshot is null)
@@ -896,13 +823,13 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
             var result = NavigationRestoreResult.Rejected("No navigation snapshot was available.");
             WriteRestoreRejected(operationId, result);
             activity?.SetTag("navigation.restore_outcome", "rejected");
-            return new NavigationOperationResult<NavigationRestoreResult>(result, Committed: null);
+            return result;
         }
 
         return await RestoreSnapshotCoreAsync(snapshot, options, operationId, cancellationToken).ConfigureAwait(false);
     }
 
-    private async ValueTask<NavigationOperationResult<NavigationRestoreResult>> RestoreCoreAsync(
+    private async ValueTask<NavigationRestoreResult> RestoreCoreAsync(
         NavigationSnapshot snapshot,
         NavigationRestoreOptions options,
         CancellationToken cancellationToken)
@@ -912,7 +839,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         return await RestoreSnapshotCoreAsync(snapshot, options, operationId, cancellationToken).ConfigureAwait(false);
     }
 
-    private async ValueTask<NavigationOperationResult<NavigationRestoreResult>> RestoreSnapshotCoreAsync(
+    private async ValueTask<NavigationRestoreResult> RestoreSnapshotCoreAsync(
         NavigationSnapshot snapshot,
         NavigationRestoreOptions options,
         string operationId,
@@ -934,7 +861,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
             {
                 WriteRestoreRejected(operationId, restored, timer);
                 Activity.Current?.SetTag("navigation.restore_outcome", "rejected");
-                return new NavigationOperationResult<NavigationRestoreResult>(restored, Committed: null);
+                return restored;
             }
 
             foreach (var policy in _persistence?.RestorePolicies ?? Array.Empty<INavigationRestorePolicy>())
@@ -948,7 +875,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                     var rejected = NavigationRestoreResult.Rejected(decision.Reason ?? "Navigation restore was rejected by policy.");
                     WriteRestoreRejected(operationId, rejected, timer);
                     Activity.Current?.SetTag("navigation.restore_outcome", "rejected");
-                    return new NavigationOperationResult<NavigationRestoreResult>(rejected, Committed: null);
+                    return rejected;
                 }
             }
 
@@ -1027,7 +954,6 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                 throw;
             }
 
-            var previousState = CurrentState;
             CurrentState = plan.TargetState;
             History = NormalizeRestoredHistory(restored.History, CurrentState, finalRoute);
 
@@ -1043,23 +969,11 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                 SnapshotData(snapshot, _persistence?.Store, timer));
             Activity.Current?.SetTag("navigation.restore_outcome", "accepted");
             Activity.Current?.SetStatus(ActivityStatusCode.Ok);
-            var result = NavigationRestoreResult.AcceptedResult(
+            return NavigationRestoreResult.AcceptedResult(
                 CurrentState,
                 History,
                 presented: true,
                 restored.Diagnostics);
-            return new NavigationOperationResult<NavigationRestoreResult>(
-                result,
-                CreateNavigationCommittedEventArgs(
-                    operationId,
-                    NavigationCommitKind.Restore,
-                    finalizedRequest,
-                    finalRoute,
-                    plan,
-                    previousState,
-                    CurrentState,
-                    History,
-                    presented: true));
         }
         catch (Exception ex)
         {
@@ -1298,128 +1212,6 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
             state,
             reason,
             DateTimeOffset.UtcNow);
-    }
-
-    private static NavigationCommittedEventArgs CreateNavigationCommittedEventArgs(
-        string operationId,
-        NavigationCommitKind kind,
-        RouterNavigationRequest request,
-        AppRoute route,
-        NavigationPlan plan,
-        NavigationState previousState,
-        NavigationState currentState,
-        NavigationHistory currentHistory,
-        bool presented)
-    {
-        return new NavigationCommittedEventArgs(
-            operationId,
-            kind,
-            request,
-            route,
-            plan,
-            previousState,
-            currentState,
-            currentHistory,
-            presented);
-    }
-
-    private void EnqueueNavigationCommitted(NavigationCommittedEventArgs? eventArgs)
-    {
-        if (eventArgs is null)
-        {
-            return;
-        }
-
-        lock (_navigationCommittedGate)
-        {
-            _pendingNavigationCommittedEvents.Enqueue(eventArgs);
-        }
-    }
-
-    private void DrainNavigationCommitted()
-    {
-        lock (_navigationCommittedGate)
-        {
-            if (_publishingNavigationCommitted)
-            {
-                return;
-            }
-
-            if (_pendingNavigationCommittedEvents.Count == 0)
-            {
-                return;
-            }
-
-            _publishingNavigationCommitted = true;
-        }
-
-        while (true)
-        {
-            NavigationCommittedEventArgs nextEventArgs;
-            lock (_navigationCommittedGate)
-            {
-                if (_pendingNavigationCommittedEvents.Count == 0)
-                {
-                    _publishingNavigationCommitted = false;
-                    return;
-                }
-
-                nextEventArgs = _pendingNavigationCommittedEvents.Dequeue();
-            }
-
-            PublishNavigationCommittedNow(nextEventArgs);
-        }
-    }
-
-    private void PublishNavigationCommittedNow(NavigationCommittedEventArgs eventArgs)
-    {
-        var handlers = NavigationCommitted;
-        if (handlers is null)
-        {
-            return;
-        }
-
-        foreach (Delegate handler in handlers.GetInvocationList())
-        {
-            if (handler is not EventHandler<NavigationCommittedEventArgs> eventHandler)
-            {
-                continue;
-            }
-
-            try
-            {
-                eventHandler(this, eventArgs);
-            }
-            catch (Exception ex)
-            {
-                try
-                {
-                    WriteNavigationCommittedHandlerFailure(eventArgs, ex);
-                }
-                catch
-                {
-                    // Subscriber failures must never become navigation control flow.
-                }
-            }
-        }
-    }
-
-    private void WriteNavigationCommittedHandlerFailure(
-        NavigationCommittedEventArgs eventArgs,
-        Exception exception)
-    {
-        _diagnostics.Write(
-            NavigationDiagnosticEventKind.NavigationCommittedHandlerFailed,
-            eventArgs.OperationId,
-            "A navigation committed event handler failed.",
-            Data(
-                (NavigationDiagnosticDataKeys.OriginalKind, nameof(NavigationCommitted)),
-                (NavigationDiagnosticDataKeys.ExceptionType, exception.GetType().FullName),
-                (NavigationDiagnosticDataKeys.ExceptionMessage, exception.Message),
-                (NavigationDiagnosticDataKeys.PlanKind, eventArgs.Plan.Kind.ToString()),
-                (NavigationDiagnosticDataKeys.RouteType, eventArgs.Route.GetType().FullName)),
-            LogLevel.Error,
-            NavigationDiagnosticPhase.Navigation);
     }
 
     private void WriteFailure(
@@ -1747,10 +1539,6 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
     private sealed record BackRoute : AppRoute;
 
     private sealed record RestoredRoute : AppRoute;
-
-    private readonly record struct NavigationOperationResult<T>(
-        T Result,
-        NavigationCommittedEventArgs? Committed);
 
     private sealed record ResolvedRoute(
         AppRoute Route,

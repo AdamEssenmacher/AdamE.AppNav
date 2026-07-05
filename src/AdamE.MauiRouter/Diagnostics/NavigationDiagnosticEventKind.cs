@@ -303,10 +303,5 @@ public enum NavigationDiagnosticEventKind
     /// <summary>
     /// A diagnostic observer or event handler threw while handling another diagnostic event.
     /// </summary>
-    DiagnosticObserverFailed,
-
-    /// <summary>
-    /// A navigation committed event handler threw while handling a committed navigation event.
-    /// </summary>
-    NavigationCommittedHandlerFailed
+    DiagnosticObserverFailed
 }
