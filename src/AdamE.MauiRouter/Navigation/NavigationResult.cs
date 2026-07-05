@@ -1,5 +1,6 @@
 using AdamE.MauiRouter.Plans;
 using AdamE.MauiRouter.State;
+using JetBrains.Annotations;
 
 namespace AdamE.MauiRouter.Navigation;
 
@@ -19,7 +20,7 @@ namespace AdamE.MauiRouter.Navigation;
 /// set to <see langword="false"/>.
 /// </remarks>
 public sealed record NavigationResult(
-    AppRoute Route,
+    [UsedImplicitly] AppRoute Route,
     NavigationPlan Plan,
     NavigationState State,
     bool Presented);

@@ -1,6 +1,7 @@
 using AdamE.MauiRouter.Requests;
 using AdamE.MauiRouter.Routing;
 using AdamE.MauiRouter.State;
+using JetBrains.Annotations;
 
 namespace AdamE.MauiRouter.Navigation;
 
@@ -16,7 +17,7 @@ namespace AdamE.MauiRouter.Navigation;
 /// A fallback route selected from this context continues through the normal router pipeline.
 /// </remarks>
 public sealed record NavigationFallbackContext(
-    RouterNavigationRequest Request,
+    [UsedImplicitly] RouterNavigationRequest Request,
     IReadOnlyList<RouteDiagnostic> Diagnostics,
     NavigationState CurrentState,
     string OperationId);

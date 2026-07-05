@@ -7,9 +7,7 @@ internal static class PresentedRouteResolver
     public static AppRoute? FindPresentedRoute(WindowNode? window)
     {
         if (window is null)
-        {
             return null;
-        }
 
         // Modals are presented above the root navigation surface. The most recent modal is the
         // visible route unless it hosts nested navigation content with its own visible route.

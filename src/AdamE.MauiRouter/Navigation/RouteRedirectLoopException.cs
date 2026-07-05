@@ -24,15 +24,18 @@ public sealed class RouteRedirectLoopException(
     /// <summary>
     /// Gets the navigation request that started redirect evaluation.
     /// </summary>
-    [UsedImplicitly] public RouterNavigationRequest InitialRequest { get; } = initialRequest;
+    [UsedImplicitly]
+    public RouterNavigationRequest InitialRequest { get; } = initialRequest;
 
     /// <summary>
     /// Gets the redirect target that caused loop detection or exceeded the redirect limit.
     /// </summary>
-    [UsedImplicitly] public RouterNavigationRequest LastRequest { get; } = lastRequest;
+    [UsedImplicitly]
+    public RouterNavigationRequest LastRequest { get; } = lastRequest;
 
     /// <summary>
     /// Gets the redirect targets followed after the initial request.
     /// </summary>
-    [UsedImplicitly] public IReadOnlyList<RouterNavigationRequest> Redirects { get; } = redirects.ToArray();
+    [UsedImplicitly]
+    public IReadOnlyList<RouterNavigationRequest> Redirects { get; } = redirects.ToArray();
 }
