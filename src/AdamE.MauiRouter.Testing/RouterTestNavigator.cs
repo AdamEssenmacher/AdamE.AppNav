@@ -18,8 +18,6 @@ public sealed class RouterTestNavigatorOptions
 
     public IReadOnlyList<INavigationRequestPolicy> RequestPolicies { get; set; } = Array.Empty<INavigationRequestPolicy>();
 
-    public IReadOnlyList<INavigationPlanPolicy> PlanPolicies { get; set; } = Array.Empty<INavigationPlanPolicy>();
-
     public Func<NavigationFallbackContext, AppRoute?>? FallbackRouteFactory { get; set; }
 
     public NavigationDiagnostics? Diagnostics { get; set; }
@@ -51,7 +49,6 @@ public static class RouterTestNavigator
                 InitialState = options.InitialState,
                 InitialHistory = options.InitialHistory,
                 RequestPolicies = options.RequestPolicies,
-                PlanPolicies = options.PlanPolicies,
                 FallbackRouteFactory = options.FallbackRouteFactory,
                 Diagnostics = options.Diagnostics,
                 BackNavigator = options.BackNavigator,

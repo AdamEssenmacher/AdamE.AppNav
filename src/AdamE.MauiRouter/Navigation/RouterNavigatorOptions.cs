@@ -15,8 +15,6 @@ internal sealed class RouterNavigatorOptions
 
     public IReadOnlyList<INavigationRequestPolicy> RequestPolicies { get; set; } = Array.Empty<INavigationRequestPolicy>();
 
-    public IReadOnlyList<INavigationPlanPolicy> PlanPolicies { get; set; } = Array.Empty<INavigationPlanPolicy>();
-
     public Func<NavigationFallbackContext, AppRoute?>? FallbackRouteFactory { get; set; }
 
     public NavigationDiagnostics? Diagnostics { get; set; }

@@ -109,8 +109,7 @@ public static class MauiRouterServiceCollectionExtensions
                 Diagnostics = provider.GetRequiredService<NavigationDiagnostics>(),
                 BackNavigator = provider.GetRequiredService<IBackNavigator>(),
                 LoggerFactory = provider.GetService<ILoggerFactory>(),
-                RequestPolicies = provider.GetServices<INavigationRequestPolicy>().ToArray(),
-                PlanPolicies = provider.GetServices<INavigationPlanPolicy>().ToArray()
+                RequestPolicies = provider.GetServices<INavigationRequestPolicy>().ToArray()
             };
 
             return new CoreRouterNavigator(

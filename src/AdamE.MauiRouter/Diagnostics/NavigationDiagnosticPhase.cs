@@ -26,11 +26,6 @@ public enum NavigationDiagnosticPhase
     Planning,
 
     /// <summary>
-    /// Policy evaluation against a planned navigation state before presentation.
-    /// </summary>
-    PlanPolicy,
-
-    /// <summary>
     /// Presentation of a navigation plan by an adapter or host integration.
     /// </summary>
     Presentation,

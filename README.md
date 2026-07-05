@@ -1345,33 +1345,6 @@ Use request policies for:
 - Feature flags.
 - Source-specific request behavior.
 
-#### Plan Policies
-
-`INavigationPlanPolicy` can adjust a plan after app planning.
-
-```csharp
-public sealed class AddDiagnosticsReasonPolicy : INavigationPlanPolicy
-{
-    public ValueTask<NavigationPlan> ApplyAsync(
-        NavigationPlanPolicyContext context,
-        NavigationPlan plan,
-        CancellationToken cancellationToken = default)
-    {
-        return ValueTask.FromResult(plan with
-        {
-            Reason = plan.Reason ?? $"Planned {context.Route.GetType().Name}"
-        });
-    }
-}
-```
-
-Use plan policies for:
-
-- Modal enforcement.
-- Window selection.
-- Transition metadata.
-- App-wide state adjustments.
-
 ### History
 
 The navigator records logical history entries after navigation, back navigation, and native reconciliation.
@@ -1527,9 +1500,6 @@ RequestPolicyFailed
 PlanningStarted
 PlanningCompleted
 PlanningFailed
-PlanPolicyStarted
-PlanPolicyCompleted
-PlanPolicyFailed
 PresentationStarted
 PresentationPageCreated
 PresentationPageReleased

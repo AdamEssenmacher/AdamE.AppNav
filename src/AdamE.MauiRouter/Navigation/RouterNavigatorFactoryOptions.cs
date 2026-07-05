@@ -33,11 +33,6 @@ public sealed class RouterNavigatorFactoryOptions
         Array.Empty<INavigationRequestPolicy>();
 
     /// <summary>
-    /// Gets the plan policies applied after route planning and before presentation.
-    /// </summary>
-    public IReadOnlyList<INavigationPlanPolicy> PlanPolicies { get; init; } = Array.Empty<INavigationPlanPolicy>();
-
-    /// <summary>
     /// Gets the factory used to select a fallback route when URI route matching reports an unmatched route.
     /// </summary>
     public Func<NavigationFallbackContext, AppRoute?>? FallbackRouteFactory { get; init; }

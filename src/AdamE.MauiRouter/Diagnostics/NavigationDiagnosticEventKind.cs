@@ -71,24 +71,9 @@ public enum NavigationDiagnosticEventKind
     PlanningFailed,
 
     /// <summary>
-    /// Plan policy evaluation has started.
-    /// </summary>
-    PlanPolicyStarted,
-
-    /// <summary>
-    /// Plan policy evaluation completed without failure.
-    /// </summary>
-    PlanPolicyCompleted,
-
-    /// <summary>
-    /// Plan policy evaluation failed.
-    /// </summary>
-    PlanPolicyFailed,
-
-    /// <summary>
     /// Presentation of a navigation plan has started.
     /// </summary>
-    PresentationStarted,
+    PresentationStarted = 16,
 
     /// <summary>
     /// A presentation adapter created a page or host object.

@@ -58,14 +58,12 @@ public sealed class MauiRouterNavigatorRegistrationTests
     }
 
     [Fact]
-    public async Task AddMauiRouterDiscoversPoliciesAndBackNavigatorFromDi()
+    public async Task AddMauiRouterDiscoversRequestPoliciesAndBackNavigatorFromDi()
     {
         var services = new ServiceCollection();
         var requestPolicy = new RecordingRequestPolicy();
-        var planPolicy = new RecordingPlanPolicy();
         var backNavigator = new RecordingBackNavigator();
         services.AddSingleton<INavigationRequestPolicy>(requestPolicy);
-        services.AddSingleton<INavigationPlanPolicy>(planPolicy);
         services.AddSingleton<IBackNavigator>(backNavigator);
 
         services.AddMauiRouter<RecordingPlanner>(
@@ -79,9 +77,8 @@ public sealed class MauiRouterNavigatorRegistrationTests
             navigator.NavigateAsync(new TestRoute("registered"), NavigationRequestSource.Test).AsTask());
         await navigator.BackAsync();
 
-        Assert.Equal(RecordingPlanPolicy.ExceptionMessage, exception.Message);
+        Assert.Equal(RecordingRequestPolicy.ExceptionMessage, exception.Message);
         Assert.Equal(1, requestPolicy.ApplyCount);
-        Assert.Equal(1, planPolicy.ApplyCount);
         Assert.Equal(1, backNavigator.CreateCount);
     }
 
@@ -176,27 +173,13 @@ public sealed class MauiRouterNavigatorRegistrationTests
 
     private sealed class RecordingRequestPolicy : INavigationRequestPolicy
     {
+        public const string ExceptionMessage = "Request policy invoked.";
+
         public int ApplyCount { get; private set; }
 
         public ValueTask<RouterNavigationRequest> ApplyAsync(
             NavigationRequestPolicyContext context,
             RouterNavigationRequest request,
-            CancellationToken cancellationToken = default)
-        {
-            ApplyCount++;
-            return ValueTask.FromResult(request);
-        }
-    }
-
-    private sealed class RecordingPlanPolicy : INavigationPlanPolicy
-    {
-        public const string ExceptionMessage = "Plan policy invoked.";
-
-        public int ApplyCount { get; private set; }
-
-        public ValueTask<NavigationPlan> ApplyAsync(
-            NavigationPlanPolicyContext context,
-            NavigationPlan plan,
             CancellationToken cancellationToken = default)
         {
             ApplyCount++;

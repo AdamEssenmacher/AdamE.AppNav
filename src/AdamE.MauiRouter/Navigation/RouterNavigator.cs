@@ -19,7 +19,6 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
     private readonly INavigationPresenter _presenter;
     private readonly IBackNavigator _backNavigator;
     private readonly IReadOnlyList<INavigationRequestPolicy> _requestPolicies;
-    private readonly IReadOnlyList<INavigationPlanPolicy> _planPolicies;
     private readonly Func<NavigationFallbackContext, AppRoute?>? _fallbackRouteFactory;
     private readonly NavigationDiagnostics _diagnostics;
     private readonly ActivitySource _activitySource;
@@ -54,7 +53,6 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         CurrentState = options.InitialState ?? NavigationState.Empty;
         History = options.InitialHistory ?? NavigationHistory.Empty;
         _requestPolicies = options.RequestPolicies.ToArray();
-        _planPolicies = options.PlanPolicies.ToArray();
         _fallbackRouteFactory = options.FallbackRouteFactory;
         var logger = options.Logger ?? options.LoggerFactory?.CreateLogger<RouterNavigator>();
         _diagnostics = options.Diagnostics ?? new NavigationDiagnostics(logger);
@@ -286,41 +284,6 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                     planningTimer,
                     (NavigationDiagnosticDataKeys.RouteType, route.GetType().FullName));
                 throw;
-            }
-
-            foreach (var policy in _planPolicies)
-            {
-                var policyName = policy.GetType().Name;
-                var timer = Stopwatch.StartNew();
-                _diagnostics.Write(
-                    NavigationDiagnosticEventKind.PlanPolicyStarted,
-                    operationId,
-                    policyName,
-                    Data((NavigationDiagnosticDataKeys.PolicyType, policy.GetType().FullName)));
-
-                try
-                {
-                    plan = await policy.ApplyAsync(
-                        new NavigationPlanPolicyContext(effectiveRequest, route, CurrentState, operationId),
-                        plan,
-                        cancellationToken).ConfigureAwait(false);
-                    _diagnostics.Write(
-                        NavigationDiagnosticEventKind.PlanPolicyCompleted,
-                        operationId,
-                        policyName,
-                        Duration(timer, (NavigationDiagnosticDataKeys.PolicyType, policy.GetType().FullName)));
-                }
-                catch (Exception ex)
-                {
-                    WriteFailure(
-                        NavigationDiagnosticEventKind.PlanPolicyFailed,
-                        operationId,
-                        policyName,
-                        ex,
-                        timer,
-                        (NavigationDiagnosticDataKeys.PolicyType, policy.GetType().FullName));
-                    throw;
-                }
             }
 
             var finalRoute = ResolvePresentedRoute(plan.TargetState, effectiveRequest.WindowId, route);
@@ -639,41 +602,6 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
 
         try
         {
-            foreach (var policy in _planPolicies)
-            {
-                var policyName = policy.GetType().Name;
-                var policyTimer = Stopwatch.StartNew();
-                _diagnostics.Write(
-                    NavigationDiagnosticEventKind.PlanPolicyStarted,
-                    operationId,
-                    policyName,
-                    Data((NavigationDiagnosticDataKeys.PolicyType, policy.GetType().FullName)));
-
-                try
-                {
-                    plan = await policy.ApplyAsync(
-                        new NavigationPlanPolicyContext(request, route, CurrentState, operationId),
-                        plan,
-                        cancellationToken).ConfigureAwait(false);
-                    _diagnostics.Write(
-                        NavigationDiagnosticEventKind.PlanPolicyCompleted,
-                        operationId,
-                        policyName,
-                        Duration(policyTimer, (NavigationDiagnosticDataKeys.PolicyType, policy.GetType().FullName)));
-                }
-                catch (Exception ex)
-                {
-                    WriteFailure(
-                        NavigationDiagnosticEventKind.PlanPolicyFailed,
-                        operationId,
-                        policyName,
-                        ex,
-                        policyTimer,
-                        (NavigationDiagnosticDataKeys.PolicyType, policy.GetType().FullName));
-                    throw;
-                }
-            }
-
             var finalRoute = ResolvePresentedRoute(plan.TargetState, request.WindowId, route);
             var finalizedRequest = request with { Route = finalRoute };
             var presentationTimer = Stopwatch.StartNew();

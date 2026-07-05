@@ -319,10 +319,6 @@ public sealed class NavigationDiagnostics
                 NavigationDiagnosticEventKind.PlanningCompleted or
                 NavigationDiagnosticEventKind.PlanningFailed =>
                 NavigationDiagnosticPhase.Planning,
-            NavigationDiagnosticEventKind.PlanPolicyStarted or
-                NavigationDiagnosticEventKind.PlanPolicyCompleted or
-                NavigationDiagnosticEventKind.PlanPolicyFailed =>
-                NavigationDiagnosticPhase.PlanPolicy,
             NavigationDiagnosticEventKind.PresentationStarted or
                 NavigationDiagnosticEventKind.PresentationPageCreated or
                 NavigationDiagnosticEventKind.PresentationPageReleased or
