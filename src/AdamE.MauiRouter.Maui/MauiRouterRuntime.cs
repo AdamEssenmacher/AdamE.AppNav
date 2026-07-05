@@ -1,6 +1,5 @@
 using AdamE.MauiRouter.History;
 using AdamE.MauiRouter.Navigation;
-using AdamE.MauiRouter.Persistence;
 using AdamE.MauiRouter.Presentation;
 using AdamE.MauiRouter.Requests;
 using AdamE.MauiRouter.State;
@@ -121,21 +120,6 @@ internal sealed class MauiRouterRuntime(
         CancellationToken cancellationToken = default)
     {
         return navigator.ReconcileAsync(reconciliation, cancellationToken);
-    }
-
-    public ValueTask<NavigationRestoreResult> RestoreAsync(
-        NavigationSnapshot snapshot,
-        NavigationRestoreOptions? options = null,
-        CancellationToken cancellationToken = default)
-    {
-        return navigator.RestoreAsync(snapshot, options, cancellationToken);
-    }
-
-    public ValueTask<NavigationRestoreResult> RestoreFromStoreAsync(
-        NavigationRestoreOptions? options = null,
-        CancellationToken cancellationToken = default)
-    {
-        return navigator.RestoreFromStoreAsync(options, cancellationToken);
     }
 
     public void AttachWindow(Window window, string windowId)

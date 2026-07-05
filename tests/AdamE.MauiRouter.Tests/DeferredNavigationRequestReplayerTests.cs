@@ -1,6 +1,5 @@
 using AdamE.MauiRouter.History;
 using AdamE.MauiRouter.Navigation;
-using AdamE.MauiRouter.Persistence;
 using AdamE.MauiRouter.Plans;
 using AdamE.MauiRouter.Presentation;
 using AdamE.MauiRouter.Requests;
@@ -188,7 +187,5 @@ public sealed class DeferredNavigationRequestReplayerTests
 
         public ValueTask<BackNavigationResult> BackAsync(string? windowId = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<NavigationResult> ReconcileAsync(NavigationReconciliation reconciliation, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public ValueTask<NavigationRestoreResult> RestoreAsync(NavigationSnapshot snapshot, NavigationRestoreOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public ValueTask<NavigationRestoreResult> RestoreFromStoreAsync(NavigationRestoreOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 }

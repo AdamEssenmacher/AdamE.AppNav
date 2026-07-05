@@ -289,16 +289,14 @@ public sealed class NavigationDiagnostics
             ? LogLevel.Error
             : kind is NavigationDiagnosticEventKind.RouteNotMatched or NavigationDiagnosticEventKind.BackUnhandled
                 ? LogLevel.Warning
-                : kind is NavigationDiagnosticEventKind.RestoreRejected
-                    ? LogLevel.Warning
-                    : kind is NavigationDiagnosticEventKind.PresentationPageCreated or
-                        NavigationDiagnosticEventKind.PresentationPageReleased or
-                        NavigationDiagnosticEventKind.PresentationHandlerAttached or
-                        NavigationDiagnosticEventKind.PresentationHandlerDetached
-                        ? LogLevel.Debug
-                        : kind.ToString().EndsWith("Started", StringComparison.Ordinal)
-                            ? LogLevel.Debug
-                            : LogLevel.Information;
+            : kind is NavigationDiagnosticEventKind.PresentationPageCreated or
+                NavigationDiagnosticEventKind.PresentationPageReleased or
+                NavigationDiagnosticEventKind.PresentationHandlerAttached or
+                NavigationDiagnosticEventKind.PresentationHandlerDetached
+                ? LogLevel.Debug
+                : kind.ToString().EndsWith("Started", StringComparison.Ordinal)
+                    ? LogLevel.Debug
+                    : LogLevel.Information;
     }
 
     private static NavigationDiagnosticPhase InferPhase(NavigationDiagnosticEventKind kind)
@@ -339,20 +337,9 @@ public sealed class NavigationDiagnostics
                 NavigationDiagnosticEventKind.PresentationCompleted or
                 NavigationDiagnosticEventKind.PresentationFailed =>
                 NavigationDiagnosticPhase.Presentation,
-            NavigationDiagnosticEventKind.SnapshotSaveStarted or
-                NavigationDiagnosticEventKind.SnapshotSaved or
-                NavigationDiagnosticEventKind.SnapshotSaveFailed or
-                NavigationDiagnosticEventKind.SnapshotLoadStarted or
-                NavigationDiagnosticEventKind.SnapshotLoaded or
-                NavigationDiagnosticEventKind.SnapshotLoadFailed or
-                NavigationDiagnosticEventKind.RestoreStarted or
-                NavigationDiagnosticEventKind.RestoreCompleted or
-                NavigationDiagnosticEventKind.RestoreRejected or
-                NavigationDiagnosticEventKind.RestoreFailed =>
-                NavigationDiagnosticPhase.Persistence,
             NavigationDiagnosticEventKind.StartupStarted or
                 NavigationDiagnosticEventKind.StartupAppLinkPending or
-                NavigationDiagnosticEventKind.StartupRestoreSkipped or
+                NavigationDiagnosticEventKind.StartupDeferredRequestPending or
                 NavigationDiagnosticEventKind.StartupFallbackNavigated or
                 NavigationDiagnosticEventKind.StartupCompleted or
                 NavigationDiagnosticEventKind.StartupFailed =>

@@ -1,4 +1,3 @@
-using AdamE.MauiRouter.Persistence;
 using AdamE.MauiRouter.Requests;
 using AdamE.MauiRouter.Routing;
 
@@ -157,7 +156,7 @@ public sealed class DeferredNavigationRequestSerializerTests
         Assert.Equal(new Uri("https://notifications.example/message/1"), restored.Provenance.ReferrerUri);
     }
 
-    private sealed class PassThroughMetadataSerializer : INavigationSnapshotMetadataSerializer
+    private sealed class PassThroughMetadataSerializer : INavigationRequestMetadataSerializer
     {
         public IReadOnlyDictionary<string, object?>? Serialize(IReadOnlyDictionary<string, object?> metadata) => metadata;
 

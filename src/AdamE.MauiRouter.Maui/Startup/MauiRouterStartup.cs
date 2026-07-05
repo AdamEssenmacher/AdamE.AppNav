@@ -2,7 +2,6 @@ using System.Text.Json;
 using AdamE.MauiRouter.Diagnostics;
 using AdamE.MauiRouter.Maui.AppLinks;
 using AdamE.MauiRouter.Navigation;
-using AdamE.MauiRouter.Persistence;
 using AdamE.MauiRouter.Requests;
 using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Controls;
@@ -27,17 +26,12 @@ public sealed class MauiRouterStartupOptions
 
     public TimeSpan AppLinkGracePeriod { get; set; } = TimeSpan.FromMilliseconds(250);
 
-    public bool RestoreFromStore { get; set; } = true;
-
-    public NavigationRestoreOptions RestoreOptions { get; set; } = new();
-
     public Func<IServiceProvider, CancellationToken, ValueTask<RouterNavigationRequest?>>? FallbackRequestFactory { get; set; }
 }
 
 public enum MauiRouterStartupOutcome
 {
     AppLinkPending,
-    Restored,
     FallbackNavigated,
     NoNavigation,
     Failed
@@ -45,7 +39,6 @@ public enum MauiRouterStartupOutcome
 
 public sealed record MauiRouterStartupResult(
     MauiRouterStartupOutcome Outcome,
-    NavigationRestoreResult? RestoreResult = null,
     NavigationResult? FallbackNavigationResult = null,
     Exception? Exception = null)
 {
@@ -116,7 +109,6 @@ internal sealed class MauiRouterStartupService : IMauiRouterStartupService
     {
         var operationId = Guid.NewGuid().ToString("N");
         var attached = false;
-        NavigationRestoreResult? restoreResult = null;
 
         _diagnostics.Write(
             NavigationDiagnosticEventKind.StartupStarted,
@@ -134,18 +126,9 @@ internal sealed class MauiRouterStartupService : IMauiRouterStartupService
                 _diagnostics.Write(
                     NavigationDiagnosticEventKind.StartupAppLinkPending,
                     operationId,
-                    "A buffered app-link request is pending; snapshot restore and fallback navigation were skipped.",
+                    "A buffered app-link request is pending; fallback navigation was skipped.",
                     StartupData(
                         windowId,
-                        (NavigationDiagnosticDataKeys.StartupOutcome, MauiRouterStartupOutcome.AppLinkPending.ToString())));
-
-                _diagnostics.Write(
-                    NavigationDiagnosticEventKind.StartupRestoreSkipped,
-                    operationId,
-                    "Snapshot restore was skipped because an app-link request has priority.",
-                    StartupData(
-                        windowId,
-                        (NavigationDiagnosticDataKeys.RestoreReason, "app-link-pending"),
                         (NavigationDiagnosticDataKeys.StartupOutcome, MauiRouterStartupOutcome.AppLinkPending.ToString())));
 
                 Attach(window, windowId, ref attached);
@@ -166,49 +149,11 @@ internal sealed class MauiRouterStartupService : IMauiRouterStartupService
                     _diagnostics.Write(
                         NavigationDiagnosticEventKind.StartupDeferredRequestPending,
                         operationId,
-                        "A deferred protected navigation request is pending; snapshot restore was skipped.",
+                        "A deferred protected navigation request is pending.",
                         StartupData(
                             windowId,
                             (NavigationDiagnosticDataKeys.StartupDeferredRequestPending, true)));
-
-                    _diagnostics.Write(
-                        NavigationDiagnosticEventKind.StartupRestoreSkipped,
-                        operationId,
-                        "Snapshot restore was skipped because a deferred protected navigation request is pending.",
-                        StartupData(
-                            windowId,
-                            (NavigationDiagnosticDataKeys.RestoreReason, "deferred-request-pending"),
-                            (NavigationDiagnosticDataKeys.StartupDeferredRequestPending, true)));
                 }
-            }
-
-            if (_options.RestoreFromStore && !hasDeferredRequests)
-            {
-                restoreResult = await _navigator
-                    .RestoreFromStoreAsync(_options.RestoreOptions ?? new NavigationRestoreOptions(), cancellationToken);
-
-                if (restoreResult.Accepted)
-                {
-                    Attach(window, windowId, ref attached);
-                    return Complete(
-                        operationId,
-                        windowId,
-                        MauiRouterStartupOutcome.Restored,
-                        restoreResult);
-                }
-            }
-            else
-            {
-                _diagnostics.Write(
-                    NavigationDiagnosticEventKind.StartupRestoreSkipped,
-                    operationId,
-                    hasDeferredRequests
-                        ? "Snapshot restore was skipped because a deferred protected navigation request is pending."
-                        : "Snapshot restore was skipped by startup configuration.",
-                    StartupData(
-                        windowId,
-                        (NavigationDiagnosticDataKeys.RestoreReason, hasDeferredRequests ? "deferred-request-pending" : "disabled"),
-                        (NavigationDiagnosticDataKeys.StartupDeferredRequestPending, hasDeferredRequests)));
             }
 
             if (_options.FallbackRequestFactory is not null)
@@ -236,7 +181,6 @@ internal sealed class MauiRouterStartupService : IMauiRouterStartupService
                         operationId,
                         windowId,
                         MauiRouterStartupOutcome.FallbackNavigated,
-                        restoreResult,
                         fallbackResult);
                 }
             }
@@ -245,8 +189,7 @@ internal sealed class MauiRouterStartupService : IMauiRouterStartupService
             return Complete(
                 operationId,
                 windowId,
-                MauiRouterStartupOutcome.NoNavigation,
-                restoreResult);
+                MauiRouterStartupOutcome.NoNavigation);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -268,7 +211,6 @@ internal sealed class MauiRouterStartupService : IMauiRouterStartupService
 
             return new MauiRouterStartupResult(
                 MauiRouterStartupOutcome.Failed,
-                restoreResult,
                 FallbackNavigationResult: null,
                 ex);
         }
@@ -303,7 +245,6 @@ internal sealed class MauiRouterStartupService : IMauiRouterStartupService
                 "Invalid deferred navigation request store was cleared; startup will continue.",
                 StartupData(
                     windowId,
-                    (NavigationDiagnosticDataKeys.RestoreReason, "deferred-request-store-invalid"),
                     (NavigationDiagnosticDataKeys.StartupDeferredRequestPending, false),
                     (NavigationDiagnosticDataKeys.ExceptionType, ex.GetType().FullName),
                     (NavigationDiagnosticDataKeys.ExceptionMessage, ex.Message)));
@@ -321,7 +262,6 @@ internal sealed class MauiRouterStartupService : IMauiRouterStartupService
         string operationId,
         string windowId,
         MauiRouterStartupOutcome outcome,
-        NavigationRestoreResult? restoreResult = null,
         NavigationResult? fallbackNavigationResult = null)
     {
         _diagnostics.Write(
@@ -334,7 +274,6 @@ internal sealed class MauiRouterStartupService : IMauiRouterStartupService
 
         return new MauiRouterStartupResult(
             outcome,
-            restoreResult,
             fallbackNavigationResult,
             Exception: null);
     }

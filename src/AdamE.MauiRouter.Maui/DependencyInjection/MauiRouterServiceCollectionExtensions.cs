@@ -2,10 +2,8 @@ using AdamE.MauiRouter.Back;
 using AdamE.MauiRouter.Diagnostics;
 using AdamE.MauiRouter.Maui;
 using AdamE.MauiRouter.Maui.AppLinks;
-using AdamE.MauiRouter.Maui.Persistence;
 using AdamE.MauiRouter.Maui.Requests;
 using AdamE.MauiRouter.Navigation;
-using AdamE.MauiRouter.Persistence;
 using AdamE.MauiRouter.Policies;
 using AdamE.MauiRouter.Requests;
 using AdamE.MauiRouter.Routing;
@@ -71,27 +69,6 @@ public static class MauiRouterServiceCollectionExtensions
         return services;
     }
 
-    public static IServiceCollection AddMauiRouterFileNavigationPersistence(
-        this IServiceCollection services,
-        Action<NavigationPersistenceOptions>? configure = null)
-    {
-        ArgumentNullException.ThrowIfNull(services);
-
-        services.TryAddSingleton<INavigationStateStore, MauiFileNavigationStateStore>();
-        services.AddSingleton(provider =>
-        {
-            var options = new NavigationPersistenceOptions
-            {
-                Store = provider.GetRequiredService<INavigationStateStore>()
-            };
-            configure?.Invoke(options);
-            options.Store ??= provider.GetRequiredService<INavigationStateStore>();
-            return options;
-        });
-
-        return services;
-    }
-
     public static IServiceCollection AddMauiRouterStartup(
         this IServiceCollection services,
         Action<MauiRouterStartupOptions>? configure = null)
@@ -131,7 +108,6 @@ public static class MauiRouterServiceCollectionExtensions
             {
                 Diagnostics = provider.GetRequiredService<NavigationDiagnostics>(),
                 BackNavigator = provider.GetRequiredService<IBackNavigator>(),
-                Persistence = provider.GetService<NavigationPersistenceOptions>(),
                 LoggerFactory = provider.GetService<ILoggerFactory>(),
                 RequestPolicies = provider.GetServices<INavigationRequestPolicy>().ToArray(),
                 PlanPolicies = provider.GetServices<INavigationPlanPolicy>().ToArray()

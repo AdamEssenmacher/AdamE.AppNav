@@ -92,13 +92,13 @@ One common MAUI setup uses:
 A common cold-start sequence is:
 
 1. buffered app links
-2. snapshot restore
+2. deferred request detection
 3. fallback request
 4. window attachment
 
 ## Other Public Runtime Seams
 
-`IRouterNavigator` also exposes URI navigation overloads and advanced public operations such as `ReconcileAsync(...)`, `RestoreAsync(...)`, and `RestoreFromStoreAsync(...)`. Those are useful for host-owned orchestration, testing, and explicit runtime control.
+`IRouterNavigator` also exposes URI navigation overloads and `ReconcileAsync(...)`. Those are useful for host-owned orchestration, testing, and explicit runtime control.
 
 ## Notes
 

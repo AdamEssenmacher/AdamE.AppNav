@@ -2,7 +2,6 @@ using System.Diagnostics;
 using AdamE.MauiRouter.Back;
 using AdamE.MauiRouter.Diagnostics;
 using AdamE.MauiRouter.History;
-using AdamE.MauiRouter.Persistence;
 using AdamE.MauiRouter.Plans;
 using AdamE.MauiRouter.Policies;
 using AdamE.MauiRouter.Presentation;
@@ -28,8 +27,6 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
     private readonly object _reconciliationGate = new();
     private readonly int _maxRedirects;
     private readonly int _maxHistoryEntries;
-    private readonly NavigationPersistenceOptions? _persistence;
-    private readonly NavigationSnapshotSerializer? _snapshotSerializer;
     private Task _reconciliationQueue = Task.CompletedTask;
     private bool _disposed;
 
@@ -64,8 +61,6 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         _backNavigator = options.BackNavigator ?? new DefaultBackNavigator(diagnostics: _diagnostics);
         _maxRedirects = options.MaxRedirects;
         _maxHistoryEntries = options.MaxHistoryEntries;
-        _persistence = options.Persistence;
-        _snapshotSerializer = _persistence is null ? null : new NavigationSnapshotSerializer(_routes, _persistence);
         _activitySource = NavigationActivitySources.Default;
 
         _presenter.ReconciliationRequested += OnPresenterReconciliationRequested;
@@ -211,44 +206,6 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                 NavigationRequestSource.NativeReconciliation);
 
             return await ReconcileCoreAsync(request, reconciliation, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _operationLock.Release();
-        }
-    }
-
-    public async ValueTask<NavigationRestoreResult> RestoreAsync(
-        NavigationSnapshot snapshot,
-        NavigationRestoreOptions? options = null,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(snapshot);
-        ThrowIfDisposed();
-
-        await _operationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            return await RestoreCoreAsync(snapshot, options ?? new NavigationRestoreOptions(), cancellationToken)
-                .ConfigureAwait(false);
-        }
-        finally
-        {
-            _operationLock.Release();
-        }
-    }
-
-    public async ValueTask<NavigationRestoreResult> RestoreFromStoreAsync(
-        NavigationRestoreOptions? options = null,
-        CancellationToken cancellationToken = default)
-    {
-        ThrowIfDisposed();
-
-        await _operationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            return await RestoreFromStoreCoreAsync(options ?? new NavigationRestoreOptions(), cancellationToken)
-                .ConfigureAwait(false);
         }
         finally
         {
@@ -402,7 +359,6 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
             History = History.Push(
                 CreateHistoryEntry(operationId, finalizedRequest, finalRoute, CurrentState, plan.Reason),
                 _maxHistoryEntries);
-            await SaveSnapshotIfConfiguredAsync(operationId, cancellationToken).ConfigureAwait(false);
             activity?.SetStatus(ActivityStatusCode.Ok);
 
             return new NavigationResult(finalRoute, plan, CurrentState, Presented: true);
@@ -647,7 +603,6 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
 
             CurrentState = plan.TargetState;
             History = History.Push(CreateHistoryEntry(operationId, request, route, CurrentState, plan.Reason), _maxHistoryEntries);
-            await SaveSnapshotIfConfiguredAsync(operationId, cancellationToken).ConfigureAwait(false);
 
             _diagnostics.Write(
                 NavigationDiagnosticEventKind.BackCompleted,
@@ -755,7 +710,6 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
             History = History.Push(
                 CreateHistoryEntry(operationId, finalizedRequest, finalRoute, CurrentState, plan.Reason),
                 _maxHistoryEntries);
-            await SaveSnapshotIfConfiguredAsync(operationId, cancellationToken).ConfigureAwait(false);
 
             _diagnostics.Write(
                 NavigationDiagnosticEventKind.ReconciliationCompleted,
@@ -769,223 +723,6 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         {
             activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
             WriteFailure(NavigationDiagnosticEventKind.ReconciliationFailed, operationId, reconciliation.Source.ToString(), ex, timer);
-            throw;
-        }
-    }
-
-    private async ValueTask<NavigationRestoreResult> RestoreFromStoreCoreAsync(
-        NavigationRestoreOptions options,
-        CancellationToken cancellationToken)
-    {
-        var operationId = Guid.NewGuid().ToString("N");
-        using var activity = StartActivity("Navigation.RestoreFromStore", operationId, NavigationRequestSource.Restore.ToString());
-        var store = _persistence?.Store;
-        if (store is null)
-        {
-            var result = NavigationRestoreResult.Rejected("No navigation state store is configured.");
-            WriteRestoreRejected(operationId, result);
-            activity?.SetTag("navigation.restore_outcome", "rejected");
-            return result;
-        }
-
-        var loadTimer = Stopwatch.StartNew();
-        _diagnostics.Write(
-            NavigationDiagnosticEventKind.SnapshotLoadStarted,
-            operationId,
-            store.GetType().Name,
-            Data((NavigationDiagnosticDataKeys.SnapshotStoreType, store.GetType().FullName)));
-
-        NavigationSnapshot? snapshot;
-        try
-        {
-            snapshot = await store.LoadAsync(cancellationToken).ConfigureAwait(false);
-            _diagnostics.Write(
-                NavigationDiagnosticEventKind.SnapshotLoaded,
-                operationId,
-                snapshot is null ? "No navigation snapshot was available." : "Navigation snapshot loaded.",
-                SnapshotData(snapshot, store, loadTimer));
-        }
-        catch (Exception ex)
-        {
-            WriteFailure(
-                NavigationDiagnosticEventKind.SnapshotLoadFailed,
-                operationId,
-                store.GetType().Name,
-                ex,
-                loadTimer,
-                (NavigationDiagnosticDataKeys.SnapshotStoreType, store.GetType().FullName));
-            activity?.SetTag("navigation.restore_outcome", "rejected");
-            return NavigationRestoreResult.Rejected($"Navigation snapshot load failed: {ex.Message}");
-        }
-
-        if (snapshot is null)
-        {
-            var result = NavigationRestoreResult.Rejected("No navigation snapshot was available.");
-            WriteRestoreRejected(operationId, result);
-            activity?.SetTag("navigation.restore_outcome", "rejected");
-            return result;
-        }
-
-        return await RestoreSnapshotCoreAsync(snapshot, options, operationId, cancellationToken).ConfigureAwait(false);
-    }
-
-    private async ValueTask<NavigationRestoreResult> RestoreCoreAsync(
-        NavigationSnapshot snapshot,
-        NavigationRestoreOptions options,
-        CancellationToken cancellationToken)
-    {
-        var operationId = Guid.NewGuid().ToString("N");
-        using var activity = StartActivity("Navigation.Restore", operationId, NavigationRequestSource.Restore.ToString());
-        return await RestoreSnapshotCoreAsync(snapshot, options, operationId, cancellationToken).ConfigureAwait(false);
-    }
-
-    private async ValueTask<NavigationRestoreResult> RestoreSnapshotCoreAsync(
-        NavigationSnapshot snapshot,
-        NavigationRestoreOptions options,
-        string operationId,
-        CancellationToken cancellationToken)
-    {
-        var timer = Stopwatch.StartNew();
-        Activity.Current?.SetTag("navigation.snapshot_version", snapshot.SchemaVersion);
-        _diagnostics.Write(
-            NavigationDiagnosticEventKind.RestoreStarted,
-            operationId,
-            options.Reason ?? "Navigation restore started.",
-            SnapshotData(snapshot, _persistence?.Store, timer, includeDuration: false));
-
-        try
-        {
-            var serializer = _snapshotSerializer ?? new NavigationSnapshotSerializer(_routes);
-            var restored = serializer.Restore(snapshot);
-            if (!restored.Accepted || restored.State is null || restored.History is null)
-            {
-                WriteRestoreRejected(operationId, restored, timer);
-                Activity.Current?.SetTag("navigation.restore_outcome", "rejected");
-                return restored;
-            }
-
-            foreach (var policy in _persistence?.RestorePolicies ?? Array.Empty<INavigationRestorePolicy>())
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                var decision = await policy.EvaluateAsync(
-                    new NavigationRestoreContext(snapshot, restored.State, restored.History, CurrentState, operationId),
-                    cancellationToken).ConfigureAwait(false);
-                if (!decision.Accepted)
-                {
-                    var rejected = NavigationRestoreResult.Rejected(decision.Reason ?? "Navigation restore was rejected by policy.");
-                    WriteRestoreRejected(operationId, rejected, timer);
-                    Activity.Current?.SetTag("navigation.restore_outcome", "rejected");
-                    return rejected;
-                }
-            }
-
-            var route = ResolvePresentedRoute(restored.State, restored.State.ActiveWindowId, new RestoredRoute());
-            var request = RouterNavigationRequest.FromRoute(route, NavigationRequestSource.Restore, restored.State.ActiveWindowId);
-            var plan = new NavigationPlan(
-                restored.State,
-                NavigationPlanKind.Restore,
-                options.Reason ?? "Navigation state restored.");
-
-            foreach (var policy in _planPolicies)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                var policyName = policy.GetType().Name;
-                var policyTimer = Stopwatch.StartNew();
-                _diagnostics.Write(
-                    NavigationDiagnosticEventKind.PlanPolicyStarted,
-                    operationId,
-                    policyName,
-                    Data((NavigationDiagnosticDataKeys.PolicyType, policy.GetType().FullName)));
-
-                try
-                {
-                    plan = await policy.ApplyAsync(
-                        new NavigationPlanPolicyContext(request, route, CurrentState, operationId),
-                        plan,
-                        cancellationToken).ConfigureAwait(false);
-                    _diagnostics.Write(
-                        NavigationDiagnosticEventKind.PlanPolicyCompleted,
-                        operationId,
-                        policyName,
-                        Duration(policyTimer, (NavigationDiagnosticDataKeys.PolicyType, policy.GetType().FullName)));
-                }
-                catch (Exception ex)
-                {
-                    WriteFailure(
-                        NavigationDiagnosticEventKind.PlanPolicyFailed,
-                        operationId,
-                        policyName,
-                        ex,
-                        policyTimer,
-                        (NavigationDiagnosticDataKeys.PolicyType, policy.GetType().FullName));
-                    throw;
-                }
-            }
-
-            var finalRoute = ResolvePresentedRoute(plan.TargetState, request.WindowId, route);
-            var finalizedRequest = request with { Route = finalRoute };
-            var presentationTimer = Stopwatch.StartNew();
-            _diagnostics.Write(
-                NavigationDiagnosticEventKind.PresentationStarted,
-                operationId,
-                plan.Kind.ToString(),
-                Data((NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
-            try
-            {
-                await _presenter.ApplyAsync(
-                    plan,
-                    new NavigationPresentationContext(finalizedRequest, finalRoute, CurrentState, operationId),
-                    cancellationToken).ConfigureAwait(false);
-                _diagnostics.Write(
-                    NavigationDiagnosticEventKind.PresentationCompleted,
-                    operationId,
-                    plan.Kind.ToString(),
-                    Duration(presentationTimer, (NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
-            }
-            catch (Exception ex)
-            {
-                WriteFailure(
-                    NavigationDiagnosticEventKind.PresentationFailed,
-                    operationId,
-                    plan.Kind.ToString(),
-                    ex,
-                    presentationTimer,
-                    (NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString()));
-                throw;
-            }
-
-            CurrentState = plan.TargetState;
-            History = NormalizeRestoredHistory(restored.History, CurrentState, finalRoute);
-
-            if (options.SaveAfterRestore)
-            {
-                await SaveSnapshotIfConfiguredAsync(operationId, cancellationToken).ConfigureAwait(false);
-            }
-
-            _diagnostics.Write(
-                NavigationDiagnosticEventKind.RestoreCompleted,
-                operationId,
-                options.Reason ?? "Navigation restore completed.",
-                SnapshotData(snapshot, _persistence?.Store, timer));
-            Activity.Current?.SetTag("navigation.restore_outcome", "accepted");
-            Activity.Current?.SetStatus(ActivityStatusCode.Ok);
-            return NavigationRestoreResult.AcceptedResult(
-                CurrentState,
-                History,
-                presented: true,
-                restored.Diagnostics);
-        }
-        catch (Exception ex)
-        {
-            Activity.Current?.SetTag("navigation.restore_outcome", "failed");
-            Activity.Current?.SetStatus(ActivityStatusCode.Error, ex.Message);
-            WriteFailure(
-                NavigationDiagnosticEventKind.RestoreFailed,
-                operationId,
-                options.Reason ?? "Navigation restore failed.",
-                ex,
-                timer,
-                (NavigationDiagnosticDataKeys.SnapshotVersion, snapshot.SchemaVersion));
             throw;
         }
     }
@@ -1124,60 +861,6 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         }
     }
 
-    private async ValueTask SaveSnapshotIfConfiguredAsync(
-        string operationId,
-        CancellationToken cancellationToken)
-    {
-        if (_persistence?.Store is not { } store || _snapshotSerializer is null)
-        {
-            return;
-        }
-
-        var timer = Stopwatch.StartNew();
-        _diagnostics.Write(
-            NavigationDiagnosticEventKind.SnapshotSaveStarted,
-            operationId,
-            store.GetType().Name,
-            Data((NavigationDiagnosticDataKeys.SnapshotStoreType, store.GetType().FullName)));
-
-        try
-        {
-            var snapshot = _snapshotSerializer.CreateSnapshot(CurrentState, History);
-            await store.SaveAsync(snapshot, cancellationToken).ConfigureAwait(false);
-            _diagnostics.Write(
-                NavigationDiagnosticEventKind.SnapshotSaved,
-                operationId,
-                store.GetType().Name,
-                SnapshotData(snapshot, store, timer));
-        }
-        catch (Exception ex)
-        {
-            WriteFailure(
-                NavigationDiagnosticEventKind.SnapshotSaveFailed,
-                operationId,
-                store.GetType().Name,
-                ex,
-                timer,
-                (NavigationDiagnosticDataKeys.SnapshotStoreType, store.GetType().FullName));
-        }
-    }
-
-    private void WriteRestoreRejected(
-        string operationId,
-        NavigationRestoreResult result,
-        Stopwatch? timer = null)
-    {
-        var data = timer is null
-            ? Data((NavigationDiagnosticDataKeys.RestoreReason, result.RejectionReason))
-            : Duration(timer, (NavigationDiagnosticDataKeys.RestoreReason, result.RejectionReason));
-
-        _diagnostics.Write(
-            NavigationDiagnosticEventKind.RestoreRejected,
-            operationId,
-            result.RejectionReason ?? "Navigation restore was rejected.",
-            data);
-    }
-
     private Activity? StartActivity(string name, string operationId, RouterNavigationRequest request)
     {
         var activity = StartActivity(name, operationId, request.Source.ToString(), request.Disposition);
@@ -1296,30 +979,6 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         }
 
         return Duration(timer, request, data.ToArray());
-    }
-
-    private static IReadOnlyDictionary<string, object?> SnapshotData(
-        NavigationSnapshot? snapshot,
-        INavigationStateStore? store,
-        Stopwatch timer,
-        bool includeDuration = true)
-    {
-        var values = new List<(string Key, object? Value)>
-        {
-            (NavigationDiagnosticDataKeys.SnapshotStoreType, store?.GetType().FullName)
-        };
-
-        if (snapshot is not null)
-        {
-            values.Add((NavigationDiagnosticDataKeys.SnapshotVersion, snapshot.SchemaVersion));
-            values.Add((NavigationDiagnosticDataKeys.SnapshotAgeMs, (DateTimeOffset.UtcNow - snapshot.CreatedAt).TotalMilliseconds));
-            values.Add((NavigationDiagnosticDataKeys.SnapshotWindowCount, snapshot.State.Windows.Count));
-            values.Add((NavigationDiagnosticDataKeys.SnapshotHistoryCount, snapshot.History?.Entries.Count ?? 0));
-        }
-
-        return includeDuration
-            ? Duration(timer, values.ToArray())
-            : Data(values.ToArray());
     }
 
     private void WriteRedirectLoopDetected(
@@ -1474,28 +1133,6 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         return PresentedRouteResolver.FindPresentedRoute(window) ?? fallbackRoute;
     }
 
-    private static NavigationHistory NormalizeRestoredHistory(
-        NavigationHistory history,
-        NavigationState currentState,
-        AppRoute finalRoute)
-    {
-        var current = history.Current;
-        if (current is null)
-        {
-            return history;
-        }
-
-        var entries = history.Entries.ToArray();
-        entries[history.CurrentIndex] = current with
-        {
-            Request = current.Request with { Route = finalRoute },
-            Route = finalRoute,
-            State = currentState
-        };
-
-        return new NavigationHistory(entries, history.CurrentIndex);
-    }
-
     private void ThrowIfDisposed()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -1537,8 +1174,6 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
     private sealed record ReconciledRoute(string Source) : AppRoute;
 
     private sealed record BackRoute : AppRoute;
-
-    private sealed record RestoredRoute : AppRoute;
 
     private sealed record ResolvedRoute(
         AppRoute Route,

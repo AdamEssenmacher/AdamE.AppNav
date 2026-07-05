@@ -271,9 +271,7 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         _activeOperationId = context.OperationId;
         try
         {
-            var effectiveTransition = plan.Kind == NavigationPlanKind.Restore
-                ? new NoNavigationTransition()
-                : plan.Transition;
+            var effectiveTransition = plan.Transition;
             var nextRoot = window.Root is null
                 ? CreateOrReuseEmptyRootHost(CurrentPage)
                 : await MaterializeNodeAsync(

@@ -1,7 +1,6 @@
 ﻿using AdamE.MauiRouter.Diagnostics;
 using AdamE.MauiRouter.Maui.DependencyInjection;
 using AdamE.MauiRouter.Maui.AppLinks;
-using AdamE.MauiRouter.Maui.Persistence;
 using AdamE.MauiRouter.Requests;
 using Commerce.Sample.Navigation;
 using Commerce.Sample.Pages;
@@ -29,7 +28,7 @@ public static class MauiProgram
 #endif
 
 		builder.Services.AddSingleton<NavigationDiagnostics>();
-		builder.Services.AddMauiRouterFileNavigationPersistence(options =>
+		builder.Services.AddMauiRouterFileDeferredNavigationRequests(options =>
 		{
 			options.BaseUri = new Uri("https://example.com/");
 			options.RouteStateRegistry = CommerceRouteMetadata.RouteStateRegistry;
@@ -40,7 +39,7 @@ public static class MauiProgram
 				ValueTask.FromResult<RouterNavigationRequest?>(
 					RouterNavigationRequest.FromUri(
 						new Uri("https://example.com/stores/northwind/products/123?variant=blue&promo=spring&campaign=spring-launch"),
-						NavigationRequestSource.Restore));
+						NavigationRequestSource.InAppCommand));
 		});
 		builder.Services.AddMauiRouter<CommerceNavigationPlanner>(
 			SampleRouteTable.Create(),

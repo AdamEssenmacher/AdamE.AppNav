@@ -36,12 +36,12 @@ public enum NavigationDiagnosticPhase
     Presentation,
 
     /// <summary>
-    /// Snapshot save, snapshot load, and restore policy work.
+    /// Deferred request persistence or other storage-backed router work.
     /// </summary>
     Persistence,
 
     /// <summary>
-    /// Startup routing, startup restore, and deferred startup navigation decisions.
+    /// Startup routing and deferred startup navigation decisions.
     /// </summary>
     Startup,
 

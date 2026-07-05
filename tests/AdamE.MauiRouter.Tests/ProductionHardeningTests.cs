@@ -1,7 +1,6 @@
 using AdamE.MauiRouter.Diagnostics;
 using AdamE.MauiRouter.History;
 using AdamE.MauiRouter.Navigation;
-using AdamE.MauiRouter.Persistence;
 using AdamE.MauiRouter.Plans;
 using AdamE.MauiRouter.Policies;
 using AdamE.MauiRouter.Presentation;
@@ -267,76 +266,6 @@ public sealed class ProductionHardeningTests
         Assert.Contains(NavigationDiagnosticEventKind.BackFailed, events);
         Assert.DoesNotContain(NavigationDiagnosticEventKind.PresentationCompleted, events);
         Assert.DoesNotContain(NavigationDiagnosticEventKind.BackCompleted, events);
-    }
-
-    [Fact]
-    public async Task RestorePresentationFailureDoesNotAdoptRestoredStateOrHistory()
-    {
-        var initialState = new NavigationState(new[]
-        {
-            new WindowNode(
-                "main",
-                new StackNode("initial-stack", new[]
-                {
-                    new RouteEntry("initial", new TestRoutes.StoreRoute("initial"))
-                }))
-        }, "main");
-        var initialRoute = new TestRoutes.StoreRoute("initial");
-        var initialRequest = RouterNavigationRequest.FromRoute(initialRoute, NavigationRequestSource.Test);
-        var initialHistory = new NavigationHistory(new[]
-        {
-            new NavigationHistoryEntry(
-                "initial",
-                initialRequest,
-                initialRoute,
-                initialState,
-                "initial",
-                DateTimeOffset.UtcNow)
-        }, 0);
-        var restoredState = new NavigationState(new[]
-        {
-            new WindowNode(
-                "main",
-                new StackNode("restored-stack", new[]
-                {
-                    new RouteEntry("restored", new TestRoutes.StoreRoute("restored"))
-                }))
-        }, "main");
-        var restoredRoute = new TestRoutes.StoreRoute("restored");
-        var restoredRequest = RouterNavigationRequest.FromRoute(restoredRoute, NavigationRequestSource.Restore);
-        var restoredHistory = new NavigationHistory(new[]
-        {
-            new NavigationHistoryEntry(
-                "restored",
-                restoredRequest,
-                restoredRoute,
-                restoredState,
-                "restored",
-                DateTimeOffset.UtcNow)
-        }, 0);
-        var snapshot = new NavigationSnapshotSerializer(TestRoutes.CreateTable()).CreateSnapshot(restoredState, restoredHistory);
-        var diagnostics = new NavigationDiagnostics();
-        var events = new List<NavigationDiagnosticEventKind>();
-        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent.Kind);
-        var navigator = new RouterNavigator(
-            TestRoutes.CreateTable(),
-            new RouteEchoPlanner(),
-            new ThrowingPresenter(),
-            new RouterNavigatorOptions
-            {
-                InitialState = initialState,
-                InitialHistory = initialHistory,
-                Diagnostics = diagnostics
-            });
-
-        await Assert.ThrowsAsync<InvalidOperationException>(() => navigator.RestoreAsync(snapshot).AsTask());
-
-        Assert.Equal(initialState, navigator.CurrentState);
-        Assert.Same(initialHistory, navigator.History);
-        Assert.Contains(NavigationDiagnosticEventKind.PresentationFailed, events);
-        Assert.Contains(NavigationDiagnosticEventKind.RestoreFailed, events);
-        Assert.DoesNotContain(NavigationDiagnosticEventKind.PresentationCompleted, events);
-        Assert.DoesNotContain(NavigationDiagnosticEventKind.RestoreCompleted, events);
     }
 
     [Fact]

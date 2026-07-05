@@ -2,7 +2,6 @@ using AdamE.MauiRouter.Back;
 using AdamE.MauiRouter.Diagnostics;
 using AdamE.MauiRouter.History;
 using AdamE.MauiRouter.Navigation;
-using AdamE.MauiRouter.Persistence;
 using AdamE.MauiRouter.Plans;
 using AdamE.MauiRouter.Policies;
 using AdamE.MauiRouter.Presentation;
@@ -30,8 +29,6 @@ public sealed class RouterTestNavigatorOptions
     public int MaxRedirects { get; set; } = 16;
 
     public int MaxHistoryEntries { get; set; } = 128;
-
-    public NavigationPersistenceOptions? Persistence { get; set; }
 }
 
 public static class RouterTestNavigator
@@ -59,8 +56,7 @@ public static class RouterTestNavigator
                 Diagnostics = options.Diagnostics,
                 BackNavigator = options.BackNavigator,
                 MaxRedirects = options.MaxRedirects,
-                MaxHistoryEntries = options.MaxHistoryEntries,
-                Persistence = options.Persistence
+                MaxHistoryEntries = options.MaxHistoryEntries
             });
     }
 

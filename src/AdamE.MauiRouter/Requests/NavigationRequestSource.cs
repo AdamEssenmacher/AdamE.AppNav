@@ -33,17 +33,12 @@ public enum NavigationRequestSource
     InAppCommand,
 
     /// <summary>
-    /// The request was synthesized as part of restoring persisted navigation state.
-    /// </summary>
-    Restore,
-
-    /// <summary>
     /// The request was created by tests or test helpers.
     /// </summary>
-    Test,
+    Test = 6,
 
     /// <summary>
     /// The request was synthesized while reconciling native navigation back into router state.
     /// </summary>
-    NativeReconciliation
+    NativeReconciliation = 7
 }

@@ -303,7 +303,7 @@ public sealed class DiagnosticsTests
             new Dictionary<string, object?>
             {
                 [NavigationDiagnosticDataKeys.WindowId] = "main",
-                [NavigationDiagnosticDataKeys.StartupOutcome] = "Restored"
+                [NavigationDiagnosticDataKeys.StartupOutcome] = "FallbackNavigated"
             });
 
         var startupStarted = Assert.Single(events, diagnosticEvent =>
@@ -317,7 +317,7 @@ public sealed class DiagnosticsTests
             diagnosticEvent.Kind == NavigationDiagnosticEventKind.StartupCompleted);
         Assert.Equal(NavigationDiagnosticPhase.Startup, startupCompleted.Phase);
         Assert.Equal(LogLevel.Information, startupCompleted.Severity);
-        Assert.Equal("Restored", startupCompleted.Data[NavigationDiagnosticDataKeys.StartupOutcome]);
+        Assert.Equal("FallbackNavigated", startupCompleted.Data[NavigationDiagnosticDataKeys.StartupOutcome]);
     }
 
     [Fact]

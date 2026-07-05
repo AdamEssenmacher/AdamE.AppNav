@@ -1,5 +1,3 @@
-using AdamE.MauiRouter.Persistence;
-
 namespace AdamE.MauiRouter.Requests;
 
 public sealed record DeferredNavigationRequestStoreSnapshot

@@ -1,7 +1,6 @@
 using AdamE.MauiRouter.Back;
 using AdamE.MauiRouter.Diagnostics;
 using AdamE.MauiRouter.History;
-using AdamE.MauiRouter.Persistence;
 using AdamE.MauiRouter.Policies;
 using AdamE.MauiRouter.State;
 using Microsoft.Extensions.Logging;
@@ -63,11 +62,6 @@ public sealed class RouterNavigatorFactoryOptions
     /// Gets the maximum number of entries retained in logical navigation history.
     /// </summary>
     public int MaxHistoryEntries { get; init; } = 128;
-
-    /// <summary>
-    /// Gets the persistence configuration used for navigation snapshots.
-    /// </summary>
-    public NavigationPersistenceOptions? Persistence { get; init; }
 
     /// <summary>
     /// Gets the logger used by navigator diagnostics when <see cref="Diagnostics"/> is not supplied.

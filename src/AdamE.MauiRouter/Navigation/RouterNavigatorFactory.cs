@@ -48,7 +48,6 @@ public static class RouterNavigatorFactory
                 BackNavigator = options.BackNavigator,
                 MaxRedirects = options.MaxRedirects,
                 MaxHistoryEntries = options.MaxHistoryEntries,
-                Persistence = options.Persistence,
                 Logger = options.Logger,
                 LoggerFactory = options.LoggerFactory
             });

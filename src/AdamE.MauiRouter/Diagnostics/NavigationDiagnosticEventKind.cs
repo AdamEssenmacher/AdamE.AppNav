@@ -151,79 +151,24 @@ public enum NavigationDiagnosticEventKind
     PresentationFailed,
 
     /// <summary>
-    /// Saving a navigation snapshot has started.
-    /// </summary>
-    SnapshotSaveStarted,
-
-    /// <summary>
-    /// A navigation snapshot was saved successfully.
-    /// </summary>
-    SnapshotSaved,
-
-    /// <summary>
-    /// Saving a navigation snapshot failed.
-    /// </summary>
-    SnapshotSaveFailed,
-
-    /// <summary>
-    /// Loading a navigation snapshot has started.
-    /// </summary>
-    SnapshotLoadStarted,
-
-    /// <summary>
-    /// A navigation snapshot was loaded successfully.
-    /// </summary>
-    SnapshotLoaded,
-
-    /// <summary>
-    /// Loading a navigation snapshot failed.
-    /// </summary>
-    SnapshotLoadFailed,
-
-    /// <summary>
-    /// Restoring router state from a snapshot has started.
-    /// </summary>
-    RestoreStarted,
-
-    /// <summary>
-    /// Router state was restored from a snapshot.
-    /// </summary>
-    RestoreCompleted,
-
-    /// <summary>
-    /// A restore policy rejected a loaded snapshot.
-    /// </summary>
-    RestoreRejected,
-
-    /// <summary>
-    /// Restoring router state from a snapshot failed.
-    /// </summary>
-    RestoreFailed,
-
-    /// <summary>
     /// Startup navigation orchestration has started.
     /// </summary>
-    StartupStarted,
+    StartupStarted = 38,
 
     /// <summary>
-    /// Startup detected an app link that should be handled before restore or fallback navigation.
+    /// Startup detected an app link that should be handled before fallback navigation.
     /// </summary>
     StartupAppLinkPending,
 
     /// <summary>
-    /// Startup detected a deferred request that should be handled before restore or fallback navigation.
+    /// Startup detected a pending deferred navigation request.
     /// </summary>
     StartupDeferredRequestPending,
 
     /// <summary>
-    /// Startup skipped restoring persisted router state.
-    /// </summary>
-    StartupRestoreSkipped,
-
-    /// <summary>
     /// Startup navigated to a fallback request.
     /// </summary>
-    StartupFallbackNavigated,
+    StartupFallbackNavigated = 42,
 
     /// <summary>
     /// Startup navigation orchestration completed.

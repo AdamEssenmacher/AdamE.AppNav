@@ -174,7 +174,7 @@ public sealed class RepositoryContractTests
                 .Select(File.ReadAllText));
 
         Assert.Contains("AddMauiRouter<CommerceNavigationPlanner>", source, StringComparison.Ordinal);
-        Assert.Contains("AddMauiRouterFileNavigationPersistence", source, StringComparison.Ordinal);
+        Assert.Contains("AddMauiRouterFileDeferredNavigationRequests", source, StringComparison.Ordinal);
         Assert.Contains("AddMauiRouterStartup", source, StringComparison.Ordinal);
         Assert.Contains("UseMauiRouterAppLinks", source, StringComparison.Ordinal);
         Assert.Contains("IMauiRouterStartupService", source, StringComparison.Ordinal);
@@ -296,7 +296,7 @@ public sealed class RepositoryContractTests
         Assert.Contains("This guide walks through one common MAUI integration shape for MauiRouter.", guide, StringComparison.Ordinal);
         Assert.Contains("`RouterNavigationRequest` can carry `NavigationRequestProvenance`, which is runtime request context", guide, StringComparison.Ordinal);
         Assert.Contains("[provenance.md](provenance.md)", guide, StringComparison.Ordinal);
-        Assert.Contains("`IRouterNavigator` also exposes URI navigation overloads and advanced public operations", guide, StringComparison.Ordinal);
+        Assert.Contains("`IRouterNavigator` also exposes URI navigation overloads and `ReconcileAsync(...)`", guide, StringComparison.Ordinal);
         Assert.Contains("One common MAUI setup uses:", guide, StringComparison.Ordinal);
         Assert.Contains("Built-in MAUI app-link ingress sets provenance automatically.", guide, StringComparison.Ordinal);
         Assert.Contains("App-owned external sources should resolve `IMauiExternalNavigationDispatcher`, attach explicit `NavigationRequestProvenance`", guide, StringComparison.Ordinal);
@@ -322,16 +322,17 @@ public sealed class RepositoryContractTests
         var readme = File.ReadAllText(Path.Combine(root, "README.md"));
 
         Assert.Contains("FallbackRequestFactory", readme, StringComparison.Ordinal);
-        Assert.Contains("NavigationSnapshotTestSerializer", readme, StringComparison.Ordinal);
         Assert.Contains("RouterNavigationRequest.FromUri(uri, NavigationRequestSource.Test)", readme, StringComparison.Ordinal);
         Assert.Contains("Planner and navigator tests:", readme, StringComparison.Ordinal);
-        Assert.Contains("Use `AdamE.MauiRouter.Testing` for framework-neutral route, planner, navigator, diagnostics, state, and snapshot serializer helpers.", readme, StringComparison.Ordinal);
-        Assert.Contains("Framework-neutral route, planner, navigator, diagnostics, state", readme, StringComparison.Ordinal);
-        Assert.Contains("assertion, and snapshot serializer helpers for consuming app tests.", readme, StringComparison.Ordinal);
+        Assert.Contains("Use `AdamE.MauiRouter.Testing` for framework-neutral route, planner, navigator, diagnostics, and state helpers.", readme, StringComparison.Ordinal);
+        Assert.Contains("Framework-neutral route, planner, navigator, diagnostics, and state", readme, StringComparison.Ordinal);
+        Assert.Contains("assertion helpers for consuming app tests.", readme, StringComparison.Ordinal);
         Assert.Contains("NavigateAsync(Uri|AppRoute|AppRouteRequest|RouterNavigationRequest)", readme, StringComparison.Ordinal);
         Assert.Contains("`NavigateAsync(Uri...)` starts from a URL directly.", readme, StringComparison.Ordinal);
         Assert.Contains("`ReconcileAsync(...)` accepts an explicit `NavigationReconciliation`", readme, StringComparison.Ordinal);
-        Assert.Contains("`RestoreAsync(...)` and `RestoreFromStoreAsync(...)` drive snapshot restore directly.", readme, StringComparison.Ordinal);
+        Assert.Contains("Deferred request serializer coverage:", readme, StringComparison.Ordinal);
+        Assert.DoesNotContain("NavigationSnapshotTestSerializer", readme, StringComparison.Ordinal);
+        Assert.DoesNotContain("RestoreFromStoreAsync", readme, StringComparison.Ordinal);
         Assert.DoesNotContain("options.InitialRequest", readme, StringComparison.Ordinal);
         Assert.DoesNotContain("Planner and presenter tests:", readme, StringComparison.Ordinal);
         Assert.DoesNotContain("Framework-neutral route, planner, presenter, diagnostics, and state test helpers.", readme, StringComparison.Ordinal);

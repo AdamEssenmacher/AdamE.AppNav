@@ -1,6 +1,5 @@
 using System.Text.Json;
 using AdamE.MauiRouter.Maui.Requests;
-using AdamE.MauiRouter.Persistence;
 using AdamE.MauiRouter.Requests;
 using AdamE.MauiRouter.Routing;
 
@@ -223,7 +222,7 @@ public sealed class MauiFileDeferredNavigationRequestStoreTests
 
     private sealed record TestRoute(string Id) : AppRoute;
 
-    private sealed class PassThroughMetadataSerializer : INavigationSnapshotMetadataSerializer
+    private sealed class PassThroughMetadataSerializer : INavigationRequestMetadataSerializer
     {
         public IReadOnlyDictionary<string, object?>? Serialize(IReadOnlyDictionary<string, object?> metadata) => metadata;
 

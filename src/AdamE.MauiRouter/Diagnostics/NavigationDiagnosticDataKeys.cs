@@ -221,36 +221,6 @@ public static class NavigationDiagnosticDataKeys
     public const string Platform = "platform";
 
     /// <summary>
-    /// Schema or format version of a navigation snapshot.
-    /// </summary>
-    public const string SnapshotVersion = "snapshotVersion";
-
-    /// <summary>
-    /// Age of a loaded navigation snapshot, in milliseconds.
-    /// </summary>
-    public const string SnapshotAgeMs = "snapshotAgeMs";
-
-    /// <summary>
-    /// Number of windows stored in a navigation snapshot.
-    /// </summary>
-    public const string SnapshotWindowCount = "snapshotWindowCount";
-
-    /// <summary>
-    /// Number of history entries stored in a navigation snapshot.
-    /// </summary>
-    public const string SnapshotHistoryCount = "snapshotHistoryCount";
-
-    /// <summary>
-    /// Type name of the snapshot store used for persistence.
-    /// </summary>
-    public const string SnapshotStoreType = "snapshotStoreType";
-
-    /// <summary>
-    /// Reason restore was accepted, rejected, skipped, or failed.
-    /// </summary>
-    public const string RestoreReason = "restoreReason";
-
-    /// <summary>
     /// Final startup outcome.
     /// </summary>
     public const string StartupOutcome = "startupOutcome";

@@ -202,8 +202,8 @@ src/AdamE.MauiRouter.Maui
   materialization, app-link lifecycle hooks.
 
 src/AdamE.MauiRouter.Testing
-  Framework-neutral route, planner, navigator, diagnostics, state
-  assertion, and snapshot serializer helpers for consuming app tests.
+  Framework-neutral route, planner, navigator, diagnostics, and state
+  assertion helpers for consuming app tests.
 
 samples/Commerce.Sample
   A no-Shell MAUI sample using store/catalog/product/cart/order routes.
@@ -507,7 +507,7 @@ The planner owns structure. It does not create MAUI pages; presentation remains 
 
 ### 5. Register MAUI Services
 
-Register the route table, planner, diagnostics, persistence, page mappings, app-link lifecycle hooks, startup, and navigator.
+Register the route table, planner, diagnostics, deferred request persistence, page mappings, app-link lifecycle hooks, startup, and navigator.
 
 ```csharp
 using AdamE.MauiRouter.Diagnostics;
@@ -526,7 +526,7 @@ public static class MauiProgram
             .UseMauiRouterAppLinks();
 
         builder.Services.AddSingleton<NavigationDiagnostics>();
-        builder.Services.AddMauiRouterFileNavigationPersistence(options =>
+        builder.Services.AddMauiRouterFileDeferredNavigationRequests(options =>
         {
             options.BaseUri = new Uri("https://example.com/");
             options.RouteStateRegistry = CommerceRouteMetadata.RouteStateRegistry;
@@ -545,7 +545,7 @@ public static class MauiProgram
                 ValueTask.FromResult<RouterNavigationRequest?>(
                     RouterNavigationRequest.FromUri(
                         new Uri("https://example.com/stores/northwind/products/123?variant=blue&promo=spring&campaign=spring-launch"),
-                        NavigationRequestSource.Restore));
+                        NavigationRequestSource.InAppCommand));
         });
 
         return builder.Build();
@@ -553,8 +553,8 @@ public static class MauiProgram
 }
 ```
 
-`AddMauiRouterStartup` is optional, but recommended for MAUI apps that want the standard cold-start sequence: app links first, then snapshot restore, then fallback navigation, then window attachment.
-If route-owned metadata participates in URL formatting or persistence, keep those keys app-owned in a `RouteStateRegistry` and register that registry with persistence services.
+`AddMauiRouterStartup` is optional, but recommended for MAUI apps that want the standard cold-start sequence: app links first, deferred request detection, fallback navigation, then window attachment.
+If route-owned metadata participates in URL formatting or deferred request persistence, keep those keys app-owned in a `RouteStateRegistry` and register that registry with deferred request persistence services.
 Branch hosts are materialized as `TabbedPage` by default. Use `pages.MapBranchHostAsFlyout("host-id")` when a specific branch host should render as a MAUI `FlyoutPage`.
 
 ### 6. Create Pages With Route Constructor Parameters
@@ -638,11 +638,11 @@ Navigate with a full runtime request only when you need transport concerns such 
 var request = new RouterNavigationRequest(
     uri: new Uri("https://example.com/stores/northwind/cart"),
     route: null,
-    source: NavigationRequestSource.Restore,
+    source: NavigationRequestSource.Push,
     windowId: "main",
     metadata: new Dictionary<string, object?>
     {
-        ["restoreReason"] = "startup"
+        ["notificationId"] = "abc123"
     });
 
 await navigator.NavigateAsync(request);
@@ -1311,7 +1311,6 @@ if (!result.Handled)
 Additional public operations:
 
 - `ReconcileAsync(...)` accepts an explicit `NavigationReconciliation`; this is useful for host-owned or test-driven reconciliation.
-- `RestoreAsync(...)` and `RestoreFromStoreAsync(...)` drive snapshot restore directly.
 
 ### Policies
 
@@ -1395,51 +1394,27 @@ History is bounded to `128` entries by default.
 
 Native stacks are projections of logical state, but native gestures can become authoritative user intent through reconciliation.
 
-### Navigation Persistence And Restore
+### Deferred Request Persistence
 
-Persistence is for navigation state only. Snapshots store semantic route URIs plus logical host structure/history; they never store MAUI pages, DI scopes, handlers, or native stacks.
+Deferred request persistence stores pending `RouterNavigationRequest` values, not full router state. It is intended for protected app-link, invite, push, or similar flows where a request must wait until the app is ready to handle it.
 
 ```csharp
-services.AddMauiRouterFileNavigationPersistence(options =>
+builder.Services.AddMauiRouterFileDeferredNavigationRequests(options =>
 {
     options.BaseUri = new Uri("https://example.com/");
-    options.PersistHistory = true;
-    options.PersistModals = false;
+    options.RouteStateRegistry = CommerceRouteMetadata.RouteStateRegistry;
 });
 ```
 
-When persistence is configured, successful navigation, back navigation, reconciliation, and restore save a fresh `NavigationSnapshot`. Save failures emit diagnostics but do not roll back completed navigation.
+Deferred request snapshots store canonical route URIs, request source, window scope, provenance, and explicitly restorable route metadata. They do not store MAUI pages, DI scopes, handlers, native stacks, or full navigation history.
 
-Restore goes through the normal presentation path during MAUI startup:
+Route-owned metadata is omitted unless it is registered as `RouteStateLifetime.Restorable` in the configured `RouteStateRegistry`. Custom metadata outside the route state registry can be serialized by implementing `INavigationRequestMetadataSerializer`.
 
-```csharp
-services.AddMauiRouterStartup();
-```
-
-Snapshot restore is enabled by default during startup. Optional fallback navigation is configured separately with `FallbackRequestFactory` and runs only after app-link priority and snapshot restore have both been considered. See [Startup And Window Attachment](#startup-and-window-attachment) below for fallback customization.
-
-Restore rules:
-
-- Current navigation state is strict: an invalid restored route rejects the snapshot without mutating state/history.
-- History is tolerant: invalid history entries are dropped and `CurrentIndex` is clamped.
-- Fallback routing is not used for persisted snapshots.
-- Restore uses `NavigationPlanKind.Restore`, runs plan policies, applies the presenter, then installs restored history without pushing an extra entry.
-- Route-entry metadata is omitted unless `NavigationPersistenceOptions.MetadataSerializer` is set.
-
-MAUI apps can use the built-in file store:
-
-```csharp
-builder.Services.AddMauiRouterFileNavigationPersistence(options =>
-{
-    options.BaseUri = new Uri("https://example.com/");
-});
-```
-
-For cold start, prefer app links over snapshots. Register `AddMauiRouterStartup` and call `IMauiRouterStartupService.StartAsync(window)` from `CreateWindow`; the service checks buffered app links before restoring and skips restore/fallback when an app link is pending.
+For cold start, register `AddMauiRouterStartup` and call `IMauiRouterStartupService.StartAsync(window)` from `CreateWindow`; the service checks buffered app links before fallback navigation and records whether deferred requests are pending.
 
 ### Diagnostics
 
-`NavigationDiagnostics` emits events for route matching, policies, planning, presentation, persistence/restore, MAUI startup, reconciliation, back navigation, app-link delivery, and failures.
+`NavigationDiagnostics` emits events for route matching, policies, planning, presentation, MAUI startup, reconciliation, back navigation, app-link delivery, and failures.
 
 ```csharp
 var diagnostics = new NavigationDiagnostics();
@@ -1485,22 +1460,17 @@ NavigationDiagnosticDataKeys.BranchId
 NavigationDiagnosticDataKeys.RouteEntryId
 NavigationDiagnosticDataKeys.ModalId
 NavigationDiagnosticDataKeys.HandlerName
-NavigationDiagnosticDataKeys.SnapshotVersion
-NavigationDiagnosticDataKeys.SnapshotAgeMs
-NavigationDiagnosticDataKeys.SnapshotWindowCount
-NavigationDiagnosticDataKeys.SnapshotHistoryCount
-NavigationDiagnosticDataKeys.SnapshotStoreType
-NavigationDiagnosticDataKeys.RestoreReason
 NavigationDiagnosticDataKeys.StartupOutcome
+NavigationDiagnosticDataKeys.StartupDeferredRequestPending
 NavigationDiagnosticDataKeys.AppLinkGraceMs
 ```
 
 Observer interface:
 
 ```csharp
-public sealed class LoggingNavigationObserver : INavigationObserver
+public sealed class LoggingNavigationObserver : INavigationDiagnosticObserver
 {
-    public void OnNavigationEvent(NavigationDiagnosticEvent diagnosticEvent)
+    public void OnNavigationDiagnosticEvent(NavigationDiagnosticEvent diagnosticEvent)
     {
         Console.WriteLine($"{diagnosticEvent.Timestamp:o} {diagnosticEvent.Kind}");
     }
@@ -1568,19 +1538,9 @@ PresentationHandlerDetached
 PresentationPresenterDisposed
 PresentationCompleted
 PresentationFailed
-SnapshotSaveStarted
-SnapshotSaved
-SnapshotSaveFailed
-SnapshotLoadStarted
-SnapshotLoaded
-SnapshotLoadFailed
-RestoreStarted
-RestoreCompleted
-RestoreRejected
-RestoreFailed
 StartupStarted
 StartupAppLinkPending
-StartupRestoreSkipped
+StartupDeferredRequestPending
 StartupFallbackNavigated
 StartupCompleted
 StartupFailed
@@ -1704,7 +1664,7 @@ builder.Services.AddMauiRouterStartup(options =>
 {
     options.FallbackRequestFactory = (_, _) =>
         ValueTask.FromResult<RouterNavigationRequest?>(
-            RouterNavigationRequest.FromUri(startupUri, NavigationRequestSource.Restore));
+            RouterNavigationRequest.FromUri(startupUri, NavigationRequestSource.InAppCommand));
 });
 ```
 
@@ -2003,7 +1963,7 @@ var plan = new NavigationPlan(nextState, NavigationPlanKind.Navigate, "Open cart
 
 ### Unit Test Navigation Without MAUI
 
-Use `AdamE.MauiRouter.Testing` for framework-neutral route, planner, navigator, diagnostics, state, and snapshot serializer helpers. The testing package has no MAUI or test-framework dependency.
+Use `AdamE.MauiRouter.Testing` for framework-neutral route, planner, navigator, diagnostics, and state helpers. The testing package has no MAUI or test-framework dependency.
 
 Route table tests:
 
@@ -2072,7 +2032,7 @@ NavigationStateAssert.StackRouteTypes(
 Diagnostics capture:
 
 ```csharp
-var observer = new RecordingNavigationObserver();
+var observer = new RecordingNavigationDiagnosticObserver();
 var diagnostics = new NavigationDiagnostics();
 diagnostics.AddObserver(observer);
 
@@ -2098,7 +2058,7 @@ await navigator.NavigateAsync(
 var matched = observer.Single(NavigationDiagnosticEventKind.RouteMatched);
 ```
 
-Snapshot serializer helpers:
+Deferred request serializer coverage:
 
 ```csharp
 var routeTable = RouteTable.Create(routes => routes
@@ -2113,13 +2073,14 @@ var routeTable = RouteTable.Create(routes => routes
             .PathParam("storeId", route => route.StoreId)
             .PathParam("productId", route => route.ProductId)));
 
-var serializer = new NavigationSnapshotTestSerializer(routeTable);
-var snapshot = serializer.CreateSnapshot(state, NavigationHistory.Empty);
-var restored = serializer.Restore(snapshot);
+var serializer = new DeferredNavigationRequestSerializer(routeTable);
+var request = RouterNavigationRequest.FromRoute(
+    new ProductDetailRoute("northwind", 123),
+    NavigationRequestSource.AppLink);
+var snapshot = serializer.CreateSnapshot([request]);
+var restored = Assert.Single(serializer.Restore(snapshot));
 
-Assert.True(restored.Accepted);
-Assert.Equal(state, restored.State);
-Assert.Equal(NavigationHistory.Empty, restored.History);
+Assert.Equal(request.Route, restored.Route);
 ```
 
 ### Observe Diagnostics In Tests

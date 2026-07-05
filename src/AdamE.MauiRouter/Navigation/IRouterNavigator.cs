@@ -1,5 +1,4 @@
 using AdamE.MauiRouter.History;
-using AdamE.MauiRouter.Persistence;
 using AdamE.MauiRouter.Presentation;
 using AdamE.MauiRouter.Requests;
 using AdamE.MauiRouter.State;
@@ -191,31 +190,5 @@ public interface IRouterNavigator
     /// </remarks>
     ValueTask<NavigationResult> ReconcileAsync(
         NavigationReconciliation reconciliation,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Restores the router state from a previously captured navigation snapshot.
-    /// </summary>
-    /// <param name="snapshot">The persisted navigation snapshot to restore.</param>
-    /// <param name="options">
-    /// Optional restore behavior, or <see langword="null"/> to use default restore behavior.
-    /// </param>
-    /// <param name="cancellationToken">A token that can cancel the restore operation.</param>
-    /// <returns>A value task that completes with the restore result.</returns>
-    ValueTask<NavigationRestoreResult> RestoreAsync(
-        NavigationSnapshot snapshot,
-        NavigationRestoreOptions? options = null,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Restores the router state by loading the latest snapshot from the configured navigation state store.
-    /// </summary>
-    /// <param name="options">
-    /// Optional restore behavior, or <see langword="null"/> to use default restore behavior.
-    /// </param>
-    /// <param name="cancellationToken">A token that can cancel the restore operation.</param>
-    /// <returns>A value task that completes with the restore result.</returns>
-    ValueTask<NavigationRestoreResult> RestoreFromStoreAsync(
-        NavigationRestoreOptions? options = null,
         CancellationToken cancellationToken = default);
 }

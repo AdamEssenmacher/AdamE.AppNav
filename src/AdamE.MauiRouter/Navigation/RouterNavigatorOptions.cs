@@ -1,7 +1,6 @@
 using AdamE.MauiRouter.Diagnostics;
 using AdamE.MauiRouter.Back;
 using AdamE.MauiRouter.History;
-using AdamE.MauiRouter.Persistence;
 using AdamE.MauiRouter.Policies;
 using AdamE.MauiRouter.State;
 using Microsoft.Extensions.Logging;
@@ -27,8 +26,6 @@ internal sealed class RouterNavigatorOptions
     public int MaxRedirects { get; set; } = 16;
 
     public int MaxHistoryEntries { get; set; } = 128;
-
-    public NavigationPersistenceOptions? Persistence { get; set; }
 
     public ILogger? Logger { get; set; }
 

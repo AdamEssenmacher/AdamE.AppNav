@@ -2,7 +2,6 @@ using System.Reflection;
 using AdamE.MauiRouter.Diagnostics;
 using AdamE.MauiRouter.Maui;
 using AdamE.MauiRouter.Navigation;
-using AdamE.MauiRouter.Persistence;
 using AdamE.MauiRouter.Plans;
 using AdamE.MauiRouter.Requests;
 
@@ -38,35 +37,6 @@ public sealed class PublicApiContractTests
                 "AdamE.MauiRouter.Navigation.RouteRedirectLoopException",
                 "AdamE.MauiRouter.Navigation.RouterNavigatorFactory",
                 "AdamE.MauiRouter.Navigation.RouterNavigatorFactoryOptions",
-                "AdamE.MauiRouter.Persistence.BranchHostNodeSnapshot",
-                "AdamE.MauiRouter.Persistence.FadeNavigationTransitionSnapshot",
-                "AdamE.MauiRouter.Persistence.INavigationRestorePolicy",
-                "AdamE.MauiRouter.Persistence.INavigationSnapshotMetadataSerializer",
-                "AdamE.MauiRouter.Persistence.INavigationStateStore",
-                "AdamE.MauiRouter.Persistence.ModalNodeSnapshot",
-                "AdamE.MauiRouter.Persistence.NavigationBranchSnapshot",
-                "AdamE.MauiRouter.Persistence.NavigationHistoryEntrySnapshot",
-                "AdamE.MauiRouter.Persistence.NavigationHistorySnapshot",
-                "AdamE.MauiRouter.Persistence.NavigationMetadataValueSnapshot",
-                "AdamE.MauiRouter.Persistence.NavigationNodeSnapshot",
-                "AdamE.MauiRouter.Persistence.NavigationPersistenceOptions",
-                "AdamE.MauiRouter.Persistence.NavigationRequestProvenanceSnapshot",
-                "AdamE.MauiRouter.Persistence.NavigationRequestSnapshot",
-                "AdamE.MauiRouter.Persistence.NavigationRestoreContext",
-                "AdamE.MauiRouter.Persistence.NavigationRestoreDecision",
-                "AdamE.MauiRouter.Persistence.NavigationRestoreOptions",
-                "AdamE.MauiRouter.Persistence.NavigationRestoreResult",
-                "AdamE.MauiRouter.Persistence.NavigationSnapshot",
-                "AdamE.MauiRouter.Persistence.NavigationStateSnapshot",
-                "AdamE.MauiRouter.Persistence.NavigationTransitionSnapshot",
-                "AdamE.MauiRouter.Persistence.NoNavigationTransitionSnapshot",
-                "AdamE.MauiRouter.Persistence.PlatformDefaultNavigationTransitionSnapshot",
-                "AdamE.MauiRouter.Persistence.RouteEntrySnapshot",
-                "AdamE.MauiRouter.Persistence.SharedElementNavigationTransitionSnapshot",
-                "AdamE.MauiRouter.Persistence.SharedElementPairSnapshot",
-                "AdamE.MauiRouter.Persistence.SlideNavigationTransitionSnapshot",
-                "AdamE.MauiRouter.Persistence.StackNodeSnapshot",
-                "AdamE.MauiRouter.Persistence.WindowNodeSnapshot",
                 "AdamE.MauiRouter.Planning.BranchHostNavigationModelBuilder`1",
                 "AdamE.MauiRouter.Planning.BranchHostNavigationModel`1",
                 "AdamE.MauiRouter.Planning.BranchHostRouteRecipeBuilder`2",
@@ -109,8 +79,12 @@ public sealed class PublicApiContractTests
                 "AdamE.MauiRouter.Requests.DeferredNavigationRequestStoreSnapshot",
                 "AdamE.MauiRouter.Requests.IDeferredNavigationRequestReplayer",
                 "AdamE.MauiRouter.Requests.IDeferredNavigationRequestStore",
+                "AdamE.MauiRouter.Requests.INavigationRequestMetadataSerializer",
                 "AdamE.MauiRouter.Requests.InMemoryDeferredNavigationRequestStore",
+                "AdamE.MauiRouter.Requests.NavigationMetadataValueSnapshot",
                 "AdamE.MauiRouter.Requests.NavigationRequestProvenance",
+                "AdamE.MauiRouter.Requests.NavigationRequestProvenanceSnapshot",
+                "AdamE.MauiRouter.Requests.NavigationRequestSnapshot",
                 "AdamE.MauiRouter.Requests.NavigationRequestSource",
                 "AdamE.MauiRouter.Requests.RouterNavigationDisposition",
                 "AdamE.MauiRouter.Requests.RouterNavigationRequest",
@@ -144,7 +118,6 @@ public sealed class PublicApiContractTests
     public void PublicResultTypesUseValueSemantics()
     {
         Assert.True(typeof(BackNavigationResult).IsValueType);
-        Assert.True(typeof(NavigationRestoreDecision).IsValueType);
         Assert.True(typeof(DeferredNavigationReplayResult).IsValueType);
     }
 
@@ -191,27 +164,8 @@ public sealed class PublicApiContractTests
             firstParameterType == typeof(Presentation.NavigationReconciliation) &&
             secondParameterType == typeof(CancellationToken));
 
-        Assert.Contains(methods, static method =>
-            method.Name == nameof(IRouterNavigator.RestoreAsync) &&
-            method.GetParameters() is
-            [
-                { ParameterType: var firstParameterType },
-                { ParameterType: var secondParameterType },
-                { ParameterType: var thirdParameterType }
-            ] &&
-            firstParameterType == typeof(Persistence.NavigationSnapshot) &&
-            secondParameterType == typeof(Persistence.NavigationRestoreOptions) &&
-            thirdParameterType == typeof(CancellationToken));
-
-        Assert.Contains(methods, static method =>
-            method.Name == nameof(IRouterNavigator.RestoreFromStoreAsync) &&
-            method.GetParameters() is
-            [
-                { ParameterType: var firstParameterType },
-                { ParameterType: var secondParameterType }
-            ] &&
-            firstParameterType == typeof(Persistence.NavigationRestoreOptions) &&
-            secondParameterType == typeof(CancellationToken));
+        Assert.DoesNotContain(methods, static method => method.Name == "RestoreAsync");
+        Assert.DoesNotContain(methods, static method => method.Name == "RestoreFromStoreAsync");
 
         Assert.Equal(
             3,

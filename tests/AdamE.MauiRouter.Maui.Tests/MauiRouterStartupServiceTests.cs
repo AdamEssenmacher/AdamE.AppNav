@@ -5,7 +5,6 @@ using AdamE.MauiRouter.History;
 using AdamE.MauiRouter.Maui.AppLinks;
 using AdamE.MauiRouter.Maui.Requests;
 using AdamE.MauiRouter.Navigation;
-using AdamE.MauiRouter.Persistence;
 using AdamE.MauiRouter.Plans;
 using AdamE.MauiRouter.Presentation;
 using AdamE.MauiRouter.Requests;
@@ -39,7 +38,6 @@ public sealed class MauiRouterStartupServiceTests
             new MauiRouterStartupOptions
             {
                 AppLinkGracePeriod = TimeSpan.Zero,
-                RestoreFromStore = false,
                 FallbackRequestFactory = static (_, _) => ValueTask.FromResult<RouterNavigationRequest?>(
                     RouterNavigationRequest.FromRoute(
                         new TestRoute("fallback"),
@@ -57,7 +55,7 @@ public sealed class MauiRouterStartupServiceTests
     }
 
     [Fact]
-    public async Task StartAsync_PendingAppLink_SkipsRestoreAndFallbackAndAttachesWindow()
+    public async Task StartAsync_PendingAppLink_SkipsFallbackAndAttachesWindow()
     {
         var diagnostics = new NavigationDiagnostics();
         var navigator = new RecordingRouterNavigator();
@@ -76,7 +74,6 @@ public sealed class MauiRouterStartupServiceTests
             new MauiRouterStartupOptions
             {
                 AppLinkGracePeriod = TimeSpan.Zero,
-                RestoreFromStore = true,
                 FallbackRequestFactory = static (_, _) => ValueTask.FromResult<RouterNavigationRequest?>(
                     RouterNavigationRequest.FromRoute(
                         new TestRoute("fallback"),
@@ -89,9 +86,49 @@ public sealed class MauiRouterStartupServiceTests
 
         Assert.Equal(MauiRouterStartupOutcome.AppLinkPending, result.Outcome);
         Assert.Empty(navigator.NavigateCalls);
-        Assert.Equal(0, navigator.RestoreFromStoreCalls);
         Assert.Equal(1, windowAttachment.AttachCalls);
         Assert.True(dispatcher.HasPendingRequests);
+    }
+
+    [Fact]
+    public async Task StartAsync_DeferredRequestsPending_WritesDiagnosticAndRunsFallback()
+    {
+        var diagnostics = new NavigationDiagnostics();
+        var events = new List<NavigationDiagnosticEvent>();
+        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+        var navigator = new RecordingRouterNavigator();
+        var deferredStore = new RecordingDeferredRequestStore { HasDeferredRequestsResult = true };
+        var services = new ServiceCollection()
+            .AddSingleton<IRouterNavigator>(navigator)
+            .AddSingleton(diagnostics)
+            .AddSingleton<IDeferredNavigationRequestStore>(deferredStore)
+            .BuildServiceProvider();
+        var dispatcher = new MauiExternalNavigationDispatcher(services, diagnostics);
+        var windowAttachment = new RecordingWindowAttachment();
+        var startup = new MauiRouterStartupService(
+            navigator,
+            windowAttachment,
+            dispatcher,
+            new MauiRouterStartupOptions
+            {
+                AppLinkGracePeriod = TimeSpan.Zero,
+                FallbackRequestFactory = static (_, _) => ValueTask.FromResult<RouterNavigationRequest?>(
+                    RouterNavigationRequest.FromRoute(
+                        new TestRoute("fallback"),
+                        NavigationRequestSource.InAppCommand))
+            },
+            services,
+            diagnostics);
+
+        var result = await StartOnMainThreadAsync(startup, new Window(new ContentPage()));
+
+        Assert.Equal(MauiRouterStartupOutcome.FallbackNavigated, result.Outcome);
+        Assert.Equal(1, deferredStore.HasDeferredRequestsCalls);
+        Assert.Single(navigator.NavigateCalls);
+        Assert.Contains(events, diagnosticEvent =>
+            diagnosticEvent.Kind == NavigationDiagnosticEventKind.StartupDeferredRequestPending &&
+            diagnosticEvent.Data.TryGetValue(NavigationDiagnosticDataKeys.StartupDeferredRequestPending, out var pending) &&
+            Equals(pending, true));
     }
 
     [Fact]
@@ -121,7 +158,6 @@ public sealed class MauiRouterStartupServiceTests
             new MauiRouterStartupOptions
             {
                 AppLinkGracePeriod = TimeSpan.Zero,
-                RestoreFromStore = false,
                 FallbackRequestFactory = static (_, _) => ValueTask.FromResult<RouterNavigationRequest?>(
                     RouterNavigationRequest.FromRoute(
                         new TestRoute("fallback"),
@@ -140,8 +176,8 @@ public sealed class MauiRouterStartupServiceTests
         Assert.DoesNotContain(events, diagnosticEvent =>
             diagnosticEvent.Kind == NavigationDiagnosticEventKind.StartupDeferredRequestPending);
         Assert.Contains(events, diagnosticEvent =>
-            diagnosticEvent.Data.TryGetValue(NavigationDiagnosticDataKeys.RestoreReason, out var restoreReason) &&
-            Equals(restoreReason, "deferred-request-store-invalid") &&
+            diagnosticEvent.Data.TryGetValue(NavigationDiagnosticDataKeys.StartupDeferredRequestPending, out var pending) &&
+            Equals(pending, false) &&
             diagnosticEvent.Data.TryGetValue(NavigationDiagnosticDataKeys.ExceptionType, out var exceptionType) &&
             Equals(exceptionType, typeof(JsonException).FullName));
     }
@@ -184,7 +220,6 @@ public sealed class MauiRouterStartupServiceTests
                 new MauiRouterStartupOptions
                 {
                     AppLinkGracePeriod = TimeSpan.Zero,
-                    RestoreFromStore = false,
                     FallbackRequestFactory = static (_, _) => ValueTask.FromResult<RouterNavigationRequest?>(
                         RouterNavigationRequest.FromRoute(
                             new TestRoute("fallback"),
@@ -205,8 +240,8 @@ public sealed class MauiRouterStartupServiceTests
             Assert.DoesNotContain(events, diagnosticEvent =>
                 diagnosticEvent.Kind == NavigationDiagnosticEventKind.StartupDeferredRequestPending);
             Assert.Contains(events, diagnosticEvent =>
-                diagnosticEvent.Data.TryGetValue(NavigationDiagnosticDataKeys.RestoreReason, out var restoreReason) &&
-                Equals(restoreReason, "deferred-request-store-invalid") &&
+                diagnosticEvent.Data.TryGetValue(NavigationDiagnosticDataKeys.StartupDeferredRequestPending, out var pending) &&
+                Equals(pending, false) &&
                 diagnosticEvent.Data.TryGetValue(NavigationDiagnosticDataKeys.ExceptionType, out var exceptionType) &&
                 Equals(exceptionType, typeof(JsonException).FullName));
         }
@@ -242,7 +277,6 @@ public sealed class MauiRouterStartupServiceTests
             new MauiRouterStartupOptions
             {
                 AppLinkGracePeriod = TimeSpan.Zero,
-                RestoreFromStore = false,
                 FallbackRequestFactory = static (_, _) => ValueTask.FromResult<RouterNavigationRequest?>(
                     RouterNavigationRequest.FromRoute(
                         new TestRoute("fallback"),
@@ -262,24 +296,9 @@ public sealed class MauiRouterStartupServiceTests
     }
 
     [Fact]
-    public async Task StartAsync_RestoreFromStore_UsesInjectedRouterNavigator()
+    public async Task StartAsync_NoFallbackRequest_AttachesWindowWithoutNavigation()
     {
-        var restoreState = new NavigationState(
-            [
-                new WindowNode(
-                    "main",
-                    new StackNode(
-                        "main-stack",
-                        [new RouteEntry("tests:restore", new TestRoute("restore"))]))
-            ],
-            "main");
-        var navigator = new RecordingRouterNavigator
-        {
-            RestoreFromStoreResult = NavigationRestoreResult.AcceptedResult(
-                restoreState,
-                NavigationHistory.Empty,
-                presented: false)
-        };
+        var navigator = new RecordingRouterNavigator();
         var services = new ServiceCollection()
             .AddSingleton<IRouterNavigator>(navigator)
             .AddSingleton(new NavigationDiagnostics())
@@ -294,16 +313,14 @@ public sealed class MauiRouterStartupServiceTests
             dispatcher,
             new MauiRouterStartupOptions
             {
-                AppLinkGracePeriod = TimeSpan.Zero,
-                RestoreFromStore = true
+                AppLinkGracePeriod = TimeSpan.Zero
             },
             services,
             services.GetRequiredService<NavigationDiagnostics>());
 
         var result = await StartOnMainThreadAsync(startup, new Window(new ContentPage()));
 
-        Assert.Equal(MauiRouterStartupOutcome.Restored, result.Outcome);
-        Assert.Equal(1, navigator.RestoreFromStoreCalls);
+        Assert.Equal(MauiRouterStartupOutcome.NoNavigation, result.Outcome);
         Assert.Empty(navigator.NavigateCalls);
         Assert.Equal(1, windowAttachment.AttachCalls);
     }
@@ -359,6 +376,8 @@ public sealed class MauiRouterStartupServiceTests
 
         public Exception? ClearException { get; init; }
 
+        public bool HasDeferredRequestsResult { get; init; }
+
         public int HasDeferredRequestsCalls { get; private set; }
 
         public int ClearCalls { get; private set; }
@@ -371,7 +390,7 @@ public sealed class MauiRouterStartupServiceTests
                 throw HasDeferredRequestsException;
             }
 
-            return ValueTask.FromResult(false);
+            return ValueTask.FromResult(HasDeferredRequestsResult);
         }
 
         public ValueTask EnqueueAsync(
@@ -407,11 +426,6 @@ public sealed class MauiRouterStartupServiceTests
     {
         public List<RouterNavigationRequest> NavigateCalls { get; } = [];
 
-        public int RestoreFromStoreCalls { get; private set; }
-
-        public NavigationRestoreResult RestoreFromStoreResult { get; init; } =
-            NavigationRestoreResult.Rejected("not-configured");
-
         public NavigationState CurrentState => NavigationState.Empty;
 
         public NavigationHistory History => NavigationHistory.Empty;
@@ -440,15 +454,6 @@ public sealed class MauiRouterStartupServiceTests
 
         public ValueTask<BackNavigationResult> BackAsync(string? windowId = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<NavigationResult> ReconcileAsync(NavigationReconciliation reconciliation, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public ValueTask<NavigationRestoreResult> RestoreAsync(NavigationSnapshot snapshot, NavigationRestoreOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-
-        public ValueTask<NavigationRestoreResult> RestoreFromStoreAsync(
-            NavigationRestoreOptions? options = null,
-            CancellationToken cancellationToken = default)
-        {
-            RestoreFromStoreCalls++;
-            return ValueTask.FromResult(RestoreFromStoreResult);
-        }
     }
 
     private static string CreateStoreDirectory()
