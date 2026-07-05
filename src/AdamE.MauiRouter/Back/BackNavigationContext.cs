@@ -55,7 +55,7 @@ public sealed record BackNavigationContext
     public string OperationId { get; }
 
     /// <summary>
-    /// Gets the window that should handle back navigation, if one could be resolved.
+    /// Gets the window that should handle back navigation if one could be resolved.
     /// </summary>
     /// <remarks>
     /// Null or blank requested window ids resolve through <see cref="NavigationState.ActiveWindow"/>.
