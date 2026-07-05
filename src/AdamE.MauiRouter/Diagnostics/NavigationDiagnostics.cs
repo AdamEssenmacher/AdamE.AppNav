@@ -56,7 +56,9 @@ public sealed class NavigationDiagnostics
                 return;
 
             lock (_gate)
+            {
                 _eventWritten += value;
+            }
         }
 
         remove
@@ -65,12 +67,14 @@ public sealed class NavigationDiagnostics
                 return;
 
             lock (_gate)
+            {
                 _eventWritten -= value;
+            }
         }
     }
 
     /// <summary>
-    /// Adds an observer that will receive subsequent navigation diagnostic events.
+    /// Adds an observer that will receive later navigation diagnostic events.
     /// </summary>
     /// <param name="observer">The observer to notify when events are written.</param>
     /// <remarks>
@@ -133,7 +137,6 @@ public sealed class NavigationDiagnostics
 
         // Observer callbacks must never become part of the navigation control flow.
         if (eventWritten is not null)
-        {
             foreach (Delegate handler in eventWritten.GetInvocationList())
             {
                 if (handler is not EventHandler<NavigationDiagnosticEvent> eventHandler)
@@ -148,10 +151,8 @@ public sealed class NavigationDiagnostics
                     WriteObserverFailure(kind, operationId, ex);
                 }
             }
-        }
 
         foreach (INavigationDiagnosticObserver observer in observers)
-        {
             try
             {
                 observer.OnNavigationDiagnosticEvent(diagnosticEvent);
@@ -160,7 +161,6 @@ public sealed class NavigationDiagnostics
             {
                 WriteObserverFailure(kind, operationId, ex);
             }
-        }
     }
 
     // Observer failure events are mirrored to logger/activity and event handlers only. Sending
@@ -284,14 +284,14 @@ public sealed class NavigationDiagnostics
             ? LogLevel.Error
             : kind is NavigationDiagnosticEventKind.RouteNotMatched or NavigationDiagnosticEventKind.BackUnhandled
                 ? LogLevel.Warning
-            : kind is NavigationDiagnosticEventKind.PresentationPageCreated or
-                NavigationDiagnosticEventKind.PresentationPageReleased or
-                NavigationDiagnosticEventKind.PresentationHandlerAttached or
-                NavigationDiagnosticEventKind.PresentationHandlerDetached
-                ? LogLevel.Debug
-                : kind.ToString().EndsWith("Started", StringComparison.Ordinal)
+                : kind is NavigationDiagnosticEventKind.PresentationPageCreated or
+                    NavigationDiagnosticEventKind.PresentationPageReleased or
+                    NavigationDiagnosticEventKind.PresentationHandlerAttached or
+                    NavigationDiagnosticEventKind.PresentationHandlerDetached
                     ? LogLevel.Debug
-                    : LogLevel.Information;
+                    : kind.ToString().EndsWith("Started", StringComparison.Ordinal)
+                        ? LogLevel.Debug
+                        : LogLevel.Information;
     }
 
     private static NavigationDiagnosticPhase InferPhase(NavigationDiagnosticEventKind kind)
