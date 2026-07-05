@@ -1,6 +1,5 @@
 using AdamE.MauiRouter.Back;
 using AdamE.MauiRouter.Diagnostics;
-using AdamE.MauiRouter.History;
 using AdamE.MauiRouter.Policies;
 using AdamE.MauiRouter.State;
 using Microsoft.Extensions.Logging;
@@ -20,11 +19,6 @@ public sealed class RouterNavigatorFactoryOptions
     /// Gets the initial router state, or <see langword="null"/> to start with an empty state.
     /// </summary>
     public NavigationState? InitialState { get; init; }
-
-    /// <summary>
-    /// Gets the initial logical navigation history, or <see langword="null"/> to start with empty history.
-    /// </summary>
-    public NavigationHistory? InitialHistory { get; init; }
 
     /// <summary>
     /// Gets the request policies applied before route planning.

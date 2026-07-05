@@ -1,6 +1,5 @@
 using AdamE.MauiRouter.Back;
 using AdamE.MauiRouter.Diagnostics;
-using AdamE.MauiRouter.History;
 using AdamE.MauiRouter.Navigation;
 using AdamE.MauiRouter.Plans;
 using AdamE.MauiRouter.Policies;
@@ -13,8 +12,6 @@ namespace AdamE.MauiRouter.Testing;
 public sealed class RouterTestNavigatorOptions
 {
     public NavigationState? InitialState { get; set; }
-
-    public NavigationHistory? InitialHistory { get; set; }
 
     public IReadOnlyList<INavigationRequestPolicy> RequestPolicies { get; set; } = Array.Empty<INavigationRequestPolicy>();
 
@@ -47,7 +44,6 @@ public static class RouterTestNavigator
             new RouterNavigatorOptions
             {
                 InitialState = options.InitialState,
-                InitialHistory = options.InitialHistory,
                 RequestPolicies = options.RequestPolicies,
                 FallbackRouteFactory = options.FallbackRouteFactory,
                 Diagnostics = options.Diagnostics,
