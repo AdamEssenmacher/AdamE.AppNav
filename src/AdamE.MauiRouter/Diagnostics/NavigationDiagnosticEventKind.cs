@@ -136,6 +136,11 @@ public enum NavigationDiagnosticEventKind
     PresentationTransitionFallback,
 
     /// <summary>
+    /// Presentation completed native operations but the live host tree did not match the target navigation state.
+    /// </summary>
+    PresentationVerificationFailed,
+
+    /// <summary>
     /// Presentation completed successfully.
     /// </summary>
     PresentationCompleted,

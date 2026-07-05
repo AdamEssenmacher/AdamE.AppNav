@@ -188,13 +188,17 @@ public sealed class TestingHarnessTests
         {
             ThrowOnApply = new InvalidOperationException("Presentation failed.")
         };
+        var diagnostics = new NavigationDiagnostics();
+        var events = new List<NavigationDiagnosticEventKind>();
+        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent.Kind);
         var navigator = new RouterNavigator(
             TestRoutes.CreateTable(),
             TestNavigationPlanner.EchoStack(),
             presenter,
             new RouterNavigatorOptions
             {
-                InitialState = initialState
+                InitialState = initialState,
+                Diagnostics = diagnostics
             });
         var reconciledState = TestNavigationState.State(
             "main",
@@ -213,6 +217,10 @@ public sealed class TestingHarnessTests
         Assert.Equal(1, presenter.ApplyCount);
         Assert.Equal(initialState, navigator.CurrentState);
         Assert.Empty(navigator.History.Entries);
+        Assert.Contains(NavigationDiagnosticEventKind.PresentationFailed, events);
+        Assert.Contains(NavigationDiagnosticEventKind.ReconciliationFailed, events);
+        Assert.DoesNotContain(NavigationDiagnosticEventKind.PresentationCompleted, events);
+        Assert.DoesNotContain(NavigationDiagnosticEventKind.ReconciliationCompleted, events);
     }
 
     [Fact]

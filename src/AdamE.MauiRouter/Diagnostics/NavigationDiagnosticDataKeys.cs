@@ -171,6 +171,21 @@ public static class NavigationDiagnosticDataKeys
     public const string ModalId = "modalId";
 
     /// <summary>
+    /// Logical presentation tree path where verification found a mismatch.
+    /// </summary>
+    public const string PresentationPath = "presentationPath";
+
+    /// <summary>
+    /// Expected presentation value when verifying a target navigation state.
+    /// </summary>
+    public const string PresentationExpected = "presentationExpected";
+
+    /// <summary>
+    /// Actual presentation value observed in the host tree during verification.
+    /// </summary>
+    public const string PresentationActual = "presentationActual";
+
+    /// <summary>
     /// Name of a lifecycle or presentation handler.
     /// </summary>
     public const string HandlerName = "handlerName";
