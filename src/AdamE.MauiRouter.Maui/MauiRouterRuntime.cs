@@ -27,6 +27,12 @@ internal sealed class MauiRouterRuntime(
 
     public NavigationHistory History => navigator.History;
 
+    public event EventHandler<NavigationCommittedEventArgs>? NavigationCommitted
+    {
+        add => navigator.NavigationCommitted += value;
+        remove => navigator.NavigationCommitted -= value;
+    }
+
     public ValueTask<NavigationResult> NavigateAsync(
         Uri uri,
         NavigationRequestSource source = NavigationRequestSource.InAppCommand,

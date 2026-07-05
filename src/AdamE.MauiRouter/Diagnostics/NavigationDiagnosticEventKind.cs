@@ -276,6 +276,11 @@ public enum NavigationDiagnosticEventKind
     NavigationFailed,
 
     /// <summary>
+    /// A navigation committed event handler threw while handling a committed navigation event.
+    /// </summary>
+    NavigationCommittedHandlerFailed,
+
+    /// <summary>
     /// An app link was received by a platform adapter or app-link dispatcher.
     /// </summary>
     AppLinkReceived,

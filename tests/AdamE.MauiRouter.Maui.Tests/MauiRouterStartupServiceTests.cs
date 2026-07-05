@@ -416,6 +416,12 @@ public sealed class MauiRouterStartupServiceTests
 
         public NavigationHistory History => NavigationHistory.Empty;
 
+        public event EventHandler<NavigationCommittedEventArgs>? NavigationCommitted
+        {
+            add { }
+            remove { }
+        }
+
         public ValueTask<NavigationResult> NavigateAsync(Uri uri, NavigationRequestSource source = NavigationRequestSource.InAppCommand, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<NavigationResult> NavigateAsync(Uri uri, NavigationRequestSource source, RouterNavigationDisposition disposition, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<NavigationResult> NavigateAsync(Uri uri, RouterNavigationDisposition disposition, CancellationToken cancellationToken = default) => throw new NotSupportedException();

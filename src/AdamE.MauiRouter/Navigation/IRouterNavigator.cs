@@ -33,6 +33,15 @@ public interface IRouterNavigator
     NavigationHistory History { get; }
 
     /// <summary>
+    /// Occurs after the router accepts an operation and commits the resulting state and history.
+    /// </summary>
+    /// <remarks>
+    /// The event is raised once per accepted commit, after the router operation lock has been
+    /// released. It is not raised for rejected, unhandled, cancelled, or failed operations.
+    /// </remarks>
+    event EventHandler<NavigationCommittedEventArgs>? NavigationCommitted;
+
+    /// <summary>
     /// Navigates from a URI using the specified request source.
     /// </summary>
     /// <param name="uri">The URI to match against the configured route table.</param>

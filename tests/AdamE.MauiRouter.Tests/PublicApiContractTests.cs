@@ -32,6 +32,8 @@ public sealed class PublicApiContractTests
                 "AdamE.MauiRouter.History.NavigationHistoryEntry",
                 "AdamE.MauiRouter.Navigation.BackNavigationResult",
                 "AdamE.MauiRouter.Navigation.IRouterNavigator",
+                "AdamE.MauiRouter.Navigation.NavigationCommitKind",
+                "AdamE.MauiRouter.Navigation.NavigationCommittedEventArgs",
                 "AdamE.MauiRouter.Navigation.NavigationFallbackContext",
                 "AdamE.MauiRouter.Navigation.NavigationResult",
                 "AdamE.MauiRouter.Navigation.RouteRedirectLoopException",
@@ -178,6 +180,10 @@ public sealed class PublicApiContractTests
     public void RouterNavigatorInterfaceIncludesRuntimeNavigationSurface()
     {
         var methods = typeof(IRouterNavigator).GetMethods();
+        var navigationCommitted = Assert.Single(
+            typeof(IRouterNavigator).GetEvents(),
+            static eventInfo => eventInfo.Name == nameof(IRouterNavigator.NavigationCommitted));
+        Assert.Equal(typeof(EventHandler<NavigationCommittedEventArgs>), navigationCommitted.EventHandlerType);
 
         Assert.Contains(methods, static method =>
             method.Name == nameof(IRouterNavigator.ReconcileAsync) &&
