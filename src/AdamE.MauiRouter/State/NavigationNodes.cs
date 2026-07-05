@@ -7,6 +7,8 @@ namespace AdamE.MauiRouter.State;
 /// </summary>
 public sealed record RouteEntry
 {
+    private string _id = null!;
+    private AppRoute _route = null!;
     private IReadOnlyDictionary<string, object?>? _metadata;
 
     public RouteEntry(
@@ -20,14 +22,22 @@ public sealed record RouteEntry
     }
 
     /// <summary>
-    /// Gets the stable identifier of this route entry within its containing node.
+    /// Gets the stable presenter reuse identifier of this route entry within its containing stack.
     /// </summary>
-    public string Id { get; init; }
+    public string Id
+    {
+        get => _id;
+        init => _id = NavigationIdentity.RequiredId(value, nameof(Id));
+    }
 
     /// <summary>
     /// Gets the semantic application route represented by this entry.
     /// </summary>
-    public AppRoute Route { get; init; }
+    public AppRoute Route
+    {
+        get => _route;
+        init => _route = NavigationIdentity.Required(value, nameof(Route));
+    }
 
     /// <summary>
     /// Gets route-entry metadata captured in navigation state.
@@ -68,7 +78,17 @@ public sealed record StackNode : NavigationNode
     public IReadOnlyList<RouteEntry> Entries
     {
         get => _entries;
-        init => _entries = CollectionSnapshot.List(value);
+        init
+        {
+            var entries = NavigationIdentity.RequiredList(value, nameof(Entries));
+            NavigationIdentity.EnsureUniqueIds(
+                entries,
+                static entry => entry.Id,
+                nameof(Entries),
+                "route-entry id",
+                "Stack entries");
+            _entries = entries;
+        }
     }
 
     /// <summary>
@@ -89,6 +109,8 @@ public sealed record StackNode : NavigationNode
 public sealed record BranchHostNode : NavigationNode
 {
     private IReadOnlyList<NavigationBranch> _branches = CollectionSnapshot.List<NavigationBranch>(null);
+    private string _selectedBranchId = null!;
+    private string? _defaultBranchId;
 
     public BranchHostNode(
         string Id,
@@ -100,6 +122,7 @@ public sealed record BranchHostNode : NavigationNode
         this.Branches = Branches;
         this.SelectedBranchId = SelectedBranchId;
         this.DefaultBranchId = DefaultBranchId;
+        ValidateBranchReferences();
     }
 
     /// <summary>
@@ -108,18 +131,37 @@ public sealed record BranchHostNode : NavigationNode
     public IReadOnlyList<NavigationBranch> Branches
     {
         get => _branches;
-        init => _branches = CollectionSnapshot.List(value);
+        init
+        {
+            var branches = NavigationIdentity.RequiredList(value, nameof(Branches));
+            NavigationIdentity.EnsureNotEmpty(branches, nameof(Branches), "Branch hosts");
+            NavigationIdentity.EnsureUniqueIds(
+                branches,
+                static branch => branch.Id,
+                nameof(Branches),
+                "branch id",
+                "Branch host branches");
+            _branches = branches;
+        }
     }
 
     /// <summary>
     /// Gets the identifier of the branch currently selected by the host.
     /// </summary>
-    public string SelectedBranchId { get; init; }
+    public string SelectedBranchId
+    {
+        get => _selectedBranchId;
+        init => _selectedBranchId = NavigationIdentity.RequiredId(value, nameof(SelectedBranchId));
+    }
 
     /// <summary>
     /// Gets the branch identifier the host should return to for default-branch fallback behavior.
     /// </summary>
-    public string? DefaultBranchId { get; init; }
+    public string? DefaultBranchId
+    {
+        get => _defaultBranchId;
+        init => _defaultBranchId = NavigationIdentity.OptionalId(value, nameof(DefaultBranchId));
+    }
 
     /// <summary>
     /// Gets the branch currently selected by the host, if it still exists.
@@ -146,12 +188,32 @@ public sealed record BranchHostNode : NavigationNode
     /// <returns>A copy of this branch host with the matching branch replaced.</returns>
     public BranchHostNode ReplaceBranch(NavigationBranch branch)
     {
+        ArgumentNullException.ThrowIfNull(branch);
+
         return this with
         {
             Branches = Branches
                 .Select(candidate => StringComparer.Ordinal.Equals(candidate.Id, branch.Id) ? branch : candidate)
                 .ToArray()
         };
+    }
+
+    private void ValidateBranchReferences()
+    {
+        if (!Branches.Any(branch => StringComparer.Ordinal.Equals(branch.Id, SelectedBranchId)))
+        {
+            throw new ArgumentException(
+                $"Selected branch id '{SelectedBranchId}' must reference an existing branch.",
+                nameof(SelectedBranchId));
+        }
+
+        if (DefaultBranchId is not null &&
+            !Branches.Any(branch => StringComparer.Ordinal.Equals(branch.Id, DefaultBranchId)))
+        {
+            throw new ArgumentException(
+                $"Default branch id '{DefaultBranchId}' must reference an existing branch.",
+                nameof(DefaultBranchId));
+        }
     }
 }
 
@@ -164,7 +226,19 @@ public sealed record BranchHostNode : NavigationNode
 public sealed record ModalNode(
     string Id,
     RouteEntry RouteEntry,
-    NavigationNode? Content = null) : NavigationNode(Id);
+    NavigationNode? Content = null) : NavigationNode(Id)
+{
+    private readonly RouteEntry _routeEntry = NavigationIdentity.Required(RouteEntry, nameof(RouteEntry));
+
+    /// <summary>
+    /// Gets the route entry that represents the modal shell or route.
+    /// </summary>
+    public RouteEntry RouteEntry
+    {
+        get => _routeEntry;
+        init => _routeEntry = NavigationIdentity.Required(value, nameof(RouteEntry));
+    }
+}
 
 /// <summary>
 /// Represents the logical navigation tree owned by one application window.
@@ -194,7 +268,17 @@ public sealed record WindowNode : NavigationNode
     public IReadOnlyList<ModalNode> Modals
     {
         get => _modals;
-        init => _modals = CollectionSnapshot.List(value);
+        init
+        {
+            var modals = NavigationIdentity.OptionalList(value, nameof(Modals));
+            NavigationIdentity.EnsureUniqueIds(
+                modals,
+                static modal => modal.Id,
+                nameof(Modals),
+                "modal id",
+                "Window modals");
+            _modals = modals;
+        }
     }
 
     public void Deconstruct(

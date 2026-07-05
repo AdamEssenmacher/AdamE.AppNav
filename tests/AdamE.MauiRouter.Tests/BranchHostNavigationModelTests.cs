@@ -84,6 +84,31 @@ public sealed class BranchHostNavigationModelTests
     }
 
     [Fact]
+    public void TryCreateContextualState_PushExistingEntryRewindsOwningBranchAndPreservesUnrelatedBranches()
+    {
+        var model = CreateModel();
+        var currentState = model.CreateCanonicalState(new CatalogDetailRoute("scope-1", "detail-1"));
+        currentState = model.TryCreateContextualState(
+            currentState,
+            new OrdersDetailRoute("scope-1", "order-1"),
+            ContextualStackMutationKind.Push)!;
+        currentState = model.TryCreateContextualState(
+            currentState,
+            new CatalogAccessoryRoute("scope-1", "accessory-1"),
+            ContextualStackMutationKind.Push)!;
+
+        var nextState = model.TryCreateContextualState(
+            currentState,
+            new CatalogDetailRoute("scope-1", "detail-1"),
+            ContextualStackMutationKind.Push);
+
+        Assert.NotNull(nextState);
+        var branchHost = AssertBranchHost(nextState!, selectedBranchId: "catalog", "overview", "catalog", "orders");
+        AssertBranchRoutes(branchHost, "catalog", typeof(CatalogRootRoute), typeof(CatalogDetailRoute));
+        AssertBranchRoutes(branchHost, "orders", typeof(OrdersRootRoute), typeof(OrdersDetailRoute));
+    }
+
+    [Fact]
     public void TryCreateContextualState_ReplaceCurrentMutatesOnlyOwningBranch()
     {
         var model = CreateModel();
@@ -110,6 +135,35 @@ public sealed class BranchHostNavigationModelTests
                 var route = Assert.IsType<OrdersDetailRoute>(entry.Route);
                 Assert.Equal("order-2", route.OrderId);
             });
+    }
+
+    [Fact]
+    public void TryCreateContextualState_ReplaceTopExistingEntryRewindsOwningBranchAndPreservesUnrelatedBranches()
+    {
+        var model = CreateModel();
+        var currentState = model.CreateCanonicalState(new CatalogDetailRoute("scope-1", "detail-1"));
+        currentState = model.TryCreateContextualState(
+            currentState,
+            new OrdersDetailRoute("scope-1", "order-1"),
+            ContextualStackMutationKind.Push)!;
+        currentState = model.TryCreateContextualState(
+            currentState,
+            new CatalogAccessoryRoute("scope-1", "accessory-1"),
+            ContextualStackMutationKind.Push)!;
+        currentState = model.TryCreateContextualState(
+            currentState,
+            new CatalogAccessoryRoute("scope-1", "accessory-2"),
+            ContextualStackMutationKind.Push)!;
+
+        var nextState = model.TryCreateContextualState(
+            currentState,
+            new CatalogDetailRoute("scope-1", "detail-1"),
+            ContextualStackMutationKind.ReplaceTop);
+
+        Assert.NotNull(nextState);
+        var branchHost = AssertBranchHost(nextState!, selectedBranchId: "catalog", "overview", "catalog", "orders");
+        AssertBranchRoutes(branchHost, "catalog", typeof(CatalogRootRoute), typeof(CatalogDetailRoute));
+        AssertBranchRoutes(branchHost, "orders", typeof(OrdersRootRoute), typeof(OrdersDetailRoute));
     }
 
     [Fact]

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using AdamE.MauiRouter.Back;
 using AdamE.MauiRouter.Diagnostics;
 using AdamE.MauiRouter.History;
+using AdamE.MauiRouter.Internal;
 using AdamE.MauiRouter.Plans;
 using AdamE.MauiRouter.Policies;
 using AdamE.MauiRouter.Presentation;
@@ -51,6 +52,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         }
 
         CurrentState = options.InitialState ?? NavigationState.Empty;
+        NavigationStateValidator.ValidateState(CurrentState, "Router initial state");
         History = options.InitialHistory ?? NavigationHistory.Empty;
         _requestPolicies = options.RequestPolicies.ToArray();
         _fallbackRouteFactory = options.FallbackRouteFactory;
@@ -267,6 +269,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                 plan = await _planner.CreatePlanAsync(
                     new NavigationPlanningContext(effectiveRequest, route, CurrentState, operationId),
                     cancellationToken).ConfigureAwait(false);
+                NavigationStateValidator.ValidatePlan(plan, "App navigation planner");
                 Activity.Current?.SetTag("navigation.plan_kind", plan.Kind.ToString());
                 _diagnostics.Write(
                     NavigationDiagnosticEventKind.PlanningCompleted,
@@ -530,6 +533,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                 return BackNavigationResult.Unhandled;
             }
 
+            NavigationStateValidator.ValidatePlan(plan, $"Back navigator '{_backNavigator.GetType().Name}'");
             var resolvedWindowId = backContext.ResolvedWindowId ?? backContext.RequestedWindowId;
             var route = ResolvePresentedRoute(plan.TargetState, resolvedWindowId, new BackRoute());
             var request = RouterNavigationRequest.FromRoute(route, NavigationRequestSource.InAppCommand, resolvedWindowId);
@@ -602,6 +606,8 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
 
         try
         {
+            NavigationStateValidator.ValidatePlan(plan, "Navigation reconciliation");
+
             var finalRoute = ResolvePresentedRoute(plan.TargetState, request.WindowId, route);
             var finalizedRequest = request with { Route = finalRoute };
             var presentationTimer = Stopwatch.StartNew();

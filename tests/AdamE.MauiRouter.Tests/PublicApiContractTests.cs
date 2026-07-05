@@ -172,6 +172,7 @@ public sealed class PublicApiContractTests
         Assert.Equal(57, (int)NavigationDiagnosticEventKind.AppLinkFailed);
         Assert.Equal(58, (int)NavigationDiagnosticEventKind.DiagnosticObserverFailed);
         Assert.Equal(60, (int)NavigationDiagnosticEventKind.PresentationVerificationFailed);
+        Assert.Equal(40, (int)NavigationDiagnosticEventKind.StartupDeferredRequestPending);
     }
 
     private static void AssertPublicApi(Assembly assembly, IReadOnlyList<string> expected)

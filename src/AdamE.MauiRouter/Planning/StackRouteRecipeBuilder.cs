@@ -16,7 +16,7 @@ public sealed class StackRouteRecipeBuilder<TRouteBase, TRoute> : IStackRouteRec
     private ContextualStackPushBehavior _contextualPushBehavior = ContextualStackPushBehavior.AppendTail;
 
     /// <summary>
-    /// Sets the route-entry identifier factory for this route type.
+    /// Sets the presenter reuse identifier factory for entries of this route type.
     /// </summary>
     public StackRouteRecipeBuilder<TRouteBase, TRoute> EntryId(Func<TRoute, string> entryIdFactory)
     {
@@ -25,7 +25,7 @@ public sealed class StackRouteRecipeBuilder<TRouteBase, TRoute> : IStackRouteRec
     }
 
     /// <summary>
-    /// Sets the contextual scope key factory for this route type.
+    /// Sets the contextual eligibility key factory for this route type.
     /// </summary>
     public StackRouteRecipeBuilder<TRouteBase, TRoute> ScopeKey(Func<TRoute, string?> scopeKeyFactory)
     {
@@ -34,7 +34,7 @@ public sealed class StackRouteRecipeBuilder<TRouteBase, TRoute> : IStackRouteRec
     }
 
     /// <summary>
-    /// Sets the contextual slot identifier factory for this route type.
+    /// Sets the contextual replacement/merge identifier factory for this route type.
     /// </summary>
     public StackRouteRecipeBuilder<TRouteBase, TRoute> SlotId(Func<TRoute, string?> slotIdFactory)
     {

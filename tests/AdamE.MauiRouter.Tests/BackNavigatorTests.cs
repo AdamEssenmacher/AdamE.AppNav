@@ -288,7 +288,7 @@ public sealed class BackNavigatorTests
     }
 
     [Fact]
-    public void BackDoesNotReturnToMissingDefaultBranch()
+    public void BackDoesNotReturnToAlreadySelectedDefaultBranch()
     {
         var state = new NavigationState(new[]
         {
@@ -301,7 +301,7 @@ public sealed class BackNavigatorTests
                         Branch("catalog", Stack("catalog-stack", new TestRoute("catalog")))
                     },
                     SelectedBranchId: "catalog",
-                    DefaultBranchId: "missing"))
+                    DefaultBranchId: "catalog"))
         }, "main");
 
         var plan = new DefaultBackNavigator().CreateBackPlan(state);

@@ -256,8 +256,8 @@ public sealed class RouterPipelineTests
             NavigationRequestSource.Test,
             disposition: RouterNavigationDisposition.Canonical));
 
-        var window = result.State.ActiveWindow;
-        Assert.NotNull(window);
+        Assert.NotNull(result.State.ActiveWindow);
+        var window = result.State.ActiveWindow!;
         Assert.Empty(window.Modals);
         var branchHost = Assert.IsType<BranchHostNode>(window.Root);
         Assert.Equal("home", branchHost.SelectedBranchId);

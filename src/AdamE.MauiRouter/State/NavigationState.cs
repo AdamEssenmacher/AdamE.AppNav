@@ -7,6 +7,7 @@ public sealed record NavigationState
     public static NavigationState Empty { get; } = new(Array.Empty<WindowNode>());
 
     private IReadOnlyList<WindowNode> _windows = CollectionSnapshot.List<WindowNode>(null);
+    private string? _activeWindowId;
 
     public NavigationState(IReadOnlyList<WindowNode> Windows, string? ActiveWindowId = null)
     {
@@ -17,10 +18,24 @@ public sealed record NavigationState
     public IReadOnlyList<WindowNode> Windows
     {
         get => _windows;
-        init => _windows = CollectionSnapshot.List(value);
+        init
+        {
+            var windows = NavigationIdentity.RequiredList(value, nameof(Windows));
+            NavigationIdentity.EnsureUniqueIds(
+                windows,
+                static window => window.Id,
+                nameof(Windows),
+                "window id",
+                "Navigation state windows");
+            _windows = windows;
+        }
     }
 
-    public string? ActiveWindowId { get; init; }
+    public string? ActiveWindowId
+    {
+        get => _activeWindowId;
+        init => _activeWindowId = NavigationIdentity.OptionalId(value, nameof(ActiveWindowId));
+    }
 
     public WindowNode? ActiveWindow => FindWindow(ActiveWindowId) ?? Windows.FirstOrDefault();
 

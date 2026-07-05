@@ -193,7 +193,7 @@ public enum NavigationDiagnosticEventKind
     /// <summary>
     /// An app link was received by a platform adapter or app-link dispatcher.
     /// </summary>
-    AppLinkReceived,
+    AppLinkReceived = 54,
 
     /// <summary>
     /// An app link was buffered until the router can dispatch it.
