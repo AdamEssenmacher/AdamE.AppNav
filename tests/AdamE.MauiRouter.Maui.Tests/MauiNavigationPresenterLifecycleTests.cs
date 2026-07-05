@@ -822,6 +822,83 @@ public sealed class MauiNavigationPresenterLifecycleTests
     }
 
     [Fact]
+    public async Task BranchRootNavigationFromDeepBranchKeepsTabbedHost()
+    {
+        var fixture = new PresenterFixture();
+        var initialRoot = StoreBranchHost("catalog");
+        var initialState = new NavigationState(
+            new[] { new WindowNode("main", initialRoot) },
+            "main");
+        var updatedState = new NavigationState(
+            new[] { new WindowNode("main", StoreBranchHost("home")) },
+            "main");
+
+        await fixture.Presenter.ApplyAsync(
+            new NavigationPlan(initialState),
+            Context(new TestPageRoute("product")));
+
+        var tabbedPage = Assert.IsType<TabbedPage>(fixture.Presenter.CurrentPage);
+        var homeBranchPage = Assert.IsType<NavigationPage>(tabbedPage.Children[0]);
+        var catalogBranchPage = Assert.IsType<NavigationPage>(tabbedPage.Children[1]);
+        Assert.Same(catalogBranchPage, tabbedPage.CurrentPage);
+        Assert.Equal(new[] { "catalog", "product" }, catalogBranchPage.Navigation.NavigationStack.Select(static page => page.Title).ToArray());
+
+        await fixture.Presenter.ApplyAsync(
+            new NavigationPlan(updatedState),
+            Context(new TestPageRoute("home"), initialState));
+
+        var updatedTabbedPage = Assert.IsType<TabbedPage>(fixture.Presenter.CurrentPage);
+        Assert.Same(tabbedPage, updatedTabbedPage);
+        Assert.Same(homeBranchPage, updatedTabbedPage.CurrentPage);
+        Assert.Equal(new[] { "home" }, homeBranchPage.Navigation.NavigationStack.Select(static page => page.Title).ToArray());
+        Assert.Equal(new[] { "catalog", "product" }, catalogBranchPage.Navigation.NavigationStack.Select(static page => page.Title).ToArray());
+        Assert.Equal(3, fixture.Factory.CreatedPages.Count);
+        Assert.Empty(fixture.Factory.ReleasedPages);
+
+        fixture.Presenter.Dispose();
+    }
+
+    [Fact]
+    public async Task BranchRootNavigationWithNoTargetModalsDismissesModalAndKeepsTabbedHost()
+    {
+        var fixture = new PresenterFixture();
+        var stateWithModal = new NavigationState(
+            new[]
+            {
+                new WindowNode(
+                    "main",
+                    StoreBranchHost("catalog"),
+                    new[] { new ModalNode("cart-modal", Entry("cart-modal")) })
+            },
+            "main");
+        var stateWithoutModal = new NavigationState(
+            new[] { new WindowNode("main", StoreBranchHost("home")) },
+            "main");
+
+        await fixture.Presenter.ApplyAsync(
+            new NavigationPlan(stateWithModal),
+            Context(new TestPageRoute("cart-modal")));
+
+        var tabbedPage = Assert.IsType<TabbedPage>(fixture.Presenter.CurrentPage);
+        var modalPage = Assert.Single(tabbedPage.Navigation.ModalStack);
+        Assert.True(fixture.Presenter.IsModalPresented(modalPage));
+
+        await fixture.Presenter.ApplyAsync(
+            new NavigationPlan(stateWithoutModal),
+            Context(new TestPageRoute("home"), stateWithModal));
+
+        var updatedTabbedPage = Assert.IsType<TabbedPage>(fixture.Presenter.CurrentPage);
+        Assert.Same(tabbedPage, updatedTabbedPage);
+        Assert.Empty(tabbedPage.Navigation.ModalStack);
+        Assert.False(fixture.Presenter.IsModalPresented(modalPage));
+        Assert.Equal(1, fixture.Factory.ReleaseCountFor(modalPage));
+        var selectedBranch = Assert.IsType<NavigationPage>(updatedTabbedPage.CurrentPage);
+        Assert.Equal("home", Assert.Single(selectedBranch.Navigation.NavigationStack).Title);
+
+        fixture.Presenter.Dispose();
+    }
+
+    [Fact]
     public async Task NativeTabSelectionReconcilesSelectedBranch()
     {
         var fixture = new PresenterFixture();
@@ -1041,6 +1118,19 @@ public sealed class MauiNavigationPresenterLifecycleTests
     private static StackNode Stack(string id, params RouteEntry[] entries)
     {
         return new StackNode(id, entries);
+    }
+
+    private static BranchHostNode StoreBranchHost(string selectedBranchId)
+    {
+        return new BranchHostNode(
+            "store-branchHost",
+            new[]
+            {
+                new NavigationBranch("home", "Home", Stack("home-stack", Entry("home"))),
+                new NavigationBranch("catalog", "Catalog", Stack("catalog-stack", Entry("catalog"), Entry("product")))
+            },
+            selectedBranchId,
+            "home");
     }
 
     private static RouteEntry Entry(string id)

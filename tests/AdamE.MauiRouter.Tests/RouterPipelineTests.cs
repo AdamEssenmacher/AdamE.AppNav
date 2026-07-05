@@ -1,5 +1,6 @@
 using AdamE.MauiRouter.Navigation;
 using AdamE.MauiRouter.Plans;
+using AdamE.MauiRouter.Planning;
 using AdamE.MauiRouter.Policies;
 using AdamE.MauiRouter.Presentation;
 using AdamE.MauiRouter.Requests;
@@ -193,6 +194,74 @@ public sealed class RouterPipelineTests
         Assert.Equal(rawNavigator.History.Current!.Route, appRouteRequestNavigator.History.Current!.Route);
     }
 
+    [Fact]
+    public async Task ContextualBranchRootNavigationPreservesBranchHostTopologyAndOffscreenBranchStack()
+    {
+        var planner = new BranchHostModelPlanner();
+        var navigator = new RouterNavigator(TestRoutes.CreateTable(), planner, NullNavigationPresenter.Instance);
+
+        await navigator.NavigateAsync(RouterNavigationRequest.FromRoute(
+            new TestRoutes.ProductDetailRoute("northwind", 123),
+            NavigationRequestSource.Test,
+            disposition: RouterNavigationDisposition.Canonical));
+
+        var result = await navigator.NavigateAsync(RouterNavigationRequest.FromRoute(
+            new TestRoutes.StoreRoute("northwind"),
+            NavigationRequestSource.Test,
+            disposition: RouterNavigationDisposition.Contextual));
+
+        var branchHost = Assert.IsType<BranchHostNode>(result.State.ActiveWindow?.Root);
+        Assert.Equal("store-branchHost", branchHost.Id);
+        Assert.Equal("home", branchHost.SelectedBranchId);
+
+        var homeStack = AssertBranchStack(branchHost, "home");
+        Assert.Single(homeStack.Entries);
+        Assert.IsType<TestRoutes.StoreRoute>(homeStack.Top!.Route);
+
+        var catalogStack = AssertBranchStack(branchHost, "catalog");
+        Assert.Equal(
+            new[] { typeof(TestRoutes.CatalogRoute), typeof(TestRoutes.ProductDetailRoute) },
+            catalogStack.Entries.Select(static entry => entry.Route.GetType()).ToArray());
+    }
+
+    [Fact]
+    public async Task CanonicalBranchRootNavigationClearsExistingModalState()
+    {
+        var planner = new BranchHostModelPlanner();
+        var initialRoot = planner.CreateCanonicalState(new TestRoutes.ProductDetailRoute("northwind", 123))
+            .ActiveWindow!
+            .Root!;
+        var initialState = new NavigationState(
+            new[]
+            {
+                new WindowNode(
+                    "main",
+                    initialRoot,
+                    new[]
+                    {
+                        new ModalNode(
+                            "cart-modal",
+                            new RouteEntry("cart-modal", new TestRoutes.StoreRoute("northwind")))
+                    })
+            },
+            "main");
+        var navigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            planner,
+            NullNavigationPresenter.Instance,
+            new RouterNavigatorOptions { InitialState = initialState });
+
+        var result = await navigator.NavigateAsync(RouterNavigationRequest.FromRoute(
+            new TestRoutes.StoreRoute("northwind"),
+            NavigationRequestSource.Test,
+            disposition: RouterNavigationDisposition.Canonical));
+
+        var window = Assert.NotNull(result.State.ActiveWindow);
+        Assert.Empty(window.Modals);
+        var branchHost = Assert.IsType<BranchHostNode>(window.Root);
+        Assert.Equal("home", branchHost.SelectedBranchId);
+    }
+
     private sealed class BranchAwarePlanner : IAppNavigationPlanner
     {
         public AppRoute? ReceivedRoute { get; private set; }
@@ -233,6 +302,73 @@ public sealed class RouterPipelineTests
             }, "main");
 
             return ValueTask.FromResult(new NavigationPlan(state));
+        }
+    }
+
+    private sealed class BranchHostModelPlanner : IAppNavigationPlanner
+    {
+        private readonly BranchHostNavigationModel<AppRoute> _model = BranchHostNavigationModel<AppRoute>.Create(builder =>
+        {
+            builder.CanonicalSurface("main", "store-branchHost");
+            builder.Branch("home", "Home", route => new TestRoutes.StoreRoute(GetStoreId(route)));
+            builder.Branch("catalog", "Catalog", route => new TestRoutes.CatalogRoute(GetStoreId(route)));
+
+            builder.Map<TestRoutes.StoreRoute>("home", recipe => recipe
+                .EntryId(route => $"store:{route.StoreId}:home")
+                .ScopeKey(route => route.StoreId));
+            builder.Map<TestRoutes.CatalogRoute>("catalog", recipe => recipe
+                .EntryId(route => $"store:{route.StoreId}:catalog")
+                .ScopeKey(route => route.StoreId));
+            builder.Map<TestRoutes.ProductDetailRoute>("catalog", recipe => recipe
+                .EntryId(route => $"store:{route.StoreId}:product:{route.ProductId}")
+                .ScopeKey(route => route.StoreId)
+                .Canonical((route, metadata) =>
+                [
+                    new StackRouteStep<AppRoute>(new TestRoutes.CatalogRoute(route.StoreId)),
+                    new StackRouteStep<AppRoute>(route, metadata)
+                ]));
+        });
+
+        public NavigationState CreateCanonicalState(AppRoute route)
+        {
+            return _model.CreateCanonicalState(route);
+        }
+
+        public ValueTask<NavigationPlan> CreatePlanAsync(
+            NavigationPlanningContext context,
+            CancellationToken cancellationToken = default)
+        {
+            var state = context.Request.Disposition switch
+            {
+                RouterNavigationDisposition.Contextual =>
+                    _model.TryCreateContextualState(
+                        context.CurrentState,
+                        context.Route,
+                        ContextualStackMutationKind.Push,
+                        context.Request.Metadata) ??
+                    _model.CreateCanonicalState(context.Route, context.Request.Metadata),
+                RouterNavigationDisposition.ReplaceCurrent =>
+                    _model.TryCreateContextualState(
+                        context.CurrentState,
+                        context.Route,
+                        ContextualStackMutationKind.ReplaceTop,
+                        context.Request.Metadata) ??
+                    _model.CreateCanonicalState(context.Route, context.Request.Metadata),
+                _ => _model.CreateCanonicalState(context.Route, context.Request.Metadata)
+            };
+
+            return ValueTask.FromResult(new NavigationPlan(state));
+        }
+
+        private static string GetStoreId(AppRoute route)
+        {
+            return route switch
+            {
+                TestRoutes.StoreRoute store => store.StoreId,
+                TestRoutes.CatalogRoute catalog => catalog.StoreId,
+                TestRoutes.ProductDetailRoute detail => detail.StoreId,
+                _ => throw new NotSupportedException($"Route '{route.GetType().Name}' is not supported by the test planner.")
+            };
         }
     }
 
@@ -349,6 +485,12 @@ public sealed class RouterPipelineTests
                     provenance: provenance))
                 : ValueTask.FromResult(request);
         }
+    }
+
+    private static StackNode AssertBranchStack(BranchHostNode branchHost, string branchId)
+    {
+        var branch = Assert.Single(branchHost.Branches, branch => StringComparer.Ordinal.Equals(branch.Id, branchId));
+        return Assert.IsType<StackNode>(branch.Content);
     }
 
     private static readonly RouteMetadataKey<string> MissionIdMetadata = new("missionId");
