@@ -65,7 +65,6 @@ internal sealed class RouterRequestResolver(
                     RedirectTargetKey previousTarget = RedirectTargetKey.From(previousRequest);
                     RouterNavigationRequest? candidateRequest = await policy.ApplyAsync(
                         new NavigationRequestPolicyContext(effectiveRequest, route, currentState, operationId),
-                        effectiveRequest,
                         cancellationToken).ConfigureAwait(false);
 
                     if (candidateRequest is null)

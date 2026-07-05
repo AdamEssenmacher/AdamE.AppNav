@@ -8,8 +8,6 @@ namespace AdamE.MauiRouter.Planning;
 public sealed record StackRouteStep<TRoute>
     where TRoute : AppRoute
 {
-    private IReadOnlyDictionary<string, object?>? _metadata;
-
     /// <summary>
     /// Creates a stack route step for the supplied route and optional route-entry metadata.
     /// </summary>
@@ -24,14 +22,14 @@ public sealed record StackRouteStep<TRoute>
     /// <summary>
     /// Gets the route represented by this stack step.
     /// </summary>
-    public TRoute Route { get; init; }
+    public TRoute Route { get; }
 
     /// <summary>
     /// Gets the route-entry metadata for this step.
     /// </summary>
     public IReadOnlyDictionary<string, object?>? Metadata
     {
-        get => _metadata;
-        init => _metadata = CollectionSnapshot.NullableMetadataDictionary(value);
+        get;
+        private init => field = CollectionSnapshot.NullableMetadataDictionary(value);
     }
 }

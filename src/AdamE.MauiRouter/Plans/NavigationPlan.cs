@@ -8,11 +8,9 @@ public sealed record NavigationPlan(
     NavigationPlanKind Kind = NavigationPlanKind.Navigate,
     string? Reason = null)
 {
-    private readonly NavigationState _targetState = NavigationIdentity.Required(TargetState, nameof(TargetState));
-
     public NavigationState TargetState
     {
-        get => _targetState;
-        init => _targetState = NavigationIdentity.Required(value, nameof(TargetState));
-    }
+        get;
+        init => field = NavigationIdentity.Required(value, nameof(TargetState));
+    } = NavigationIdentity.Required(TargetState, nameof(TargetState));
 }

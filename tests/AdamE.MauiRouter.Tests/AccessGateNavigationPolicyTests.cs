@@ -14,7 +14,7 @@ public sealed class AccessGateNavigationPolicyTests
             new StubEvaluator(_ => NavigationAccessDecision.Allow()),
             new InMemoryDeferredNavigationRequestStore());
 
-        var result = await policy.ApplyAsync(Context(request), request);
+        var result = await policy.ApplyAsync(Context(request));
 
         Assert.Same(request, result);
     }
@@ -32,7 +32,7 @@ public sealed class AccessGateNavigationPolicyTests
                     disposition: RouterNavigationDisposition.Canonical))),
             store);
 
-        var result = await policy.ApplyAsync(Context(request), request);
+        var result = await policy.ApplyAsync(Context(request));
 
         Assert.Equal("main", result.WindowId);
         Assert.False(await store.HasDeferredRequestsAsync());
@@ -55,7 +55,7 @@ public sealed class AccessGateNavigationPolicyTests
                     disposition: RouterNavigationDisposition.Canonical))),
             store);
 
-        var result = await policy.ApplyAsync(Context(request), request);
+        var result = await policy.ApplyAsync(Context(request));
 
         Assert.Equal("main", result.WindowId);
         var buffered = Assert.Single(await store.DrainAsync());
@@ -76,8 +76,8 @@ public sealed class AccessGateNavigationPolicyTests
                     disposition: RouterNavigationDisposition.Canonical))),
             store);
 
-        await policy.ApplyAsync(Context(request), request);
-        await policy.ApplyAsync(Context(request), request);
+        await policy.ApplyAsync(Context(request));
+        await policy.ApplyAsync(Context(request));
 
         Assert.Single(await store.DrainAsync());
     }

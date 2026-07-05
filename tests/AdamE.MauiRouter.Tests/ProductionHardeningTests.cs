@@ -320,10 +320,9 @@ public sealed class ProductionHardeningTests
     {
         public ValueTask<RouterNavigationRequest> ApplyAsync(
             NavigationRequestPolicyContext context,
-            RouterNavigationRequest request,
             CancellationToken cancellationToken = default)
         {
-            return ValueTask.FromResult(request);
+            return ValueTask.FromResult(context.Request);
         }
     }
 

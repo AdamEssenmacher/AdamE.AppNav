@@ -32,6 +32,39 @@ public sealed class TypedPlanningTests
     }
 
     [Fact]
+    public async Task TypedPlannerReceivesFullPlanningContext()
+    {
+        var routePlanner = new ContextCapturingStoreRoutePlanner();
+        var planner = new TypedAppNavigationPlanner(new IAppRoutePlannerRegistration[]
+        {
+            new AppRoutePlannerRegistration<TestRoutes.StoreRoute>(routePlanner)
+        });
+        var route = new TestRoutes.StoreRoute("northwind");
+        var request = RouterNavigationRequest.FromRoute(
+            route,
+            NavigationRequestSource.Test,
+            "secondary",
+            new Dictionary<string, object?> { ["origin"] = "typed-planner" },
+            RouterNavigationDisposition.ReplaceCurrent);
+        var currentState = TestNavigationState.State(
+            "main",
+            TestNavigationState.Window(
+                "main",
+                TestNavigationState.Stack(
+                    "catalog-stack",
+                    TestNavigationState.Entry("catalog", new TestRoutes.CatalogRoute("northwind")))));
+
+        await planner.CreatePlanAsync(new NavigationPlanningContext(request, route, currentState, "operation"));
+
+        var context = routePlanner.LastContext;
+        Assert.NotNull(context);
+        Assert.Same(request, context!.Request);
+        Assert.Same(route, context.Route);
+        Assert.Same(currentState, context.CurrentState);
+        Assert.Equal("operation", context.OperationId);
+    }
+
+    [Fact]
     public async Task TypedPlannerWorksThroughRouterNavigator()
     {
         var planner = new TypedAppNavigationPlanner(new IAppRoutePlannerRegistration[]
@@ -87,6 +120,27 @@ public sealed class TypedPlanningTests
             CancellationToken cancellationToken = default)
         {
             LastRoute = context.Route;
+            var state = TestNavigationState.State(
+                "main",
+                TestNavigationState.Window(
+                    "main",
+                    TestNavigationState.Stack(
+                        "store-stack",
+                        TestNavigationState.Entry("store-home", context.Route))));
+
+            return ValueTask.FromResult(new NavigationPlan(state));
+        }
+    }
+
+    private sealed class ContextCapturingStoreRoutePlanner : IAppRoutePlanner<TestRoutes.StoreRoute>
+    {
+        public NavigationPlanningContext<TestRoutes.StoreRoute>? LastContext { get; private set; }
+
+        public ValueTask<NavigationPlan> CreatePlanAsync(
+            NavigationPlanningContext<TestRoutes.StoreRoute> context,
+            CancellationToken cancellationToken = default)
+        {
+            LastContext = context;
             var state = TestNavigationState.State(
                 "main",
                 TestNavigationState.Window(

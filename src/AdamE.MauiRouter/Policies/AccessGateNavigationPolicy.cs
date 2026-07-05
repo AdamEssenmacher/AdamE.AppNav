@@ -9,25 +9,20 @@ public sealed class AccessGateNavigationPolicy(
 {
     public async ValueTask<RouterNavigationRequest> ApplyAsync(
         NavigationRequestPolicyContext context,
-        RouterNavigationRequest request,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(context);
-        ArgumentNullException.ThrowIfNull(request);
+        RouterNavigationRequest request = context.Request;
 
-        var decision = await evaluator
+        NavigationAccessDecision decision = await evaluator
             .EvaluateAsync(context, cancellationToken)
             .ConfigureAwait(false);
 
         if (decision.IsAllowed)
-        {
             return request;
-        }
 
         if (decision.DeferOriginalRequest)
-        {
             await deferredRequests.EnqueueAsync(request, cancellationToken).ConfigureAwait(false);
-        }
 
         return decision.RedirectRequest! with
         {

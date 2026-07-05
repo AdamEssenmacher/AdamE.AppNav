@@ -746,9 +746,10 @@ public sealed class LegacyProductUrlPolicy : INavigationRequestPolicy
 {
     public ValueTask<RouterNavigationRequest> ApplyAsync(
         NavigationRequestPolicyContext context,
-        RouterNavigationRequest request,
         CancellationToken cancellationToken = default)
     {
+        var request = context.Request;
+
         if (request.Uri?.AbsolutePath is not { } path ||
             !path.StartsWith("/p/", StringComparison.Ordinal))
         {
@@ -1316,9 +1317,10 @@ public sealed class RequireStorePolicy : INavigationRequestPolicy
 {
     public ValueTask<RouterNavigationRequest> ApplyAsync(
         NavigationRequestPolicyContext context,
-        RouterNavigationRequest request,
         CancellationToken cancellationToken = default)
     {
+        var request = context.Request;
+
         if (request.Route is null)
         {
             return ValueTask.FromResult(request);
@@ -1841,9 +1843,10 @@ public sealed class ClosedStorePolicy : INavigationRequestPolicy
 {
     public ValueTask<RouterNavigationRequest> ApplyAsync(
         NavigationRequestPolicyContext context,
-        RouterNavigationRequest request,
         CancellationToken cancellationToken = default)
     {
+        var request = context.Request;
+
         if (context.Route is ProductDetailRoute { StoreId: "closed" })
         {
             return ValueTask.FromResult(
