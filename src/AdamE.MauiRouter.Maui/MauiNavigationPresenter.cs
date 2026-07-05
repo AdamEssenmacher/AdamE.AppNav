@@ -11,20 +11,9 @@ namespace AdamE.MauiRouter.Maui;
 
 internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPresentationState, IDisposable
 {
-    private static readonly BindableProperty HostIdProperty =
-        BindableProperty.CreateAttached("RouterHostId", typeof(string), typeof(MauiNavigationPresenter), null);
-
-    private static readonly BindableProperty BranchIdProperty =
-        BindableProperty.CreateAttached("RouterBranchId", typeof(string), typeof(MauiNavigationPresenter), null);
-
-    private static readonly BindableProperty RouteEntryIdProperty =
-        BindableProperty.CreateAttached("RouterRouteEntryId", typeof(string), typeof(MauiNavigationPresenter), null);
-
-    private static readonly BindableProperty ModalIdProperty =
-        BindableProperty.CreateAttached("RouterModalId", typeof(string), typeof(MauiNavigationPresenter), null);
-
     private readonly IMauiRoutePageFactory _pageFactory;
     private readonly MauiRoutePresentationOptions _presentationOptions;
+    private readonly IMauiPresentationVerifier _presentationVerifier;
     private readonly MauiExternalNavigationDispatcher? _externalNavigationDispatcher;
     private readonly NavigationDiagnostics _diagnostics;
     private readonly MauiNavigationTransitionService? _transitions;
@@ -48,10 +37,12 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         MauiExternalNavigationDispatcher? externalNavigationDispatcher = null,
         NavigationDiagnostics? diagnostics = null,
         MauiNavigationTransitionService? transitions = null,
-        MauiRoutePresentationOptions? presentationOptions = null)
+        MauiRoutePresentationOptions? presentationOptions = null,
+        IMauiPresentationVerifier? presentationVerifier = null)
     {
         _pageFactory = pageFactory ?? throw new ArgumentNullException(nameof(pageFactory));
         _presentationOptions = presentationOptions ?? new MauiRoutePresentationOptions();
+        _presentationVerifier = presentationVerifier ?? MauiPresentationVerifier.Instance;
         _externalNavigationDispatcher = externalNavigationDispatcher;
         _diagnostics = diagnostics ?? NavigationDiagnostics.None;
         _transitions = transitions;
@@ -264,6 +255,7 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
             try
             {
                 SetCurrentPage(null);
+                VerifyPresentation(plan.TargetState, context.OperationId);
                 _lastState = plan.TargetState;
             }
             finally
@@ -294,6 +286,7 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
 
             SetCurrentPage(nextRoot);
             await ApplyModalsAsync(nextRoot, window.Modals, effectiveTransition, context.OperationId, cancellationToken);
+            VerifyPresentation(plan.TargetState, context.OperationId);
             _lastState = plan.TargetState;
         }
         finally
@@ -1611,6 +1604,35 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         };
     }
 
+    private void VerifyPresentation(NavigationState targetState, string operationId)
+    {
+        var mismatch = _presentationVerifier.Verify(new MauiPresentationVerificationContext(
+            targetState,
+            CurrentPage,
+            _attachedWindow,
+            _presentationOptions));
+        if (mismatch is null)
+        {
+            return;
+        }
+
+        var data = new Dictionary<string, object?>
+        {
+            [NavigationDiagnosticDataKeys.PresentationPath] = mismatch.Path,
+            [NavigationDiagnosticDataKeys.PresentationExpected] = mismatch.Expected,
+            [NavigationDiagnosticDataKeys.PresentationActual] = mismatch.Actual
+        };
+        AddIfPresent(data, NavigationDiagnosticDataKeys.WindowId, targetState.ActiveWindowId);
+        _diagnostics.Write(
+            NavigationDiagnosticEventKind.PresentationVerificationFailed,
+            operationId,
+            $"Presentation verification failed at '{mismatch.Path}'.",
+            data);
+
+        throw new InvalidOperationException(
+            $"Presentation verification failed at '{mismatch.Path}'. Expected '{mismatch.Expected}', actual '{mismatch.Actual}'.");
+    }
+
     private void WritePageLifecycle(
         NavigationDiagnosticEventKind kind,
         Page page,
@@ -1689,42 +1711,42 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
 
     private static void SetHostId(BindableObject bindableObject, string id)
     {
-        bindableObject.SetValue(HostIdProperty, id);
+        MauiPresentationMetadata.SetHostId(bindableObject, id);
     }
 
     private static string? GetHostId(BindableObject? bindableObject)
     {
-        return bindableObject?.GetValue(HostIdProperty) as string;
+        return MauiPresentationMetadata.GetHostId(bindableObject);
     }
 
     private static void SetBranchId(BindableObject bindableObject, string id)
     {
-        bindableObject.SetValue(BranchIdProperty, id);
+        MauiPresentationMetadata.SetBranchId(bindableObject, id);
     }
 
     private static string? GetBranchId(BindableObject? bindableObject)
     {
-        return bindableObject?.GetValue(BranchIdProperty) as string;
+        return MauiPresentationMetadata.GetBranchId(bindableObject);
     }
 
     private static void SetRouteEntryId(BindableObject bindableObject, string id)
     {
-        bindableObject.SetValue(RouteEntryIdProperty, id);
+        MauiPresentationMetadata.SetRouteEntryId(bindableObject, id);
     }
 
-    private static string? GetRouteEntryId(BindableObject bindableObject)
+    private static string? GetRouteEntryId(BindableObject? bindableObject)
     {
-        return bindableObject.GetValue(RouteEntryIdProperty) as string;
+        return MauiPresentationMetadata.GetRouteEntryId(bindableObject);
     }
 
     private static void SetModalId(BindableObject bindableObject, string id)
     {
-        bindableObject.SetValue(ModalIdProperty, id);
+        MauiPresentationMetadata.SetModalId(bindableObject, id);
     }
 
-    private static string? GetModalId(BindableObject bindableObject)
+    private static string? GetModalId(BindableObject? bindableObject)
     {
-        return bindableObject.GetValue(ModalIdProperty) as string;
+        return MauiPresentationMetadata.GetModalId(bindableObject);
     }
 
     private sealed class PageReferenceComparer<TPage> : IEqualityComparer<TPage>

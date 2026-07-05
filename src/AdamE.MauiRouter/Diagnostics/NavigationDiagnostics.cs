@@ -361,6 +361,7 @@ public sealed class NavigationDiagnostics
                 NavigationDiagnosticEventKind.PresentationTransitionCompleted or
                 NavigationDiagnosticEventKind.PresentationTransitionFailed or
                 NavigationDiagnosticEventKind.PresentationTransitionFallback or
+                NavigationDiagnosticEventKind.PresentationVerificationFailed or
                 NavigationDiagnosticEventKind.PresentationCompleted or
                 NavigationDiagnosticEventKind.PresentationFailed =>
                 NavigationDiagnosticPhase.Presentation,

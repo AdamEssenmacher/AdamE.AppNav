@@ -21,6 +21,12 @@ public interface INavigationPresenter
     /// <summary>
     /// Applies a navigation plan to the host presentation surface.
     /// </summary>
+    /// <remarks>
+    /// Implementations must complete this task only after the target navigation state has been fully
+    /// reflected in the host presentation surface. If the target state cannot be fully presented, the
+    /// implementation must throw or observe cancellation so the router does not commit the logical
+    /// state, history, or persistence snapshot for a partial presentation.
+    /// </remarks>
     /// <param name="plan">The accepted navigation plan to present.</param>
     /// <param name="context">Runtime context for the presentation operation.</param>
     /// <param name="cancellationToken">A token that can cancel presentation.</param>
