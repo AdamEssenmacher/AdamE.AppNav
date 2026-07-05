@@ -18,10 +18,10 @@ public sealed class NavigationDiagnostics
     /// <summary>
     /// Gets a disabled diagnostics instance that ignores subscribers, observers, and write calls.
     /// </summary>
-    public static NavigationDiagnostics None { get; } = new(enabled: false, logger: null);
+    public static NavigationDiagnostics None { get; } = new(false, null);
 
     private readonly Lock _gate = new();
-    private readonly List<INavigationDiagnosticObserver> _observers = new();
+    private readonly List<INavigationDiagnosticObserver> _observers = [];
     private readonly bool _enabled;
     private readonly ILogger? _logger;
     private EventHandler<NavigationDiagnosticEvent>? _eventWritten;
@@ -31,7 +31,7 @@ public sealed class NavigationDiagnostics
     /// </summary>
     /// <param name="logger">The logger that should receive diagnostic events, or <see langword="null"/> to skip logging.</param>
     public NavigationDiagnostics(ILogger? logger = null)
-        : this(enabled: true, logger)
+        : this(true, logger)
     {
     }
 
@@ -53,27 +53,19 @@ public sealed class NavigationDiagnostics
         add
         {
             if (!_enabled || value is null)
-            {
                 return;
-            }
 
             lock (_gate)
-            {
                 _eventWritten += value;
-            }
         }
 
         remove
         {
             if (!_enabled || value is null)
-            {
                 return;
-            }
 
             lock (_gate)
-            {
                 _eventWritten -= value;
-            }
         }
     }
 
@@ -89,10 +81,7 @@ public sealed class NavigationDiagnostics
     {
         ArgumentNullException.ThrowIfNull(observer);
 
-        if (!_enabled)
-        {
-            return;
-        }
+        if (!_enabled) return;
 
         lock (_gate)
         {
@@ -118,9 +107,7 @@ public sealed class NavigationDiagnostics
         NavigationDiagnosticPhase? phase = null)
     {
         if (!_enabled)
-        {
             return;
-        }
 
         LogLevel effectiveSeverity = severity ?? InferSeverity(kind);
         NavigationDiagnosticPhase effectivePhase = phase ?? InferPhase(kind);
@@ -150,9 +137,7 @@ public sealed class NavigationDiagnostics
             foreach (Delegate handler in eventWritten.GetInvocationList())
             {
                 if (handler is not EventHandler<NavigationDiagnosticEvent> eventHandler)
-                {
                     continue;
-                }
 
                 try
                 {
@@ -209,16 +194,12 @@ public sealed class NavigationDiagnostics
         }
 
         if (eventWritten is null)
-        {
             return;
-        }
 
         foreach (Delegate handler in eventWritten.GetInvocationList())
         {
             if (handler is not EventHandler<NavigationDiagnosticEvent> eventHandler)
-            {
                 continue;
-            }
 
             try
             {
@@ -233,12 +214,7 @@ public sealed class NavigationDiagnostics
 
     private void MirrorToLogger(NavigationDiagnosticEvent diagnosticEvent)
     {
-        if (_logger is null)
-        {
-            return;
-        }
-
-        _logger.Log(
+        _logger?.Log(
             diagnosticEvent.Severity,
             "Navigation {Kind} ({Phase}) operation {OperationId}: {Message} {@Data}",
             diagnosticEvent.Kind,
@@ -254,9 +230,7 @@ public sealed class NavigationDiagnostics
     {
         Activity? activity = Activity.Current;
         if (activity is null)
-        {
             return;
-        }
 
         var tags = new ActivityTagsCollection
         {
@@ -266,9 +240,9 @@ public sealed class NavigationDiagnostics
             ["navigation.message"] = diagnosticEvent.Message
         };
 
-        foreach (var pair in diagnosticEvent.Data)
+        foreach (KeyValuePair<string, object?> pair in diagnosticEvent.Data)
         {
-            var tagName = ToActivityTagName(pair.Key);
+            string tagName = ToActivityTagName(pair.Key);
             tags[tagName] = pair.Value;
             activity.SetTag(tagName, pair.Value);
         }
@@ -317,14 +291,14 @@ public sealed class NavigationDiagnostics
                 ? LogLevel.Warning
                 : kind is NavigationDiagnosticEventKind.RestoreRejected
                     ? LogLevel.Warning
-                : kind is NavigationDiagnosticEventKind.PresentationPageCreated or
-                    NavigationDiagnosticEventKind.PresentationPageReleased or
-                    NavigationDiagnosticEventKind.PresentationHandlerAttached or
-                    NavigationDiagnosticEventKind.PresentationHandlerDetached
-                    ? LogLevel.Debug
-                : kind.ToString().EndsWith("Started", StringComparison.Ordinal)
-                    ? LogLevel.Debug
-                    : LogLevel.Information;
+                    : kind is NavigationDiagnosticEventKind.PresentationPageCreated or
+                        NavigationDiagnosticEventKind.PresentationPageReleased or
+                        NavigationDiagnosticEventKind.PresentationHandlerAttached or
+                        NavigationDiagnosticEventKind.PresentationHandlerDetached
+                        ? LogLevel.Debug
+                        : kind.ToString().EndsWith("Started", StringComparison.Ordinal)
+                            ? LogLevel.Debug
+                            : LogLevel.Information;
     }
 
     private static NavigationDiagnosticPhase InferPhase(NavigationDiagnosticEventKind kind)

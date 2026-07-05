@@ -16,12 +16,12 @@ public enum NavigationCommitKind
     Back,
 
     /// <summary>
-    /// Host-observed navigation state was reconciled into router state.
+    /// Host-observed navigation state was reconciled into the router state.
     /// </summary>
     Reconcile,
 
     /// <summary>
-    /// Persisted navigation state was restored into router state.
+    /// Persisted navigation state was restored into the router state.
     /// </summary>
     Restore
 }

@@ -49,19 +49,22 @@ public sealed class DefaultBackNavigator(
         WindowNode? window = context.Window;
         if (window is null)
         {
-            _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, context.OperationId, "No active window was available for back navigation.");
+            _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, context.OperationId,
+                "No active window was available for back navigation.");
+
             return null;
         }
 
         if (window.Modals.Count > 0)
         {
             ModalNode topModal = window.Modals[^1];
-            if (topModal.Content is not null &&
-                TryBack(topModal.Content) is { } modalBackResult)
+            if (topModal.Content is not null && TryBack(topModal.Content) is { } modalBackResult)
             {
-                var updatedModals = window.Modals.ToArray();
+                ModalNode[] updatedModals = window.Modals.ToArray();
                 updatedModals[^1] = topModal with { Content = modalBackResult.Node };
-                _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, context.OperationId, modalBackResult.Reason);
+                _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, context.OperationId,
+                    modalBackResult.Reason);
+
                 return new NavigationPlan(
                     ReplaceWindow(context, window with { Modals = updatedModals }),
                     NavigationPlanKind.Back,
@@ -69,24 +72,30 @@ public sealed class DefaultBackNavigator(
             }
 
             WindowNode updatedWindow = window with { Modals = RemoveLast(window.Modals) };
-            _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, context.OperationId, "Back navigation will dismiss the top modal.");
+            _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, context.OperationId,
+                "Back navigation will dismiss the top modal.");
+
             return new NavigationPlan(ReplaceWindow(context, updatedWindow), NavigationPlanKind.Back, "Dismiss modal");
         }
 
         if (window.Root is null)
         {
-            _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, context.OperationId, "The active window has no root node.");
+            _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, context.OperationId,
+                "The active window has no root node.");
+
             return null;
         }
 
         NodeBackResult? backResult = TryBack(window.Root);
         if (backResult is null)
         {
-            _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, context.OperationId, "No host accepted back navigation.");
+            _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, context.OperationId,
+                "No host accepted back navigation.");
+
             return null;
         }
 
-        var acceptedBackResult = backResult.Value;
+        NodeBackResult acceptedBackResult = backResult.Value;
         _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, context.OperationId, acceptedBackResult.Reason);
         return new NavigationPlan(
             ReplaceWindow(context, window with { Root = acceptedBackResult.Node }),
@@ -112,12 +121,9 @@ public sealed class DefaultBackNavigator(
     private static NodeBackResult? TryBackStack(StackNode stack)
     {
         if (stack.Entries.Count <= 1)
-        {
             return null;
-        }
 
-        return new NodeBackResult(
-            stack with { Entries = RemoveLast(stack.Entries) },
+        return new NodeBackResult(stack with { Entries = RemoveLast(stack.Entries) },
             "Back navigation will pop the selected stack.");
     }
 
@@ -125,31 +131,26 @@ public sealed class DefaultBackNavigator(
     {
         NavigationBranch? selectedBranch = branchHost.SelectedBranch;
         if (selectedBranch is not null)
-        {
             if (TryBack(selectedBranch.Content) is { } childBack)
-            {
-                return new NodeBackResult(
-                    branchHost.ReplaceBranch(selectedBranch with { Content = childBack.Node }),
-                    childBack.Reason);
-            }
-        }
+                return childBack with
+                {
+                    Node = branchHost.ReplaceBranch(selectedBranch with { Content = childBack.Node })
+                };
 
         if (_options.ReturnToDefaultBranchBeforeLeaving &&
             !string.IsNullOrWhiteSpace(branchHost.DefaultBranchId) &&
             !StringComparer.Ordinal.Equals(branchHost.SelectedBranchId, branchHost.DefaultBranchId) &&
             branchHost.Branches.Any(branch => StringComparer.Ordinal.Equals(branch.Id, branchHost.DefaultBranchId)))
-        {
             return new NodeBackResult(
                 branchHost with { SelectedBranchId = branchHost.DefaultBranchId },
                 "Back navigation will return to the default branch.");
-        }
 
         return null;
     }
 
     private static NavigationState ReplaceWindow(BackNavigationContext context, WindowNode window)
     {
-        var state = context.State.ReplaceWindow(window);
+        NavigationState state = context.State.ReplaceWindow(window);
         return context.UsesActiveWindow && !string.IsNullOrWhiteSpace(context.ResolvedWindowId)
             ? state with { ActiveWindowId = context.ResolvedWindowId }
             : state;
@@ -158,15 +159,10 @@ public sealed class DefaultBackNavigator(
     private static IReadOnlyList<T> RemoveLast<T>(IReadOnlyList<T> source)
     {
         if (source.Count <= 1)
-        {
             return [];
-        }
 
         var result = new T[source.Count - 1];
-        for (var i = 0; i < result.Length; i++)
-        {
-            result[i] = source[i];
-        }
+        for (var i = 0; i < result.Length; i++) result[i] = source[i];
 
         return result;
     }

@@ -234,6 +234,7 @@ public sealed class PublicApiContractTests
         Assert.Equal(57, (int)NavigationDiagnosticEventKind.AppLinkFailed);
         Assert.Equal(58, (int)NavigationDiagnosticEventKind.DiagnosticObserverFailed);
         Assert.Equal(59, (int)NavigationDiagnosticEventKind.NavigationCommittedHandlerFailed);
+        Assert.Equal(60, (int)NavigationDiagnosticEventKind.PresentationVerificationFailed);
     }
 
     [Fact]

@@ -138,12 +138,12 @@ public enum NavigationDiagnosticEventKind
     /// <summary>
     /// Presentation completed native operations but the live host tree did not match the target navigation state.
     /// </summary>
-    PresentationVerificationFailed,
+    PresentationVerificationFailed = 60,
 
     /// <summary>
     /// Presentation completed successfully.
     /// </summary>
-    PresentationCompleted,
+    PresentationCompleted = 26,
 
     /// <summary>
     /// Presentation failed.

@@ -37,7 +37,7 @@ public interface IRouterNavigator
     /// </summary>
     /// <remarks>
     /// The event is raised once per accepted commit, after the router operation lock has been
-    /// released. It is not raised for rejected, unhandled, cancelled, or failed operations.
+    /// released. It is not raised for rejected, unhandled, canceled, or failed operations.
     /// </remarks>
     event EventHandler<NavigationCommittedEventArgs>? NavigationCommitted;
 
@@ -189,7 +189,7 @@ public interface IRouterNavigator
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Reconciles the router with navigation state observed from the presentation layer.
+    /// Reconciles the router with the navigation state observed from the presentation layer.
     /// </summary>
     /// <param name="reconciliation">The observed state, source, route, and reason for reconciliation.</param>
     /// <param name="cancellationToken">A token that can cancel the reconciliation operation.</param>
@@ -203,7 +203,7 @@ public interface IRouterNavigator
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Restores router state from a previously captured navigation snapshot.
+    /// Restores the router state from a previously captured navigation snapshot.
     /// </summary>
     /// <param name="snapshot">The persisted navigation snapshot to restore.</param>
     /// <param name="options">
@@ -217,7 +217,7 @@ public interface IRouterNavigator
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Restores router state by loading the latest snapshot from the configured navigation state store.
+    /// Restores the router state by loading the latest snapshot from the configured navigation state store.
     /// </summary>
     /// <param name="options">
     /// Optional restore behavior, or <see langword="null"/> to use default restore behavior.
