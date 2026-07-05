@@ -27,7 +27,7 @@ public sealed record BackNavigationOptions
     /// <remarks>
     /// When enabled, the default back navigator changes the selected branch to the host's
     /// configured default branch if the selected branch has no back action, the selected
-    /// branch is not already the default branch, and the default branch still exists. When disabled,
+    /// branch is not yet the default branch, and the default branch still exists. When disabled,
     /// a branch host whose selected branch cannot go back declines to handle back navigation.
     /// </remarks>
     public bool ReturnToDefaultBranchBeforeLeaving { get; init; } = true;
