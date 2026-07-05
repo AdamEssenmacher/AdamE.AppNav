@@ -31,6 +31,7 @@ public sealed class StackNavigationModel<TRoute>
 
         var builder = new StackNavigationModelBuilder<TRoute>();
         configure(builder);
+
         return builder.Build();
     }
 
@@ -43,10 +44,11 @@ public sealed class StackNavigationModel<TRoute>
     {
         ArgumentNullException.ThrowIfNull(route);
 
-        var recipe = GetRecipe(route);
-        var entryId = recipe.EntryIdFactory(route);
+        StackRouteRecipe<TRoute> recipe = GetRecipe(route);
+        string entryId = recipe.EntryIdFactory(route);
         ArgumentException.ThrowIfNullOrWhiteSpace(entryId);
-        return new RouteEntry(entryId, route, Metadata: metadata);
+
+        return new RouteEntry(entryId, route, metadata);
     }
 
     /// <summary>
@@ -60,15 +62,14 @@ public sealed class StackNavigationModel<TRoute>
     {
         ArgumentNullException.ThrowIfNull(route);
 
-        var canonicalEntries = BuildCanonicalEntries(route, metadata);
-        var resolvedWindowId = string.IsNullOrWhiteSpace(windowId) ? _defaultWindowId : windowId;
-        var resolvedStackId = string.IsNullOrWhiteSpace(stackId) ? _defaultStackId : stackId;
+        IReadOnlyList<RouteEntry> canonicalEntries = BuildCanonicalEntries(route, metadata);
+        string resolvedWindowId = string.IsNullOrWhiteSpace(windowId) ? _defaultWindowId : windowId;
+        string resolvedStackId = string.IsNullOrWhiteSpace(stackId) ? _defaultStackId : stackId;
 
         return new NavigationState(
-            new[]
-            {
+            [
                 new WindowNode(resolvedWindowId, new StackNode(resolvedStackId, canonicalEntries))
-            },
+            ],
             resolvedWindowId);
     }
 
@@ -87,23 +88,16 @@ public sealed class StackNavigationModel<TRoute>
         if (currentState.ActiveWindow is not { Root: StackNode currentStack } window ||
             currentStack.Entries.Count == 0 ||
             currentStack.Entries[0].Route is not TRoute currentRootRoute)
-        {
             return null;
-        }
 
-        var recipe = GetRecipe(route);
-        if (!IsEligible(currentRootRoute, route, recipe.ContextualEligibility))
-        {
-            return null;
-        }
+        StackRouteRecipe<TRoute> recipe = GetRecipe(route);
+        if (!IsEligible(currentRootRoute, route, recipe.ContextualEligibility)) return null;
 
         if (recipe.ContextualPushBehavior == ContextualStackPushBehavior.ReplaceWithCanonicalStack)
-        {
             return currentState.ReplaceWindow(window with
             {
                 Root = new StackNode(currentStack.Id, BuildCanonicalEntries(route, metadata))
             });
-        }
 
         IReadOnlyList<RouteEntry>? nextEntries = mutation switch
         {
@@ -112,10 +106,7 @@ public sealed class StackNavigationModel<TRoute>
             _ => null
         };
 
-        if (nextEntries is null)
-        {
-            return null;
-        }
+        if (nextEntries is null) return null;
 
         return currentState.ReplaceWindow(window with
         {
@@ -127,7 +118,7 @@ public sealed class StackNavigationModel<TRoute>
         TRoute route,
         IReadOnlyDictionary<string, object?>? metadata)
     {
-        var recipe = GetRecipe(route);
+        StackRouteRecipe<TRoute> recipe = GetRecipe(route);
         return BuildEntries(recipe.CanonicalFactory(route, metadata));
     }
 
@@ -135,7 +126,8 @@ public sealed class StackNavigationModel<TRoute>
         TRoute route,
         IReadOnlyDictionary<string, object?>? metadata)
     {
-        var recipe = GetRecipe(route);
+        StackRouteRecipe<TRoute> recipe = GetRecipe(route);
+
         return BuildEntries(recipe.ContextualTailFactory(route, metadata));
     }
 
@@ -144,14 +136,12 @@ public sealed class StackNavigationModel<TRoute>
         ArgumentNullException.ThrowIfNull(steps);
 
         var entries = new List<RouteEntry>(steps.Count);
-        foreach (var step in steps)
+        foreach (StackRouteStep<TRoute> step in steps)
         {
             ArgumentNullException.ThrowIfNull(step);
             if (!_recipes.ContainsKey(step.Route.GetType()))
-            {
                 throw new InvalidOperationException(
                     $"Stack route step '{step.Route.GetType().FullName}' must be registered before it can participate in stack planning.");
-            }
 
             entries.Add(CreateEntry(step.Route, step.Metadata));
         }
@@ -164,9 +154,10 @@ public sealed class StackNavigationModel<TRoute>
         TRoute route,
         IReadOnlyDictionary<string, object?>? metadata)
     {
-        var nextEntries = currentEntries.ToList();
-        var tailEntries = BuildContextualTailEntries(route, metadata);
+        List<RouteEntry> nextEntries = currentEntries.ToList();
+        IReadOnlyList<RouteEntry> tailEntries = BuildContextualTailEntries(route, metadata);
         AppendTail(nextEntries, tailEntries);
+
         return nextEntries;
     }
 
@@ -175,24 +166,22 @@ public sealed class StackNavigationModel<TRoute>
         TRoute route,
         IReadOnlyDictionary<string, object?>? metadata)
     {
-        if (currentEntries.Count == 0)
-        {
-            return null;
-        }
+        if (currentEntries.Count == 0) return null;
 
-        var nextEntries = currentEntries
+        List<RouteEntry> nextEntries = currentEntries
             .Take(Math.Max(0, currentEntries.Count - 1))
             .ToList();
 
         AppendTail(nextEntries, BuildContextualTailEntries(route, metadata));
+
         return nextEntries;
     }
 
     private void AppendTail(List<RouteEntry> entries, IReadOnlyList<RouteEntry> tailEntries)
     {
-        foreach (var tailEntry in tailEntries)
+        foreach (RouteEntry tailEntry in tailEntries)
         {
-            var matchIndex = FindMatchingEntryIndex(entries, tailEntry);
+            int matchIndex = FindMatchingEntryIndex(entries, tailEntry);
             if (matchIndex >= 0)
             {
                 entries[matchIndex] = tailEntry;
@@ -206,10 +195,7 @@ public sealed class StackNavigationModel<TRoute>
 
     private bool ShouldReplaceWith(RouteEntry existingEntry, RouteEntry replacementEntry)
     {
-        if (StringComparer.Ordinal.Equals(existingEntry.Id, replacementEntry.Id))
-        {
-            return true;
-        }
+        if (StringComparer.Ordinal.Equals(existingEntry.Id, replacementEntry.Id)) return true;
 
         return AreSameSlot(existingEntry, replacementEntry);
     }
@@ -217,25 +203,18 @@ public sealed class StackNavigationModel<TRoute>
     private int FindMatchingEntryIndex(IReadOnlyList<RouteEntry> entries, RouteEntry replacementEntry)
     {
         for (var i = 0; i < entries.Count; i++)
-        {
             if (ShouldReplaceWith(entries[i], replacementEntry))
-            {
                 return i;
-            }
-        }
 
         return -1;
     }
 
     private bool AreSameSlot(RouteEntry left, RouteEntry right)
     {
-        if (left.Route is not TRoute leftRoute || right.Route is not TRoute rightRoute)
-        {
-            return false;
-        }
+        if (left.Route is not TRoute leftRoute || right.Route is not TRoute rightRoute) return false;
 
-        var leftSlotId = GetSlotId(leftRoute);
-        var rightSlotId = GetSlotId(rightRoute);
+        string leftSlotId = GetSlotId(leftRoute);
+        string rightSlotId = GetSlotId(rightRoute);
         return !string.IsNullOrWhiteSpace(leftSlotId) &&
                !string.IsNullOrWhiteSpace(rightSlotId) &&
                StringComparer.Ordinal.Equals(leftSlotId, rightSlotId);
@@ -256,16 +235,18 @@ public sealed class StackNavigationModel<TRoute>
 
     private bool HasMatchingScope(TRoute currentRootRoute, TRoute targetRoute)
     {
-        var currentScope = GetScopeKey(currentRootRoute);
-        var targetScope = GetScopeKey(targetRoute);
+        string? currentScope = GetScopeKey(currentRootRoute);
+        string? targetScope = GetScopeKey(targetRoute);
+
         return !string.IsNullOrWhiteSpace(currentScope) &&
                !string.IsNullOrWhiteSpace(targetScope) &&
                StringComparer.Ordinal.Equals(currentScope, targetScope);
     }
 
-    private string? GetSlotId(TRoute route)
+    private string GetSlotId(TRoute route)
     {
-        var recipe = GetRecipe(route);
+        StackRouteRecipe<TRoute> recipe = GetRecipe(route);
+
         return recipe.SlotIdFactory?.Invoke(route) ?? recipe.EntryIdFactory(route);
     }
 
@@ -276,11 +257,9 @@ public sealed class StackNavigationModel<TRoute>
 
     private StackRouteRecipe<TRoute> GetRecipe(TRoute route)
     {
-        if (!_recipes.TryGetValue(route.GetType(), out var recipe))
-        {
+        if (!_recipes.TryGetValue(route.GetType(), out StackRouteRecipe<TRoute>? recipe))
             throw new InvalidOperationException(
                 $"Route '{route.GetType().FullName}' is not registered in this stack navigation model.");
-        }
 
         return recipe;
     }
