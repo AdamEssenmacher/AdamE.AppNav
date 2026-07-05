@@ -1,5 +1,6 @@
 using AdamE.MauiRouter.Internal;
 using AdamE.MauiRouter.Requests;
+using JetBrains.Annotations;
 
 namespace AdamE.MauiRouter.History;
 
@@ -15,7 +16,7 @@ public sealed class NavigationHistory
     /// <summary>
     /// Gets an empty navigation history.
     /// </summary>
-    public static NavigationHistory Empty { get; } = new(Array.Empty<NavigationHistoryEntry>(), -1);
+    public static NavigationHistory Empty { get; } = new([], -1);
 
     /// <summary>
     /// Initializes a navigation history from a snapshot of entries and the current entry index.
@@ -28,7 +29,7 @@ public sealed class NavigationHistory
     /// <paramref name="currentIndex"/> is not -1 for an empty history, or does not identify
     /// an entry in a non-empty history.
     /// </exception>
-    internal NavigationHistory(IReadOnlyList<NavigationHistoryEntry> entries, int currentIndex)
+    private NavigationHistory(IReadOnlyList<NavigationHistoryEntry> entries, int currentIndex)
     {
         Entries = entries;
         int entryCount = Entries.Count;
@@ -62,6 +63,7 @@ public sealed class NavigationHistory
     /// Gets the index of <see cref="Current"/> within <see cref="Entries"/>, or -1 when the
     /// history is empty.
     /// </summary>
+    // ReSharper disable once MemberCanBePrivate.Global
     public int CurrentIndex { get; }
 
     /// <summary>
@@ -120,7 +122,7 @@ public sealed class NavigationHistory
 /// <param name="Reason">The optional planner or presenter reason associated with the entry.</param>
 /// <param name="Timestamp">The UTC timestamp at which the entry was created.</param>
 public sealed record NavigationHistoryEntry(
-    string Id,
+    [UsedImplicitly] string Id,
     RouterNavigationRequest Request,
     AppRoute Route,
     State.NavigationState State,
