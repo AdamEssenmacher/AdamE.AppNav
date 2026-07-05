@@ -24,7 +24,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
     private readonly NavigationDiagnostics _diagnostics;
     private readonly ActivitySource _activitySource;
     private readonly SemaphoreSlim _operationLock = new(1, 1);
-    private readonly object _reconciliationGate = new();
+    private readonly Lock _reconciliationGate = new();
     private readonly int _maxRedirects;
     private readonly int _maxHistoryEntries;
     private Task _reconciliationQueue = Task.CompletedTask;
@@ -42,21 +42,17 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         options ??= new RouterNavigatorOptions();
 
         if (options.MaxHistoryEntries < 0)
-        {
             throw new ArgumentOutOfRangeException(nameof(options), "MaxHistoryEntries cannot be negative.");
-        }
 
         if (options.MaxRedirects < 0)
-        {
             throw new ArgumentOutOfRangeException(nameof(options), "MaxRedirects cannot be negative.");
-        }
 
         CurrentState = options.InitialState ?? NavigationState.Empty;
         NavigationStateValidator.ValidateState(CurrentState, "Router initial state");
         History = options.InitialHistory ?? NavigationHistory.Empty;
         _requestPolicies = options.RequestPolicies.ToArray();
         _fallbackRouteFactory = options.FallbackRouteFactory;
-        var logger = options.Logger ?? options.LoggerFactory?.CreateLogger<RouterNavigator>();
+        ILogger? logger = options.Logger ?? options.LoggerFactory?.CreateLogger<RouterNavigator>();
         _diagnostics = options.Diagnostics ?? new NavigationDiagnostics(logger);
         _backNavigator = options.BackNavigator ?? new DefaultBackNavigator(diagnostics: _diagnostics);
         _maxRedirects = options.MaxRedirects;
@@ -109,7 +105,8 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         RouterNavigationDisposition disposition,
         CancellationToken cancellationToken = default)
     {
-        return NavigateAsync(RouterNavigationRequest.FromRoute(route, source, disposition: disposition), cancellationToken);
+        return NavigateAsync(RouterNavigationRequest.FromRoute(route, source, disposition: disposition),
+            cancellationToken);
     }
 
     public ValueTask<NavigationResult> NavigateAsync(
@@ -201,8 +198,8 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         await _operationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var request = RouterNavigationRequest.FromRoute(
-                reconciliation.Route ?? new ReconciledRoute(reconciliation.Source.ToString()),
+            RouterNavigationRequest request = RouterNavigationRequest.FromRoute(
+                reconciliation.Route ?? new ReconciledRoute(),
                 NavigationRequestSource.NativeReconciliation);
 
             return await ReconcileCoreAsync(request, reconciliation, cancellationToken).ConfigureAwait(false);
@@ -223,10 +220,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
 
     public void Dispose()
     {
-        if (_disposed)
-        {
-            return;
-        }
+        if (_disposed) return;
 
         _presenter.ReconciliationRequested -= OnPresenterReconciliationRequested;
         _operationLock.Dispose();
@@ -238,20 +232,20 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         CancellationToken cancellationToken)
     {
         var operationId = Guid.NewGuid().ToString("N");
-        using var activity = StartActivity("Navigation.Navigate", operationId, request);
+        using Activity? activity = StartActivity("Navigation.Navigate", operationId, request);
         var operationTimer = Stopwatch.StartNew();
         AppRoute? route = null;
 
         try
         {
-            var resolvedRequest = await ResolveRequestWithPoliciesAsync(
-                request,
-                operationId,
-                cancellationToken).ConfigureAwait(false);
-            route = resolvedRequest.Route;
-            var effectiveRequest = resolvedRequest.Request;
+            (RouterNavigationRequest effectiveRequest, AppRoute appRoute, RouteDefinition? routeDefinition) =
+                await ResolveRequestWithPoliciesAsync(
+                    request,
+                    operationId,
+                    cancellationToken).ConfigureAwait(false);
+            route = appRoute;
             Activity.Current?.SetTag("navigation.route_type", route.GetType().FullName);
-            Activity.Current?.SetTag("navigation.route_template", resolvedRequest.Definition?.Template.Value);
+            Activity.Current?.SetTag("navigation.route_template", routeDefinition?.Template.Value);
             Activity.Current?.SetTag("navigation.disposition", effectiveRequest.Disposition.ToString());
 
             var planningTimer = Stopwatch.StartNew();
@@ -289,8 +283,8 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                 throw;
             }
 
-            var finalRoute = ResolvePresentedRoute(plan.TargetState, effectiveRequest.WindowId, route);
-            var finalizedRequest = effectiveRequest with { Route = finalRoute };
+            AppRoute finalRoute = ResolvePresentedRoute(plan.TargetState, effectiveRequest.WindowId, route);
+            RouterNavigationRequest finalizedRequest = effectiveRequest with { Route = finalRoute };
             var presentationTimer = Stopwatch.StartNew();
             _diagnostics.Write(
                 NavigationDiagnosticEventKind.PresentationStarted,
@@ -304,10 +298,10 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                     new NavigationPresentationContext(finalizedRequest, finalRoute, CurrentState, operationId),
                     cancellationToken).ConfigureAwait(false);
                 _diagnostics.Write(
-                        NavigationDiagnosticEventKind.PresentationCompleted,
-                        operationId,
-                        plan.Kind.ToString(),
-                        Duration(presentationTimer, (NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
+                    NavigationDiagnosticEventKind.PresentationCompleted,
+                    operationId,
+                    plan.Kind.ToString(),
+                    Duration(presentationTimer, (NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
             }
             catch (Exception ex)
             {
@@ -327,7 +321,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                 _maxHistoryEntries);
             activity?.SetStatus(ActivityStatusCode.Ok);
 
-            return new NavigationResult(finalRoute, plan, CurrentState, Presented: true);
+            return new NavigationResult(finalRoute, plan, CurrentState, true);
         }
         catch (Exception ex)
         {
@@ -347,14 +341,14 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         string operationId,
         CancellationToken cancellationToken)
     {
-        var resolvedRoute = ResolveRoute(initialRequest, operationId);
-        var route = resolvedRoute.Route;
-        var effectiveRequest = initialRequest with
+        ResolvedRoute resolvedRoute = ResolveRoute(initialRequest, operationId);
+        AppRoute route = resolvedRoute.Route;
+        RouterNavigationRequest effectiveRequest = initialRequest with
         {
             Route = route,
             Metadata = MergeMetadata(resolvedRoute.Metadata, initialRequest.Metadata)
         };
-        var initialEffectiveRequest = effectiveRequest;
+        RouterNavigationRequest initialEffectiveRequest = effectiveRequest;
         var seenTargets = new HashSet<RedirectTargetKey> { RedirectTargetKey.From(effectiveRequest) };
         var redirects = new List<RouterNavigationRequest>();
 
@@ -365,12 +359,12 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         {
             var restarted = false;
 
-            foreach (var policy in _requestPolicies)
+            foreach (INavigationRequestPolicy policy in _requestPolicies)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                var policyName = policy.GetType().Name;
-                var policyType = policy.GetType().FullName;
+                string policyName = policy.GetType().Name;
+                string? policyType = policy.GetType().FullName;
                 var timer = Stopwatch.StartNew();
                 _diagnostics.Write(
                     NavigationDiagnosticEventKind.RequestPolicyStarted,
@@ -380,22 +374,20 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
 
                 try
                 {
-                    var previousRequest = effectiveRequest;
-                    var previousTarget = RedirectTargetKey.From(previousRequest);
-                    var candidateRequest = await policy.ApplyAsync(
+                    RouterNavigationRequest previousRequest = effectiveRequest;
+                    RedirectTargetKey previousTarget = RedirectTargetKey.From(previousRequest);
+                    RouterNavigationRequest? candidateRequest = await policy.ApplyAsync(
                         new NavigationRequestPolicyContext(effectiveRequest, route, CurrentState, operationId),
                         effectiveRequest,
                         cancellationToken).ConfigureAwait(false);
 
                     if (candidateRequest is null)
-                    {
                         throw new InvalidOperationException(
                             $"Request policy '{policy.GetType().FullName}' returned a null navigation request.");
-                    }
 
                     candidateRequest = PreserveProvenance(previousRequest, candidateRequest);
-                    var candidateResolvedRoute = ResolveRoute(candidateRequest, operationId);
-                    var candidateEffectiveRequest = candidateRequest with
+                    ResolvedRoute candidateResolvedRoute = ResolveRoute(candidateRequest, operationId);
+                    RouterNavigationRequest candidateEffectiveRequest = candidateRequest with
                     {
                         Route = candidateResolvedRoute.Route,
                         Disposition = candidateRequest.Disposition == RouterNavigationDisposition.Auto
@@ -403,7 +395,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                             : candidateRequest.Disposition,
                         Metadata = MergeMetadata(candidateResolvedRoute.Metadata, candidateRequest.Metadata)
                     };
-                    var candidateTarget = RedirectTargetKey.From(candidateEffectiveRequest);
+                    RedirectTargetKey candidateTarget = RedirectTargetKey.From(candidateEffectiveRequest);
                     route = candidateResolvedRoute.Route;
                     resolvedRoute = candidateResolvedRoute;
                     effectiveRequest = candidateEffectiveRequest;
@@ -414,18 +406,15 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                         policyName,
                         Duration(timer, (NavigationDiagnosticDataKeys.PolicyType, policyType)));
 
-                    if (candidateTarget == previousTarget)
-                    {
-                        continue;
-                    }
+                    if (candidateTarget == previousTarget) continue;
 
                     redirects.Add(candidateEffectiveRequest);
-                    var redirectCount = redirects.Count;
-                    var redirectTrace = BuildRedirectTrace(initialEffectiveRequest, redirects);
+                    int redirectCount = redirects.Count;
+                    string redirectTrace = BuildRedirectTrace(initialEffectiveRequest, redirects);
 
                     if (redirectCount > _maxRedirects)
                     {
-                        var message = _maxRedirects == 0
+                        string message = _maxRedirects == 0
                             ? "Request policy redirects are disabled because MaxRedirects is 0."
                             : $"Request policy redirect limit of {_maxRedirects} was exceeded.";
                         WriteRedirectLoopDetected(
@@ -463,7 +452,8 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
 
                     Activity.Current?.SetTag("navigation.redirect_count", redirectCount);
                     Activity.Current?.SetTag("navigation.redirect_from", DescribeRedirectTarget(previousRequest));
-                    Activity.Current?.SetTag("navigation.redirect_to", DescribeRedirectTarget(candidateEffectiveRequest));
+                    Activity.Current?.SetTag("navigation.redirect_to",
+                        DescribeRedirectTarget(candidateEffectiveRequest));
                     Activity.Current?.SetTag("navigation.route_type", route.GetType().FullName);
                     Activity.Current?.SetTag("navigation.route_template", resolvedRoute.Definition?.Template.Value);
                     _diagnostics.Write(
@@ -475,7 +465,8 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                             (NavigationDiagnosticDataKeys.PolicyType, policyType),
                             (NavigationDiagnosticDataKeys.RedirectCount, redirectCount),
                             (NavigationDiagnosticDataKeys.RedirectFrom, DescribeRedirectTarget(previousRequest)),
-                            (NavigationDiagnosticDataKeys.RedirectTo, DescribeRedirectTarget(candidateEffectiveRequest)),
+                            (NavigationDiagnosticDataKeys.RedirectTo,
+                                DescribeRedirectTarget(candidateEffectiveRequest)),
                             (NavigationDiagnosticDataKeys.RedirectTrace, redirectTrace)));
 
                     restarted = true;
@@ -494,10 +485,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                 }
             }
 
-            if (!restarted)
-            {
-                return new ResolvedNavigationRequest(effectiveRequest, route, resolvedRoute.Definition);
-            }
+            if (!restarted) return new ResolvedNavigationRequest(effectiveRequest, route, resolvedRoute.Definition);
         }
     }
 
@@ -506,12 +494,14 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         CancellationToken cancellationToken)
     {
         var operationId = Guid.NewGuid().ToString("N");
-        using var activity = StartActivity("Navigation.Back", operationId, NavigationRequestSource.InAppCommand.ToString());
+        using Activity? activity =
+            StartActivity("Navigation.Back", operationId, nameof(NavigationRequestSource.InAppCommand));
         var timer = Stopwatch.StartNew();
 
         var backContext = new BackNavigationContext(CurrentState, windowId, operationId);
-        var diagnosticWindowId = backContext.ResolvedWindowId ?? backContext.RequestedWindowId ?? CurrentState.ActiveWindowId;
-        var diagnosticWindowName = diagnosticWindowId ?? "active";
+        string? diagnosticWindowId =
+            backContext.ResolvedWindowId ?? backContext.RequestedWindowId ?? CurrentState.ActiveWindowId;
+        string diagnosticWindowName = diagnosticWindowId ?? "active";
 
         _diagnostics.Write(
             NavigationDiagnosticEventKind.BackStarted,
@@ -521,7 +511,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
 
         try
         {
-            var plan = _backNavigator.CreateBackPlan(backContext);
+            NavigationPlan? plan = _backNavigator.CreateBackPlan(backContext);
             if (plan is null)
             {
                 _diagnostics.Write(
@@ -534,9 +524,10 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
             }
 
             NavigationStateValidator.ValidatePlan(plan, $"Back navigator '{_backNavigator.GetType().Name}'");
-            var resolvedWindowId = backContext.ResolvedWindowId ?? backContext.RequestedWindowId;
-            var route = ResolvePresentedRoute(plan.TargetState, resolvedWindowId, new BackRoute());
-            var request = RouterNavigationRequest.FromRoute(route, NavigationRequestSource.InAppCommand, resolvedWindowId);
+            string? resolvedWindowId = backContext.ResolvedWindowId ?? backContext.RequestedWindowId;
+            AppRoute route = ResolvePresentedRoute(plan.TargetState, resolvedWindowId, new BackRoute());
+            RouterNavigationRequest request =
+                RouterNavigationRequest.FromRoute(route, NavigationRequestSource.InAppCommand, resolvedWindowId);
 
             _diagnostics.Write(
                 NavigationDiagnosticEventKind.PresentationStarted,
@@ -569,7 +560,8 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
             }
 
             CurrentState = plan.TargetState;
-            History = History.Push(CreateHistoryEntry(operationId, request, route, CurrentState, plan.Reason), _maxHistoryEntries);
+            History = History.Push(CreateHistoryEntry(operationId, request, route, CurrentState, plan.Reason),
+                _maxHistoryEntries);
 
             _diagnostics.Write(
                 NavigationDiagnosticEventKind.BackCompleted,
@@ -577,7 +569,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                 plan.Reason ?? "Back handled.",
                 Duration(timer, (NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
             activity?.SetStatus(ActivityStatusCode.Ok);
-            return BackNavigationResult.HandledBy(new NavigationResult(route, plan, CurrentState, Presented: true));
+            return BackNavigationResult.HandledBy(new NavigationResult(route, plan, CurrentState, true));
         }
         catch (Exception ex)
         {
@@ -593,9 +585,9 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         CancellationToken cancellationToken)
     {
         var operationId = Guid.NewGuid().ToString("N");
-        using var activity = StartActivity("Navigation.Reconcile", operationId, reconciliation.Source.ToString());
+        using Activity? activity = StartActivity("Navigation.Reconcile", operationId, reconciliation.Source.ToString());
         var timer = Stopwatch.StartNew();
-        var route = request.Route ?? new ReconciledRoute(reconciliation.Source.ToString());
+        AppRoute route = request.Route ?? new ReconciledRoute();
         var plan = new NavigationPlan(reconciliation.TargetState, NavigationPlanKind.Reconcile, reconciliation.Reason);
 
         _diagnostics.Write(
@@ -608,8 +600,8 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         {
             NavigationStateValidator.ValidatePlan(plan, "Navigation reconciliation");
 
-            var finalRoute = ResolvePresentedRoute(plan.TargetState, request.WindowId, route);
-            var finalizedRequest = request with { Route = finalRoute };
+            AppRoute finalRoute = ResolvePresentedRoute(plan.TargetState, request.WindowId, route);
+            RouterNavigationRequest finalizedRequest = request with { Route = finalRoute };
             var presentationTimer = Stopwatch.StartNew();
             _diagnostics.Write(
                 NavigationDiagnosticEventKind.PresentationStarted,
@@ -651,27 +643,23 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                 reconciliation.Source.ToString(),
                 Duration(timer, (NavigationDiagnosticDataKeys.ReconciliationSource, reconciliation.Source.ToString())));
             activity?.SetStatus(ActivityStatusCode.Ok);
-            return new NavigationResult(finalRoute, plan, CurrentState, Presented: false);
+            return new NavigationResult(finalRoute, plan, CurrentState, false);
         }
         catch (Exception ex)
         {
             activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
-            WriteFailure(NavigationDiagnosticEventKind.ReconciliationFailed, operationId, reconciliation.Source.ToString(), ex, timer);
+            WriteFailure(NavigationDiagnosticEventKind.ReconciliationFailed, operationId,
+                reconciliation.Source.ToString(), ex, timer);
             throw;
         }
     }
 
     private ResolvedRoute ResolveRoute(RouterNavigationRequest request, string operationId)
     {
-        if (request.Route is not null)
-        {
-            return new ResolvedRoute(request.Route, null);
-        }
+        if (request.Route is not null) return new ResolvedRoute(request.Route, null);
 
         if (request.Uri is null)
-        {
             throw new InvalidOperationException("RouterNavigationRequest must contain either a Uri or an AppRoute.");
-        }
 
         var timer = Stopwatch.StartNew();
         _diagnostics.Write(
@@ -685,10 +673,10 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
 
         try
         {
-            var match = _routes.Match(request.Uri);
+            RouteMatchResult match = _routes.Match(request.Uri);
             if (!match.IsSuccess || match.Route is null)
             {
-                var diagnostic = match.Diagnostics.FirstOrDefault();
+                RouteDiagnostic? diagnostic = match.Diagnostics.FirstOrDefault();
                 _diagnostics.Write(
                     NavigationDiagnosticEventKind.RouteNotMatched,
                     operationId,
@@ -698,7 +686,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                 if (diagnostic?.Code == "route.not_matched" && _fallbackRouteFactory is not null)
                 {
                     var fallbackTimer = Stopwatch.StartNew();
-                    var fallbackRoute = _fallbackRouteFactory(new NavigationFallbackContext(
+                    AppRoute? fallbackRoute = _fallbackRouteFactory(new NavigationFallbackContext(
                         request,
                         match.Diagnostics,
                         CurrentState,
@@ -726,7 +714,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
             }
 
             Activity.Current?.SetTag("navigation.route_type", match.Route.GetType().FullName);
-            var routeTemplate = match.Definition?.Template.Value;
+            string? routeTemplate = match.Definition?.Template.Value;
             Activity.Current?.SetTag("navigation.route_template", routeTemplate);
             _diagnostics.Write(
                 NavigationDiagnosticEventKind.RouteMatched,
@@ -758,12 +746,13 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         Task task;
         lock (_reconciliationGate)
         {
-            var reconciliation = e.Reconciliation;
+            NavigationReconciliation reconciliation = e.Reconciliation;
             _reconciliationQueue = _reconciliationQueue
                 .ContinueWith(
-                    static async (previous, state) =>
+                    static async (_, state) =>
                     {
-                        var (navigator, nextReconciliation) = ((RouterNavigator, NavigationReconciliation))state!;
+                        (RouterNavigator navigator, NavigationReconciliation nextReconciliation) =
+                            ((RouterNavigator, NavigationReconciliation))state!;
                         await navigator.ReconcileAsync(nextReconciliation).ConfigureAwait(false);
                     },
                     (this, reconciliation),
@@ -797,7 +786,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
 
     private Activity? StartActivity(string name, string operationId, RouterNavigationRequest request)
     {
-        var activity = StartActivity(name, operationId, request.Source.ToString(), request.Disposition);
+        Activity? activity = StartActivity(name, operationId, request.Source.ToString(), request.Disposition);
         AddProvenanceActivityTags(activity, request.Provenance);
         return activity;
     }
@@ -808,7 +797,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         string source,
         RouterNavigationDisposition disposition = RouterNavigationDisposition.Auto)
     {
-        var activity = _activitySource.StartActivity(name);
+        Activity? activity = _activitySource.StartActivity(name);
         activity?.SetTag("navigation.operation_id", operationId);
         activity?.SetTag("navigation.source", source);
         activity?.SetTag("navigation.disposition", disposition.ToString());
@@ -853,7 +842,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         params (string Key, object? Value)[] data)
     {
         timer.Stop();
-        var result = Data(data);
+        Dictionary<string, object?> result = Data(data);
         result[NavigationDiagnosticDataKeys.DurationMs] = timer.Elapsed.TotalMilliseconds;
         return result;
     }
@@ -864,7 +853,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         params (string Key, object? Value)[] data)
     {
         timer.Stop();
-        var result = RequestData(request, data);
+        Dictionary<string, object?> result = RequestData(request, data);
         result[NavigationDiagnosticDataKeys.DurationMs] = timer.Elapsed.TotalMilliseconds;
         return result;
     }
@@ -875,7 +864,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         params (string Key, object? Value)[] data)
     {
         timer.Stop();
-        var result = Data(data);
+        Dictionary<string, object?> result = Data(data);
         result[NavigationDiagnosticDataKeys.DurationMs] = timer.Elapsed.TotalMilliseconds;
         result[NavigationDiagnosticDataKeys.ExceptionType] = exception.GetType().FullName;
         result[NavigationDiagnosticDataKeys.ExceptionMessage] = exception.Message;
@@ -897,9 +886,9 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
             data.Add((NavigationDiagnosticDataKeys.RouteDiagnosticCode, diagnostic.Code));
             data.Add((NavigationDiagnosticDataKeys.RouteDiagnosticMessage, diagnostic.Message));
 
-            foreach (var (key, value) in diagnostic.Data)
+            foreach ((string key, object? value) in diagnostic.Data)
             {
-                var normalizedKey = key switch
+                string normalizedKey = key switch
                 {
                     "path" => NavigationDiagnosticDataKeys.Path,
                     "template" => NavigationDiagnosticDataKeys.RouteTemplate,
@@ -953,17 +942,11 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
     private static string DescribeRedirectTarget(RouterNavigationRequest request)
     {
         var parts = new List<string>();
-        if (request.Uri is not null)
-        {
-            parts.Add($"uri={request.Uri}");
-        }
+        if (request.Uri is not null) parts.Add($"uri={request.Uri}");
 
-        if (request.Route is not null)
-        {
-            parts.Add($"route={request.Route.GetType().Name}:{request.Route}");
-        }
+        if (request.Route is not null) parts.Add($"route={request.Route.GetType().Name}:{request.Route}");
 
-        var target = parts.Count == 0
+        string target = parts.Count == 0
             ? "<none>"
             : string.Join(", ", parts);
 
@@ -976,7 +959,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         RouterNavigationRequest request,
         params (string Key, object? Value)[] values)
     {
-        var result = Data(values);
+        Dictionary<string, object?> result = Data(values);
         AddProvenanceData(result, request.Provenance);
         return result;
     }
@@ -984,10 +967,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
     private static Dictionary<string, object?> Data(params (string Key, object? Value)[] values)
     {
         var result = new Dictionary<string, object?>(StringComparer.Ordinal);
-        foreach (var (key, value) in values)
-        {
-            result[key] = value;
-        }
+        foreach ((string key, object? value) in values) result[key] = value;
 
         return result;
     }
@@ -996,52 +976,37 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         IDictionary<string, object?> data,
         NavigationRequestProvenance? provenance)
     {
-        if (provenance is null)
-        {
-            return;
-        }
+        if (provenance is null) return;
 
         AddIfPresent(data, NavigationDiagnosticDataKeys.ProvenanceProvider, provenance.Provider);
         AddIfPresent(data, NavigationDiagnosticDataKeys.ProvenanceOriginalUri, provenance.OriginalUri?.ToString());
         AddIfPresent(data, NavigationDiagnosticDataKeys.ProvenanceReferrerUri, provenance.ReferrerUri?.ToString());
         AddIfPresent(data, NavigationDiagnosticDataKeys.ProvenanceCorrelationId, provenance.CorrelationId);
         if (provenance.IsColdStart.HasValue)
-        {
             data[NavigationDiagnosticDataKeys.ProvenanceIsColdStart] = provenance.IsColdStart.Value;
-        }
 
         if (provenance.Attributes.Count > 0)
-        {
             data[NavigationDiagnosticDataKeys.ProvenanceAttributes] =
                 new Dictionary<string, string?>(provenance.Attributes, StringComparer.Ordinal);
-        }
     }
 
     private static void AddProvenanceActivityTags(
         Activity? activity,
         NavigationRequestProvenance? provenance)
     {
-        if (activity is null || provenance is null)
-        {
-            return;
-        }
+        if (activity is null || provenance is null) return;
 
         activity.SetTag("navigation.provenance.provider", provenance.Provider);
         activity.SetTag("navigation.provenance.original_uri", provenance.OriginalUri?.ToString());
         activity.SetTag("navigation.provenance.referrer_uri", provenance.ReferrerUri?.ToString());
         activity.SetTag("navigation.provenance.correlation_id", provenance.CorrelationId);
         if (provenance.IsColdStart.HasValue)
-        {
             activity.SetTag("navigation.provenance.is_cold_start", provenance.IsColdStart.Value);
-        }
 
-        foreach (var pair in provenance.Attributes.OrderBy(static pair => pair.Key, StringComparer.Ordinal))
-        {
+        foreach (KeyValuePair<string, string?> pair in provenance.Attributes.OrderBy(static pair => pair.Key,
+                     StringComparer.Ordinal))
             if (!string.IsNullOrWhiteSpace(pair.Key) && pair.Value is not null)
-            {
                 activity.SetTag($"navigation.provenance.attribute.{pair.Key}", pair.Value);
-            }
-        }
     }
 
     private static void AddIfPresent(
@@ -1049,10 +1014,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         string key,
         string? value)
     {
-        if (!string.IsNullOrWhiteSpace(value))
-        {
-            data[key] = value;
-        }
+        if (!string.IsNullOrWhiteSpace(value)) data[key] = value;
     }
 
     private static AppRoute ResolvePresentedRoute(
@@ -1060,7 +1022,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         string? preferredWindowId,
         AppRoute fallbackRoute)
     {
-        var window = string.IsNullOrWhiteSpace(preferredWindowId)
+        WindowNode? window = string.IsNullOrWhiteSpace(preferredWindowId)
             ? state.ActiveWindow
             : state.FindWindow(preferredWindowId) ?? state.ActiveWindow;
 
@@ -1078,20 +1040,12 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
     {
         var merged = new Dictionary<string, object?>(StringComparer.Ordinal);
         if (lowerPriority is not null)
-        {
-            foreach (var pair in lowerPriority)
-            {
+            foreach (KeyValuePair<string, object?> pair in lowerPriority)
                 merged[pair.Key] = pair.Value;
-            }
-        }
 
         if (higherPriority is not null)
-        {
-            foreach (var pair in higherPriority)
-            {
+            foreach (KeyValuePair<string, object?> pair in higherPriority)
                 merged[pair.Key] = pair.Value;
-            }
-        }
 
         return merged;
     }
@@ -1105,7 +1059,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
             : candidateRequest;
     }
 
-    private sealed record ReconciledRoute(string Source) : AppRoute;
+    private sealed record ReconciledRoute : AppRoute;
 
     private sealed record BackRoute : AppRoute;
 
