@@ -48,10 +48,10 @@ public sealed class BranchHostNavigationModel<TRoute>
     {
         ArgumentNullException.ThrowIfNull(route);
 
-        var recipe = GetRecipe(route);
-        var entryId = recipe.EntryIdFactory(route);
+        BranchHostRouteRecipe<TRoute> recipe = GetRecipe(route);
+        string entryId = recipe.EntryIdFactory(route);
         ArgumentException.ThrowIfNullOrWhiteSpace(entryId);
-        return new RouteEntry(entryId, route, Metadata: metadata);
+        return new RouteEntry(entryId, route, metadata);
     }
 
     /// <summary>
@@ -65,8 +65,8 @@ public sealed class BranchHostNavigationModel<TRoute>
     {
         ArgumentNullException.ThrowIfNull(route);
 
-        var resolvedWindowId = string.IsNullOrWhiteSpace(windowId) ? _defaultWindowId : windowId;
-        var resolvedBranchHostId = string.IsNullOrWhiteSpace(branchHostId) ? _defaultBranchHostId : branchHostId;
+        string resolvedWindowId = string.IsNullOrWhiteSpace(windowId) ? _defaultWindowId : windowId;
+        string resolvedBranchHostId = string.IsNullOrWhiteSpace(branchHostId) ? _defaultBranchHostId : branchHostId;
 
         return new NavigationState(
             [
@@ -87,24 +87,24 @@ public sealed class BranchHostNavigationModel<TRoute>
         ArgumentNullException.ThrowIfNull(currentState);
         ArgumentNullException.ThrowIfNull(route);
 
-        if (currentState.ActiveWindow is not { Root: BranchHostNode currentBranchHost } window ||
-            currentBranchHost.SelectedBranch is not { Content: StackNode currentSelectedStack } selectedBranch ||
+        if (currentState.ActiveWindow is not
+            {
+                Root: BranchHostNode { SelectedBranch.Content: StackNode currentSelectedStack } currentBranchHost
+            } window ||
             currentSelectedStack.Entries.Count == 0 ||
             currentSelectedStack.Entries[0].Route is not TRoute currentRootRoute)
-        {
             return null;
-        }
 
-        var recipe = GetRecipe(route);
+        BranchHostRouteRecipe<TRoute> recipe = GetRecipe(route);
         if (!IsEligible(currentRootRoute, route, recipe.ContextualEligibility) ||
-            !_branchesById.TryGetValue(recipe.BranchId, out var owningBranch) ||
-            currentBranchHost.Branches.FirstOrDefault(branch => StringComparer.Ordinal.Equals(branch.Id, recipe.BranchId)) is not { Content: StackNode currentOwningStack } currentBranch)
-        {
+            !_branchesById.TryGetValue(recipe.BranchId, out BranchHostBranchDefinition<TRoute>? owningBranch) ||
+            currentBranchHost.Branches.FirstOrDefault(branch =>
+                    StringComparer.Ordinal.Equals(branch.Id, recipe.BranchId)) is not
+                { Content: StackNode currentOwningStack } currentBranch)
             return null;
-        }
 
         StackNode? nextOwningStack = IsBranchRoot(owningBranch, route)
-            ? CreateCanonicalBranchStack(owningBranch, route, metadata, currentOwningStack.Id)
+            ? CreateCanonicalBranchStack(route, metadata, currentOwningStack.Id)
             : mutation switch
             {
                 ContextualStackMutationKind.Push => currentOwningStack with
@@ -113,21 +113,21 @@ public sealed class BranchHostNavigationModel<TRoute>
                 },
                 ContextualStackMutationKind.ReplaceTop => currentOwningStack with
                 {
-                    Entries = BuildReplacedEntries(currentOwningStack.Entries, route, metadata) ?? Array.Empty<RouteEntry>()
+                    Entries = BuildReplacedEntries(currentOwningStack.Entries, route, metadata) ??
+                              Array.Empty<RouteEntry>()
                 },
                 _ => null
             };
 
         if (nextOwningStack is null ||
-            mutation is ContextualStackMutationKind.ReplaceTop && currentOwningStack.Entries.Count == 0)
-        {
+            (mutation is ContextualStackMutationKind.ReplaceTop && currentOwningStack.Entries.Count == 0))
             return null;
-        }
 
-        var nextBranchHost = currentBranchHost.ReplaceBranch(currentBranch with { Content = nextOwningStack }) with
-        {
-            SelectedBranchId = owningBranch.Id
-        };
+        BranchHostNode nextBranchHost =
+            currentBranchHost.ReplaceBranch(currentBranch with { Content = nextOwningStack }) with
+            {
+                SelectedBranchId = owningBranch.Id
+            };
 
         return currentState.ReplaceWindow(window with { Root = nextBranchHost });
     }
@@ -137,14 +137,14 @@ public sealed class BranchHostNavigationModel<TRoute>
         IReadOnlyDictionary<string, object?>? metadata,
         string branchHostId)
     {
-        var recipe = GetRecipe(route);
+        BranchHostRouteRecipe<TRoute> recipe = GetRecipe(route);
         var branches = new NavigationBranch[_branches.Count];
 
         for (var i = 0; i < _branches.Count; i++)
         {
-            var branch = _branches[i];
-            var stack = StringComparer.Ordinal.Equals(branch.Id, recipe.BranchId)
-                ? CreateCanonicalBranchStack(branch, route, metadata, BuildBranchStackId(branchHostId, branch.Id))
+            BranchHostBranchDefinition<TRoute> branch = _branches[i];
+            StackNode stack = StringComparer.Ordinal.Equals(branch.Id, recipe.BranchId)
+                ? CreateCanonicalBranchStack(route, metadata, BuildBranchStackId(branchHostId, branch.Id))
                 : CreateSanitizedBranchStack(branch, route, branchHostId);
             branches[i] = new NavigationBranch(branch.Id, branch.Title, stack);
         }
@@ -156,9 +156,7 @@ public sealed class BranchHostNavigationModel<TRoute>
             _branches[0].Id);
     }
 
-    private StackNode CreateCanonicalBranchStack(
-        BranchHostBranchDefinition<TRoute> branch,
-        TRoute route,
+    private StackNode CreateCanonicalBranchStack(TRoute route,
         IReadOnlyDictionary<string, object?>? metadata,
         string stackId)
     {
@@ -170,9 +168,9 @@ public sealed class BranchHostNavigationModel<TRoute>
         TRoute scopedRoute,
         string branchHostId)
     {
-        var rootRoute = branch.RootRouteFactory(scopedRoute) ??
-                        throw new InvalidOperationException(
-                            $"Branch-host branch '{branch.Id}' returned a null root route.");
+        TRoute rootRoute = branch.RootRouteFactory(scopedRoute) ??
+                           throw new InvalidOperationException(
+                               $"Branch-host branch '{branch.Id}' returned a null root route.");
         return new StackNode(
             BuildBranchStackId(branchHostId, branch.Id),
             [CreateEntry(rootRoute)]);
@@ -197,14 +195,12 @@ public sealed class BranchHostNavigationModel<TRoute>
         ArgumentNullException.ThrowIfNull(steps);
 
         var entries = new List<RouteEntry>(steps.Count);
-        foreach (var step in steps)
+        foreach (StackRouteStep<TRoute> step in steps)
         {
             ArgumentNullException.ThrowIfNull(step);
             if (!_recipes.ContainsKey(step.Route.GetType()))
-            {
                 throw new InvalidOperationException(
                     $"Branch-host route step '{step.Route.GetType().FullName}' must be registered before it can participate in branch-host planning.");
-            }
 
             entries.Add(CreateEntry(step.Route, step.Metadata));
         }
@@ -217,7 +213,7 @@ public sealed class BranchHostNavigationModel<TRoute>
         TRoute route,
         IReadOnlyDictionary<string, object?>? metadata)
     {
-        var nextEntries = currentEntries.ToList();
+        List<RouteEntry> nextEntries = currentEntries.ToList();
         AppendTail(nextEntries, BuildContextualTailEntries(route, metadata));
         return nextEntries;
     }
@@ -227,13 +223,10 @@ public sealed class BranchHostNavigationModel<TRoute>
         TRoute route,
         IReadOnlyDictionary<string, object?>? metadata)
     {
-        if (currentEntries.Count == 0)
-        {
-            return null;
-        }
+        if (currentEntries.Count == 0) return null;
 
-        var preservedCount = currentEntries.Count == 1 ? 1 : currentEntries.Count - 1;
-        var nextEntries = currentEntries
+        int preservedCount = currentEntries.Count == 1 ? 1 : currentEntries.Count - 1;
+        List<RouteEntry> nextEntries = currentEntries
             .Take(preservedCount)
             .ToList();
         AppendTail(nextEntries, BuildContextualTailEntries(route, metadata));
@@ -242,9 +235,9 @@ public sealed class BranchHostNavigationModel<TRoute>
 
     private void AppendTail(List<RouteEntry> entries, IReadOnlyList<RouteEntry> tailEntries)
     {
-        foreach (var tailEntry in tailEntries)
+        foreach (RouteEntry tailEntry in tailEntries)
         {
-            var matchIndex = FindMatchingEntryIndex(entries, tailEntry);
+            int matchIndex = FindMatchingEntryIndex(entries, tailEntry);
             if (matchIndex >= 0)
             {
                 entries[matchIndex] = tailEntry;
@@ -258,10 +251,7 @@ public sealed class BranchHostNavigationModel<TRoute>
 
     private bool ShouldReplaceWith(RouteEntry existingEntry, RouteEntry replacementEntry)
     {
-        if (StringComparer.Ordinal.Equals(existingEntry.Id, replacementEntry.Id))
-        {
-            return true;
-        }
+        if (StringComparer.Ordinal.Equals(existingEntry.Id, replacementEntry.Id)) return true;
 
         return AreSameSlot(existingEntry, replacementEntry);
     }
@@ -269,25 +259,18 @@ public sealed class BranchHostNavigationModel<TRoute>
     private int FindMatchingEntryIndex(IReadOnlyList<RouteEntry> entries, RouteEntry replacementEntry)
     {
         for (var i = 0; i < entries.Count; i++)
-        {
             if (ShouldReplaceWith(entries[i], replacementEntry))
-            {
                 return i;
-            }
-        }
 
         return -1;
     }
 
     private bool AreSameSlot(RouteEntry left, RouteEntry right)
     {
-        if (left.Route is not TRoute leftRoute || right.Route is not TRoute rightRoute)
-        {
-            return false;
-        }
+        if (left.Route is not TRoute leftRoute || right.Route is not TRoute rightRoute) return false;
 
-        var leftSlotId = GetSlotId(leftRoute);
-        var rightSlotId = GetSlotId(rightRoute);
+        string leftSlotId = GetSlotId(leftRoute);
+        string rightSlotId = GetSlotId(rightRoute);
         return !string.IsNullOrWhiteSpace(leftSlotId) &&
                !string.IsNullOrWhiteSpace(rightSlotId) &&
                StringComparer.Ordinal.Equals(leftSlotId, rightSlotId);
@@ -308,21 +291,21 @@ public sealed class BranchHostNavigationModel<TRoute>
 
     private bool HasMatchingScope(TRoute currentRootRoute, TRoute targetRoute)
     {
-        var currentScope = GetScopeKey(currentRootRoute);
-        var targetScope = GetScopeKey(targetRoute);
+        string? currentScope = GetScopeKey(currentRootRoute);
+        string? targetScope = GetScopeKey(targetRoute);
         return !string.IsNullOrWhiteSpace(currentScope) &&
                !string.IsNullOrWhiteSpace(targetScope) &&
                StringComparer.Ordinal.Equals(currentScope, targetScope);
     }
 
-    private bool IsBranchRoot(BranchHostBranchDefinition<TRoute> branch, TRoute route)
+    private static bool IsBranchRoot(BranchHostBranchDefinition<TRoute> branch, TRoute route)
     {
         return EqualityComparer<TRoute>.Default.Equals(branch.RootRouteFactory(route), route);
     }
 
-    private string? GetSlotId(TRoute route)
+    private string GetSlotId(TRoute route)
     {
-        var recipe = GetRecipe(route);
+        BranchHostRouteRecipe<TRoute> recipe = GetRecipe(route);
         return recipe.SlotIdFactory?.Invoke(route) ?? recipe.EntryIdFactory(route);
     }
 
@@ -333,11 +316,9 @@ public sealed class BranchHostNavigationModel<TRoute>
 
     private BranchHostRouteRecipe<TRoute> GetRecipe(TRoute route)
     {
-        if (!_recipes.TryGetValue(route.GetType(), out var recipe))
-        {
+        if (!_recipes.TryGetValue(route.GetType(), out BranchHostRouteRecipe<TRoute>? recipe))
             throw new InvalidOperationException(
                 $"Route '{route.GetType().FullName}' is not registered in this branch-host navigation model.");
-        }
 
         return recipe;
     }
