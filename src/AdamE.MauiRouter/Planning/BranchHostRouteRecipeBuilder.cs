@@ -70,13 +70,12 @@ public sealed class BranchHostRouteRecipeBuilder<TRouteBase, TRoute> : IBranchHo
     /// <summary>
     /// Sets whether contextual planning requires a matching scope.
     /// </summary>
+    // ReSharper disable once UnusedMember.Global
     public BranchHostRouteRecipeBuilder<TRouteBase, TRoute> ContextualEligibility(ContextualStackEligibility contextualEligibility)
     {
         _contextualEligibility = contextualEligibility;
         return this;
     }
-
-    Type IBranchHostRouteRecipeBuilder<TRouteBase>.RouteType => typeof(TRoute);
 
     BranchHostRouteRecipe<TRouteBase> IBranchHostRouteRecipeBuilder<TRouteBase>.Build()
     {
@@ -105,8 +104,6 @@ public sealed class BranchHostRouteRecipeBuilder<TRouteBase, TRoute> : IBranchHo
 internal interface IBranchHostRouteRecipeBuilder<TRouteBase>
     where TRouteBase : AppRoute
 {
-    Type RouteType { get; }
-
     BranchHostRouteRecipe<TRouteBase> Build();
 }
 
