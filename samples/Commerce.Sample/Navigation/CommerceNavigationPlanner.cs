@@ -62,13 +62,7 @@ public sealed class CommerceNavigationPlanner : IAppNavigationPlanner
 
         if (route is ProductDetailRoute detail)
         {
-            entries.Add(new RouteEntry(
-                $"product-{detail.ProductId}",
-                detail,
-                new SharedElementNavigationTransition(
-                    new[] { SharedElementPair.SameId(ProductSharedElementId(detail.ProductId)) },
-                    new FadeNavigationTransition(TimeSpan.FromMilliseconds(180)),
-                    TimeSpan.FromMilliseconds(260))));
+            entries.Add(Entry($"product-{detail.ProductId}", detail));
         }
 
         return entries;
@@ -92,11 +86,6 @@ public sealed class CommerceNavigationPlanner : IAppNavigationPlanner
     private static RouteEntry Entry(string id, AppRoute route)
     {
         return new RouteEntry(id, route);
-    }
-
-    private static string ProductSharedElementId(int productId)
-    {
-        return $"product-{productId}-tile";
     }
 
     private static string GetStoreId(AppRoute route)

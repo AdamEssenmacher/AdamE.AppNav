@@ -185,8 +185,8 @@ public sealed class RepositoryContractTests
         Assert.Contains("IRouterNavigator", source, StringComparison.Ordinal);
         Assert.Contains("CommerceNotFoundRoute", source, StringComparison.Ordinal);
         Assert.Contains("CommerceNotFoundPage", source, StringComparison.Ordinal);
-        Assert.Contains("SharedElementNavigationTransition", source, StringComparison.Ordinal);
-        Assert.Contains("MauiRouterTransition.SetSharedElementId", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("SharedElementNavigationTransition", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("MauiRouterTransition.SetSharedElementId", source, StringComparison.Ordinal);
         Assert.DoesNotContain("HasPendingRequests", source, StringComparison.Ordinal);
         Assert.DoesNotContain("RestoreFromStoreAsync", source, StringComparison.Ordinal);
         Assert.DoesNotContain(".AttachWindow", source, StringComparison.Ordinal);
@@ -233,16 +233,16 @@ public sealed class RepositoryContractTests
     }
 
     [Fact]
-    public void DocumentationDescribesCurrentTransitionSupport()
+    public void DocumentationDoesNotAdvertiseTransitionSupport()
     {
         var root = RepositoryRoot();
         var readme = File.ReadAllText(Path.Combine(root, "README.md"));
 
-        Assert.Contains("SharedElementNavigationTransition", readme, StringComparison.Ordinal);
-        Assert.Contains("Android uses native view snapshots and an in-surface overlay", readme, StringComparison.Ordinal);
         Assert.Contains("Native user-driven back remains native-first", readme, StringComparison.Ordinal);
         Assert.Contains("Android predictive back is not implemented in v1", readme, StringComparison.Ordinal);
-        Assert.Contains("V1 does not drive Android predictive-back gesture progress or preview transitions.", readme, StringComparison.Ordinal);
+        Assert.DoesNotContain("NavigationTransition", readme, StringComparison.Ordinal);
+        Assert.DoesNotContain("SharedElementNavigationTransition", readme, StringComparison.Ordinal);
+        Assert.DoesNotContain("MauiRouterTransition", readme, StringComparison.Ordinal);
         Assert.DoesNotContain("For custom transitions", readme, StringComparison.Ordinal);
         Assert.DoesNotContain("custom handler", readme, StringComparison.Ordinal);
         Assert.DoesNotContain("options.Transitions.Map", readme, StringComparison.Ordinal);

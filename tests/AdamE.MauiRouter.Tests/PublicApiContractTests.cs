@@ -47,16 +47,8 @@ public sealed class PublicApiContractTests
                 "AdamE.MauiRouter.Planning.StackNavigationModel`1",
                 "AdamE.MauiRouter.Planning.StackRouteRecipeBuilder`2",
                 "AdamE.MauiRouter.Planning.StackRouteStep`1",
-                "AdamE.MauiRouter.Plans.FadeNavigationTransition",
                 "AdamE.MauiRouter.Plans.NavigationPlan",
                 "AdamE.MauiRouter.Plans.NavigationPlanKind",
-                "AdamE.MauiRouter.Plans.NavigationSlideDirection",
-                "AdamE.MauiRouter.Plans.NavigationTransition",
-                "AdamE.MauiRouter.Plans.NoNavigationTransition",
-                "AdamE.MauiRouter.Plans.PlatformDefaultNavigationTransition",
-                "AdamE.MauiRouter.Plans.SharedElementNavigationTransition",
-                "AdamE.MauiRouter.Plans.SharedElementPair",
-                "AdamE.MauiRouter.Plans.SlideNavigationTransition",
                 "AdamE.MauiRouter.Policies.AccessGateNavigationPolicy",
                 "AdamE.MauiRouter.Policies.IAppNavigationPlanner",
                 "AdamE.MauiRouter.Policies.INavigationAccessEvaluator",
@@ -141,7 +133,6 @@ public sealed class PublicApiContractTests
                 "AdamE.MauiRouter.Maui.MauiRouterStartupOptions",
                 "AdamE.MauiRouter.Maui.MauiRouterStartupOutcome",
                 "AdamE.MauiRouter.Maui.MauiRouterStartupResult",
-                "AdamE.MauiRouter.Maui.MauiRouterTransition",
                 "AdamE.MauiRouter.Maui.Requests.MauiFileDeferredNavigationRequestStoreOptions"
             ]);
     }
@@ -181,22 +172,6 @@ public sealed class PublicApiContractTests
         Assert.Equal(57, (int)NavigationDiagnosticEventKind.AppLinkFailed);
         Assert.Equal(58, (int)NavigationDiagnosticEventKind.DiagnosticObserverFailed);
         Assert.Equal(60, (int)NavigationDiagnosticEventKind.PresentationVerificationFailed);
-    }
-
-    [Fact]
-    public void NavigationTransitionIsClosedToExternalDerivation()
-    {
-        var constructors = typeof(NavigationTransition).GetConstructors(
-            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-        var marker = typeof(NavigationTransition).GetProperty(
-            "BuiltInTransitionMarker",
-            BindingFlags.Instance | BindingFlags.NonPublic);
-
-        Assert.NotEmpty(constructors);
-        Assert.NotNull(marker);
-        Assert.DoesNotContain(constructors, static constructor =>
-            constructor.IsPublic);
-        Assert.True(marker!.GetMethod is { IsAbstract: true, IsFamilyAndAssembly: true });
     }
 
     private static void AssertPublicApi(Assembly assembly, IReadOnlyList<string> expected)

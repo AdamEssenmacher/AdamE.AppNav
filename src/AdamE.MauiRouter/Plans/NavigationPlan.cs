@@ -5,5 +5,4 @@ namespace AdamE.MauiRouter.Plans;
 public sealed record NavigationPlan(
     NavigationState TargetState,
     NavigationPlanKind Kind = NavigationPlanKind.Navigate,
-    string? Reason = null,
-    NavigationTransition? Transition = null);
+    string? Reason = null);

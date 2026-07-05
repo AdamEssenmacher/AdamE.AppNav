@@ -187,7 +187,6 @@ Until packages are published, consume the library with project references.
 | `netstandard` | Not targeted in v1 |
 | Source generators | Not included in v1 |
 | Attribute routing | Not included in v1 |
-| Navigation transitions | Typed stock, fade, slide, and shared-element descriptors |
 | Full multi-window orchestration | State model seam only in v1 |
 
 ## Projects
@@ -214,7 +213,7 @@ tests/AdamE.MauiRouter.Tests
 
 tests/AdamE.MauiRouter.Maui.Tests
   Platform-targeted MAUI adapter tests for presenter lifecycle,
-  reconciliation, persistence storage, and transitions.
+  reconciliation, and persistence storage.
 ```
 
 ## Mental Model
@@ -1217,7 +1216,6 @@ new ModalNode(
 new RouteEntry(
     Id: "product-123",
     Route: new ProductDetailRoute("northwind", 123),
-    Transition: null,
     Metadata: null);
 ```
 
@@ -1231,8 +1229,7 @@ The `Id` should be stable within the host. The MAUI presenter uses entry ids to 
 new NavigationPlan(
     TargetState: state,
     Kind: NavigationPlanKind.Navigate,
-    Reason: "Product link opened",
-    Transition: null);
+    Reason: "Product link opened");
 ```
 
 Plan kinds:
@@ -1244,24 +1241,6 @@ Back
 Restore
 Reconcile
 ```
-
-### `NavigationTransition`
-
-`NavigationTransition` is built-in presentation metadata. It belongs on a `NavigationPlan` when the whole operation should use a default transition, or on a `RouteEntry` when a specific stack/modal entry should override that default.
-
-```csharp
-new RouteEntry(
-    Id: "product-123",
-    Route: new ProductDetailRoute("northwind", 123),
-    Transition: new SharedElementNavigationTransition(
-        new[] { SharedElementPair.SameId("product-123-image") },
-        Fallback: new FadeNavigationTransition(TimeSpan.FromMilliseconds(180)),
-        Duration: TimeSpan.FromMilliseconds(260)));
-```
-
-Built-in descriptors include `NoNavigationTransition`, `PlatformDefaultNavigationTransition`, `FadeNavigationTransition`, `SlideNavigationTransition`, and `SharedElementNavigationTransition`. Custom transition subtypes are not supported.
-
-Transition precedence is deterministic: stack push uses the incoming entry transition, stack pop uses the outgoing entry transition, modal push/pop use the modal route entry transition, and each falls back to `NavigationPlan.Transition`. Initial materialization, restore, and bulk structural reconciliation do not animate by default.
 
 ### `IRouterNavigator`
 
@@ -1652,7 +1631,7 @@ protected override Window CreateWindow(IActivationState? activationState)
 }
 ```
 
-Startup waits up to `MauiRouterStartupOptions.AppLinkGracePeriod` for a buffered app link. If one is pending, startup gives it priority. Otherwise it tries snapshot restore, then the optional `FallbackRequestFactory`, then attaches the window even when no navigation occurs. If app-link dispatch fails later, the buffered request stays pending so a later startup-adjacent trigger such as another dispatch or foreground transition can retry it without losing order.
+Startup waits up to `MauiRouterStartupOptions.AppLinkGracePeriod` for a buffered app link. If one is pending, startup gives it priority. Otherwise it tries snapshot restore, then the optional `FallbackRequestFactory`, then attaches the window even when no navigation occurs. If app-link dispatch fails later, the buffered request stays pending so a later startup-adjacent trigger such as another dispatch or foreground change can retry it without losing order.
 
 ### Native Container Projection
 
@@ -1665,7 +1644,7 @@ The v1 MAUI presenter projects state into real MAUI containers.
 | `BranchHostNode` | `FlyoutPage` when configured with `MapBranchHostAsFlyout(...)` |
 | `ModalNode` | `PushModalAsync` / `PopModalAsync` |
 
-This is deliberate. Native containers preserve platform behavior such as swipe-back, Android back behavior, tab UX, modal presentation, and native-backed transition surfaces.
+This is deliberate. Native containers preserve platform behavior such as swipe-back, Android back behavior, tab UX, and modal presentation.
 
 ### Incremental Updates
 
@@ -1697,6 +1676,8 @@ ModalDismissed
 TabChanged
 OtherNativeEvent
 ```
+
+Native user-driven back remains native-first: iOS swipe-back and Android native back behavior come from the real `NavigationPage`, and the presenter reconciles `Popped`/`PoppedToRoot` events after native stack changes.
 
 Android predictive back is not implemented in v1. MauiRouter's state/planning model is intended to make predictive back feasible later, but true support requires Android-specific gesture preview, cancellation, and commit handling.
 
@@ -1890,29 +1871,6 @@ NavigationDiagnosticDataKeys.RedirectFrom
 NavigationDiagnosticDataKeys.RedirectTo
 NavigationDiagnosticDataKeys.RedirectTrace
 ```
-
-### Add Native Transitions
-
-```csharp
-var entry = new RouteEntry(
-    "product-123",
-    new ProductDetailRoute("northwind", 123),
-    new SharedElementNavigationTransition(
-        new[] { SharedElementPair.SameId("product-123-image") },
-        Fallback: new FadeNavigationTransition(),
-        Duration: TimeSpan.FromMilliseconds(260)));
-```
-
-Mark matching MAUI elements with the attached shared-element id:
-
-```csharp
-MauiRouterTransition.SetSharedElementId(thumbnail, "product-123-image");
-MauiRouterTransition.SetSharedElementId(heroImage, "product-123-image");
-```
-
-The MAUI adapter executes stock platform animation through `PlatformDefaultNavigationTransition`, native-view fade/slide handlers, and shared-element animations for single stack or modal push/pop operations. iOS and Mac Catalyst use UIKit snapshots over the active native container. Android uses native view snapshots and an in-surface overlay inside the MAUI page/container view; it does not use cross-activity shared-element APIs because router navigation stays inside the MAUI app surface. If a source or destination element is missing, the adapter emits a fallback diagnostic and runs the built-in transition fallback.
-
-Initial materialization, restore, and bulk structural reconciliations remain non-animated unless exactly one stack/modal push or pop is being applied. Native user-driven back remains native-first: iOS swipe-back and Android native back behavior come from the real `NavigationPage`, and the presenter reconciles `Popped`/`PoppedToRoot` events after native stack changes. V1 does not drive Android predictive-back gesture progress or preview transitions.
 
 ### Represent A Modal
 
@@ -2179,7 +2137,6 @@ These are intentional v1 boundaries:
 - No attribute routing.
 - No full deferred deep-link or attribution SDK replacement.
 - No complete multi-window orchestration beyond core state seams.
-- No custom branch-host selection animations in the first transition slice.
 - No virtual-host-only renderer as the default MAUI experience.
 
 ## Roadmap Ideas
@@ -2189,7 +2146,6 @@ Likely future work:
 - Source generator for route tables and formatters.
 - Attribute-based route discovery.
 - Platform association-file generation or validation helpers.
-- Richer transition coordination for multi-step/bulk reconciliations.
 - Rich multi-window orchestration.
 - Additional presenters for MVU or custom host models.
 - Package publishing workflow.

@@ -145,12 +145,10 @@ public static class MauiRouterServiceCollectionExtensions
     {
         services.TryAddSingleton(CreatePresentationOptions);
         services.AddSingleton<IMauiRoutePageFactory, MauiRoutePageFactory>();
-        services.AddSingleton<MauiNavigationTransitionService>();
         services.AddSingleton(provider => new MauiNavigationPresenter(
             provider.GetRequiredService<IMauiRoutePageFactory>(),
             provider.GetService<MauiExternalNavigationDispatcher>(),
             provider.GetService<NavigationDiagnostics>(),
-            provider.GetService<MauiNavigationTransitionService>(),
             provider.GetRequiredService<MauiRoutePresentationOptions>()));
         services.AddSingleton<IMauiPresentationState>(provider => provider.GetRequiredService<MauiNavigationPresenter>());
 

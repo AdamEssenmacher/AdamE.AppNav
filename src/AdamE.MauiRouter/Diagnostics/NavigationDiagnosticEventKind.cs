@@ -101,26 +101,6 @@ public enum NavigationDiagnosticEventKind
     PresentationPresenterDisposed,
 
     /// <summary>
-    /// A presentation transition has started.
-    /// </summary>
-    PresentationTransitionStarted,
-
-    /// <summary>
-    /// A presentation transition completed.
-    /// </summary>
-    PresentationTransitionCompleted,
-
-    /// <summary>
-    /// A presentation transition failed.
-    /// </summary>
-    PresentationTransitionFailed,
-
-    /// <summary>
-    /// Presentation fell back from a requested transition to a simpler native operation.
-    /// </summary>
-    PresentationTransitionFallback,
-
-    /// <summary>
     /// Presentation completed native operations but the live host tree did not match the target navigation state.
     /// </summary>
     PresentationVerificationFailed = 60,

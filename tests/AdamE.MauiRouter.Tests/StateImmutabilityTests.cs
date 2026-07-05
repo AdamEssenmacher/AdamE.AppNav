@@ -101,21 +101,6 @@ public sealed class StateImmutabilityTests
     }
 
     [Fact]
-    public void SharedElementTransitionsSnapshotElementCollections()
-    {
-        var elements = new List<SharedElementPair>
-        {
-            SharedElementPair.SameId("product-123")
-        };
-
-        var transition = new SharedElementNavigationTransition(elements);
-        elements.Add(SharedElementPair.SameId("product-456"));
-
-        Assert.Single(transition.Elements);
-        Assert.Equal("product-123", transition.Elements[0].SourceId);
-    }
-
-    [Fact]
     public void NavigationHistorySnapshotsEntries()
     {
         var entries = new List<NavigationHistoryEntry>

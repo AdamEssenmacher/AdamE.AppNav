@@ -16,7 +16,6 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
     private readonly IMauiPresentationVerifier _presentationVerifier;
     private readonly MauiExternalNavigationDispatcher? _externalNavigationDispatcher;
     private readonly NavigationDiagnostics _diagnostics;
-    private readonly MauiNavigationTransitionService? _transitions;
     private readonly Dictionary<NavigationPage, string> _navigationPageStackIds = new(PageReferenceComparer<NavigationPage>.Instance);
     private readonly Dictionary<NavigationPage, HashSet<Page>> _navigationPageKnownPages = new(PageReferenceComparer<NavigationPage>.Instance);
     private readonly Dictionary<string, Page> _flyoutBranchPages = new(StringComparer.Ordinal);
@@ -36,7 +35,6 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         IMauiRoutePageFactory pageFactory,
         MauiExternalNavigationDispatcher? externalNavigationDispatcher = null,
         NavigationDiagnostics? diagnostics = null,
-        MauiNavigationTransitionService? transitions = null,
         MauiRoutePresentationOptions? presentationOptions = null,
         IMauiPresentationVerifier? presentationVerifier = null)
     {
@@ -45,7 +43,6 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         _presentationVerifier = presentationVerifier ?? MauiPresentationVerifier.Instance;
         _externalNavigationDispatcher = externalNavigationDispatcher;
         _diagnostics = diagnostics ?? NavigationDiagnostics.None;
-        _transitions = transitions;
     }
 
     public event EventHandler<NavigationReconciliationRequestedEventArgs>? ReconciliationRequested;
@@ -271,19 +268,17 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         _activeOperationId = context.OperationId;
         try
         {
-            var effectiveTransition = plan.Transition;
             var nextRoot = window.Root is null
                 ? CreateOrReuseEmptyRootHost(CurrentPage)
                 : await MaterializeNodeAsync(
                     window.Root,
                     CurrentPage,
-                    effectiveTransition,
                     context.OperationId,
                     isNavigationTarget: window.Modals.Count == 0,
                     cancellationToken);
 
             SetCurrentPage(nextRoot);
-            await ApplyModalsAsync(nextRoot, window.Modals, effectiveTransition, context.OperationId, cancellationToken);
+            await ApplyModalsAsync(nextRoot, window.Modals, context.OperationId, cancellationToken);
             VerifyPresentation(plan.TargetState, context.OperationId);
             _lastState = plan.TargetState;
         }
@@ -297,7 +292,6 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
     private async Task<Page> MaterializeNodeAsync(
         NavigationNode node,
         Page? existingPage,
-        NavigationTransition? planTransition,
         string operationId,
         bool isNavigationTarget,
         CancellationToken cancellationToken)
@@ -309,7 +303,6 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
             StackNode stack => await MaterializeStackAsync(
                 stack,
                 existingPage as NavigationPage,
-                planTransition,
                 operationId,
                 isNavigationTarget,
                 cancellationToken),
@@ -318,14 +311,12 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
                 MauiBranchHostPresentation.Flyout => await MaterializeFlyoutBranchHostAsync(
                     branchHost,
                     existingPage as FlyoutPage,
-                    planTransition,
                     operationId,
                     isNavigationTarget,
                     cancellationToken),
                 _ => await MaterializeTabbedBranchHostAsync(
                     branchHost,
                     existingPage as TabbedPage,
-                    planTransition,
                     operationId,
                     isNavigationTarget,
                     cancellationToken)
@@ -335,7 +326,6 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
                 : await MaterializeNodeAsync(
                     modal.Content,
                     existingPage,
-                    planTransition,
                     operationId,
                     isNavigationTarget,
                     cancellationToken),
@@ -346,7 +336,6 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
     private async Task<Page> MaterializeStackAsync(
         StackNode stack,
         NavigationPage? existingPage,
-        NavigationTransition? planTransition,
         string operationId,
         bool isNavigationTarget,
         CancellationToken cancellationToken)
@@ -364,8 +353,6 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
             await ReconcileNavigationStackAsync(
                 existingPage,
                 stack,
-                planTransition,
-                operationId,
                 isNavigationTarget,
                 cancellationToken);
             UpdateKnownNavigationPages(existingPage);
@@ -393,44 +380,17 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
     private async Task ReconcileNavigationStackAsync(
         NavigationPage navigationPage,
         StackNode stack,
-        NavigationTransition? planTransition,
-        string operationId,
         bool isNavigationTarget,
         CancellationToken cancellationToken)
     {
         var currentStack = navigationPage.Navigation.NavigationStack;
         var previousStackCount = currentStack.Count;
         var commonCount = CommonRoutePrefix(currentStack, stack.Entries);
-        var popCount = Math.Max(0, currentStack.Count - commonCount);
-        var pushCount = Math.Max(0, stack.Entries.Count - currentStack.Count + popCount);
-        var useTransitions = popCount + pushCount == 1;
-        var previousStack = FindStack(_lastState.ActiveWindow?.Root, stack.Id);
 
         while (navigationPage.Navigation.NavigationStack.Count > commonCount)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var liveStack = navigationPage.Navigation.NavigationStack;
-            var outgoingIndex = liveStack.Count - 1;
-            var sourcePage = liveStack.LastOrDefault();
-            var sourceEntryId = sourcePage is null ? null : GetRouteEntryId(sourcePage);
-            var outgoingEntry = sourceEntryId is null
-                ? null
-                : previousStack?.Entries.FirstOrDefault(entry => StringComparer.Ordinal.Equals(entry.Id, sourceEntryId));
-            var targetPage = liveStack.Count > 1 ? liveStack[^2] : null;
-            var targetEntryId = targetPage is null ? null : GetRouteEntryId(targetPage);
-            var targetEntry = targetEntryId is null
-                ? null
-                : stack.Entries.FirstOrDefault(entry => StringComparer.Ordinal.Equals(entry.Id, targetEntryId));
-            var removed = await ExecuteTransitionAsync(
-                useTransitions ? outgoingEntry?.Transition ?? planTransition : new NoNavigationTransition(),
-                MauiNavigationTransitionOperation.StackPop,
-                sourcePage,
-                targetPage,
-                outgoingEntry,
-                targetEntry,
-                operationId,
-                async (animated, _) => await navigationPage.Navigation.PopAsync(animated),
-                cancellationToken);
+            var removed = await navigationPage.Navigation.PopAsync(animated: false);
             if (removed is not null)
             {
                 DetachPageTree(removed);
@@ -441,22 +401,7 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         {
             cancellationToken.ThrowIfCancellationRequested();
             var page = CreateRoutePage(stack.Entries[i]);
-            var targetEntry = stack.Entries[i];
-            var sourceEntry = i > 0 ? stack.Entries[i - 1] : null;
-            await ExecuteTransitionAsync(
-                useTransitions ? targetEntry.Transition ?? planTransition : new NoNavigationTransition(),
-                MauiNavigationTransitionOperation.StackPush,
-                navigationPage.CurrentPage,
-                page,
-                sourceEntry,
-                targetEntry,
-                operationId,
-                async (animated, _) =>
-                {
-                    await navigationPage.Navigation.PushAsync(page, animated);
-                    return page;
-                },
-                cancellationToken);
+            await navigationPage.Navigation.PushAsync(page, animated: false);
         }
 
         UpdateReusedStackPages(
@@ -492,23 +437,9 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         return common;
     }
 
-    private static StackNode? FindStack(NavigationNode? node, string stackId)
-    {
-        return node switch
-        {
-            StackNode stack when StringComparer.Ordinal.Equals(stack.Id, stackId) => stack,
-            BranchHostNode branchHost => branchHost.Branches
-                .Select(branch => FindStack(branch.Content, stackId))
-                .FirstOrDefault(stack => stack is not null),
-            ModalNode modal => FindStack(modal.Content, stackId),
-            _ => null
-        };
-    }
-
     private async Task<Page> MaterializeTabbedBranchHostAsync(
         BranchHostNode branchHost,
         TabbedPage? existingPage,
-        NavigationTransition? planTransition,
         string operationId,
         bool isNavigationTarget,
         CancellationToken cancellationToken)
@@ -550,7 +481,6 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
             var page = await MaterializeNodeAsync(
                 branch.Content,
                 existingBranchPage,
-                planTransition,
                 operationId,
                 isNavigationTarget && StringComparer.Ordinal.Equals(branch.Id, branchHost.SelectedBranchId),
                 cancellationToken);
@@ -588,7 +518,6 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
     private async Task<Page> MaterializeFlyoutBranchHostAsync(
         BranchHostNode branchHost,
         FlyoutPage? existingPage,
-        NavigationTransition? planTransition,
         string operationId,
         bool isNavigationTarget,
         CancellationToken cancellationToken)
@@ -631,7 +560,6 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
                 branchHost.Id,
                 selectedBranch,
                 flyoutPage.Detail,
-                null,
                 LifecycleOperationId(),
                 isNavigationTarget: true,
                 CancellationToken.None);
@@ -654,7 +582,6 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
                 branchHost.Id,
                 branch,
                 flyoutPage.Detail,
-                planTransition,
                 operationId,
                 isNavigationTarget,
                 cancellationToken);
@@ -666,7 +593,6 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         string flyoutId,
         NavigationBranch branch,
         Page? currentDetail,
-        NavigationTransition? planTransition,
         string operationId,
         bool isNavigationTarget,
         CancellationToken cancellationToken)
@@ -678,7 +604,6 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         var page = await MaterializeNodeAsync(
             branch.Content,
             existingPage,
-            planTransition,
             operationId,
             isNavigationTarget,
             cancellationToken);
@@ -716,42 +641,17 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
     private async Task ApplyModalsAsync(
         Page root,
         IReadOnlyList<ModalNode> modals,
-        NavigationTransition? planTransition,
         string operationId,
         CancellationToken cancellationToken)
     {
         var modalStack = root.Navigation.ModalStack;
         var previousModalCount = modalStack.Count;
         var commonCount = CommonModalPrefix(modalStack, modals);
-        var popCount = Math.Max(0, modalStack.Count - commonCount);
-        var pushCount = Math.Max(0, modals.Count - modalStack.Count + popCount);
-        var useTransitions = popCount + pushCount == 1;
-        var previousModals = _lastState.ActiveWindow?.Modals ?? Array.Empty<ModalNode>();
 
         while (root.Navigation.ModalStack.Count > commonCount)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var modalIndex = root.Navigation.ModalStack.Count - 1;
-            var sourcePage = root.Navigation.ModalStack.LastOrDefault();
-            var sourceModalId = sourcePage is null ? null : GetModalId(sourcePage);
-            var outgoingModal = sourceModalId is null
-                ? null
-                : previousModals.FirstOrDefault(modal => StringComparer.Ordinal.Equals(modal.Id, sourceModalId));
-            var targetPage = modalIndex > 0 ? root.Navigation.ModalStack[modalIndex - 1] : root;
-            var targetModalId = modalIndex > 0 ? GetModalId(targetPage) : null;
-            var targetModal = targetModalId is null
-                ? null
-                : modals.FirstOrDefault(modal => StringComparer.Ordinal.Equals(modal.Id, targetModalId));
-            var removed = await ExecuteTransitionAsync(
-                useTransitions ? outgoingModal?.RouteEntry.Transition ?? planTransition : new NoNavigationTransition(),
-                MauiNavigationTransitionOperation.ModalPop,
-                sourcePage,
-                targetPage,
-                outgoingModal?.RouteEntry,
-                targetModal?.RouteEntry,
-                operationId,
-                async (animated, _) => await root.Navigation.PopModalAsync(animated),
-                cancellationToken);
+            var removed = await root.Navigation.PopModalAsync(animated: false);
             if (removed is not null)
             {
                 DetachPageTree(removed);
@@ -766,27 +666,12 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
                 : await MaterializeNodeAsync(
                     modals[i].Content!,
                     null,
-                    planTransition,
                     operationId,
                     isNavigationTarget: i == modals.Count - 1,
                     cancellationToken);
             SetModalId(modalPage, modals[i].Id);
             TrackModalPage(modalPage);
-            var targetModal = modals[i];
-            await ExecuteTransitionAsync(
-                useTransitions ? targetModal.RouteEntry.Transition ?? planTransition : new NoNavigationTransition(),
-                MauiNavigationTransitionOperation.ModalPush,
-                root.Navigation.ModalStack.LastOrDefault() ?? root,
-                modalPage,
-                i > 0 ? modals[i - 1].RouteEntry : null,
-                targetModal.RouteEntry,
-                operationId,
-                async (animated, _) =>
-                {
-                    await root.Navigation.PushModalAsync(modalPage, animated);
-                    return modalPage;
-                },
-                cancellationToken);
+            await root.Navigation.PushModalAsync(modalPage, animated: false);
         }
 
         await UpdateReusedModalPagesAsync(
@@ -794,7 +679,6 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
             modals,
             commonCount,
             previousModalCount,
-            planTransition,
             operationId,
             cancellationToken);
     }
@@ -850,34 +734,6 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         };
     }
 
-    private ValueTask<Page?> ExecuteTransitionAsync(
-        NavigationTransition? transition,
-        MauiNavigationTransitionOperation operation,
-        Page? sourcePage,
-        Page? targetPage,
-        RouteEntry? sourceEntry,
-        RouteEntry? targetEntry,
-        string operationId,
-        Func<bool, CancellationToken, ValueTask<Page?>> executeNativeOperationAsync,
-        CancellationToken cancellationToken)
-    {
-        if (_transitions is null)
-        {
-            return executeNativeOperationAsync(false, cancellationToken);
-        }
-
-        return _transitions.ApplyAsync(
-            transition,
-            operation,
-            sourcePage,
-            targetPage,
-            sourceEntry,
-            targetEntry,
-            operationId,
-            executeNativeOperationAsync,
-            cancellationToken);
-    }
-
     private Page CreateRoutePage(RouteEntry entry)
     {
         var page = _pageFactory.CreatePage(entry);
@@ -911,7 +767,6 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         IReadOnlyList<ModalNode> modals,
         int commonCount,
         int previousModalCount,
-        NavigationTransition? planTransition,
         string operationId,
         CancellationToken cancellationToken)
     {
@@ -933,7 +788,6 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
             await MaterializeNodeAsync(
                 modals[i].Content!,
                 pages[i],
-                planTransition,
                 operationId,
                 isNavigationTarget: i == modals.Count - 1,
                 cancellationToken);

@@ -268,11 +268,6 @@ public sealed class NavigationDiagnostics
             NavigationDiagnosticDataKeys.ProvenanceIsColdStart => "navigation.provenance.is_cold_start",
             NavigationDiagnosticDataKeys.ProvenanceAttributes => "navigation.provenance.attributes",
             NavigationDiagnosticDataKeys.PlanKind => "navigation.plan_kind",
-            NavigationDiagnosticDataKeys.TransitionType => "navigation.transition_type",
-            NavigationDiagnosticDataKeys.TransitionOperation => "navigation.transition_operation",
-            NavigationDiagnosticDataKeys.TransitionDurationMs => "navigation.transition_duration_ms",
-            NavigationDiagnosticDataKeys.TransitionElementIds => "navigation.transition_element_ids",
-            NavigationDiagnosticDataKeys.TransitionFallbackReason => "navigation.transition_fallback_reason",
             NavigationDiagnosticDataKeys.Platform => "navigation.platform",
             NavigationDiagnosticDataKeys.ExceptionType => "navigation.exception_type",
             NavigationDiagnosticDataKeys.ExceptionMessage => "navigation.exception_message",
@@ -325,10 +320,6 @@ public sealed class NavigationDiagnostics
                 NavigationDiagnosticEventKind.PresentationHandlerAttached or
                 NavigationDiagnosticEventKind.PresentationHandlerDetached or
                 NavigationDiagnosticEventKind.PresentationPresenterDisposed or
-                NavigationDiagnosticEventKind.PresentationTransitionStarted or
-                NavigationDiagnosticEventKind.PresentationTransitionCompleted or
-                NavigationDiagnosticEventKind.PresentationTransitionFailed or
-                NavigationDiagnosticEventKind.PresentationTransitionFallback or
                 NavigationDiagnosticEventKind.PresentationVerificationFailed or
                 NavigationDiagnosticEventKind.PresentationCompleted or
                 NavigationDiagnosticEventKind.PresentationFailed =>

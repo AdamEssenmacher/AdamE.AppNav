@@ -191,32 +191,7 @@ public static class NavigationDiagnosticDataKeys
     public const string HandlerName = "handlerName";
 
     /// <summary>
-    /// Fully qualified type name of a requested transition.
-    /// </summary>
-    public const string TransitionType = "transitionType";
-
-    /// <summary>
-    /// Presentation operation associated with a transition.
-    /// </summary>
-    public const string TransitionOperation = "transitionOperation";
-
-    /// <summary>
-    /// Elapsed duration for a transition, in milliseconds.
-    /// </summary>
-    public const string TransitionDurationMs = "transitionDurationMs";
-
-    /// <summary>
-    /// Shared or participating element identifiers associated with a transition.
-    /// </summary>
-    public const string TransitionElementIds = "transitionElementIds";
-
-    /// <summary>
-    /// Reason a requested transition fell back to a simpler operation.
-    /// </summary>
-    public const string TransitionFallbackReason = "transitionFallbackReason";
-
-    /// <summary>
-    /// Platform name associated with an adapter, transition, or app-link event.
+    /// Platform name associated with an adapter or app-link event.
     /// </summary>
     public const string Platform = "platform";
 

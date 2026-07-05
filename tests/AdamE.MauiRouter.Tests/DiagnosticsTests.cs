@@ -320,39 +320,6 @@ public sealed class DiagnosticsTests
         Assert.Equal("FallbackNavigated", startupCompleted.Data[NavigationDiagnosticDataKeys.StartupOutcome]);
     }
 
-    [Fact]
-    public void TransitionDiagnosticsUsePresentationPhaseAndActivityTags()
-    {
-        var diagnostics = new NavigationDiagnostics();
-        var events = new List<NavigationDiagnosticEvent>();
-        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
-        using var activity = new Activity("TransitionDiagnosticsTest").Start();
-
-        diagnostics.Write(
-            NavigationDiagnosticEventKind.PresentationTransitionCompleted,
-            "operation",
-            "transition complete",
-            new Dictionary<string, object?>
-            {
-                [NavigationDiagnosticDataKeys.TransitionType] = typeof(SharedElementNavigationTransition).FullName,
-                [NavigationDiagnosticDataKeys.TransitionOperation] = "StackPush",
-                [NavigationDiagnosticDataKeys.TransitionDurationMs] = 240d,
-                [NavigationDiagnosticDataKeys.TransitionElementIds] = "product-123->product-123",
-                [NavigationDiagnosticDataKeys.Platform] = "iOS"
-            });
-
-        var transition = Assert.Single(events, diagnosticEvent =>
-            diagnosticEvent.Kind == NavigationDiagnosticEventKind.PresentationTransitionCompleted);
-        Assert.Equal(NavigationDiagnosticPhase.Presentation, transition.Phase);
-        Assert.Equal(LogLevel.Information, transition.Severity);
-        Assert.Equal("StackPush", transition.Data[NavigationDiagnosticDataKeys.TransitionOperation]);
-        Assert.Contains(activity.Tags, tag =>
-            tag.Key == "navigation.transition_type" &&
-            tag.Value == typeof(SharedElementNavigationTransition).FullName);
-        Assert.Contains(activity.Events, activityEvent =>
-            activityEvent.Name == nameof(NavigationDiagnosticEventKind.PresentationTransitionCompleted));
-    }
-
     private sealed record InvalidProductRoute(int ProductId) : AppRoute;
 
     private sealed class TestPlanner : IAppNavigationPlanner

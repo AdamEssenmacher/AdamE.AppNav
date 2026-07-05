@@ -1,5 +1,4 @@
 using AdamE.MauiRouter.Navigation;
-using AdamE.MauiRouter.Maui;
 using AdamE.MauiRouter.Requests;
 using Commerce.Sample.Routes;
 
@@ -120,12 +119,6 @@ public sealed class StoreCatalogPage : ContentPage
                 _ => Colors.SeaGreen
             }
         };
-        MauiRouterTransition.SetSharedElementId(swatch, ProductSharedElementId(productId));
         return swatch;
-    }
-
-    private static string ProductSharedElementId(int productId)
-    {
-        return $"product-{productId}-tile";
     }
 }

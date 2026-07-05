@@ -1,4 +1,3 @@
-using AdamE.MauiRouter.Plans;
 using AdamE.MauiRouter.Internal;
 
 namespace AdamE.MauiRouter.State;
@@ -13,12 +12,10 @@ public sealed record RouteEntry
     public RouteEntry(
         string Id,
         AppRoute Route,
-        NavigationTransition? Transition = null,
         IReadOnlyDictionary<string, object?>? Metadata = null)
     {
         this.Id = Id;
         this.Route = Route;
-        this.Transition = Transition;
         this.Metadata = Metadata;
     }
 
@@ -33,11 +30,6 @@ public sealed record RouteEntry
     public AppRoute Route { get; init; }
 
     /// <summary>
-    /// Gets the transition preference associated with presenting this route entry.
-    /// </summary>
-    public NavigationTransition? Transition { get; init; }
-
-    /// <summary>
     /// Gets route-entry metadata captured in navigation state.
     /// </summary>
     public IReadOnlyDictionary<string, object?>? Metadata
@@ -49,12 +41,10 @@ public sealed record RouteEntry
     public void Deconstruct(
         out string Id,
         out AppRoute Route,
-        out NavigationTransition? Transition,
         out IReadOnlyDictionary<string, object?>? Metadata)
     {
         Id = this.Id;
         Route = this.Route;
-        Transition = this.Transition;
         Metadata = this.Metadata;
     }
 }

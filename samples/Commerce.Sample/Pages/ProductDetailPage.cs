@@ -1,5 +1,4 @@
 using AdamE.MauiRouter.Navigation;
-using AdamE.MauiRouter.Maui;
 using AdamE.MauiRouter.Requests;
 using Commerce.Sample.Routes;
 
@@ -106,12 +105,6 @@ public sealed class ProductDetailPage : ContentPage
                 VerticalOptions = LayoutOptions.Center
             }
         };
-        MauiRouterTransition.SetSharedElementId(hero, ProductSharedElementId(productId));
         return hero;
-    }
-
-    private static string ProductSharedElementId(int productId)
-    {
-        return $"product-{productId}-tile";
     }
 }

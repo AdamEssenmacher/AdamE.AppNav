@@ -1,4 +1,3 @@
-using AdamE.MauiRouter.Plans;
 using AdamE.MauiRouter.State;
 
 namespace AdamE.MauiRouter.Testing;
@@ -10,10 +9,9 @@ public static class TestNavigationState
     public static RouteEntry Entry(
         string id,
         AppRoute route,
-        NavigationTransition? transition = null,
         IReadOnlyDictionary<string, object?>? metadata = null)
     {
-        return new RouteEntry(id, route, transition, metadata);
+        return new RouteEntry(id, route, metadata);
     }
 
     public static StackNode Stack(string id, params RouteEntry[] entries)
