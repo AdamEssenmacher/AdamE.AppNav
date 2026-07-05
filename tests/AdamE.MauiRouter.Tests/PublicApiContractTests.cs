@@ -1,9 +1,11 @@
 using System.Reflection;
 using AdamE.MauiRouter.Diagnostics;
+using AdamE.MauiRouter.History;
 using AdamE.MauiRouter.Maui;
 using AdamE.MauiRouter.Navigation;
 using AdamE.MauiRouter.Plans;
 using AdamE.MauiRouter.Requests;
+using AdamE.MauiRouter.Testing;
 
 namespace AdamE.MauiRouter.Tests;
 
@@ -109,6 +111,24 @@ public sealed class PublicApiContractTests
     {
         Assert.True(typeof(BackNavigationResult).IsValueType);
         Assert.True(typeof(DeferredNavigationReplayResult).IsValueType);
+    }
+
+    [Fact]
+    public void NavigationHistoryConstructionSurfaceIsNotPublic()
+    {
+        Assert.Empty(typeof(NavigationHistory).GetConstructors(BindingFlags.Public | BindingFlags.Instance));
+
+        Assert.DoesNotContain(
+            typeof(NavigationHistory).GetMethods(BindingFlags.Public | BindingFlags.Instance),
+            static method => method.Name == "Push");
+
+        Assert.DoesNotContain(
+            typeof(RouterNavigatorFactoryOptions).GetProperties(BindingFlags.Public | BindingFlags.Instance),
+            static property => property.Name == "InitialHistory");
+
+        Assert.DoesNotContain(
+            typeof(RouterTestNavigatorOptions).GetProperties(BindingFlags.Public | BindingFlags.Instance),
+            static property => property.Name == "InitialHistory");
     }
 
     [Fact]

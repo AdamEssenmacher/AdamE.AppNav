@@ -28,7 +28,7 @@ public sealed class NavigationHistory
     /// <paramref name="currentIndex"/> is not -1 for an empty history, or does not identify
     /// an entry in a non-empty history.
     /// </exception>
-    public NavigationHistory(IReadOnlyList<NavigationHistoryEntry> entries, int currentIndex)
+    internal NavigationHistory(IReadOnlyList<NavigationHistoryEntry> entries, int currentIndex)
     {
         Entries = entries;
         int entryCount = Entries.Count;
@@ -83,7 +83,7 @@ public sealed class NavigationHistory
     /// <remarks>
     /// Entries after <see cref="Current"/> are discarded before <paramref name="entry"/> is appended.
     /// </remarks>
-    public NavigationHistory Push(NavigationHistoryEntry entry, int? maxEntries = null)
+    internal NavigationHistory Push(NavigationHistoryEntry entry, int? maxEntries = null)
     {
         ArgumentNullException.ThrowIfNull(entry);
 
