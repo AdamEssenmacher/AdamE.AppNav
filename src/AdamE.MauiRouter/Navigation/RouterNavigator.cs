@@ -178,13 +178,14 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         try
         {
             operation = await NavigateCoreAsync(request, cancellationToken).ConfigureAwait(false);
+            EnqueueNavigationCommitted(operation.Committed);
         }
         finally
         {
             _operationLock.Release();
         }
 
-        PublishNavigationCommitted(operation.Committed);
+        DrainNavigationCommitted();
         return operation.Result;
     }
 
@@ -199,13 +200,14 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         try
         {
             operation = await BackCoreAsync(windowId, cancellationToken).ConfigureAwait(false);
+            EnqueueNavigationCommitted(operation.Committed);
         }
         finally
         {
             _operationLock.Release();
         }
 
-        PublishNavigationCommitted(operation.Committed);
+        DrainNavigationCommitted();
         return operation.Result;
     }
 
@@ -225,13 +227,14 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                 NavigationRequestSource.NativeReconciliation);
 
             operation = await ReconcileCoreAsync(request, reconciliation, cancellationToken).ConfigureAwait(false);
+            EnqueueNavigationCommitted(operation.Committed);
         }
         finally
         {
             _operationLock.Release();
         }
 
-        PublishNavigationCommitted(operation.Committed);
+        DrainNavigationCommitted();
         return operation.Result;
     }
 
@@ -249,13 +252,14 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         {
             operation = await RestoreCoreAsync(snapshot, options ?? new NavigationRestoreOptions(), cancellationToken)
                 .ConfigureAwait(false);
+            EnqueueNavigationCommitted(operation.Committed);
         }
         finally
         {
             _operationLock.Release();
         }
 
-        PublishNavigationCommitted(operation.Committed);
+        DrainNavigationCommitted();
         return operation.Result;
     }
 
@@ -271,13 +275,14 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         {
             operation = await RestoreFromStoreCoreAsync(options ?? new NavigationRestoreOptions(), cancellationToken)
                 .ConfigureAwait(false);
+            EnqueueNavigationCommitted(operation.Committed);
         }
         finally
         {
             _operationLock.Release();
         }
 
-        PublishNavigationCommitted(operation.Committed);
+        DrainNavigationCommitted();
         return operation.Result;
     }
 
@@ -1318,7 +1323,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
             presented);
     }
 
-    private void PublishNavigationCommitted(NavigationCommittedEventArgs? eventArgs)
+    private void EnqueueNavigationCommitted(NavigationCommittedEventArgs? eventArgs)
     {
         if (eventArgs is null)
         {
@@ -1328,7 +1333,19 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         lock (_navigationCommittedGate)
         {
             _pendingNavigationCommittedEvents.Enqueue(eventArgs);
+        }
+    }
+
+    private void DrainNavigationCommitted()
+    {
+        lock (_navigationCommittedGate)
+        {
             if (_publishingNavigationCommitted)
+            {
+                return;
+            }
+
+            if (_pendingNavigationCommittedEvents.Count == 0)
             {
                 return;
             }
