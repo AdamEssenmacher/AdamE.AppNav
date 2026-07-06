@@ -461,7 +461,7 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
                 operationId,
                 isNavigationTarget && StringComparer.Ordinal.Equals(branch.Id, branchHost.SelectedBranchId),
                 cancellationToken);
-            page.Title = branch.Title;
+            ApplyBranchChrome(page, branch);
             SetBranchId(page, branch.Id);
 
             if (existingBranchPage is not null && !ReferenceEquals(existingBranchPage, page))
@@ -490,6 +490,17 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
 
         tabbedPage.CurrentPage = selectedPage ?? tabbedPage.Children.FirstOrDefault();
         return tabbedPage;
+    }
+
+    private static void ApplyBranchChrome(Page page, NavigationBranch branch)
+    {
+        page.Title = branch.Title;
+
+        if (page is NavigationPage navigationPage &&
+            navigationPage.Navigation.NavigationStack.Count > 0)
+        {
+            navigationPage.IconImageSource = navigationPage.Navigation.NavigationStack[0].IconImageSource;
+        }
     }
 
     private async Task ApplyModalsAsync(
