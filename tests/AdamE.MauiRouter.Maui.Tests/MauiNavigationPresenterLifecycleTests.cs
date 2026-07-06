@@ -193,6 +193,125 @@ public sealed class MauiNavigationPresenterLifecycleTests
     }
 
     [Fact]
+    public async Task BranchHostAppliesStackRootIconsToGeneratedNavigationPageTabs()
+    {
+        var homeIcon = new FontImageSource { Glyph = "home" };
+        var catalogIcon = new FontImageSource { Glyph = "catalog" };
+        var fixture = new PresenterFixture(
+            createPage: entry => new ContentPage
+            {
+                Title = $"Root {entry.Id}",
+                IconImageSource = entry.Id == "home" ? homeIcon : catalogIcon,
+                Content = new Label { Text = entry.Id }
+            });
+        var branchHost = new BranchHostNode(
+            "store-branchHost",
+            new[]
+            {
+                new NavigationBranch("home", "Home", Stack("home-stack", Entry("home"))),
+                new NavigationBranch("catalog", "Catalog", Stack("catalog-stack", Entry("catalog")))
+            },
+            "catalog",
+            "catalog");
+
+        await fixture.Presenter.ApplyAsync(
+            Plan(branchHost),
+            Context(new TestPageRoute("catalog")));
+
+        var tabbedPage = Assert.IsType<TabbedPage>(fixture.Presenter.CurrentPage);
+        var homeBranch = Assert.IsType<NavigationPage>(tabbedPage.Children[0]);
+        var catalogBranch = Assert.IsType<NavigationPage>(tabbedPage.Children[1]);
+
+        Assert.Same(homeIcon, homeBranch.IconImageSource);
+        Assert.Same(catalogIcon, catalogBranch.IconImageSource);
+
+        fixture.Presenter.Dispose();
+    }
+
+    [Fact]
+    public async Task BranchHostKeepsBranchTitlesAuthoritativeWhenApplyingRootIcons()
+    {
+        var fixture = new PresenterFixture(
+            createPage: entry => new ContentPage
+            {
+                Title = $"Root {entry.Id}",
+                IconImageSource = new FontImageSource { Glyph = entry.Id },
+                Content = new Label { Text = entry.Id }
+            });
+        var branchHost = new BranchHostNode(
+            "store-branchHost",
+            new[]
+            {
+                new NavigationBranch("home", "Home", Stack("home-stack", Entry("home"))),
+                new NavigationBranch("catalog", "Catalog", Stack("catalog-stack", Entry("catalog")))
+            },
+            "catalog",
+            "catalog");
+
+        await fixture.Presenter.ApplyAsync(
+            Plan(branchHost),
+            Context(new TestPageRoute("catalog")));
+
+        var tabbedPage = Assert.IsType<TabbedPage>(fixture.Presenter.CurrentPage);
+        var homeBranch = Assert.IsType<NavigationPage>(tabbedPage.Children[0]);
+        var catalogBranch = Assert.IsType<NavigationPage>(tabbedPage.Children[1]);
+
+        Assert.Equal("Home", homeBranch.Title);
+        Assert.Equal("Catalog", catalogBranch.Title);
+        Assert.Equal("Root home", homeBranch.Navigation.NavigationStack[0].Title);
+        Assert.Equal("Root catalog", catalogBranch.Navigation.NavigationStack[0].Title);
+
+        fixture.Presenter.Dispose();
+    }
+
+    [Fact]
+    public async Task BranchHostRefreshesGeneratedNavigationPageTabIconWhenRootPageIsReused()
+    {
+        var initialIcon = new FontImageSource { Glyph = "home-initial" };
+        var updatedIcon = new FontImageSource { Glyph = "home-updated" };
+        var fixture = new PresenterFixture(
+            createPage: entry => new ContentPage
+            {
+                Title = entry.Id,
+                IconImageSource = initialIcon,
+                Content = new Label { Text = entry.Id }
+            },
+            updatePage: (page, entry, _) =>
+            {
+                if (entry.Id == "home")
+                {
+                    page.IconImageSource = updatedIcon;
+                }
+            });
+        var branchHost = new BranchHostNode(
+            "store-branchHost",
+            new[]
+            {
+                new NavigationBranch("home", "Home", Stack("home-stack", Entry("home"))),
+                new NavigationBranch("catalog", "Catalog", Stack("catalog-stack", Entry("catalog")))
+            },
+            "home",
+            "home");
+
+        await fixture.Presenter.ApplyAsync(
+            Plan(branchHost),
+            Context(new TestPageRoute("home")));
+
+        var tabbedPage = Assert.IsType<TabbedPage>(fixture.Presenter.CurrentPage);
+        var homeBranch = Assert.IsType<NavigationPage>(tabbedPage.Children[0]);
+        Assert.Same(initialIcon, homeBranch.IconImageSource);
+
+        await fixture.Presenter.ApplyAsync(
+            Plan(branchHost),
+            Context(new TestPageRoute("home"), fixture.PresenterState));
+
+        Assert.Same(homeBranch, tabbedPage.Children[0]);
+        Assert.Same(updatedIcon, homeBranch.IconImageSource);
+
+        fixture.Presenter.Dispose();
+    }
+
+    [Fact]
     public async Task GetTopPresentedPagePrefersTopModalPage()
     {
         var fixture = new PresenterFixture();
@@ -1042,19 +1161,23 @@ public sealed class MauiNavigationPresenterLifecycleTests
 
     private sealed class PresenterFixture
     {
-        public PresenterFixture(Action<MauiRoutePageRegistry>? configurePages = null)
+        public PresenterFixture(
+            Action<MauiRoutePageRegistry>? configurePages = null,
+            Func<RouteEntry, Page>? createPage = null,
+            Action<Page, RouteEntry, MauiRoutePageUpdateContext>? updatePage = null)
         {
             Diagnostics = new NavigationDiagnostics();
             Diagnostics.AddObserver(Observer);
             PresentationOptions = new MauiRoutePresentationOptions();
             configurePages?.Invoke(PresentationOptions.Pages);
+            Factory = new InstrumentedRoutePageFactory(createPage, updatePage);
             Presenter = new MauiNavigationPresenter(
                 Factory,
                 diagnostics: Diagnostics,
                 presentationOptions: PresentationOptions);
         }
 
-        public InstrumentedRoutePageFactory Factory { get; } = new();
+        public InstrumentedRoutePageFactory Factory { get; }
 
         public MauiRoutePresentationOptions PresentationOptions { get; }
 
