@@ -237,16 +237,15 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
 
         try
         {
-            ResolvedNavigationRequest resolvedRequest =
+            (RouterNavigationRequest effectiveRequest, AppRoute appRoute, RouteDefinition? routeDefinition) =
                 await _requestResolver.ResolveAsync(
                     request,
                     CurrentState,
                     operationId,
                     cancellationToken).ConfigureAwait(false);
-            route = resolvedRequest.Route;
-            RouterNavigationRequest effectiveRequest = resolvedRequest.Request;
+            route = appRoute;
             Activity.Current?.SetTag("navigation.route_type", route.GetType().FullName);
-            Activity.Current?.SetTag("navigation.route_template", resolvedRequest.Definition?.Template.Value);
+            Activity.Current?.SetTag("navigation.route_template", routeDefinition?.Template.Value);
             Activity.Current?.SetTag("navigation.disposition", effectiveRequest.Disposition.ToString());
 
             var planningTimer = Stopwatch.StartNew();
@@ -254,7 +253,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                 NavigationDiagnosticEventKind.PlanningStarted,
                 operationId,
                 route.GetType().Name,
-                _diagnostics.RequestData(
+                RouterNavigationDiagnostics.RequestData(
                     effectiveRequest,
                     (NavigationDiagnosticDataKeys.RouteType, route.GetType().FullName),
                     (NavigationDiagnosticDataKeys.RequestDisposition, effectiveRequest.Disposition.ToString())));
@@ -270,7 +269,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                     NavigationDiagnosticEventKind.PlanningCompleted,
                     operationId,
                     plan.Kind.ToString(),
-                    _diagnostics.Duration(planningTimer,
+                    RouterNavigationDiagnostics.Duration(planningTimer,
                         (NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
             }
             catch (Exception ex)
@@ -292,7 +291,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                 NavigationDiagnosticEventKind.PresentationStarted,
                 operationId,
                 plan.Kind.ToString(),
-                _diagnostics.Data((NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
+                RouterNavigationDiagnostics.Data((NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
             try
             {
                 await _presenter.ApplyAsync(
@@ -303,7 +302,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                     NavigationDiagnosticEventKind.PresentationCompleted,
                     operationId,
                     plan.Kind.ToString(),
-                    _diagnostics.Duration(presentationTimer,
+                    RouterNavigationDiagnostics.Duration(presentationTimer,
                         (NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
             }
             catch (Exception ex)
@@ -320,7 +319,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
 
             CurrentState = plan.TargetState;
             History = History.Push(
-                CreateHistoryEntry(operationId, finalizedRequest, finalRoute, CurrentState, plan.Reason),
+                CreateHistoryEntry(finalizedRequest, finalRoute, CurrentState),
                 _maxHistoryEntries);
             activity?.SetStatus(ActivityStatusCode.Ok);
 
@@ -357,7 +356,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
             NavigationDiagnosticEventKind.BackStarted,
             operationId,
             diagnosticWindowName,
-            _diagnostics.Data((NavigationDiagnosticDataKeys.WindowId, diagnosticWindowId)));
+            RouterNavigationDiagnostics.Data((NavigationDiagnosticDataKeys.WindowId, diagnosticWindowId)));
 
         try
         {
@@ -368,7 +367,8 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                     NavigationDiagnosticEventKind.BackUnhandled,
                     operationId,
                     "No host accepted back navigation.",
-                    _diagnostics.Duration(timer, (NavigationDiagnosticDataKeys.WindowId, diagnosticWindowId)));
+                    RouterNavigationDiagnostics.Duration(timer,
+                        (NavigationDiagnosticDataKeys.WindowId, diagnosticWindowId)));
                 activity?.SetStatus(ActivityStatusCode.Ok);
                 return BackNavigationResult.Unhandled;
             }
@@ -383,7 +383,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                 NavigationDiagnosticEventKind.PresentationStarted,
                 operationId,
                 plan.Kind.ToString(),
-                _diagnostics.Data((NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
+                RouterNavigationDiagnostics.Data((NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
             var presentationTimer = Stopwatch.StartNew();
             try
             {
@@ -395,7 +395,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                     NavigationDiagnosticEventKind.PresentationCompleted,
                     operationId,
                     plan.Kind.ToString(),
-                    _diagnostics.Duration(presentationTimer,
+                    RouterNavigationDiagnostics.Duration(presentationTimer,
                         (NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
             }
             catch (Exception ex)
@@ -411,14 +411,15 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
             }
 
             CurrentState = plan.TargetState;
-            History = History.Push(CreateHistoryEntry(operationId, request, route, CurrentState, plan.Reason),
+            History = History.Push(CreateHistoryEntry(request, route, CurrentState),
                 _maxHistoryEntries);
 
             _diagnostics.Write(
                 NavigationDiagnosticEventKind.BackCompleted,
                 operationId,
                 plan.Reason ?? "Back handled.",
-                _diagnostics.Duration(timer, (NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
+                RouterNavigationDiagnostics.Duration(timer,
+                    (NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
             activity?.SetStatus(ActivityStatusCode.Ok);
             return BackNavigationResult.HandledBy(new NavigationResult(route, plan, CurrentState, true));
         }
@@ -451,7 +452,8 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
             NavigationDiagnosticEventKind.ReconciliationStarted,
             operationId,
             reconciliation.Source.ToString(),
-            _diagnostics.Data((NavigationDiagnosticDataKeys.ReconciliationSource, reconciliation.Source.ToString())));
+            RouterNavigationDiagnostics.Data((NavigationDiagnosticDataKeys.ReconciliationSource,
+                reconciliation.Source.ToString())));
 
         try
         {
@@ -464,7 +466,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                 NavigationDiagnosticEventKind.PresentationStarted,
                 operationId,
                 plan.Kind.ToString(),
-                _diagnostics.Data((NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
+                RouterNavigationDiagnostics.Data((NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
             try
             {
                 await _presenter.ApplyAsync(
@@ -475,7 +477,7 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
                     NavigationDiagnosticEventKind.PresentationCompleted,
                     operationId,
                     plan.Kind.ToString(),
-                    _diagnostics.Duration(presentationTimer,
+                    RouterNavigationDiagnostics.Duration(presentationTimer,
                         (NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
             }
             catch (Exception ex)
@@ -492,14 +494,14 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
 
             CurrentState = plan.TargetState;
             History = History.Push(
-                CreateHistoryEntry(operationId, finalizedRequest, finalRoute, CurrentState, plan.Reason),
+                CreateHistoryEntry(finalizedRequest, finalRoute, CurrentState),
                 _maxHistoryEntries);
 
             _diagnostics.Write(
                 NavigationDiagnosticEventKind.ReconciliationCompleted,
                 operationId,
                 reconciliation.Source.ToString(),
-                _diagnostics.Duration(timer,
+                RouterNavigationDiagnostics.Duration(timer,
                     (NavigationDiagnosticDataKeys.ReconciliationSource, reconciliation.Source.ToString())));
             activity?.SetStatus(ActivityStatusCode.Ok);
             return new NavigationResult(finalRoute, plan, CurrentState, false);
@@ -556,20 +558,12 @@ internal sealed class RouterNavigator : IRouterNavigator, IDisposable
         }
     }
 
-    private NavigationHistoryEntry CreateHistoryEntry(
-        string operationId,
+    private static NavigationHistoryEntry CreateHistoryEntry(
         RouterNavigationRequest request,
         AppRoute route,
-        NavigationState state,
-        string? reason)
+        NavigationState state)
     {
-        return new NavigationHistoryEntry(
-            operationId,
-            request,
-            route,
-            state,
-            reason,
-            DateTimeOffset.UtcNow);
+        return new NavigationHistoryEntry(request, route, state);
     }
 
     private static AppRoute ResolvePresentedRoute(

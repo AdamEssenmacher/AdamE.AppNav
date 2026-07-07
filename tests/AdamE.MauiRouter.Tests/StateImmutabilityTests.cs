@@ -1,6 +1,7 @@
 using AdamE.MauiRouter.History;
 using AdamE.MauiRouter.Plans;
 using AdamE.MauiRouter.Requests;
+using AdamE.MauiRouter.Routing;
 using AdamE.MauiRouter.State;
 
 namespace AdamE.MauiRouter.Tests;
@@ -101,6 +102,24 @@ public sealed class StateImmutabilityTests
     }
 
     [Fact]
+    public void RouteDiagnosticSnapshotsDataDictionary()
+    {
+        var data = new Dictionary<string, object?>
+        {
+            ["path"] = "/original"
+        };
+
+        var diagnostic = new RouteDiagnostic("route.test", "Test diagnostic.", data);
+        data["path"] = "/mutated";
+        data["extra"] = true;
+
+        Assert.Equal("/original", diagnostic.Data["path"]);
+        Assert.False(diagnostic.Data.ContainsKey("extra"));
+        Assert.Throws<NotSupportedException>(() =>
+            ((IDictionary<string, object?>)diagnostic.Data)["new"] = "value");
+    }
+
+    [Fact]
     public void NavigationHistorySnapshotsEntries()
     {
         var entries = new List<NavigationHistoryEntry>
@@ -142,12 +161,9 @@ public sealed class StateImmutabilityTests
         var route = new TestRoute(value);
         var state = new NavigationState(new[] { new WindowNode("main", Stack("stack", value)) }, "main");
         return new NavigationHistoryEntry(
-            value,
             RouterNavigationRequest.FromRoute(route, NavigationRequestSource.Test),
             route,
-            state,
-            null,
-            DateTimeOffset.UtcNow);
+            state);
     }
 
     private sealed record TestRoute(string Value) : AppRoute;

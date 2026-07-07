@@ -2,7 +2,7 @@ namespace AdamE.MauiRouter.Routing;
 
 public sealed class RouteTableBuilder
 {
-    private readonly List<RouteDefinition> _definitions = new();
+    private readonly List<RouteDefinition> _definitions = [];
     private RouteConstraintRegistry _constraints = RouteConstraintRegistry.BuiltIn;
     private int _nextOrder;
 
@@ -37,7 +37,7 @@ public sealed class RouteTableBuilder
         ArgumentException.ThrowIfNullOrWhiteSpace(template);
         ArgumentNullException.ThrowIfNull(createRoute);
 
-        var routeTemplate = RouteTemplate.Parse(template, _constraints);
+        RouteTemplate routeTemplate = RouteTemplate.Parse(template, _constraints);
         var formatBuilder = new RouteFormatBuilder<TRoute>();
         configureFormat?.Invoke(formatBuilder);
         formatBuilder.Validate(routeTemplate);
@@ -45,7 +45,7 @@ public sealed class RouteTableBuilder
         _definitions.Add(new RouteDefinition(
             typeof(TRoute),
             routeTemplate,
-            context => createRoute(context),
+            createRoute,
             (route, metadata) => formatBuilder.Format((TRoute)route, routeTemplate, metadata),
             _nextOrder++));
 
@@ -59,17 +59,17 @@ public sealed class RouteTableBuilder
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(template);
 
-        var routeTemplate = RouteTemplate.Parse(template, _constraints);
+        RouteTemplate routeTemplate = RouteTemplate.Parse(template, _constraints);
         var builder = new ConventionRouteBuilder<TRoute>();
         configure?.Invoke(builder);
-        var binder = ConventionRouteBinder<TRoute>.Create(routeTemplate, builder);
+        ConventionRouteBinder<TRoute> binder = ConventionRouteBinder<TRoute>.Create(routeTemplate, builder);
 
         _definitions.Add(new RouteDefinition(
             typeof(TRoute),
             routeTemplate,
             context =>
             {
-                var route = binder.CreateRoute(context);
+                TRoute route = binder.CreateRoute(context);
                 binder.ApplyMetadata(context);
                 return route;
             },
@@ -81,32 +81,26 @@ public sealed class RouteTableBuilder
 
     public RouteTable Build()
     {
-        var duplicateTemplate = _definitions
+        IGrouping<string, RouteDefinition>? duplicateTemplate = _definitions
             .GroupBy(definition => definition.Template.Value, StringComparer.OrdinalIgnoreCase)
             .FirstOrDefault(group => group.Count() > 1);
 
         if (duplicateTemplate is not null)
-        {
             throw new InvalidOperationException(
                 $"Route template '{duplicateTemplate.Key}' is registered more than once.");
-        }
 
         for (var i = 0; i < _definitions.Count; i++)
+        for (int j = i + 1; j < _definitions.Count; j++)
         {
-            for (var j = i + 1; j < _definitions.Count; j++)
-            {
-                var left = _definitions[i];
-                var right = _definitions[j];
-                if (left.Template.ComparePrecedence(right.Template) == 0 &&
-                    left.Template.CanOverlap(right.Template))
-                {
-                    throw new InvalidOperationException(
-                        $"Route templates '{left.Template.Value}' and '{right.Template.Value}' are ambiguous.");
-                }
-            }
+            RouteDefinition left = _definitions[i];
+            RouteDefinition right = _definitions[j];
+            if (left.Template.ComparePrecedence(right.Template) == 0 &&
+                left.Template.CanOverlap(right.Template))
+                throw new InvalidOperationException(
+                    $"Route templates '{left.Template.Value}' and '{right.Template.Value}' are ambiguous.");
         }
 
-        var sorted = _definitions
+        RouteDefinition[] sorted = _definitions
             .OrderBy(definition => definition.Template, RouteTemplatePrecedenceComparer.Instance)
             .ThenBy(definition => definition.Order)
             .ToArray();
@@ -121,19 +115,13 @@ public sealed class RouteTableBuilder
         public int Compare(RouteTemplate? x, RouteTemplate? y)
         {
             if (ReferenceEquals(x, y))
-            {
                 return 0;
-            }
 
             if (x is null)
-            {
                 return 1;
-            }
 
             if (y is null)
-            {
                 return -1;
-            }
 
             return x.ComparePrecedence(y);
         }

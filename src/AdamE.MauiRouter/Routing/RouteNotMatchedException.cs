@@ -1,15 +1,9 @@
 namespace AdamE.MauiRouter.Routing;
 
-public sealed class RouteNotMatchedException : Exception
+public sealed class RouteNotMatchedException(Uri uri, IReadOnlyList<RouteDiagnostic> diagnostics)
+    : Exception($"No route matched '{uri}'.")
 {
-    public RouteNotMatchedException(Uri uri, IReadOnlyList<RouteDiagnostic> diagnostics)
-        : base($"No route matched '{uri}'.")
-    {
-        Uri = uri;
-        Diagnostics = diagnostics;
-    }
+    public Uri Uri { get; } = uri;
 
-    public Uri Uri { get; }
-
-    public IReadOnlyList<RouteDiagnostic> Diagnostics { get; }
+    public IReadOnlyList<RouteDiagnostic> Diagnostics { get; } = diagnostics;
 }

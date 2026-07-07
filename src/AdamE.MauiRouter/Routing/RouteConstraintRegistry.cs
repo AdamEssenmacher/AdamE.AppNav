@@ -26,9 +26,9 @@ internal sealed class RouteConstraintRegistry
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentNullException.ThrowIfNull(matches);
 
-        if (_constraints.TryGetValue(name, out var existing))
+        if (_constraints.TryGetValue(name, out RouteConstraint? existing))
         {
-            var message = existing.IsBuiltIn
+            string message = existing.IsBuiltIn
                 ? $"Route constraint '{name}' is built in and cannot be redefined."
                 : $"Route constraint '{name}' is already registered.";
             throw new ArgumentException(message, nameof(name));
@@ -36,17 +36,15 @@ internal sealed class RouteConstraintRegistry
 
         var disjointNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (disjointWith is not null)
-        {
-            foreach (var disjointName in disjointWith)
+            foreach (string disjointName in disjointWith)
             {
                 ArgumentException.ThrowIfNullOrWhiteSpace(disjointName);
                 disjointNames.Add(disjointName);
             }
-        }
 
         var constraints = new Dictionary<string, RouteConstraint>(_constraints, StringComparer.OrdinalIgnoreCase)
         {
-            [name] = new RouteConstraint(name, matches, IsBuiltIn: false, disjointNames)
+            [name] = new(matches, false, disjointNames)
         };
 
         return new RouteConstraintRegistry(constraints);
@@ -55,92 +53,69 @@ internal sealed class RouteConstraintRegistry
     public bool Satisfies(string value, string? constraintName)
     {
         if (constraintName is null)
-        {
             return true;
-        }
 
-        return _constraints.TryGetValue(constraintName, out var constraint) &&
+        return _constraints.TryGetValue(constraintName, out RouteConstraint? constraint) &&
                constraint.Matches(value);
     }
 
     public bool CanOverlap(string? leftName, RouteConstraintRegistry rightRegistry, string? rightName)
     {
         if (leftName is null || rightName is null)
-        {
             return true;
-        }
 
         if (StringComparer.OrdinalIgnoreCase.Equals(leftName, rightName))
-        {
             return true;
-        }
 
-        var left = Get(leftName);
-        var right = rightRegistry.Get(rightName);
+        RouteConstraint left = Get(leftName);
+        RouteConstraint right = rightRegistry.Get(rightName);
 
         if (left.DisjointWith.Contains(rightName) || right.DisjointWith.Contains(leftName))
-        {
             return false;
-        }
 
         if (left.IsBuiltIn && right.IsBuiltIn)
-        {
             return BuiltInConstraintsCanOverlap(leftName, rightName);
-        }
 
         return true;
     }
 
     private RouteConstraint Get(string name)
     {
-        if (_constraints.TryGetValue(name, out var constraint))
-        {
-            return constraint;
-        }
-
-        throw new InvalidOperationException($"Route constraint '{name}' is not registered.");
+        return _constraints.TryGetValue(name, out RouteConstraint? constraint)
+            ? constraint
+            : throw new InvalidOperationException($"Route constraint '{name}' is not registered.");
     }
 
-    private static IReadOnlyDictionary<string, RouteConstraint> CreateBuiltInConstraints()
+    private static Dictionary<string, RouteConstraint> CreateBuiltInConstraints()
     {
         return new Dictionary<string, RouteConstraint>(StringComparer.OrdinalIgnoreCase)
         {
-            ["int"] = BuiltInConstraint("int", value => int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out _)),
-            ["long"] = BuiltInConstraint("long", value => long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out _)),
-            ["guid"] = BuiltInConstraint("guid", value => Guid.TryParse(value, out _)),
-            ["bool"] = BuiltInConstraint("bool", value => bool.TryParse(value, out _)),
-            ["decimal"] = BuiltInConstraint("decimal", value => decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out _)),
-            ["alpha"] = BuiltInConstraint("alpha", value => value.Length > 0 && value.All(char.IsLetter))
+            ["int"] = BuiltInConstraint(value =>
+                int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out _)),
+            ["long"] = BuiltInConstraint(value =>
+                long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out _)),
+            ["guid"] = BuiltInConstraint(value => Guid.TryParse(value, out _)),
+            ["bool"] = BuiltInConstraint(value => bool.TryParse(value, out _)),
+            ["decimal"] = BuiltInConstraint(value =>
+                decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out _)),
+            ["alpha"] = BuiltInConstraint(value => value.Length > 0 && value.All(char.IsLetter))
         };
     }
 
-    private static RouteConstraint BuiltInConstraint(string name, Func<string, bool> matches)
+    private static RouteConstraint BuiltInConstraint(Func<string, bool> matches)
     {
         return new RouteConstraint(
-            name,
             matches,
-            IsBuiltIn: true,
+            true,
             new HashSet<string>(StringComparer.OrdinalIgnoreCase));
     }
 
     private static bool BuiltInConstraintsCanOverlap(string left, string right)
     {
         if (IsNumericConstraint(left) && IsNumericConstraint(right))
-        {
             return true;
-        }
 
-        if (PairEquals(left, right, "bool", "alpha"))
-        {
-            return true;
-        }
-
-        if (PairEquals(left, right, "alpha", "guid"))
-        {
-            return true;
-        }
-
-        return false;
+        return PairEquals(left, right, "bool", "alpha") || PairEquals(left, right, "alpha", "guid");
     }
 
     private static bool IsNumericConstraint(string constraint)
@@ -159,7 +134,6 @@ internal sealed class RouteConstraintRegistry
     }
 
     private sealed record RouteConstraint(
-        string Name,
         Func<string, bool> Matches,
         bool IsBuiltIn,
         IReadOnlySet<string> DisjointWith);

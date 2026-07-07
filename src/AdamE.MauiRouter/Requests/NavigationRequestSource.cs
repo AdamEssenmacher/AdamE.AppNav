@@ -2,7 +2,7 @@ namespace AdamE.MauiRouter.Requests;
 
 /// <summary>
 /// Identifies where a router navigation request came from. The source is part of the router's
-/// decision context so the app and router can distinguish external and internal requests, apply
+/// decision context, so the app and router can distinguish external and internal requests, apply
 /// different policy and UX behavior, and enrich diagnostics and persisted history.
 /// </summary>
 public enum NavigationRequestSource
@@ -10,6 +10,7 @@ public enum NavigationRequestSource
     /// <summary>
     /// The request source is not known or was not classified by the caller.
     /// </summary>
+    // ReSharper disable once UnusedMember.Global
     Unknown,
 
     /// <summary>
@@ -38,7 +39,7 @@ public enum NavigationRequestSource
     Test = 6,
 
     /// <summary>
-    /// The request was synthesized while reconciling native navigation back into router state.
+    /// The request was synthesized while reconciling native navigation back into the router state.
     /// </summary>
     NativeReconciliation = 7
 }

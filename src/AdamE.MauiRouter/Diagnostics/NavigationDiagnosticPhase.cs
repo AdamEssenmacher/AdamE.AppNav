@@ -31,11 +31,6 @@ public enum NavigationDiagnosticPhase
     Presentation,
 
     /// <summary>
-    /// Deferred request persistence or other storage-backed router work.
-    /// </summary>
-    Persistence,
-
-    /// <summary>
     /// Startup routing and deferred startup navigation decisions.
     /// </summary>
     Startup,

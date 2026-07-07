@@ -7,8 +7,8 @@ namespace AdamE.MauiRouter.Routing;
 public sealed class ConventionRouteBuilder<TRoute>
     where TRoute : AppRoute
 {
-    private readonly List<ConventionQueryBinding> _queryBindings = new();
-    private readonly List<ConventionMetadataQueryBinding> _metadataQueryBindings = new();
+    private readonly List<ConventionQueryBinding> _queryBindings = [];
+    private readonly List<ConventionMetadataQueryBinding> _metadataQueryBindings = [];
     private readonly HashSet<string> _queryNames = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _propertyNames = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _metadataNames = new(StringComparer.Ordinal);
@@ -23,7 +23,7 @@ public sealed class ConventionRouteBuilder<TRoute>
     {
         ArgumentNullException.ThrowIfNull(member);
 
-        var property = GetProperty(member);
+        PropertyInfo property = GetProperty(member);
         return AddQuery(property, ConventionQueryName.Infer(property), omitWhenNull);
     }
 
@@ -35,7 +35,7 @@ public sealed class ConventionRouteBuilder<TRoute>
         ArgumentNullException.ThrowIfNull(member);
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
-        var property = GetProperty(member);
+        PropertyInfo property = GetProperty(member);
         return AddQuery(property, name, omitWhenNull);
     }
 
@@ -46,18 +46,15 @@ public sealed class ConventionRouteBuilder<TRoute>
         ArgumentNullException.ThrowIfNull(key);
 
         if (!_metadataNames.Add(key.Name))
-        {
             throw new InvalidOperationException(
                 $"Metadata query binding for metadata key '{key.Name}' is already registered for route type '{typeof(TRoute).FullName}'.");
-        }
 
         if (!_queryNames.Add(key.Name))
-        {
             throw new InvalidOperationException(
                 $"Query binding for query parameter '{key.Name}' is already registered for route type '{typeof(TRoute).FullName}'.");
-        }
 
-        _metadataQueryBindings.Add(new ConventionMetadataQueryBinding(key.Name, key.Name, typeof(TValue), omitWhenNull));
+        _metadataQueryBindings.Add(
+            new ConventionMetadataQueryBinding(key.Name, key.Name, RouteMetadataKey<TValue>.ValueType, omitWhenNull));
         return this;
     }
 
@@ -67,16 +64,12 @@ public sealed class ConventionRouteBuilder<TRoute>
         bool omitWhenNull)
     {
         if (!_propertyNames.Add(property.Name))
-        {
             throw new InvalidOperationException(
                 $"Query binding for route member '{typeof(TRoute).FullName}.{property.Name}' is already registered.");
-        }
 
         if (!_queryNames.Add(name))
-        {
             throw new InvalidOperationException(
                 $"Query binding for query parameter '{name}' is already registered for route type '{typeof(TRoute).FullName}'.");
-        }
 
         _queryBindings.Add(new ConventionQueryBinding(property, name, omitWhenNull));
         return this;
@@ -86,22 +79,18 @@ public sealed class ConventionRouteBuilder<TRoute>
     {
         Expression body = member.Body;
         if (body is UnaryExpression { NodeType: ExpressionType.Convert or ExpressionType.ConvertChecked } unary)
-        {
             body = unary.Operand;
-        }
 
-        if (body is not MemberExpression { Member: PropertyInfo property, Expression: ParameterExpression } ||
-            property.GetMethod is not { IsPublic: true })
-        {
+        if (body is not MemberExpression
+            {
+                Member: PropertyInfo { GetMethod.IsPublic: true } property, Expression: ParameterExpression
+            })
             throw new InvalidOperationException(
                 $"Query bindings for route type '{typeof(TRoute).FullName}' must select a public route property directly.");
-        }
 
         if (property.DeclaringType is null || !property.DeclaringType.IsAssignableFrom(typeof(TRoute)))
-        {
             throw new InvalidOperationException(
                 $"Query binding member '{property.Name}' does not belong to route type '{typeof(TRoute).FullName}'.");
-        }
 
         return property;
     }

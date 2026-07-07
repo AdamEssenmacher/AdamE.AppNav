@@ -8,8 +8,6 @@ namespace AdamE.MauiRouter;
 /// </summary>
 public sealed record AppRouteRequest
 {
-    private IReadOnlyDictionary<string, object?> _metadata = CollectionSnapshot.MetadataDictionary(null);
-
     /// <summary>
     /// Creates an application route request for the supplied route and optional metadata.
     /// </summary>
@@ -24,16 +22,16 @@ public sealed record AppRouteRequest
     /// <summary>
     /// Gets the semantic application route being requested.
     /// </summary>
-    public AppRoute Route { get; init; }
+    public AppRoute Route { get; }
 
     /// <summary>
     /// Gets the route-owned metadata associated with this request.
     /// </summary>
     public IReadOnlyDictionary<string, object?> Metadata
     {
-        get => _metadata;
-        init => _metadata = CollectionSnapshot.MetadataDictionary(value);
-    }
+        get;
+        private init => field = CollectionSnapshot.MetadataDictionary(value);
+    } = CollectionSnapshot.MetadataDictionary(null);
 
     /// <summary>
     /// Returns a new route request with the supplied metadata value added or replaced.
@@ -47,13 +45,9 @@ public sealed record AppRouteRequest
 
         var metadata = new Dictionary<string, object?>(Metadata, StringComparer.Ordinal);
         if (value is null)
-        {
             metadata.Remove(key.Name);
-        }
         else
-        {
             metadata[key.Name] = value;
-        }
 
         return new AppRouteRequest(Route, metadata);
     }
@@ -65,26 +59,24 @@ public sealed record AppRouteRequest
     {
         ArgumentNullException.ThrowIfNull(key);
 
-        if (!Metadata.TryGetValue(key.Name, out var rawValue))
+        if (!Metadata.TryGetValue(key.Name, out object? rawValue))
         {
             value = default;
             return false;
         }
 
-        if (rawValue is null)
+        switch (rawValue)
         {
-            value = default;
-            return true;
+            case null:
+                value = default;
+                return true;
+            case TValue typedValue:
+                value = typedValue;
+                return true;
+            default:
+                value = default;
+                return false;
         }
-
-        if (rawValue is TValue typedValue)
-        {
-            value = typedValue;
-            return true;
-        }
-
-        value = default;
-        return false;
     }
 
     /// <summary>

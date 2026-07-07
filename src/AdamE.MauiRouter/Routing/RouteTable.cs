@@ -2,14 +2,13 @@ namespace AdamE.MauiRouter.Routing;
 
 public sealed class RouteTable
 {
-    private readonly IReadOnlyList<RouteDefinition> _definitions;
-
     internal RouteTable(IReadOnlyList<RouteDefinition> definitions)
     {
-        _definitions = definitions;
+        Definitions = definitions;
     }
 
-    public IReadOnlyList<RouteDefinition> Definitions => _definitions;
+    // ReSharper disable once MemberCanBePrivate.Global
+    public IReadOnlyList<RouteDefinition> Definitions { get; }
 
     public static RouteTable Create(Action<RouteTableBuilder> configure)
     {
@@ -24,21 +23,19 @@ public sealed class RouteTable
     {
         ArgumentNullException.ThrowIfNull(uri);
 
-        var (path, query) = SplitUri(uri);
-        var queryValues = QueryString.Parse(query);
+        (string path, string query) = SplitUri(uri);
+        IReadOnlyDictionary<string, IReadOnlyList<string>> queryValues = QueryString.Parse(query);
 
-        foreach (var definition in _definitions)
+        foreach (RouteDefinition definition in Definitions)
         {
-            var pathValues = definition.Template.Match(path);
+            IReadOnlyDictionary<string, string>? pathValues = definition.Template.Match(path);
             if (pathValues is null)
-            {
                 continue;
-            }
 
             try
             {
                 var context = new RouteMatchContext(uri, pathValues, queryValues);
-                var match = definition.Create(context);
+                RouteMatch match = definition.Create(context);
                 return RouteMatchResult.Success(match.Route, definition, match.Metadata);
             }
             catch (Exception ex) when (ex is FormatException or KeyNotFoundException or NotSupportedException)
@@ -61,13 +58,13 @@ public sealed class RouteTable
             new Dictionary<string, object?>
             {
                 ["path"] = path,
-                ["candidateCount"] = _definitions.Count
+                ["candidateCount"] = Definitions.Count
             }));
     }
 
     public string Format(AppRoute route)
     {
-        return Format(route, metadata: null);
+        return Format(route, null);
     }
 
     /// <summary>
@@ -85,19 +82,16 @@ public sealed class RouteTable
     {
         ArgumentNullException.ThrowIfNull(route);
 
-        var routeType = route.GetType();
-        var definition = FindDefinition(routeType);
-        if (definition is null)
-        {
-            throw new InvalidOperationException($"No route formatter is registered for {routeType.FullName}.");
-        }
-
-        return definition.Format(route, metadata);
+        Type routeType = route.GetType();
+        RouteDefinition? definition = FindDefinition(routeType);
+        return definition is null
+            ? throw new InvalidOperationException($"No route formatter is registered for {routeType.FullName}.")
+            : definition.Format(route, metadata);
     }
 
     public Uri FormatUri(AppRoute route, Uri baseUri)
     {
-        return FormatUri(route, baseUri, metadata: null);
+        return FormatUri(route, baseUri, null);
     }
 
     /// <summary>
@@ -109,6 +103,7 @@ public sealed class RouteTable
         return FormatUri(routeRequest.Route, baseUri, routeRequest.Metadata);
     }
 
+    // ReSharper disable once MemberCanBePrivate.Global
     public Uri FormatUri(
         AppRoute route,
         Uri baseUri,
@@ -120,13 +115,13 @@ public sealed class RouteTable
 
     private RouteDefinition? FindDefinition(Type routeType)
     {
-        for (var currentType = routeType; currentType is not null && currentType != typeof(object); currentType = currentType.BaseType)
+        for (Type? currentType = routeType;
+             currentType is not null && currentType != typeof(object);
+             currentType = currentType.BaseType)
         {
-            var definition = _definitions.FirstOrDefault(candidate => candidate.RouteType == currentType);
+            RouteDefinition? definition = Definitions.FirstOrDefault(candidate => candidate.RouteType == currentType);
             if (definition is not null)
-            {
                 return definition;
-            }
         }
 
         return null;
@@ -135,18 +130,14 @@ public sealed class RouteTable
     private static (string Path, string Query) SplitUri(Uri uri)
     {
         if (uri.IsAbsoluteUri)
-        {
             return (uri.AbsolutePath, uri.Query.TrimStart('?'));
-        }
 
-        var text = uri.OriginalString;
-        var fragmentIndex = text.IndexOf('#');
+        string text = uri.OriginalString;
+        int fragmentIndex = text.IndexOf('#');
         if (fragmentIndex >= 0)
-        {
             text = text[..fragmentIndex];
-        }
 
-        var queryIndex = text.IndexOf('?');
+        int queryIndex = text.IndexOf('?');
         return queryIndex < 0
             ? (text, string.Empty)
             : (text[..queryIndex], text[(queryIndex + 1)..]);

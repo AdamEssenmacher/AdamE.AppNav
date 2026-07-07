@@ -91,32 +91,26 @@ internal static class NavigationStateValidator
         {
             RequireId(branch.Id, $"{path}.Branches[].Id");
             if (!branchIds.Add(branch.Id))
-            {
                 throw Invalid($"{path} contains duplicate branch id '{branch.Id}'.");
-            }
 
             if (string.IsNullOrWhiteSpace(branch.Title))
-            {
                 throw Invalid($"{path}.Branch('{branch.Id}').Title cannot be null, empty, or whitespace.");
-            }
 
             ValidateNode(branch.Content, $"{path}.Branch('{branch.Id}').Content");
         }
 
         RequireId(branchHost.SelectedBranchId, $"{path}.SelectedBranchId");
         if (!branchIds.Contains(branchHost.SelectedBranchId))
-        {
-            throw Invalid($"{path} selected branch id '{branchHost.SelectedBranchId}' does not reference an existing branch.");
-        }
+            throw Invalid(
+                $"{path} selected branch id '{branchHost.SelectedBranchId}' does not reference an existing branch.");
 
-        if (branchHost.DefaultBranchId is not null)
-        {
-            RequireId(branchHost.DefaultBranchId, $"{path}.DefaultBranchId");
-            if (!branchIds.Contains(branchHost.DefaultBranchId))
-            {
-                throw Invalid($"{path} default branch id '{branchHost.DefaultBranchId}' does not reference an existing branch.");
-            }
-        }
+        if (branchHost.DefaultBranchId is null)
+            return;
+
+        RequireId(branchHost.DefaultBranchId, $"{path}.DefaultBranchId");
+        if (!branchIds.Contains(branchHost.DefaultBranchId))
+            throw Invalid(
+                $"{path} default branch id '{branchHost.DefaultBranchId}' does not reference an existing branch.");
     }
 
     private static void ValidateModal(ModalNode modal, string path)

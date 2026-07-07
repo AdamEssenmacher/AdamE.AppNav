@@ -4,10 +4,7 @@ namespace AdamE.MauiRouter.State;
 
 public sealed record NavigationState
 {
-    public static NavigationState Empty { get; } = new(Array.Empty<WindowNode>());
-
-    private IReadOnlyList<WindowNode> _windows = CollectionSnapshot.List<WindowNode>(null);
-    private string? _activeWindowId;
+    public static NavigationState Empty { get; } = new([]);
 
     public NavigationState(IReadOnlyList<WindowNode> Windows, string? ActiveWindowId = null)
     {
@@ -17,61 +14,50 @@ public sealed record NavigationState
 
     public IReadOnlyList<WindowNode> Windows
     {
-        get => _windows;
+        get;
         init
         {
-            var windows = NavigationIdentity.RequiredList(value, nameof(Windows));
+            IReadOnlyList<WindowNode> windows = NavigationIdentity.RequiredList(value, nameof(Windows));
             NavigationIdentity.EnsureUniqueIds(
                 windows,
                 static window => window.Id,
                 nameof(Windows),
                 "window id",
                 "Navigation state windows");
-            _windows = windows;
+            field = windows;
         }
-    }
+    } = CollectionSnapshot.List<WindowNode>(null);
 
     public string? ActiveWindowId
     {
-        get => _activeWindowId;
-        init => _activeWindowId = NavigationIdentity.OptionalId(value, nameof(ActiveWindowId));
+        get;
+        init => field = NavigationIdentity.OptionalId(value, nameof(ActiveWindowId));
     }
 
-    public WindowNode? ActiveWindow => FindWindow(ActiveWindowId) ?? Windows.FirstOrDefault();
-
-    public void Deconstruct(out IReadOnlyList<WindowNode> Windows, out string? ActiveWindowId)
-    {
-        Windows = this.Windows;
-        ActiveWindowId = this.ActiveWindowId;
-    }
+    public WindowNode? ActiveWindow => FindWindow(ActiveWindowId) ?? (Windows.Count > 0 ? Windows[0] : null);
 
     public WindowNode? FindWindow(string? id)
     {
-        if (string.IsNullOrWhiteSpace(id))
-        {
-            return Windows.FirstOrDefault();
-        }
-
-        return Windows.FirstOrDefault(window => StringComparer.Ordinal.Equals(window.Id, id));
+        return string.IsNullOrWhiteSpace(id)
+            ? null
+            : Windows.FirstOrDefault(window => StringComparer.Ordinal.Equals(window.Id, id));
     }
 
     public NavigationState ReplaceWindow(WindowNode window)
     {
         ArgumentNullException.ThrowIfNull(window);
 
-        var windows = Windows.ToArray();
+        WindowNode[] windows = Windows.ToArray();
         for (var i = 0; i < windows.Length; i++)
-        {
             if (StringComparer.Ordinal.Equals(windows[i].Id, window.Id))
             {
                 windows[i] = window;
                 return this with { Windows = windows, ActiveWindowId = ActiveWindowId ?? window.Id };
             }
-        }
 
         return this with
         {
-            Windows = windows.Concat(new[] { window }).ToArray(),
+            Windows = windows.Concat([window]).ToArray(),
             ActiveWindowId = ActiveWindowId ?? window.Id
         };
     }

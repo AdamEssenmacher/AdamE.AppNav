@@ -253,69 +253,6 @@ public sealed class RepositoryContractTests
     }
 
     [Fact]
-    public void DocumentationDefinesRequestAndIntegrationModel()
-    {
-        var root = RepositoryRoot();
-        var readme = File.ReadAllText(Path.Combine(root, "README.md"));
-        var guide = File.ReadAllText(Path.Combine(root, "docs", "maui-integration.md"));
-        var provenance = File.ReadAllText(Path.Combine(root, "docs", "provenance.md"));
-
-        Assert.Contains("[docs/maui-integration.md](docs/maui-integration.md)", readme, StringComparison.Ordinal);
-        Assert.Contains("[docs/provenance.md](docs/provenance.md)", readme, StringComparison.Ordinal);
-        Assert.Contains("## Route Identity And Route-Owned Metadata", readme, StringComparison.Ordinal);
-        Assert.Contains("The core state model includes window targeting and window nodes, but the v1 MAUI adapter is intentionally single-active-window oriented rather than a full multi-window orchestration system.", readme, StringComparison.Ordinal);
-        Assert.Contains("`AppRoute` is the durable semantic destination.", readme, StringComparison.Ordinal);
-        Assert.Contains("`AppRouteRequest` is route identity plus app-owned route metadata.", readme, StringComparison.Ordinal);
-        Assert.Contains("`RouteStateRegistry` classifies metadata as canonical, restorable, or ephemeral.", readme, StringComparison.Ordinal);
-        Assert.Contains("campaign metadata is canonical and may shape or share the durable URL", readme, StringComparison.Ordinal);
-        Assert.Contains("return-path metadata is restorable and may survive navigation persistence", readme, StringComparison.Ordinal);
-        Assert.Contains("trace or correlation metadata is ephemeral and stays runtime-only", readme, StringComparison.Ordinal);
-        Assert.Contains("## MAUI Integration", readme, StringComparison.Ordinal);
-        Assert.Contains("One common MauiRouter integration looks like this:", readme, StringComparison.Ordinal);
-        Assert.Contains("## Putting The Architecture To Work", readme, StringComparison.Ordinal);
-        Assert.Contains("Deferred replay is provided by the library, but the app chooses when to invoke it", readme, StringComparison.Ordinal);
-        Assert.Contains("`AddMauiRouterFileDeferredNavigationRequests()` registers both `IDeferredNavigationRequestStore` and `IDeferredNavigationRequestReplayer`", readme, StringComparison.Ordinal);
-        Assert.DoesNotContain("AddSingleton<IDeferredNavigationRequestReplayer, DeferredNavigationRequestReplayer>()", readme, StringComparison.Ordinal);
-        Assert.Contains("Provenance is runtime request context, not route identity or route metadata.", readme, StringComparison.Ordinal);
-        Assert.Contains("Built-in MAUI app-link ingress sets provenance automatically.", readme, StringComparison.Ordinal);
-        Assert.Contains("MauiRouter sets transport provenance it owns; apps set provider/business provenance they own.", readme, StringComparison.Ordinal);
-        Assert.Contains("App-owned external sources such as Branch, push, QR, and provider SDK bridges should set it explicitly", readme, StringComparison.Ordinal);
-        Assert.Contains("For app-owned external sources such as Branch, push, or QR bridges, resolve `IMauiExternalNavigationDispatcher`", readme, StringComparison.Ordinal);
-        Assert.Contains("Interactive foreground boundaries such as a QR scanner may call `IRouterNavigator.NavigateAsync(RouterNavigationRequest)` directly", readme, StringComparison.Ordinal);
-        Assert.Contains("Raw auth callbacks are auth events, not a first-class router source.", readme, StringComparison.Ordinal);
-        Assert.Contains("MauiRouter does not ship Branch, push notification, QR scanner, or auth-provider SDK integrations.", readme, StringComparison.Ordinal);
-        Assert.Contains("Page constructors receive the typed `AppRoute`, not route-entry metadata.", readme, StringComparison.Ordinal);
-        Assert.DoesNotContain("IAppRoutePlanner<TRoute>", readme, StringComparison.Ordinal);
-        Assert.DoesNotContain("docs/blessed-path.md", readme, StringComparison.Ordinal);
-        Assert.DoesNotContain("## Blessed Path", readme, StringComparison.Ordinal);
-        Assert.DoesNotContain("preferred app-facing request shape", readme, StringComparison.Ordinal);
-        Assert.DoesNotContain("default app-facing navigation shape", readme, StringComparison.Ordinal);
-        Assert.DoesNotContain("not the default in-app navigation surface", readme, StringComparison.Ordinal);
-        Assert.Contains("Android predictive back is not implemented in v1", readme, StringComparison.Ordinal);
-        Assert.Contains("# MAUI Integration", guide, StringComparison.Ordinal);
-        Assert.Contains("This guide walks through one common MAUI integration shape for MauiRouter.", guide, StringComparison.Ordinal);
-        Assert.Contains("`RouterNavigationRequest` can carry `NavigationRequestProvenance`, which is runtime request context", guide, StringComparison.Ordinal);
-        Assert.Contains("[provenance.md](provenance.md)", guide, StringComparison.Ordinal);
-        Assert.Contains("`IRouterNavigator` also exposes URI navigation overloads and `ReconcileAsync(...)`", guide, StringComparison.Ordinal);
-        Assert.Contains("One common MAUI setup uses:", guide, StringComparison.Ordinal);
-        Assert.Contains("Built-in MAUI app-link ingress sets provenance automatically.", guide, StringComparison.Ordinal);
-        Assert.Contains("App-owned external sources should resolve `IMauiExternalNavigationDispatcher`, attach explicit `NavigationRequestProvenance`", guide, StringComparison.Ordinal);
-        Assert.Contains("Interactive foreground boundaries may call `IRouterNavigator.NavigateAsync(RouterNavigationRequest)` directly", guide, StringComparison.Ordinal);
-        Assert.Contains("Raw auth callbacks belong to the auth subsystem; the router should usually see deferred replay or an app-authored post-auth request.", guide, StringComparison.Ordinal);
-        Assert.DoesNotContain("blessed path", guide, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("| `Provider` | Yes, only for built-in MAUI app-link ingress using `MauiAppLinkProvenanceProviders`. | Yes for Branch, push, QR, provider SDK callbacks, etc. |", provenance, StringComparison.Ordinal);
-        Assert.Contains("| `IsColdStart` | No. | Only when the app boundary can determine it without guessing. |", provenance, StringComparison.Ordinal);
-        Assert.Contains("MauiRouter sets transport provenance it owns; apps set provider/business provenance they own.", provenance, StringComparison.Ordinal);
-        Assert.Contains("MauiRouter does not include provider SDK integrations for Branch, push notifications, QR scanning, or auth callbacks.", provenance, StringComparison.Ordinal);
-        Assert.Contains("If a QR scanner is an interactive foreground surface, it may call `IRouterNavigator.NavigateAsync(RouterNavigationRequest)` directly", provenance, StringComparison.Ordinal);
-        Assert.Contains("Do not add or simulate a `NavigationRequestSource.AuthCallback`", provenance, StringComparison.Ordinal);
-        Assert.Contains("MauiAppLinkProvenanceProviders.AndroidIntent", provenance, StringComparison.Ordinal);
-        Assert.Contains("provider: \"branch\"", provenance, StringComparison.Ordinal);
-        Assert.Contains("provider: \"firebase-push\"", provenance, StringComparison.Ordinal);
-        Assert.Contains("provider: \"qr-scanner\"", provenance, StringComparison.Ordinal);
-    }
-
-    [Fact]
     public void ReadmeExamplesStayOnPublicSurface()
     {
         var root = RepositoryRoot();

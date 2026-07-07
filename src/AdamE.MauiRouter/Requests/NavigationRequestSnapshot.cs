@@ -33,7 +33,7 @@ public sealed record NavigationMetadataValueSnapshot(
     bool IsNull = false);
 
 /// <summary>
-/// Serializes custom request metadata that is not handled by a route state registry.
+/// Serializes custom request metadata not handled by a route state registry.
 /// </summary>
 public interface INavigationRequestMetadataSerializer
 {
@@ -57,9 +57,7 @@ internal static class NavigationRequestProvenanceSnapshotMapper
     public static NavigationRequestProvenanceSnapshot? Create(NavigationRequestProvenance? provenance)
     {
         if (provenance is null)
-        {
             return null;
-        }
 
         return new NavigationRequestProvenanceSnapshot(
             provenance.Provider,
@@ -75,9 +73,7 @@ internal static class NavigationRequestProvenanceSnapshotMapper
     public static NavigationRequestProvenance? Restore(NavigationRequestProvenanceSnapshot? snapshot)
     {
         if (snapshot is null)
-        {
             return null;
-        }
 
         return new NavigationRequestProvenance(
             snapshot.Provider,
@@ -93,11 +89,9 @@ internal static class NavigationRequestProvenanceSnapshotMapper
     private static Uri? RestoreUri(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
-        {
             return null;
-        }
 
-        return Uri.TryCreate(value, UriKind.RelativeOrAbsolute, out var uri)
+        return Uri.TryCreate(value, UriKind.RelativeOrAbsolute, out Uri? uri)
             ? uri
             : null;
     }

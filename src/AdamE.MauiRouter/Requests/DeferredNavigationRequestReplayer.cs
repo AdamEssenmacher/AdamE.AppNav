@@ -15,17 +15,18 @@ public sealed class DeferredNavigationRequestReplayer(
         var replayed = 0;
         var failed = 0;
 
-        var drained = await deferredRequests.DrainAsync(cancellationToken).ConfigureAwait(false);
+        IReadOnlyList<RouterNavigationRequest> drained =
+            await deferredRequests.DrainAsync(cancellationToken).ConfigureAwait(false);
         var failedRequests = new List<RouterNavigationRequest>();
-        var currentIndex = 0;
 
+        var currentIndex = 0;
         try
         {
             for (; currentIndex < drained.Count; currentIndex++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                var request = drained[currentIndex];
+                RouterNavigationRequest request = drained[currentIndex];
                 attempted++;
 
                 try
@@ -33,7 +34,8 @@ public sealed class DeferredNavigationRequestReplayer(
                     await navigator.NavigateAsync(request, cancellationToken).ConfigureAwait(false);
                     replayed++;
                 }
-                catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+                catch (Exception ex) when (ex is not OperationCanceledException ||
+                                           !cancellationToken.IsCancellationRequested)
                 {
                     failed++;
                     failedRequests.Add(request);
@@ -50,6 +52,7 @@ public sealed class DeferredNavigationRequestReplayer(
             await RequeueAsync(
                 failedRequests.Concat(drained.Skip(currentIndex)),
                 CancellationToken.None).ConfigureAwait(false);
+
             throw;
         }
 
@@ -62,9 +65,7 @@ public sealed class DeferredNavigationRequestReplayer(
         IEnumerable<RouterNavigationRequest> requests,
         CancellationToken cancellationToken)
     {
-        foreach (var request in requests)
-        {
+        foreach (RouterNavigationRequest request in requests)
             await deferredRequests.EnqueueAsync(request, cancellationToken).ConfigureAwait(false);
-        }
     }
 }

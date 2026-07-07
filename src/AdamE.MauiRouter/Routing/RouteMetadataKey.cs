@@ -9,4 +9,6 @@ public sealed record RouteMetadataKey<TValue>
     }
 
     public string Name { get; }
+
+    internal static Type ValueType => typeof(TValue);
 }

@@ -11,8 +11,13 @@ public sealed class BranchHostRouteRecipeBuilder<TRouteBase, TRoute> : IBranchHo
     private Func<TRoute, string>? _entryIdFactory;
     private Func<TRoute, string?>? _scopeKeyFactory;
     private Func<TRoute, string?>? _slotIdFactory;
-    private Func<TRoute, IReadOnlyDictionary<string, object?>?, IReadOnlyList<StackRouteStep<TRouteBase>>>? _canonicalFactory;
-    private Func<TRoute, IReadOnlyDictionary<string, object?>?, IReadOnlyList<StackRouteStep<TRouteBase>>>? _contextualTailFactory;
+
+    private Func<TRoute, IReadOnlyDictionary<string, object?>?, IReadOnlyList<StackRouteStep<TRouteBase>>>?
+        _canonicalFactory;
+
+    private Func<TRoute, IReadOnlyDictionary<string, object?>?, IReadOnlyList<StackRouteStep<TRouteBase>>>?
+        _contextualTailFactory;
+
     private ContextualStackEligibility _contextualEligibility = ContextualStackEligibility.MatchingScope;
 
     internal BranchHostRouteRecipeBuilder(string branchId)
@@ -61,9 +66,11 @@ public sealed class BranchHostRouteRecipeBuilder<TRouteBase, TRoute> : IBranchHo
     /// Sets the contextual branch-tail recipe for this route type.
     /// </summary>
     public BranchHostRouteRecipeBuilder<TRouteBase, TRoute> ContextualTail(
-        Func<TRoute, IReadOnlyDictionary<string, object?>?, IReadOnlyList<StackRouteStep<TRouteBase>>> contextualTailFactory)
+        Func<TRoute, IReadOnlyDictionary<string, object?>?, IReadOnlyList<StackRouteStep<TRouteBase>>>
+            contextualTailFactory)
     {
-        _contextualTailFactory = contextualTailFactory ?? throw new ArgumentNullException(nameof(contextualTailFactory));
+        _contextualTailFactory =
+            contextualTailFactory ?? throw new ArgumentNullException(nameof(contextualTailFactory));
         return this;
     }
 
@@ -71,7 +78,8 @@ public sealed class BranchHostRouteRecipeBuilder<TRouteBase, TRoute> : IBranchHo
     /// Sets whether contextual planning requires a matching scope.
     /// </summary>
     // ReSharper disable once UnusedMember.Global
-    public BranchHostRouteRecipeBuilder<TRouteBase, TRoute> ContextualEligibility(ContextualStackEligibility contextualEligibility)
+    public BranchHostRouteRecipeBuilder<TRouteBase, TRoute> ContextualEligibility(
+        ContextualStackEligibility contextualEligibility)
     {
         _contextualEligibility = contextualEligibility;
         return this;
@@ -80,10 +88,8 @@ public sealed class BranchHostRouteRecipeBuilder<TRouteBase, TRoute> : IBranchHo
     BranchHostRouteRecipe<TRouteBase> IBranchHostRouteRecipeBuilder<TRouteBase>.Build()
     {
         if (_entryIdFactory is null)
-        {
             throw new InvalidOperationException(
                 $"Branch-host route recipe '{typeof(TRoute).FullName}' must define an entry id factory.");
-        }
 
         return new BranchHostRouteRecipe<TRouteBase>(
             typeof(TRoute),
@@ -114,6 +120,7 @@ internal sealed record BranchHostRouteRecipe<TRouteBase>(
     Func<TRouteBase, string?>? ScopeKeyFactory,
     Func<TRouteBase, string?>? SlotIdFactory,
     Func<TRouteBase, IReadOnlyDictionary<string, object?>?, IReadOnlyList<StackRouteStep<TRouteBase>>> CanonicalFactory,
-    Func<TRouteBase, IReadOnlyDictionary<string, object?>?, IReadOnlyList<StackRouteStep<TRouteBase>>> ContextualTailFactory,
+    Func<TRouteBase, IReadOnlyDictionary<string, object?>?, IReadOnlyList<StackRouteStep<TRouteBase>>>
+        ContextualTailFactory,
     ContextualStackEligibility ContextualEligibility)
     where TRouteBase : AppRoute;

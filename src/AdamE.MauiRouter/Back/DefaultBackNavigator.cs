@@ -156,7 +156,7 @@ public sealed class DefaultBackNavigator(
             : state;
     }
 
-    private static IReadOnlyList<T> RemoveLast<T>(IReadOnlyList<T> source)
+    private static T[] RemoveLast<T>(IReadOnlyList<T> source)
     {
         if (source.Count <= 1)
             return [];

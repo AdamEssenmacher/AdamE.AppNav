@@ -16,8 +16,6 @@ public sealed record NavigationRequestProvenance
         new ReadOnlyDictionary<string, string?>(
             new Dictionary<string, string?>(StringComparer.Ordinal));
 
-    private IReadOnlyDictionary<string, string?> _attributes = EmptyAttributes;
-
     public NavigationRequestProvenance(
         string? provider = null,
         Uri? originalUri = null,
@@ -41,7 +39,7 @@ public sealed record NavigationRequestProvenance
     /// MauiRouter sets this for built-in MAUI app-link ingress. App-owned external sources should set their own
     /// stable provider names, for example <c>branch</c>, <c>firebase-push</c>, or <c>qr-scanner</c>.
     /// </remarks>
-    public string? Provider { get; init; }
+    public string? Provider { get; }
 
     /// <summary>
     /// Original URI supplied by the ingress provider.
@@ -59,7 +57,7 @@ public sealed record NavigationRequestProvenance
     /// MauiRouter does not infer this value. App-owned sources should set it only when the provider supplies reliable
     /// referrer context.
     /// </remarks>
-    public Uri? ReferrerUri { get; init; }
+    public Uri? ReferrerUri { get; }
 
     /// <summary>
     /// Stable request correlation id supplied by the ingress provider or app boundary.
@@ -68,7 +66,7 @@ public sealed record NavigationRequestProvenance
     /// MauiRouter does not infer this value. App-owned sources should set notification ids, Branch click ids,
     /// QR scan ids, deferred navigation ids, or similar correlation values when available.
     /// </remarks>
-    public string? CorrelationId { get; init; }
+    public string? CorrelationId { get; }
 
     /// <summary>
     /// Indicates whether the request entered during a cold start when known.
@@ -77,7 +75,7 @@ public sealed record NavigationRequestProvenance
     /// MauiRouter does not guess this value. App-owned sources should set it only when the app boundary can determine
     /// cold-start state without inference.
     /// </remarks>
-    public bool? IsColdStart { get; init; }
+    public bool? IsColdStart { get; }
 
     /// <summary>
     /// Provider-specific string attributes associated with the request.
@@ -88,16 +86,15 @@ public sealed record NavigationRequestProvenance
     /// </remarks>
     public IReadOnlyDictionary<string, string?> Attributes
     {
-        get => _attributes;
-        init => _attributes = SnapshotAttributes(value);
-    }
+        get;
+        // ReSharper disable once MemberCanBePrivate.Global
+        init => field = SnapshotAttributes(value);
+    } = EmptyAttributes;
 
     public bool Equals(NavigationRequestProvenance? other)
     {
         if (ReferenceEquals(this, other))
-        {
             return true;
-        }
 
         return other is not null &&
                StringComparer.Ordinal.Equals(Provider, other.Provider) &&
@@ -117,7 +114,8 @@ public sealed record NavigationRequestProvenance
         hash.Add(CorrelationId, StringComparer.Ordinal);
         hash.Add(IsColdStart);
 
-        foreach (var pair in Attributes.OrderBy(static pair => pair.Key, StringComparer.Ordinal))
+        foreach (KeyValuePair<string, string?> pair in Attributes.OrderBy(static pair => pair.Key,
+                     StringComparer.Ordinal))
         {
             hash.Add(pair.Key, StringComparer.Ordinal);
             hash.Add(pair.Value, StringComparer.Ordinal);
@@ -130,9 +128,7 @@ public sealed record NavigationRequestProvenance
         IReadOnlyDictionary<string, string?>? attributes)
     {
         if (attributes is null || attributes.Count == 0)
-        {
             return EmptyAttributes;
-        }
 
         return new ReadOnlyDictionary<string, string?>(
             new Dictionary<string, string?>(attributes, StringComparer.Ordinal));
@@ -143,23 +139,15 @@ public sealed record NavigationRequestProvenance
         IReadOnlyDictionary<string, string?> y)
     {
         if (ReferenceEquals(x, y))
-        {
             return true;
-        }
 
         if (x.Count != y.Count)
-        {
             return false;
-        }
 
-        foreach (var pair in x)
-        {
-            if (!y.TryGetValue(pair.Key, out var otherValue) ||
+        foreach (KeyValuePair<string, string?> pair in x)
+            if (!y.TryGetValue(pair.Key, out string? otherValue) ||
                 !StringComparer.Ordinal.Equals(pair.Value, otherValue))
-            {
                 return false;
-            }
-        }
 
         return true;
     }

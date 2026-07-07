@@ -8,14 +8,12 @@ namespace AdamE.MauiRouter.State;
 /// <param name="Id">The stable structural identifier of the node within its owning navigation surface.</param>
 public abstract record NavigationNode(string Id)
 {
-    private readonly string _id = NavigationIdentity.RequiredId(Id, nameof(Id));
-
     /// <summary>
     /// Gets the stable structural identifier of the node within its owning navigation surface.
     /// </summary>
     public string Id
     {
-        get => _id;
-        init => _id = NavigationIdentity.RequiredId(value, nameof(Id));
-    }
+        get;
+        init => field = NavigationIdentity.RequiredId(value, nameof(Id));
+    } = NavigationIdentity.RequiredId(Id, nameof(Id));
 }

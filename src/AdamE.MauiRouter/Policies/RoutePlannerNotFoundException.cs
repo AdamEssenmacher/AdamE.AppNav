@@ -1,12 +1,7 @@
 namespace AdamE.MauiRouter.Policies;
 
-public sealed class RoutePlannerNotFoundException : InvalidOperationException
+public sealed class RoutePlannerNotFoundException(Type routeType) : InvalidOperationException(
+    $"No app route planner is registered for route type '{(routeType ?? throw new ArgumentNullException(nameof(routeType))).FullName}'.")
 {
-    public RoutePlannerNotFoundException(Type routeType)
-        : base($"No app route planner is registered for route type '{(routeType ?? throw new ArgumentNullException(nameof(routeType))).FullName}'.")
-    {
-        RouteType = routeType;
-    }
-
-    public Type RouteType { get; }
+    public Type RouteType { get; } = routeType;
 }

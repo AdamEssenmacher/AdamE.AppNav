@@ -17,7 +17,7 @@ public sealed record RouteMatchResult(
             route,
             definition,
             metadata ?? new Dictionary<string, object?>(StringComparer.Ordinal),
-            Array.Empty<RouteDiagnostic>());
+            []);
     }
 
     public static RouteMatchResult Failure(params RouteDiagnostic[] diagnostics)

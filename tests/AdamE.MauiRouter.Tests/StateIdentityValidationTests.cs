@@ -97,6 +97,23 @@ public sealed class StateIdentityValidationTests
         }));
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void FindWindowDoesNotTreatBlankIdAsActiveWindow(string? id)
+    {
+        var state = new NavigationState(new[]
+        {
+            new WindowNode("main"),
+            new WindowNode("secondary")
+        });
+
+        Assert.Equal("main", state.ActiveWindow!.Id);
+        Assert.Null(state.FindWindow(id));
+        Assert.Equal("secondary", state.FindWindow("secondary")!.Id);
+    }
+
     [Fact]
     public void WindowNodeRejectsDuplicateModalIds()
     {
