@@ -3,7 +3,7 @@ using AdamE.MauiRouter.Policies;
 using AdamE.MauiRouter.Requests;
 using AdamE.MauiRouter.State;
 
-namespace AdamE.MauiRouter.Testing;
+namespace AdamE.MauiRouter.Tests;
 
 public sealed class TestNavigationPlanner : IAppNavigationPlanner
 {

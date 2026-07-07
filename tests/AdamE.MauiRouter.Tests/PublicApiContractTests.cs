@@ -8,7 +8,6 @@ using AdamE.MauiRouter.Policies;
 using AdamE.MauiRouter.Presentation;
 using AdamE.MauiRouter.Requests;
 using AdamE.MauiRouter.Routing;
-using AdamE.MauiRouter.Testing;
 
 namespace AdamE.MauiRouter.Tests;
 
@@ -129,9 +128,6 @@ public sealed class PublicApiContractTests
             typeof(RouterNavigatorFactoryOptions).GetProperties(BindingFlags.Public | BindingFlags.Instance),
             static property => property.Name == "InitialHistory");
 
-        Assert.DoesNotContain(
-            typeof(RouterTestNavigatorOptions).GetProperties(BindingFlags.Public | BindingFlags.Instance),
-            static property => property.Name == "InitialHistory");
     }
 
     [Fact]

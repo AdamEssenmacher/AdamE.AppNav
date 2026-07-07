@@ -1,6 +1,6 @@
 using AdamE.MauiRouter.State;
 
-namespace AdamE.MauiRouter.Testing;
+namespace AdamE.MauiRouter.Tests;
 
 public static class TestNavigationState
 {

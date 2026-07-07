@@ -17,7 +17,6 @@ dotnet build src/AdamE.MauiRouter.Maui/AdamE.MauiRouter.Maui.csproj
 dotnet build samples/Commerce.Sample/Commerce.Sample.csproj -f net10.0-maccatalyst
 dotnet pack src/AdamE.MauiRouter/AdamE.MauiRouter.csproj
 dotnet pack src/AdamE.MauiRouter.Maui/AdamE.MauiRouter.Maui.csproj
-dotnet pack src/AdamE.MauiRouter.Testing/AdamE.MauiRouter.Testing.csproj
 ```
 
 ## XHarness
