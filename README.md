@@ -2060,6 +2060,34 @@ The `TestPlanner` and `NoOpNavigationPresenter` below are app-owned test fakes t
 `IAppNavigationPlanner` and `INavigationPresenter`.
 
 ```csharp
+private sealed class TestPlanner(
+    Func<NavigationPlanningContext, NavigationPlan> createPlan) : IAppNavigationPlanner
+{
+    public ValueTask<NavigationPlan> CreatePlanAsync(
+        NavigationPlanningContext context,
+        CancellationToken cancellationToken = default)
+    {
+        return ValueTask.FromResult(createPlan(context));
+    }
+}
+
+private sealed class NoOpNavigationPresenter : INavigationPresenter
+{
+    public event EventHandler<NavigationReconciliationRequestedEventArgs>? ReconciliationRequested
+    {
+        add { }
+        remove { }
+    }
+
+    public ValueTask ApplyAsync(
+        NavigationPlan plan,
+        NavigationPresentationContext context,
+        CancellationToken cancellationToken = default)
+    {
+        return ValueTask.CompletedTask;
+    }
+}
+
 var routeTable = RouteTable.Create(routes => routes.Map(
     "/stores/{storeId}/products/{productId:int}",
     match => new ProductDetailRoute(match.Path("storeId"), match.Path<int>("productId")),

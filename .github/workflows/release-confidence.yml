@@ -54,7 +54,6 @@ jobs:
         run: |
           dotnet pack src/AdamE.MauiRouter/AdamE.MauiRouter.csproj -o artifacts/packages
           dotnet pack src/AdamE.MauiRouter.Maui/AdamE.MauiRouter.Maui.csproj -o artifacts/packages
-          dotnet pack src/AdamE.MauiRouter.Testing/AdamE.MauiRouter.Testing.csproj -o artifacts/packages
 
       - name: Mac Catalyst platform tests
         run: eng/run-maui-platform-tests.sh maccatalyst
