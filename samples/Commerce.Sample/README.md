@@ -1,6 +1,6 @@
 # Commerce.Sample
 
-Commerce.Sample is a production-pattern MAUI sample for AdamE.MauiRouter. It uses no Shell or Prism and demonstrates one complete MAUI integration shape: app code authors `AppRouteRequest`, runtime boundaries use `RouterNavigationRequest`, `AddMauiRouter` plus `AddMauiRouterStartup` provide MAUI wiring, and route-owned metadata is registered through a `RouteStateRegistry`.
+Commerce.Sample is a production-pattern MAUI sample for AdamE.AppNav. It uses no Shell or Prism and demonstrates one complete MAUI integration shape: app code authors `AppRouteRequest`, runtime boundaries use `RouterNavigationRequest`, `AddAppNav` plus `AddAppNavStartup` provide MAUI wiring, and route-owned metadata is registered through a `RouteStateRegistry`.
 
 The sample keeps route identity and route-entry metadata intentionally separate:
 

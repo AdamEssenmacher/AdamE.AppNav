@@ -11,12 +11,12 @@ This checklist is for validating a production release candidate before publishin
 ## Required Commands
 
 ```bash
-dotnet test tests/AdamE.MauiRouter.Tests/AdamE.MauiRouter.Tests.csproj
-dotnet build tests/AdamE.MauiRouter.Maui.Tests/AdamE.MauiRouter.Maui.Tests.csproj -f net10.0-maccatalyst
-dotnet build src/AdamE.MauiRouter.Maui/AdamE.MauiRouter.Maui.csproj
+dotnet test tests/AdamE.AppNav.Tests/AdamE.AppNav.Tests.csproj
+dotnet build tests/AdamE.AppNav.Maui.Tests/AdamE.AppNav.Maui.Tests.csproj -f net10.0-maccatalyst
+dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj
 dotnet build samples/Commerce.Sample/Commerce.Sample.csproj -f net10.0-maccatalyst
-dotnet pack src/AdamE.MauiRouter/AdamE.MauiRouter.csproj
-dotnet pack src/AdamE.MauiRouter.Maui/AdamE.MauiRouter.Maui.csproj
+dotnet pack src/AdamE.AppNav/AdamE.AppNav.csproj
+dotnet pack src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj
 ```
 
 ## XHarness

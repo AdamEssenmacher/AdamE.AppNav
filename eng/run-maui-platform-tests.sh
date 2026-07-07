@@ -2,13 +2,13 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PROJECT="$ROOT/tests/AdamE.MauiRouter.Maui.Tests/AdamE.MauiRouter.Maui.Tests.csproj"
+PROJECT="$ROOT/tests/AdamE.AppNav.Maui.Tests/AdamE.AppNav.Maui.Tests.csproj"
 CONFIGURATION="${CONFIGURATION:-Debug}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-$ROOT/artifacts/xharness}"
-PACKAGE_NAME="${PACKAGE_NAME:-com.adame.mauirouter.maui.tests}"
-APPLE_RESULT_FILE_NAME="AdamE.MauiRouter.Maui.Tests.xml"
-APPLE_RUNNER_LOG_FILE_NAME="AdamE.MauiRouter.Maui.Tests.runner.log"
-APPLE_RESULT_XML_BASE64_PREFIX="MAUI_ROUTER_XHARNESS_RESULT_XML_BASE64:"
+PACKAGE_NAME="${PACKAGE_NAME:-com.adame.appnav.maui.tests}"
+APPLE_RESULT_FILE_NAME="AdamE.AppNav.Maui.Tests.xml"
+APPLE_RUNNER_LOG_FILE_NAME="AdamE.AppNav.Maui.Tests.runner.log"
+APPLE_RESULT_XML_BASE64_PREFIX="APPNAV_XHARNESS_RESULT_XML_BASE64:"
 
 usage() {
   cat <<'USAGE'
@@ -22,7 +22,7 @@ Environment overrides:
   XHARNESS_TARGET        Override the XHarness Apple target.
   IOS_RUNTIME_IDENTIFIER Override iOS simulator RID. Default: iossimulator-arm64.
   MACCATALYST_RUNTIME_IDENTIFIER Override Mac Catalyst RID. Default: maccatalyst-arm64.
-  PACKAGE_NAME           Android package name. Default: com.adame.mauirouter.maui.tests.
+  PACKAGE_NAME           Android package name. Default: com.adame.appnav.maui.tests.
 
 Prerequisite:
   Install XHarness and ensure `xharness` is on PATH:
@@ -111,7 +111,7 @@ run_android() {
 
   build_project net10.0-android -p:EmbedAssembliesIntoApk=true
   local apk
-  apk="$(find "$ROOT/tests/AdamE.MauiRouter.Maui.Tests/bin/$CONFIGURATION/net10.0-android" -name '*-Signed.apk' -print | head -n 1)"
+  apk="$(find "$ROOT/tests/AdamE.AppNav.Maui.Tests/bin/$CONFIGURATION/net10.0-android" -name '*-Signed.apk' -print | head -n 1)"
   if [[ -z "$apk" ]]; then
     echo "No signed Android test APK was found." >&2
     exit 1
@@ -139,7 +139,7 @@ run_ios() {
 
   build_project net10.0-ios -p:RuntimeIdentifier="$rid" -p:EmbedAssembliesIntoAppBundle=true -p:CodesignKey="" -p:CodesignProvision=""
   local app
-  app="$(find "$ROOT/tests/AdamE.MauiRouter.Maui.Tests/bin/$CONFIGURATION/net10.0-ios/$rid" -maxdepth 1 -name '*.app' -print | head -n 1)"
+  app="$(find "$ROOT/tests/AdamE.AppNav.Maui.Tests/bin/$CONFIGURATION/net10.0-ios/$rid" -maxdepth 1 -name '*.app' -print | head -n 1)"
   if [[ -z "$app" ]]; then
     echo "No iOS simulator test app was found." >&2
     exit 1
@@ -175,7 +175,7 @@ run_maccatalyst() {
 
   build_project net10.0-maccatalyst -p:RuntimeIdentifier="$rid" -p:EmbedAssembliesIntoAppBundle=true -p:CodesignKey="" -p:CodesignProvision=""
   local app
-  app="$(find "$ROOT/tests/AdamE.MauiRouter.Maui.Tests/bin/$CONFIGURATION/net10.0-maccatalyst/$rid" -maxdepth 1 -name '*.app' -print | head -n 1)"
+  app="$(find "$ROOT/tests/AdamE.AppNav.Maui.Tests/bin/$CONFIGURATION/net10.0-maccatalyst/$rid" -maxdepth 1 -name '*.app' -print | head -n 1)"
   if [[ -z "$app" ]]; then
     echo "No Mac Catalyst test app was found." >&2
     exit 1

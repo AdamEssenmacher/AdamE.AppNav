@@ -42,18 +42,18 @@ jobs:
             --version "11.0.0-prerelease*"
 
       - name: Core tests
-        run: dotnet test tests/AdamE.MauiRouter.Tests/AdamE.MauiRouter.Tests.csproj
+        run: dotnet test tests/AdamE.AppNav.Tests/AdamE.AppNav.Tests.csproj
 
       - name: MAUI adapter build
-        run: dotnet build src/AdamE.MauiRouter.Maui/AdamE.MauiRouter.Maui.csproj
+        run: dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj
 
       - name: Commerce sample build
         run: dotnet build samples/Commerce.Sample/Commerce.Sample.csproj -f net10.0-maccatalyst
 
       - name: Pack packages
         run: |
-          dotnet pack src/AdamE.MauiRouter/AdamE.MauiRouter.csproj -o artifacts/packages
-          dotnet pack src/AdamE.MauiRouter.Maui/AdamE.MauiRouter.Maui.csproj -o artifacts/packages
+          dotnet pack src/AdamE.AppNav/AdamE.AppNav.csproj -o artifacts/packages
+          dotnet pack src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -o artifacts/packages
 
       - name: Mac Catalyst platform tests
         run: eng/run-maui-platform-tests.sh maccatalyst

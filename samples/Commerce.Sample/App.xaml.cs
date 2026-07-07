@@ -1,13 +1,13 @@
-﻿using AdamE.MauiRouter.Maui;
+﻿using AdamE.AppNav.Maui;
 using Microsoft.Maui.ApplicationModel;
 
 namespace Commerce.Sample;
 
 public partial class App : Application
 {
-	private readonly IMauiRouterStartupService _startup;
+	private readonly IAppNavStartupService _startup;
 
-	public App(IMauiRouterStartupService startup)
+	public App(IAppNavStartupService startup)
 	{
 		_startup = startup;
 		InitializeComponent();

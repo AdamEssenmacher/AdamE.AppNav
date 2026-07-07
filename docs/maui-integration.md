@@ -1,14 +1,14 @@
 # MAUI Integration
 
-This guide walks through one common MAUI integration shape for MauiRouter. It is a complete example, not the only public way to use the library.
+This guide walks through one common MAUI integration shape for AppNav. It is a complete example, not the only public way to use the library.
 
 ## Common Flow
 
 1. Define durable semantic destinations as `AppRoute`.
 2. Use `AppRoute`, `AppRouteRequest`, `Uri`, or `RouterNavigationRequest` based on how much route metadata or runtime transport context the caller needs.
 3. Keep route-owned metadata app-defined in a `RouteStateRegistry` when formatting, persistence, or downstream app behavior depend on it.
-4. Register `AddMauiRouter(...)`, optional persistence or deferred-request services, and `AddMauiRouterStartup(...)` as needed by the app.
-5. Use `IMauiRouterStartupService`, `IMauiExternalNavigationDispatcher`, or direct `IRouterNavigator` calls where MAUI lifecycle or transport-aware boundaries need explicit control.
+4. Register `AddAppNav(...)`, optional persistence or deferred-request services, and `AddAppNavStartup(...)` as needed by the app.
+5. Use `IAppNavStartupService`, `IMauiExternalNavigationDispatcher`, or direct `IRouterNavigator` calls where MAUI lifecycle or transport-aware boundaries need explicit control.
 
 ```text
 App code / host code     Boundary / lifecycle        Router runtime
@@ -64,7 +64,7 @@ Common runtime uses:
 - deferred request replay
 - tests
 
-`RouterNavigationRequest` can carry `NavigationRequestProvenance`, which is runtime request context: provider, original URI, referrer URI, correlation id, cold-start flag when known, and string attributes. Keep provenance out of `AppRoute`, `AppRouteRequest`, route formatting, and `RouteStateRegistry`. MauiRouter sets transport provenance it owns; apps set provider/business provenance they own. For field ownership, see [provenance.md](provenance.md).
+`RouterNavigationRequest` can carry `NavigationRequestProvenance`, which is runtime request context: provider, original URI, referrer URI, correlation id, cold-start flag when known, and string attributes. Keep provenance out of `AppRoute`, `AppRouteRequest`, route formatting, and `RouteStateRegistry`. AppNav sets transport provenance it owns; apps set provider/business provenance they own. For field ownership, see [provenance.md](provenance.md).
 
 Typical boundary code:
 
@@ -83,11 +83,11 @@ var request = RouterNavigationRequest.FromUri(
 
 One common MAUI setup uses:
 
-- `AddMauiRouter(...)`
+- `AddAppNav(...)`
 - optional persistence or deferred-request registration
-- `AddMauiRouterPages(...)` when page mappings live outside the composition root
-- `AddMauiRouterStartup(...)`
-- `IMauiRouterStartupService.StartAsync(window)` from `CreateWindow`
+- `AddAppNavPages(...)` when page mappings live outside the composition root
+- `AddAppNavStartup(...)`
+- `IAppNavStartupService.StartAsync(window)` from `CreateWindow`
 
 A common cold-start sequence is:
 
@@ -105,5 +105,5 @@ A common cold-start sequence is:
 - Built-in MAUI app-link ingress sets provenance automatically.
 - App-owned external sources should resolve `IMauiExternalNavigationDispatcher`, attach explicit `NavigationRequestProvenance`, and call `Dispatch(...)`.
 - Interactive foreground boundaries may call `IRouterNavigator.NavigateAsync(RouterNavigationRequest)` directly when the caller must observe navigation failure to recover UI state.
-- MauiRouter does not ship Branch, push, QR scanner, or auth-provider SDK integrations.
+- AppNav does not ship Branch, push, QR scanner, or auth-provider SDK integrations.
 - Raw auth callbacks belong to the auth subsystem; the router should usually see deferred replay or an app-authored post-auth request.
