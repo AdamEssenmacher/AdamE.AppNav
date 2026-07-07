@@ -9,11 +9,24 @@
         <NoWarn>$(NoWarn);1591</NoWarn>
         <PackageId>AdamE.AppNav</PackageId>
         <Description>UI-platform-agnostic application navigation and URL routing core for .NET applications.</Description>
+        <AppNavGeneratorTargetFramework>$([System.String]::Concat('net','standard2.0'))</AppNavGeneratorTargetFramework>
     </PropertyGroup>
 
     <ItemGroup>
         <PackageReference Include="JetBrains.Annotations" Version="2026.2.0"/>
         <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\AdamE.AppNav.Generators\AdamE.AppNav.Generators.csproj"
+                          OutputItemType="Analyzer"
+                          ReferenceOutputAssembly="false"
+                          PrivateAssets="all"/>
+        <None Include="..\AdamE.AppNav.Generators\bin\$(Configuration)\$(AppNavGeneratorTargetFramework)\AdamE.AppNav.Generators.dll"
+              Pack="true"
+              PackagePath="analyzers/dotnet/cs"
+              Visible="false"
+              Condition="Exists('..\AdamE.AppNav.Generators\bin\$(Configuration)\$(AppNavGeneratorTargetFramework)\AdamE.AppNav.Generators.dll')"/>
     </ItemGroup>
 
 </Project>

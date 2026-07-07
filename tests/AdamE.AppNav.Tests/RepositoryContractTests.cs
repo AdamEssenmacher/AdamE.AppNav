@@ -212,7 +212,7 @@ public sealed class RepositoryContractTests
         Assert.Contains("CommerceRouteFactory.", pageSource, StringComparison.Ordinal);
         Assert.DoesNotContain("RouterNavigationRequest", pageSource, StringComparison.Ordinal);
         Assert.DoesNotMatch(@"(?<![A-Za-z0-9_])RouterNavigator(?![A-Za-z0-9_])", pageSource);
-        Assert.Contains("QueryMetadata(CommerceRouteMetadata.Campaign)", sampleSource, StringComparison.Ordinal);
+        Assert.Contains("AppNavQueryMetadata(typeof(CommerceRouteMetadata), nameof(CommerceRouteMetadata.Campaign))", sampleSource, StringComparison.Ordinal);
         Assert.Contains("CommerceRouteMetadata.RouteStateRegistry", sampleSource, StringComparison.Ordinal);
     }
 

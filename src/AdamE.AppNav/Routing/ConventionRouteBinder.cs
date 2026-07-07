@@ -1,10 +1,13 @@
 using System.Collections;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Reflection;
 
 namespace AdamE.AppNav.Routing;
 
-internal sealed class ConventionRouteBinder<TRoute>
+internal sealed class ConventionRouteBinder<
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.PublicProperties)]
+    TRoute>
     where TRoute : AppRoute
 {
     private readonly RouteTemplate _template;

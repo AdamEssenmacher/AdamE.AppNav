@@ -1,4 +1,5 @@
 using AdamE.AppNav.State;
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Maui.Controls;
 
@@ -21,7 +22,10 @@ public sealed class MauiRoutePageRegistry
         return this;
     }
 
-    public MauiRoutePageRegistry MapPage<TRoute, TPage>()
+    public MauiRoutePageRegistry MapPage<
+        TRoute,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
+        TPage>()
         where TRoute : AppRoute
         where TPage : Page
     {
