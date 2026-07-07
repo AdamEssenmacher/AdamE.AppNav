@@ -53,7 +53,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\AdamE.MauiRouter\AdamE.MauiRouter.csproj" />
     <ProjectReference Include="..\..\src\AdamE.MauiRouter.Maui\AdamE.MauiRouter.Maui.csproj" />
-    <ProjectReference Include="..\..\src\AdamE.MauiRouter.Testing\AdamE.MauiRouter.Testing.csproj" />
   </ItemGroup>
 
 </Project>

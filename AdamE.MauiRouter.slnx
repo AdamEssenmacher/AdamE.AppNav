@@ -4,7 +4,6 @@
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/AdamE.MauiRouter.Maui/AdamE.MauiRouter.Maui.csproj" />
-    <Project Path="src/AdamE.MauiRouter.Testing/AdamE.MauiRouter.Testing.csproj" />
     <Project Path="src/AdamE.MauiRouter/AdamE.MauiRouter.csproj" />
   </Folder>
   <Folder Name="/tests/">

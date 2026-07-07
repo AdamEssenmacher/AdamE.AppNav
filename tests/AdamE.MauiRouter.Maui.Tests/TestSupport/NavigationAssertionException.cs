@@ -1,4 +1,4 @@
-namespace AdamE.MauiRouter.Testing;
+namespace AdamE.MauiRouter.Maui.Tests;
 
 public sealed class NavigationAssertionException : Exception
 {

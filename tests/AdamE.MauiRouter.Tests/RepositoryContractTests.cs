@@ -261,13 +261,15 @@ public sealed class RepositoryContractTests
         Assert.Contains("FallbackRequestFactory", readme, StringComparison.Ordinal);
         Assert.Contains("RouterNavigationRequest.FromUri(uri, NavigationRequestSource.Test)", readme, StringComparison.Ordinal);
         Assert.Contains("Planner and navigator tests:", readme, StringComparison.Ordinal);
-        Assert.Contains("Use `AdamE.MauiRouter.Testing` for framework-neutral route, planner, navigator, diagnostics, and state helpers.", readme, StringComparison.Ordinal);
-        Assert.Contains("Framework-neutral route, planner, navigator, diagnostics, and state", readme, StringComparison.Ordinal);
-        Assert.Contains("assertion helpers for consuming app tests.", readme, StringComparison.Ordinal);
+        Assert.Contains("Use the public route table, planner, navigator factory, diagnostics, and state types directly from app tests.", readme, StringComparison.Ordinal);
+        Assert.Contains("test fixtures and assertion helpers app-owned", readme, StringComparison.Ordinal);
+        Assert.Contains("RouterNavigatorFactory.Create(", readme, StringComparison.Ordinal);
         Assert.Contains("NavigateAsync(Uri|AppRoute|AppRouteRequest|RouterNavigationRequest)", readme, StringComparison.Ordinal);
         Assert.Contains("`NavigateAsync(Uri...)` starts from a URL directly.", readme, StringComparison.Ordinal);
         Assert.Contains("`ReconcileAsync(...)` accepts an explicit `NavigationReconciliation`", readme, StringComparison.Ordinal);
         Assert.Contains("Deferred request serializer coverage:", readme, StringComparison.Ordinal);
+        Assert.DoesNotContain("AdamE.MauiRouter.Testing", readme, StringComparison.Ordinal);
+        Assert.DoesNotContain("RouterTestNavigator", readme, StringComparison.Ordinal);
         Assert.DoesNotContain("NavigationSnapshotTestSerializer", readme, StringComparison.Ordinal);
         Assert.DoesNotContain("RestoreFromStoreAsync", readme, StringComparison.Ordinal);
         Assert.DoesNotContain("options.InitialRequest", readme, StringComparison.Ordinal);
@@ -287,6 +289,7 @@ public sealed class RepositoryContractTests
         Assert.Contains("docs/release-checklist.md", readme, StringComparison.Ordinal);
         Assert.Contains("eng/run-maui-platform-tests.sh android", checklist, StringComparison.Ordinal);
         Assert.Contains("dotnet pack src/AdamE.MauiRouter/AdamE.MauiRouter.csproj", checklist, StringComparison.Ordinal);
+        Assert.DoesNotContain("AdamE.MauiRouter.Testing", checklist, StringComparison.Ordinal);
         Assert.Contains("xharness android test", runner, StringComparison.Ordinal);
         Assert.Contains("xharness apple test", runner, StringComparison.Ordinal);
         Assert.Contains("--instrumentation", runner, StringComparison.Ordinal);
@@ -321,7 +324,6 @@ public sealed class RepositoryContractTests
         var buildProps = File.ReadAllText(Path.Combine(root, "Directory.Build.props"));
         var coreProject = File.ReadAllText(Path.Combine(root, "src", "AdamE.MauiRouter", "AdamE.MauiRouter.csproj"));
         var mauiProject = File.ReadAllText(Path.Combine(root, "src", "AdamE.MauiRouter.Maui", "AdamE.MauiRouter.Maui.csproj"));
-        var testingProject = File.ReadAllText(Path.Combine(root, "src", "AdamE.MauiRouter.Testing", "AdamE.MauiRouter.Testing.csproj"));
 
         Assert.Contains("<PackageLicenseExpression>MIT</PackageLicenseExpression>", buildProps, StringComparison.Ordinal);
         Assert.Contains("<RepositoryUrl>https://github.com/AdamEssenmacher/AdamE.MauiRouter.git</RepositoryUrl>", buildProps, StringComparison.Ordinal);
@@ -330,7 +332,6 @@ public sealed class RepositoryContractTests
         Assert.Contains("Microsoft.SourceLink.GitHub", buildProps, StringComparison.Ordinal);
         Assert.Contains("<GenerateDocumentationFile>true</GenerateDocumentationFile>", coreProject, StringComparison.Ordinal);
         Assert.Contains("<GenerateDocumentationFile>true</GenerateDocumentationFile>", mauiProject, StringComparison.Ordinal);
-        Assert.Contains("<GenerateDocumentationFile>true</GenerateDocumentationFile>", testingProject, StringComparison.Ordinal);
     }
 
     private static string RepositoryRoot()

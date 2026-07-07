@@ -8,7 +8,6 @@ using AdamE.MauiRouter.Presentation;
 using AdamE.MauiRouter.Requests;
 using AdamE.MauiRouter.Routing;
 using AdamE.MauiRouter.State;
-using AdamE.MauiRouter.Testing;
 using Microsoft.Maui.Controls;
 
 namespace AdamE.MauiRouter.Maui.Tests;

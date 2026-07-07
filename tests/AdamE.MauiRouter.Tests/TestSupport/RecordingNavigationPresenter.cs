@@ -1,7 +1,7 @@
 using AdamE.MauiRouter.Plans;
 using AdamE.MauiRouter.Presentation;
 
-namespace AdamE.MauiRouter.Testing;
+namespace AdamE.MauiRouter.Tests;
 
 internal sealed class RecordingNavigationPresenter : INavigationPresenter
 {

@@ -9,7 +9,6 @@ using AdamE.MauiRouter.Presentation;
 using AdamE.MauiRouter.Requests;
 using AdamE.MauiRouter.Routing;
 using AdamE.MauiRouter.State;
-using AdamE.MauiRouter.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Maui.Controls;
 

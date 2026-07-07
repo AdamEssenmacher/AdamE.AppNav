@@ -186,7 +186,6 @@ This repository currently contains the v1 source implementation and a sample app
 
 - `AdamE.MauiRouter`
 - `AdamE.MauiRouter.Maui`
-- `AdamE.MauiRouter.Testing`
 
 Until packages are published, consume the library with project references.
 
@@ -229,10 +228,6 @@ src/AdamE.MauiRouter
 src/AdamE.MauiRouter.Maui
   MAUI adapter: DI page creation, host-aware presenter, native container
   materialization, app-link lifecycle hooks.
-
-src/AdamE.MauiRouter.Testing
-  Framework-neutral route, planner, navigator, diagnostics, and state
-  assertion helpers for consuming app tests.
 
 samples/Commerce.Sample
   A no-Shell MAUI sample using store/catalog/product/cart/order routes.
@@ -2035,29 +2030,64 @@ var plan = new NavigationPlan(nextState, NavigationPlanKind.Navigate, "Open cart
 
 ### Unit Test Navigation Without MAUI
 
-Use `AdamE.MauiRouter.Testing` for framework-neutral route, planner, navigator, diagnostics, and state helpers. The
-testing package has no MAUI or test-framework dependency.
+Use the public route table, planner, navigator factory, diagnostics, and state types directly from app tests. Keep
+test fixtures and assertion helpers app-owned until a shared testing surface is needed.
 
 Route table tests:
 
 ```csharp
-var routes = RouteTableSubject.Create(routes => routes.Map(
+var routes = RouteTable.Create(routes => routes.Map(
     "/stores/{storeId}/products/{productId:int}",
     match => new ProductDetailRoute(match.Path("storeId"), match.Path<int>("productId")),
     format => format
         .PathParam("storeId", route => route.StoreId)
         .PathParam("productId", route => route.ProductId)));
 
-routes.RoundTrips(
-    new ProductDetailRoute("northwind", 123),
-    "/stores/northwind/products/123");
+var match = routes.Match(new Uri("https://example.com/stores/northwind/products/123"));
+Assert.True(match.IsSuccess);
+Assert.Equal(new ProductDetailRoute("northwind", 123), match.Route);
 
-routes.ShouldNotMatch("/stores/northwind/products/not-a-number", "route.not_matched");
+Assert.Equal(
+    "/stores/northwind/products/123",
+    routes.Format(new ProductDetailRoute("northwind", 123)));
+
+Assert.False(routes.Match(new Uri("https://example.com/stores/northwind/products/not-a-number")).IsSuccess);
 ```
 
 Planner and navigator tests:
 
+The `TestPlanner` and `NoOpNavigationPresenter` below are app-owned test fakes that implement
+`IAppNavigationPlanner` and `INavigationPresenter`.
+
 ```csharp
+private sealed class TestPlanner(
+    Func<NavigationPlanningContext, NavigationPlan> createPlan) : IAppNavigationPlanner
+{
+    public ValueTask<NavigationPlan> CreatePlanAsync(
+        NavigationPlanningContext context,
+        CancellationToken cancellationToken = default)
+    {
+        return ValueTask.FromResult(createPlan(context));
+    }
+}
+
+private sealed class NoOpNavigationPresenter : INavigationPresenter
+{
+    public event EventHandler<NavigationReconciliationRequestedEventArgs>? ReconciliationRequested
+    {
+        add { }
+        remove { }
+    }
+
+    public ValueTask ApplyAsync(
+        NavigationPlan plan,
+        NavigationPresentationContext context,
+        CancellationToken cancellationToken = default)
+    {
+        return ValueTask.CompletedTask;
+    }
+}
+
 var routeTable = RouteTable.Create(routes => routes.Map(
     "/stores/{storeId}/products/{productId:int}",
     match => new ProductDetailRoute(match.Path("storeId"), match.Path<int>("productId")),
@@ -2065,49 +2095,64 @@ var routeTable = RouteTable.Create(routes => routes.Map(
         .PathParam("storeId", route => route.StoreId)
         .PathParam("productId", route => route.ProductId)));
 
-var planner = TestNavigationPlanner.EchoStack();
-var navigator = RouterTestNavigator.Create(routeTable, planner);
+var planner = new TestPlanner(context =>
+    new NavigationPlan(new NavigationState(
+        [
+            new WindowNode("main", new StackNode(
+                "stack",
+                [new RouteEntry("route", context.Route)]))
+        ],
+        "main")));
+
+var navigator = RouterNavigatorFactory.Create(
+    routeTable,
+    planner,
+    new NoOpNavigationPresenter());
 
 var result = await navigator.NavigateAsync(
     RouterNavigationRequest.FromUri(
         new Uri("https://example.com/stores/northwind/products/123"),
         NavigationRequestSource.Test));
 
-var stack = NavigationStateAssert.Root<StackNode>(result.State);
-var route = NavigationStateAssert.StackTop<ProductDetailRoute>(stack);
+var stack = Assert.IsType<StackNode>(result.State.ActiveWindow?.Root);
+var route = Assert.IsType<ProductDetailRoute>(stack.Top?.Route);
 ```
 
 State fixture builders:
 
 ```csharp
-var state = TestNavigationState.State(
-    "main",
-    TestNavigationState.Window(
-        "main",
-        TestNavigationState.BranchHost(
-            "store-branchHost",
-            "catalog",
-            "home",
-            TestNavigationState.Branch("home", "Home", TestNavigationState.Stack("home-stack")),
-            TestNavigationState.Branch("catalog", "Catalog", TestNavigationState.Stack(
-                "catalog-stack",
-                TestNavigationState.Entry("catalog", new StoreCatalogRoute("northwind")),
-                TestNavigationState.Entry("product", new ProductDetailRoute("northwind", 123)))))));
+var catalogStack = new StackNode(
+    "catalog-stack",
+    [
+        new RouteEntry("catalog", new StoreCatalogRoute("northwind")),
+        new RouteEntry("product", new ProductDetailRoute("northwind", 123))
+    ]);
 
-var branchHost = NavigationStateAssert.SelectedBranchHost(state, "catalog");
-var catalogStack = NavigationStateAssert.SelectedBranch<StackNode>(branchHost, "catalog");
-NavigationStateAssert.StackRouteTypes(
-    catalogStack,
-    typeof(StoreCatalogRoute),
-    typeof(ProductDetailRoute));
+var state = new NavigationState(
+    [
+        new WindowNode(
+            "main",
+            new BranchHostNode(
+                "store-branchHost",
+                [
+                    new NavigationBranch("home", "Home", new StackNode("home-stack", [])),
+                    new NavigationBranch("catalog", "Catalog", catalogStack)
+                ],
+                "catalog",
+                "home"))
+    ],
+    "main");
+
+var branchHost = Assert.IsType<BranchHostNode>(state.ActiveWindow?.Root);
+Assert.Equal("catalog", branchHost.SelectedBranchId);
 ```
 
 Diagnostics capture:
 
 ```csharp
-var observer = new RecordingNavigationDiagnosticObserver();
 var diagnostics = new NavigationDiagnostics();
-diagnostics.AddObserver(observer);
+var events = new List<NavigationDiagnosticEvent>();
+diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
 
 var routeTable = RouteTable.Create(routes => routes.Map(
     "/stores/{storeId}/products/{productId:int}",
@@ -2116,10 +2161,11 @@ var routeTable = RouteTable.Create(routes => routes.Map(
         .PathParam("storeId", route => route.StoreId)
         .PathParam("productId", route => route.ProductId)));
 
-var navigator = RouterTestNavigator.Create(
+var navigator = RouterNavigatorFactory.Create(
     routeTable,
-    TestNavigationPlanner.EchoStack(),
-    new RouterTestNavigatorOptions
+    planner,
+    new NoOpNavigationPresenter(),
+    new RouterNavigatorFactoryOptions
     {
         Diagnostics = diagnostics
     });
@@ -2128,7 +2174,7 @@ var uri = new Uri("https://example.com/stores/northwind/products/123");
 await navigator.NavigateAsync(
     RouterNavigationRequest.FromUri(uri, NavigationRequestSource.Test));
 
-var matched = observer.Single(NavigationDiagnosticEventKind.RouteMatched);
+Assert.Contains(events, diagnosticEvent => diagnosticEvent.Kind == NavigationDiagnosticEventKind.RouteMatched);
 ```
 
 Deferred request serializer coverage:
@@ -2166,16 +2212,24 @@ var routeTable = RouteTable.Create(routes => routes.Map(
         .PathParam("storeId", route => route.StoreId)
         .PathParam("productId", route => route.ProductId)));
 
-var planner = TestNavigationPlanner.EchoStack();
+var planner = new TestPlanner(context =>
+    new NavigationPlan(new NavigationState(
+        [
+            new WindowNode("main", new StackNode(
+                "stack",
+                [new RouteEntry("route", context.Route)]))
+        ],
+        "main")));
 var diagnostics = new NavigationDiagnostics();
 var events = new List<NavigationDiagnosticEventKind>();
 
 diagnostics.EventWritten += (_, e) => events.Add(e.Kind);
 
-var navigator = RouterTestNavigator.Create(
+var navigator = RouterNavigatorFactory.Create(
     routeTable,
     planner,
-    new RouterTestNavigatorOptions
+    new NoOpNavigationPresenter(),
+    new RouterNavigatorFactoryOptions
     {
         Diagnostics = diagnostics
     });
@@ -2256,7 +2310,6 @@ dotnet build src/AdamE.MauiRouter.Maui/AdamE.MauiRouter.Maui.csproj
 dotnet build samples/Commerce.Sample/Commerce.Sample.csproj -f net10.0-maccatalyst
 dotnet pack src/AdamE.MauiRouter/AdamE.MauiRouter.csproj
 dotnet pack src/AdamE.MauiRouter.Maui/AdamE.MauiRouter.Maui.csproj
-dotnet pack src/AdamE.MauiRouter.Testing/AdamE.MauiRouter.Testing.csproj
 ```
 
 For platform execution with XHarness and manual release checks,
