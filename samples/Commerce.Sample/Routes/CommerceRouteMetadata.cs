@@ -1,5 +1,5 @@
-using AdamE.MauiRouter;
-using AdamE.MauiRouter.Routing;
+using AdamE.AppNav;
+using AdamE.AppNav.Routing;
 
 namespace Commerce.Sample.Routes;
 

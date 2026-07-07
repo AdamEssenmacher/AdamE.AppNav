@@ -1,7 +1,7 @@
-using AdamE.MauiRouter;
-using AdamE.MauiRouter.Plans;
-using AdamE.MauiRouter.Policies;
-using AdamE.MauiRouter.State;
+using AdamE.AppNav;
+using AdamE.AppNav.Plans;
+using AdamE.AppNav.Policies;
+using AdamE.AppNav.State;
 using Commerce.Sample.Routes;
 
 namespace Commerce.Sample.Navigation;

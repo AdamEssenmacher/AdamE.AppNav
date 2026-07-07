@@ -5,12 +5,12 @@ Navigation provenance is runtime request context. It describes how a `RouterNavi
 The ownership rule is:
 
 ```text
-MauiRouter sets transport provenance it owns; apps set provider/business provenance they own.
+AppNav sets transport provenance it owns; apps set provider/business provenance they own.
 ```
 
 ## Field Ownership
 
-| Field | MauiRouter Automatically Sets | App Should Set |
+| Field | AppNav Automatically Sets | App Should Set |
 | --- | --- | --- |
 | `Provider` | Yes, only for built-in MAUI app-link ingress using `MauiAppLinkProvenanceProviders`. | Yes for Branch, push, QR, provider SDK callbacks, etc. |
 | `OriginalUri` | Yes, incoming platform app-link URI. | Yes when the app-owned source has an original URI or SDK-resolved URI. |
@@ -21,7 +21,7 @@ MauiRouter sets transport provenance it owns; apps set provider/business provena
 
 ## Built-In MAUI App Links
 
-When `UseMauiRouterAppLinks()` handles a platform app link, MauiRouter creates the request and attaches provenance automatically. App code does not need to add provenance for this path.
+When `UseAppNavAppLinks()` handles a platform app link, AppNav creates the request and attaches provenance automatically. App code does not need to add provenance for this path.
 
 Built-in provider names are exposed as constants:
 
@@ -32,18 +32,18 @@ MauiAppLinkProvenanceProviders.IosUserActivity
 MauiAppLinkProvenanceProviders.MauiAppLink
 ```
 
-For these built-in paths, MauiRouter sets:
+For these built-in paths, AppNav sets:
 
 - `Provider`
 - `OriginalUri`
 
-MauiRouter does not set `ReferrerUri`, `CorrelationId`, `IsColdStart`, or `Attributes`.
+AppNav does not set `ReferrerUri`, `CorrelationId`, `IsColdStart`, or `Attributes`.
 
 ## App-Owned External Sources
 
 App-owned sources should create a `RouterNavigationRequest` with explicit `NavigationRequestProvenance` before dispatching it through `IMauiExternalNavigationDispatcher`.
 
-MauiRouter does not include provider SDK integrations for Branch, push notifications, QR scanning, or auth callbacks. App code owns those bridges and dispatches only the navigation request that the provider produced.
+AppNav does not include provider SDK integrations for Branch, push notifications, QR scanning, or auth callbacks. App code owns those bridges and dispatches only the navigation request that the provider produced.
 
 Branch or another app-owned link SDK:
 

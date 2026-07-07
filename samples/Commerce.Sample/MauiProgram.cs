@@ -1,7 +1,7 @@
-﻿using AdamE.MauiRouter.Diagnostics;
-using AdamE.MauiRouter.Maui.DependencyInjection;
-using AdamE.MauiRouter.Maui.AppLinks;
-using AdamE.MauiRouter.Requests;
+﻿using AdamE.AppNav.Diagnostics;
+using AdamE.AppNav.Maui.DependencyInjection;
+using AdamE.AppNav.Maui.AppLinks;
+using AdamE.AppNav.Requests;
 using Commerce.Sample.Navigation;
 using Commerce.Sample.Pages;
 using Commerce.Sample.Routes;
@@ -16,7 +16,7 @@ public static class MauiProgram
 		var builder = MauiApp.CreateBuilder();
 		builder
 			.UseMauiApp<App>()
-			.UseMauiRouterAppLinks()
+			.UseAppNavAppLinks()
 			.ConfigureFonts(fonts =>
 			{
 				fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
@@ -28,12 +28,12 @@ public static class MauiProgram
 #endif
 
 		builder.Services.AddSingleton<NavigationDiagnostics>();
-		builder.Services.AddMauiRouterFileDeferredNavigationRequests(options =>
+		builder.Services.AddAppNavFileDeferredNavigationRequests(options =>
 		{
 			options.BaseUri = new Uri("https://example.com/");
 			options.RouteStateRegistry = CommerceRouteMetadata.RouteStateRegistry;
 		});
-		builder.Services.AddMauiRouterStartup(options =>
+		builder.Services.AddAppNavStartup(options =>
 		{
 			options.FallbackRequestFactory = (_, _) =>
 				ValueTask.FromResult<RouterNavigationRequest?>(
@@ -41,7 +41,7 @@ public static class MauiProgram
 						new Uri("https://example.com/stores/northwind/products/123?variant=blue&promo=spring&campaign=spring-launch"),
 						NavigationRequestSource.InAppCommand));
 		});
-		builder.Services.AddMauiRouter<CommerceNavigationPlanner>(
+		builder.Services.AddAppNav<CommerceNavigationPlanner>(
 			SampleRouteTable.Create(),
 			options => options
 				.MapPage<StoreHomeRoute, StoreHomePage>()

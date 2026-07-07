@@ -1,4 +1,4 @@
-using AdamE.MauiRouter.Routing;
+using AdamE.AppNav.Routing;
 
 namespace Commerce.Sample.Routes;
 
