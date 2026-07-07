@@ -1646,10 +1646,26 @@ services.AddAppNavPages(pages => pages
     .AddModule(AppNavGenerated.MauiPageModule));
 ```
 
+Layered apps can keep routes in a referenced UI/navigation assembly and pages in a MAUI presentation assembly:
+
+```csharp
+builder.Services.AddAppNav<ScavosNavigationPlanner>(
+    Scavos.UI.AppNavGenerated.CreateRouteTable(),
+    pages => pages.AddModule(Scavos.Mobile.Presentation.AppNavGenerated.MauiPageModule));
+```
+
 ### Page Mapping
 
 Use `[MauiRoutePage(typeof(ProductDetailRoute))]` on pages that should be included in the generated MAUI page module.
 Use the fluent type-based overload when page registration needs to stay runtime-bound.
+
+```csharp
+[MauiRoutePage(typeof(GameHubRoute), PageModelType = typeof(PlayPageModel))]
+public sealed partial class PlayPage : ContentPage;
+```
+
+When `PageModelType` is set, the generated factory resolves the page and page model from DI and assigns the model to
+`BindingContext` only when the page has not already set one.
 
 ```csharp
 .MapPage<ProductDetailRoute, ProductDetailPage>()

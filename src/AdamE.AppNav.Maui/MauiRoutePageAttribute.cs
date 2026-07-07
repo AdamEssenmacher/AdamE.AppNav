@@ -17,4 +17,9 @@ public sealed class MauiRoutePageAttribute : Attribute
     /// Gets or sets whether the generated page module should resolve the page itself from services.
     /// </summary>
     public bool FromServices { get; set; }
+
+    /// <summary>
+    /// Gets or sets the page-model type that should be assigned to the page binding context from services.
+    /// </summary>
+    public Type? PageModelType { get; set; }
 }

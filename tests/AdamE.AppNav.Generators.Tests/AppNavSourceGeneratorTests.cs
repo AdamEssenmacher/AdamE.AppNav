@@ -93,6 +93,115 @@ public sealed class AppNavSourceGeneratorTests
     }
 
     [Fact]
+    public void GeneratedMauiPageModuleAcceptsAttributedRouteFromReferencedAssembly()
+    {
+        MetadataReference routeReference = EmitReference(
+            "Scavos.UI",
+            """
+            using AdamE.AppNav;
+            using AdamE.AppNav.Routing;
+
+            namespace Scavos.UI;
+
+            [AppNavRoute("/games/{gameId}/hub")]
+            public sealed record GameHubRoute(string GameId) : AppRoute;
+            """,
+            runGenerator: true);
+
+        const string source = """
+            using AdamE.AppNav.Maui;
+            using Microsoft.Maui.Controls;
+            using Scavos.UI;
+
+            namespace Scavos.Mobile.Presentation;
+
+            [MauiRoutePage(typeof(GameHubRoute))]
+            public sealed class PlayPage : ContentPage
+            {
+                public PlayPage(GameHubRoute route)
+                {
+                }
+            }
+            """;
+
+        GeneratorResult result = RunGenerator(source, [routeReference]);
+
+        Assert.Empty(result.GeneratorDiagnostics.Where(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assert.Contains("public static global::AdamE.AppNav.Maui.IMauiRoutePageModule MauiPageModule", result.GeneratedSource);
+        Assert.Contains("pages.MapPage<global::Scavos.UI.GameHubRoute>", result.GeneratedSource);
+        AssertCompileClean(result.Compilation);
+    }
+
+    [Fact]
+    public void ReferencedRouteWithoutAppNavRouteAttributeReportsDiagnostic()
+    {
+        MetadataReference routeReference = EmitReference(
+            "Scavos.UI",
+            """
+            using AdamE.AppNav;
+
+            namespace Scavos.UI;
+
+            public sealed record GameHubRoute(string GameId) : AppRoute;
+            """);
+
+        const string source = """
+            using AdamE.AppNav.Maui;
+            using Microsoft.Maui.Controls;
+            using Scavos.UI;
+
+            namespace Scavos.Mobile.Presentation;
+
+            [MauiRoutePage(typeof(GameHubRoute))]
+            public sealed class PlayPage : ContentPage
+            {
+                public PlayPage(GameHubRoute route)
+                {
+                }
+            }
+            """;
+
+        GeneratorResult result = RunGenerator(source, [routeReference]);
+
+        Assert.Contains(result.GeneratorDiagnostics, static diagnostic => diagnostic.Id == "APPNAV020");
+    }
+
+    [Fact]
+    public void PageModelTypeUsesServiceResolvedPageAndBindingContext()
+    {
+        const string source = """
+            using AdamE.AppNav;
+            using AdamE.AppNav.Maui;
+            using AdamE.AppNav.Routing;
+            using Microsoft.Maui.Controls;
+
+            namespace Scavos.Mobile.Presentation;
+
+            [AppNavRoute("/games/{gameId}/hub")]
+            public sealed record GameHubRoute(string GameId) : AppRoute;
+
+            [MauiRoutePage(typeof(GameHubRoute), PageModelType = typeof(PlayPageModel))]
+            public sealed class PlayPage : ContentPage
+            {
+                public PlayPage()
+                {
+                }
+            }
+
+            public sealed class PlayPageModel
+            {
+            }
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+
+        Assert.Empty(result.GeneratorDiagnostics.Where(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assert.Contains("ServiceProviderServiceExtensions.GetRequiredService<global::Scavos.Mobile.Presentation.PlayPage>(services)", result.GeneratedSource);
+        Assert.Contains("page.BindingContext ??= global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<global::Scavos.Mobile.Presentation.PlayPageModel>(services);", result.GeneratedSource);
+        AssertCompileClean(result.Compilation);
+    }
+
+    [Fact]
     public void MissingPathPropertyReportsDiagnostic()
     {
         const string source = """
@@ -176,17 +285,11 @@ public sealed class AppNavSourceGeneratorTests
         Assert.Contains(result.GeneratorDiagnostics, static diagnostic => diagnostic.Id == "APPNAV020");
     }
 
-    private static GeneratorResult RunGenerator(string source)
+    private static GeneratorResult RunGenerator(
+        string source,
+        IReadOnlyList<MetadataReference>? additionalReferences = null)
     {
-        var syntaxTree = CSharpSyntaxTree.ParseText(
-            source,
-            CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.Latest));
-        CSharpCompilation compilation = CSharpCompilation.Create(
-            "Commerce.Sample",
-            [syntaxTree],
-            References(),
-            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
-                .WithNullableContextOptions(NullableContextOptions.Enable));
+        CSharpCompilation compilation = CreateCompilation("Commerce.Sample", source, additionalReferences);
 
         var generator = new AppNavSourceGenerator();
         GeneratorDriver driver = CSharpGeneratorDriver.Create(generator);
@@ -207,6 +310,51 @@ public sealed class AppNavSourceGeneratorTests
             outputCompilation,
             diagnostics,
             generatedSource);
+    }
+
+    private static MetadataReference EmitReference(
+        string assemblyName,
+        string source,
+        bool runGenerator = false)
+    {
+        CSharpCompilation compilation = CreateCompilation(assemblyName, source);
+        if (runGenerator)
+        {
+            var generator = new AppNavSourceGenerator();
+            GeneratorDriver driver = CSharpGeneratorDriver.Create(generator);
+            driver.RunGeneratorsAndUpdateCompilation(
+                compilation,
+                out Compilation outputCompilation,
+                out ImmutableArray<Diagnostic> generatorDiagnostics);
+
+            Assert.Empty(generatorDiagnostics.Where(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+            compilation = (CSharpCompilation)outputCompilation;
+        }
+
+        using var stream = new MemoryStream();
+        var result = compilation.Emit(stream);
+        Assert.True(result.Success, string.Join(Environment.NewLine, result.Diagnostics));
+        return MetadataReference.CreateFromImage(stream.ToArray());
+    }
+
+    private static CSharpCompilation CreateCompilation(
+        string assemblyName,
+        string source,
+        IReadOnlyList<MetadataReference>? additionalReferences = null)
+    {
+        var syntaxTree = CSharpSyntaxTree.ParseText(
+            source,
+            CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.Latest));
+        MetadataReference[] references = additionalReferences is null
+            ? References().ToArray()
+            : References().Concat(additionalReferences).ToArray();
+
+        return CSharpCompilation.Create(
+            assemblyName,
+            [syntaxTree],
+            references,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
+                .WithNullableContextOptions(NullableContextOptions.Enable));
     }
 
     private static IReadOnlyList<MetadataReference> References()

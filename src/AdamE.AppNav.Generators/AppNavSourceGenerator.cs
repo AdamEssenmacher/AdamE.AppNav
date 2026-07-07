@@ -64,7 +64,6 @@ public sealed class AppNavSourceGenerator : IIncrementalGenerator
                 type,
                 pageAttribute,
                 symbols,
-                routes,
                 context.ReportDiagnostic);
             if (model is not null)
                 pages.Add(model);
@@ -802,7 +801,6 @@ internal static class PageModelFactory
         INamedTypeSymbol pageType,
         AttributeData attribute,
         AppNavSymbols symbols,
-        IReadOnlyList<RouteModel> routes,
         Action<Diagnostic> reportDiagnostic)
     {
         Location? location = SymbolFacts.GetLocation(pageType, attribute);
@@ -811,7 +809,9 @@ internal static class PageModelFactory
             : null;
 
         if (routeType is null ||
-            !routes.Any(route => SymbolEqualityComparer.Default.Equals(route.RouteType, routeType)))
+            symbols.AppRoute is null ||
+            !SymbolFacts.InheritsFrom(routeType, symbols.AppRoute) ||
+            SymbolFacts.GetAttribute(routeType, AppNavSymbols.RouteAttributeName) is null)
         {
             reportDiagnostic(Diagnostic.Create(
                 AppNavDiagnostics.InvalidPageRoute,
@@ -832,21 +832,28 @@ internal static class PageModelFactory
         }
 
         bool fromServices = false;
+        INamedTypeSymbol? pageModelType = null;
         foreach (KeyValuePair<string, TypedConstant> argument in attribute.NamedArguments)
         {
             if (argument.Key == "FromServices" && argument.Value.Value is bool value)
+            {
                 fromServices = value;
+                continue;
+            }
+
+            if (argument.Key == "PageModelType")
+                pageModelType = argument.Value.Value as INamedTypeSymbol;
         }
 
         IMethodSymbol? constructor = null;
-        if (!fromServices)
+        if (!fromServices && pageModelType is null)
         {
             constructor = SelectPageConstructor(pageType, routeType, location, reportDiagnostic);
             if (constructor is null)
                 return null;
         }
 
-        return new PageModel(pageType, routeType, fromServices, constructor, location);
+        return new PageModel(pageType, routeType, fromServices, pageModelType, constructor, location);
     }
 
     private static IMethodSymbol? SelectPageConstructor(
@@ -940,12 +947,14 @@ internal sealed class PageModel
         INamedTypeSymbol pageType,
         INamedTypeSymbol routeType,
         bool fromServices,
+        INamedTypeSymbol? pageModelType,
         IMethodSymbol? constructor,
         Location? location)
     {
         PageType = pageType;
         RouteType = routeType;
         FromServices = fromServices;
+        PageModelType = pageModelType;
         Constructor = constructor;
         Location = location;
     }
@@ -955,6 +964,8 @@ internal sealed class PageModel
     public INamedTypeSymbol RouteType { get; }
 
     public bool FromServices { get; }
+
+    public INamedTypeSymbol? PageModelType { get; }
 
     public IMethodSymbol? Constructor { get; }
 
@@ -1759,6 +1770,20 @@ internal static class AppNavSourceEmitter
         {
             string routeTypeName = SymbolFacts.TypeName(page.RouteType);
             string pageTypeName = SymbolFacts.TypeName(page.PageType);
+            if (page.PageModelType is not null)
+            {
+                string pageModelTypeName = SymbolFacts.TypeName(page.PageModelType);
+                builder.AppendLine("            pages.MapPage<" + routeTypeName + ">(static (services, route) =>");
+                builder.AppendLine("            {");
+                builder.AppendLine("                var page = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<" +
+                                   pageTypeName + ">(services);");
+                builder.AppendLine("                page.BindingContext ??= global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<" +
+                                   pageModelTypeName + ">(services);");
+                builder.AppendLine("                return page;");
+                builder.AppendLine("            });");
+                continue;
+            }
+
             if (page.FromServices)
             {
                 builder.AppendLine("            pages.MapPageFromServices<" + routeTypeName + ", " + pageTypeName + ">();");

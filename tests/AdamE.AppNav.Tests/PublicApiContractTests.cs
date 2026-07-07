@@ -212,6 +212,17 @@ public sealed class PublicApiContractTests
     }
 
     [Fact]
+    public void MauiRoutePageAttributeIncludesPageModelTypeApi()
+    {
+        var property = typeof(MauiRoutePageAttribute).GetProperty(nameof(MauiRoutePageAttribute.PageModelType));
+
+        Assert.NotNull(property);
+        Assert.Equal(typeof(Type), property.PropertyType);
+        Assert.True(property.CanRead);
+        Assert.True(property.CanWrite);
+    }
+
+    [Fact]
     public void RouterNavigatorInterfaceIncludesRuntimeNavigationSurface()
     {
         var methods = typeof(IRouterNavigator).GetMethods();

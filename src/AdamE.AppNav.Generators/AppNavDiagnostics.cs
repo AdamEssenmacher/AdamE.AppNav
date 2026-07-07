@@ -62,7 +62,7 @@ internal static class AppNavDiagnostics
     public static readonly DiagnosticDescriptor InvalidPageRoute = Error(
         "APPNAV020",
         "MAUI page route mapping is invalid",
-        "Page '{0}' maps to route '{1}', but that route is not declared with AppNavRouteAttribute in this compilation");
+        "Page '{0}' maps to route '{1}', but that route is not an attributed AppNav route");
 
     public static readonly DiagnosticDescriptor InvalidPageType = Error(
         "APPNAV021",
