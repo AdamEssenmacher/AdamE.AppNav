@@ -237,12 +237,9 @@ public sealed class ProductionHardeningTests
         var initialHistory = new NavigationHistory(new[]
         {
             new NavigationHistoryEntry(
-                "initial",
                 initialRequest,
                 initialRoute,
-                initialState,
-                "initial",
-                DateTimeOffset.UtcNow)
+                initialState)
         }, 0);
         var diagnostics = new NavigationDiagnostics();
         var events = new List<NavigationDiagnosticEventKind>();

@@ -1,5 +1,4 @@
 using AdamE.MauiRouter.Plans;
-using AdamE.MauiRouter.Policies;
 
 namespace AdamE.MauiRouter.Presentation;
 
@@ -14,7 +13,7 @@ namespace AdamE.MauiRouter.Presentation;
 public interface INavigationPresenter
 {
     /// <summary>
-    /// Occurs when the host presentation surface changes navigation state outside a router-issued command.
+    /// Occurs when the host presentation surface changes the navigation state outside a router-issued command.
     /// </summary>
     event EventHandler<NavigationReconciliationRequestedEventArgs>? ReconciliationRequested;
 
@@ -24,13 +23,13 @@ public interface INavigationPresenter
     /// <remarks>
     /// Implementations must complete this task only after the target navigation state has been fully
     /// reflected in the host presentation surface. If the target state cannot be fully presented, the
-    /// implementation must throw or observe cancellation so the router does not commit the logical
+    /// implementation must throw or observe cancellation, so the router does not commit the logical
     /// state, history, or persistence snapshot for a partial presentation.
     /// </remarks>
     /// <param name="plan">The accepted navigation plan to present.</param>
     /// <param name="context">Runtime context for the presentation operation.</param>
-    /// <param name="cancellationToken">A token that can cancel presentation.</param>
-    /// <returns>A value task that completes when presentation has finished.</returns>
+    /// <param name="cancellationToken">A token that can cancel a presentation.</param>
+    /// <returns>A value task that completes when the presentation has finished.</returns>
     ValueTask ApplyAsync(
         NavigationPlan plan,
         NavigationPresentationContext context,

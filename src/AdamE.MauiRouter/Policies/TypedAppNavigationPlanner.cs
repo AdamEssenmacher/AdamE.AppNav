@@ -4,21 +4,17 @@ namespace AdamE.MauiRouter.Policies;
 
 internal sealed class TypedAppNavigationPlanner : IAppNavigationPlanner
 {
-    private readonly IReadOnlyDictionary<Type, IAppRoutePlannerRegistration> _registrations;
+    private readonly Dictionary<Type, IAppRoutePlannerRegistration> _registrations;
 
     public TypedAppNavigationPlanner(IEnumerable<IAppRoutePlannerRegistration> registrations)
     {
         ArgumentNullException.ThrowIfNull(registrations);
 
         var map = new Dictionary<Type, IAppRoutePlannerRegistration>();
-        foreach (var registration in registrations)
-        {
+        foreach (IAppRoutePlannerRegistration registration in registrations)
             if (!map.TryAdd(registration.RouteType, registration))
-            {
                 throw new InvalidOperationException(
                     $"More than one app route planner is registered for route type '{registration.RouteType.FullName}'.");
-            }
-        }
 
         _registrations = map;
     }
@@ -29,12 +25,10 @@ internal sealed class TypedAppNavigationPlanner : IAppNavigationPlanner
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        var routeType = context.Route.GetType();
-        if (!_registrations.TryGetValue(routeType, out var registration))
-        {
-            throw new RoutePlannerNotFoundException(routeType);
-        }
+        Type routeType = context.Route.GetType();
 
-        return registration.CreatePlanAsync(context, cancellationToken);
+        return !_registrations.TryGetValue(routeType, out IAppRoutePlannerRegistration? registration)
+            ? throw new RoutePlannerNotFoundException(routeType)
+            : registration.CreatePlanAsync(context, cancellationToken);
     }
 }

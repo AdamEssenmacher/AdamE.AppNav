@@ -30,14 +30,14 @@ internal static class NavigationIdentity
         return value ?? throw new ArgumentNullException(paramName);
     }
 
-    public static IReadOnlyList<T> RequiredList<T>(IEnumerable<T>? source, string paramName)
+    public static IReadOnlyList<T> RequiredList<T>(IEnumerable<T?>? source, string paramName)
         where T : class
     {
         ArgumentNullException.ThrowIfNull(source, paramName);
         return SnapshotList(source, paramName);
     }
 
-    public static IReadOnlyList<T> OptionalList<T>(IEnumerable<T>? source, string paramName)
+    public static IReadOnlyList<T> OptionalList<T>(IEnumerable<T?>? source, string paramName)
         where T : class
     {
         return source is null ? CollectionSnapshot.List<T>(null) : SnapshotList(source, paramName);
@@ -68,12 +68,18 @@ internal static class NavigationIdentity
         }
     }
 
-    private static IReadOnlyList<T> SnapshotList<T>(IEnumerable<T> source, string paramName)
+    private static IReadOnlyList<T> SnapshotList<T>(IEnumerable<T?> source, string paramName)
         where T : class
     {
-        IReadOnlyList<T> snapshot = CollectionSnapshot.List(source);
-        return snapshot.Any(static t => t is null)
-            ? throw new ArgumentException("Navigation state collections cannot contain null items.", paramName)
-            : snapshot;
+        var snapshot = new List<T>();
+        foreach (T? item in source)
+        {
+            if (item is null)
+                throw new ArgumentException("Navigation state collections cannot contain null items.", paramName);
+
+            snapshot.Add(item);
+        }
+
+        return CollectionSnapshot.List(snapshot);
     }
 }

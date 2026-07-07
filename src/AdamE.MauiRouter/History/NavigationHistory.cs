@@ -1,5 +1,6 @@
 using AdamE.MauiRouter.Internal;
 using AdamE.MauiRouter.Requests;
+using JetBrains.Annotations;
 
 namespace AdamE.MauiRouter.History;
 
@@ -15,7 +16,7 @@ public sealed class NavigationHistory
     /// <summary>
     /// Gets an empty navigation history.
     /// </summary>
-    public static NavigationHistory Empty { get; } = new(Array.Empty<NavigationHistoryEntry>(), -1);
+    public static NavigationHistory Empty { get; } = new([], -1);
 
     /// <summary>
     /// Initializes a navigation history from a snapshot of entries and the current entry index.
@@ -35,12 +36,10 @@ public sealed class NavigationHistory
         bool hasEntries = entryCount > 0;
         if ((hasEntries && (currentIndex < 0 || currentIndex >= entryCount)) ||
             (!hasEntries && currentIndex != -1))
-        {
             throw new ArgumentOutOfRangeException(
                 nameof(currentIndex),
                 currentIndex,
                 "CurrentIndex must be -1 for empty history, or a valid entry index for non-empty history.");
-        }
 
         CurrentIndex = currentIndex;
     }
@@ -62,7 +61,7 @@ public sealed class NavigationHistory
     /// Gets the index of <see cref="Current"/> within <see cref="Entries"/>, or -1 when the
     /// history is empty.
     /// </summary>
-    public int CurrentIndex { get; }
+    private int CurrentIndex { get; }
 
     /// <summary>
     /// Gets the current history entry, or <see langword="null"/> when the history is empty.
@@ -113,16 +112,10 @@ public sealed class NavigationHistory
 /// <summary>
 /// Represents a single completed navigation stored in <see cref="NavigationHistory"/>.
 /// </summary>
-/// <param name="Id">The stable identifier assigned to this history entry.</param>
 /// <param name="Request">The navigation request that produced the entry.</param>
 /// <param name="Route">The route resolved for the request.</param>
 /// <param name="State">The router state captured after the navigation completed.</param>
-/// <param name="Reason">The optional planner or presenter reason associated with the entry.</param>
-/// <param name="Timestamp">The UTC timestamp at which the entry was created.</param>
 public sealed record NavigationHistoryEntry(
-    string Id,
-    RouterNavigationRequest Request,
+    [UsedImplicitly] RouterNavigationRequest Request,
     AppRoute Route,
-    State.NavigationState State,
-    string? Reason,
-    DateTimeOffset Timestamp);
+    State.NavigationState State);

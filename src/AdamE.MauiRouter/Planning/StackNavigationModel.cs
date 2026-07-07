@@ -114,7 +114,7 @@ public sealed class StackNavigationModel<TRoute>
         });
     }
 
-    private IReadOnlyList<RouteEntry> BuildCanonicalEntries(
+    private List<RouteEntry> BuildCanonicalEntries(
         TRoute route,
         IReadOnlyDictionary<string, object?>? metadata)
     {
@@ -122,7 +122,7 @@ public sealed class StackNavigationModel<TRoute>
         return BuildEntries(recipe.CanonicalFactory(route, metadata));
     }
 
-    private IReadOnlyList<RouteEntry> BuildContextualTailEntries(
+    private List<RouteEntry> BuildContextualTailEntries(
         TRoute route,
         IReadOnlyDictionary<string, object?>? metadata)
     {
@@ -131,7 +131,7 @@ public sealed class StackNavigationModel<TRoute>
         return BuildEntries(recipe.ContextualTailFactory(route, metadata));
     }
 
-    private IReadOnlyList<RouteEntry> BuildEntries(IReadOnlyList<StackRouteStep<TRoute>> steps)
+    private List<RouteEntry> BuildEntries(IReadOnlyList<StackRouteStep<TRoute>> steps)
     {
         ArgumentNullException.ThrowIfNull(steps);
 
@@ -149,7 +149,7 @@ public sealed class StackNavigationModel<TRoute>
         return entries;
     }
 
-    private IReadOnlyList<RouteEntry> BuildPushedEntries(
+    private List<RouteEntry> BuildPushedEntries(
         IReadOnlyList<RouteEntry> currentEntries,
         TRoute route,
         IReadOnlyDictionary<string, object?>? metadata)
@@ -161,7 +161,7 @@ public sealed class StackNavigationModel<TRoute>
         return nextEntries;
     }
 
-    private IReadOnlyList<RouteEntry>? BuildReplacedEntries(
+    private List<RouteEntry>? BuildReplacedEntries(
         IReadOnlyList<RouteEntry> currentEntries,
         TRoute route,
         IReadOnlyDictionary<string, object?>? metadata)
@@ -195,12 +195,11 @@ public sealed class StackNavigationModel<TRoute>
 
     private bool ShouldReplaceWith(RouteEntry existingEntry, RouteEntry replacementEntry)
     {
-        if (StringComparer.Ordinal.Equals(existingEntry.Id, replacementEntry.Id)) return true;
-
-        return AreSameSlot(existingEntry, replacementEntry);
+        return StringComparer.Ordinal.Equals(existingEntry.Id, replacementEntry.Id) ||
+               AreSameSlot(existingEntry, replacementEntry);
     }
 
-    private int FindMatchingEntryIndex(IReadOnlyList<RouteEntry> entries, RouteEntry replacementEntry)
+    private int FindMatchingEntryIndex(List<RouteEntry> entries, RouteEntry replacementEntry)
     {
         for (var i = 0; i < entries.Count; i++)
             if (ShouldReplaceWith(entries[i], replacementEntry))

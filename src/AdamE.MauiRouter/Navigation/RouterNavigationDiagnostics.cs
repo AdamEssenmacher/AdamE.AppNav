@@ -11,6 +11,7 @@ internal sealed class RouterNavigationDiagnostics(
 {
     private readonly NavigationDiagnostics _diagnostics =
         diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
+
     private readonly ActivitySource _activitySource =
         activitySource ?? throw new ArgumentNullException(nameof(activitySource));
 
@@ -56,7 +57,7 @@ internal sealed class RouterNavigationDiagnostics(
         _diagnostics.Write(kind, operationId, message, FailureData(exception, timer, data));
     }
 
-    public IReadOnlyDictionary<string, object?> Duration(
+    public static IReadOnlyDictionary<string, object?> Duration(
         Stopwatch timer,
         params (string Key, object? Value)[] data)
     {
@@ -66,7 +67,7 @@ internal sealed class RouterNavigationDiagnostics(
         return result;
     }
 
-    public IReadOnlyDictionary<string, object?> Duration(
+    public static IReadOnlyDictionary<string, object?> Duration(
         Stopwatch timer,
         RouterNavigationRequest request,
         params (string Key, object? Value)[] data)
@@ -77,7 +78,7 @@ internal sealed class RouterNavigationDiagnostics(
         return result;
     }
 
-    public IReadOnlyDictionary<string, object?> RouteFailureData(
+    public static IReadOnlyDictionary<string, object?> RouteFailureData(
         Stopwatch timer,
         RouterNavigationRequest request,
         RouteDiagnostic? diagnostic)
@@ -87,24 +88,24 @@ internal sealed class RouterNavigationDiagnostics(
             (NavigationDiagnosticDataKeys.Uri, request.Uri?.ToString())
         };
 
-        if (diagnostic is not null)
+        if (diagnostic is null)
+            return Duration(timer, request, data.ToArray());
+
+        data.Add((NavigationDiagnosticDataKeys.RouteDiagnosticCode, diagnostic.Code));
+        data.Add((NavigationDiagnosticDataKeys.RouteDiagnosticMessage, diagnostic.Message));
+
+        foreach ((string key, object? value) in diagnostic.Data)
         {
-            data.Add((NavigationDiagnosticDataKeys.RouteDiagnosticCode, diagnostic.Code));
-            data.Add((NavigationDiagnosticDataKeys.RouteDiagnosticMessage, diagnostic.Message));
-
-            foreach ((string key, object? value) in diagnostic.Data)
+            string normalizedKey = key switch
             {
-                string normalizedKey = key switch
-                {
-                    "path" => NavigationDiagnosticDataKeys.Path,
-                    "template" => NavigationDiagnosticDataKeys.RouteTemplate,
-                    "routeType" => NavigationDiagnosticDataKeys.RouteType,
-                    "candidateCount" => NavigationDiagnosticDataKeys.CandidateCount,
-                    _ => key
-                };
+                "path" => NavigationDiagnosticDataKeys.Path,
+                "template" => NavigationDiagnosticDataKeys.RouteTemplate,
+                "routeType" => NavigationDiagnosticDataKeys.RouteType,
+                "candidateCount" => NavigationDiagnosticDataKeys.CandidateCount,
+                _ => key
+            };
 
-                data.Add((normalizedKey, value));
-            }
+            data.Add((normalizedKey, value));
         }
 
         return Duration(timer, request, data.ToArray());
@@ -135,7 +136,7 @@ internal sealed class RouterNavigationDiagnostics(
                 (NavigationDiagnosticDataKeys.RedirectTrace, redirectTrace)));
     }
 
-    public string BuildRedirectTrace(
+    public static string BuildRedirectTrace(
         RouterNavigationRequest initialRequest,
         IReadOnlyList<RouterNavigationRequest> redirects)
     {
@@ -145,7 +146,7 @@ internal sealed class RouterNavigationDiagnostics(
                 .Concat(redirects.Select(DescribeRedirectTarget)));
     }
 
-    public string DescribeRedirectTarget(RouterNavigationRequest request)
+    public static string DescribeRedirectTarget(RouterNavigationRequest request)
     {
         var parts = new List<string>();
         if (request.Uri is not null)
@@ -163,7 +164,7 @@ internal sealed class RouterNavigationDiagnostics(
             : $"{target} [{request.Source}, disposition={request.Disposition}, window={request.WindowId}]";
     }
 
-    public Dictionary<string, object?> RequestData(
+    public static Dictionary<string, object?> RequestData(
         RouterNavigationRequest request,
         params (string Key, object? Value)[] values)
     {
@@ -173,7 +174,7 @@ internal sealed class RouterNavigationDiagnostics(
         return result;
     }
 
-    public Dictionary<string, object?> Data(params (string Key, object? Value)[] values)
+    public static Dictionary<string, object?> Data(params (string Key, object? Value)[] values)
     {
         var result = new Dictionary<string, object?>(StringComparer.Ordinal);
         foreach ((string key, object? value) in values)
@@ -182,7 +183,7 @@ internal sealed class RouterNavigationDiagnostics(
         return result;
     }
 
-    private IReadOnlyDictionary<string, object?> FailureData(
+    private static Dictionary<string, object?> FailureData(
         Exception exception,
         Stopwatch timer,
         params (string Key, object? Value)[] data)
@@ -197,7 +198,7 @@ internal sealed class RouterNavigationDiagnostics(
     }
 
     private static void AddProvenanceData(
-        IDictionary<string, object?> data,
+        Dictionary<string, object?> data,
         NavigationRequestProvenance? provenance)
     {
         if (provenance is null)
@@ -235,7 +236,7 @@ internal sealed class RouterNavigationDiagnostics(
     }
 
     private static void AddIfPresent(
-        IDictionary<string, object?> data,
+        Dictionary<string, object?> data,
         string key,
         string? value)
     {

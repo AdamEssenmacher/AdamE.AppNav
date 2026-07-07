@@ -24,21 +24,20 @@ public sealed record RouterNavigationRequest
         Provenance = provenance;
     }
 
+    // ReSharper disable once AutoPropertyCanBeMadeGetOnly.Global
     public Uri? Uri { get; init; }
 
     public AppRoute? Route { get; init; }
 
-    public NavigationRequestSource Source { get; init; }
+    public NavigationRequestSource Source { get; }
 
     public string? WindowId { get; init; }
 
-    private IReadOnlyDictionary<string, object?> _metadata = CollectionSnapshot.MetadataDictionary(null);
-
     public IReadOnlyDictionary<string, object?> Metadata
     {
-        get => _metadata;
-        init => _metadata = CollectionSnapshot.MetadataDictionary(value);
-    }
+        get;
+        init => field = CollectionSnapshot.MetadataDictionary(value);
+    } = CollectionSnapshot.MetadataDictionary(null);
 
     public DateTimeOffset Timestamp { get; init; }
 
@@ -64,7 +63,7 @@ public sealed record RouterNavigationRequest
         ArgumentNullException.ThrowIfNull(uri);
         return new RouterNavigationRequest(
             uri,
-            route: null,
+            null,
             source,
             windowId,
             metadata,
@@ -82,7 +81,7 @@ public sealed record RouterNavigationRequest
     {
         ArgumentNullException.ThrowIfNull(route);
         return new RouterNavigationRequest(
-            uri: null,
+            null,
             route,
             source,
             windowId,
@@ -109,7 +108,7 @@ public sealed record RouterNavigationRequest
         ArgumentNullException.ThrowIfNull(routeRequest);
 
         return new RouterNavigationRequest(
-            uri: null,
+            null,
             routeRequest.Route,
             source,
             windowId,
@@ -123,15 +122,11 @@ public sealed record RouterNavigationRequest
         IReadOnlyDictionary<string, object?>? extraMetadata)
     {
         if (extraMetadata is null || extraMetadata.Count == 0)
-        {
             return routeRequestMetadata;
-        }
 
         var merged = new Dictionary<string, object?>(routeRequestMetadata, StringComparer.Ordinal);
-        foreach (var pair in extraMetadata)
-        {
+        foreach (KeyValuePair<string, object?> pair in extraMetadata)
             merged[pair.Key] = pair.Value;
-        }
 
         return merged;
     }

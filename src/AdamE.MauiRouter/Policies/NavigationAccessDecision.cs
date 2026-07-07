@@ -9,12 +9,14 @@ public sealed record NavigationAccessDecision
         RouterNavigationRequest? redirectRequest,
         bool deferOriginalRequest)
     {
-        if (!isAllowed && redirectRequest is null)
-            throw new ArgumentException("Denied navigation decisions must provide a redirect request.",
-                nameof(redirectRequest));
-
-        if (isAllowed && (redirectRequest is not null || deferOriginalRequest))
-            throw new ArgumentException("Allowed navigation decisions cannot include redirect or defer behavior.");
+        switch (isAllowed)
+        {
+            case false when redirectRequest is null:
+                throw new ArgumentException("Denied navigation decisions must provide a redirect request.",
+                    nameof(redirectRequest));
+            case true when redirectRequest is not null || deferOriginalRequest:
+                throw new ArgumentException("Allowed navigation decisions cannot include redirect or defer behavior.");
+        }
 
         IsAllowed = isAllowed;
         RedirectRequest = redirectRequest;

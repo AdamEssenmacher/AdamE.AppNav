@@ -214,7 +214,10 @@ public sealed class NavigationDiagnostics
 
     private void MirrorToLogger(NavigationDiagnosticEvent diagnosticEvent)
     {
-        _logger?.Log(
+        if (_logger is null || !_logger.IsEnabled(diagnosticEvent.Severity))
+            return;
+
+        _logger.Log(
             diagnosticEvent.Severity,
             "Navigation {Kind} ({Phase}) operation {OperationId}: {Message} {@Data}",
             diagnosticEvent.Kind,

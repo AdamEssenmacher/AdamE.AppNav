@@ -4,8 +4,10 @@ namespace AdamE.MauiRouter;
 
 public sealed class RouteStateRegistry
 {
-    private static readonly IReadOnlyDictionary<string, object?> EmptyMetadata = CollectionSnapshot.MetadataDictionary(null);
-    private readonly IReadOnlyDictionary<string, RouteStateRegistration> _registrations;
+    private static readonly IReadOnlyDictionary<string, object?> EmptyMetadata =
+        CollectionSnapshot.MetadataDictionary(null);
+
+    private readonly Dictionary<string, RouteStateRegistration> _registrations;
 
     internal RouteStateRegistry(IReadOnlyDictionary<string, RouteStateRegistration> registrations)
     {
@@ -44,7 +46,8 @@ public sealed class RouteStateRegistry
 
         return new AppRouteRequest(
             request.Route,
-            Filter(request.Metadata, static (_, registration) => registration.Lifetime == RouteStateLifetime.Canonical));
+            Filter(request.Metadata,
+                static (_, registration) => registration.Lifetime == RouteStateLifetime.Canonical));
     }
 
     internal bool TryGetRegistration(string name, out RouteStateRegistration registration)
@@ -58,19 +61,13 @@ public sealed class RouteStateRegistry
         Func<string, RouteStateRegistration, bool> predicate)
     {
         if (metadata.Count == 0)
-        {
             return EmptyMetadata;
-        }
 
         var filtered = new Dictionary<string, object?>(StringComparer.Ordinal);
-        foreach (var pair in metadata)
-        {
-            if (_registrations.TryGetValue(pair.Key, out var registration) &&
+        foreach (KeyValuePair<string, object?> pair in metadata)
+            if (_registrations.TryGetValue(pair.Key, out RouteStateRegistration? registration) &&
                 predicate(pair.Key, registration))
-            {
                 filtered[pair.Key] = pair.Value;
-            }
-        }
 
         return filtered.Count == 0
             ? EmptyMetadata
@@ -79,6 +76,6 @@ public sealed class RouteStateRegistry
 }
 
 internal sealed record RouteStateRegistration(
-    string Name,
+    // ReSharper disable once NotAccessedPositionalProperty.Global
     Type ValueType,
     RouteStateLifetime Lifetime);

@@ -12,25 +12,19 @@ internal static class RouteValueConverter
 
     public static object? Convert(string value, Type targetType, string name)
     {
-        var conversionType = Nullable.GetUnderlyingType(targetType) ?? targetType;
+        Type conversionType = Nullable.GetUnderlyingType(targetType) ?? targetType;
 
         try
         {
             if (conversionType == typeof(string))
-            {
                 return value;
-            }
 
             if (conversionType.IsEnum)
-            {
-                return Enum.Parse(conversionType, value, ignoreCase: true);
-            }
+                return Enum.Parse(conversionType, value, true);
 
-            var converter = TypeDescriptor.GetConverter(conversionType);
+            TypeConverter converter = TypeDescriptor.GetConverter(conversionType);
             if (converter.CanConvertFrom(typeof(string)))
-            {
                 return converter.ConvertFrom(null, CultureInfo.InvariantCulture, value);
-            }
         }
         catch (Exception ex) when (ex is FormatException or NotSupportedException or ArgumentException)
         {

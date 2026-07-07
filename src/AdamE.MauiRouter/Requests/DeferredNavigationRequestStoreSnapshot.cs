@@ -8,5 +8,5 @@ public sealed record DeferredNavigationRequestStoreSnapshot
 
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 
-    public IReadOnlyList<NavigationRequestSnapshot> Requests { get; init; } = Array.Empty<NavigationRequestSnapshot>();
+    public IReadOnlyList<NavigationRequestSnapshot> Requests { get; init; } = [];
 }

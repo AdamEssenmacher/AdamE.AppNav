@@ -26,9 +26,7 @@ public sealed class InMemoryDeferredNavigationRequestStore : IDeferredNavigation
         lock (_gate)
         {
             if (!_deduped.Add(request))
-            {
                 return ValueTask.CompletedTask;
-            }
 
             _requests.Enqueue(request);
         }
@@ -43,11 +41,9 @@ public sealed class InMemoryDeferredNavigationRequestStore : IDeferredNavigation
         lock (_gate)
         {
             if (_requests.Count == 0)
-            {
                 return ValueTask.FromResult<RouterNavigationRequest?>(null);
-            }
 
-            var request = _requests.Dequeue();
+            RouterNavigationRequest request = _requests.Dequeue();
             _deduped.Remove(request);
             return ValueTask.FromResult<RouterNavigationRequest?>(request);
         }
@@ -60,11 +56,9 @@ public sealed class InMemoryDeferredNavigationRequestStore : IDeferredNavigation
         lock (_gate)
         {
             if (_requests.Count == 0)
-            {
                 return ValueTask.FromResult<IReadOnlyList<RouterNavigationRequest>>([]);
-            }
 
-            var drained = _requests.ToArray();
+            RouterNavigationRequest[] drained = _requests.ToArray();
             _requests.Clear();
             _deduped.Clear();
             return ValueTask.FromResult<IReadOnlyList<RouterNavigationRequest>>(drained);

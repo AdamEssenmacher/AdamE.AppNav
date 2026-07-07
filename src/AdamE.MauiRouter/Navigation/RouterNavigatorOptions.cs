@@ -9,23 +9,23 @@ namespace AdamE.MauiRouter.Navigation;
 
 internal sealed class RouterNavigatorOptions
 {
-    public NavigationState? InitialState { get; set; }
+    public NavigationState? InitialState { get; init; }
 
-    public NavigationHistory? InitialHistory { get; set; }
+    public NavigationHistory? InitialHistory { get; init; }
 
-    public IReadOnlyList<INavigationRequestPolicy> RequestPolicies { get; set; } = Array.Empty<INavigationRequestPolicy>();
+    public IReadOnlyList<INavigationRequestPolicy> RequestPolicies { get; init; } = [];
 
-    public Func<NavigationFallbackContext, AppRoute?>? FallbackRouteFactory { get; set; }
+    public Func<NavigationFallbackContext, AppRoute?>? FallbackRouteFactory { get; init; }
 
-    public NavigationDiagnostics? Diagnostics { get; set; }
+    public NavigationDiagnostics? Diagnostics { get; init; }
 
-    public IBackNavigator? BackNavigator { get; set; }
+    public IBackNavigator? BackNavigator { get; init; }
 
-    public int MaxRedirects { get; set; } = 16;
+    public int MaxRedirects { get; init; } = 16;
 
-    public int MaxHistoryEntries { get; set; } = 128;
+    public int MaxHistoryEntries { get; init; } = 128;
 
-    public ILogger? Logger { get; set; }
+    public ILogger? Logger { get; init; }
 
-    public ILoggerFactory? LoggerFactory { get; set; }
+    public ILoggerFactory? LoggerFactory { get; init; }
 }

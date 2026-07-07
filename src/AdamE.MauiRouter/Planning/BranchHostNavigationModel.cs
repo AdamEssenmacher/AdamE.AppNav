@@ -8,8 +8,8 @@ namespace AdamE.MauiRouter.Planning;
 public sealed class BranchHostNavigationModel<TRoute>
     where TRoute : AppRoute
 {
-    private readonly IReadOnlyList<BranchHostBranchDefinition<TRoute>> _branches;
-    private readonly IReadOnlyDictionary<string, BranchHostBranchDefinition<TRoute>> _branchesById;
+    private readonly BranchHostBranchDefinition<TRoute>[] _branches;
+    private readonly Dictionary<string, BranchHostBranchDefinition<TRoute>> _branchesById;
     private readonly IReadOnlyDictionary<Type, BranchHostRouteRecipe<TRoute>> _recipes;
     private readonly string _defaultWindowId;
     private readonly string _defaultBranchHostId;
@@ -114,7 +114,7 @@ public sealed class BranchHostNavigationModel<TRoute>
                 ContextualStackMutationKind.ReplaceTop => currentOwningStack with
                 {
                     Entries = BuildReplacedEntries(currentOwningStack.Entries, route, metadata) ??
-                              Array.Empty<RouteEntry>()
+                              []
                 },
                 _ => null
             };
@@ -138,9 +138,9 @@ public sealed class BranchHostNavigationModel<TRoute>
         string branchHostId)
     {
         BranchHostRouteRecipe<TRoute> recipe = GetRecipe(route);
-        var branches = new NavigationBranch[_branches.Count];
+        var branches = new NavigationBranch[_branches.Length];
 
-        for (var i = 0; i < _branches.Count; i++)
+        for (var i = 0; i < _branches.Length; i++)
         {
             BranchHostBranchDefinition<TRoute> branch = _branches[i];
             StackNode stack = StringComparer.Ordinal.Equals(branch.Id, recipe.BranchId)
@@ -176,21 +176,21 @@ public sealed class BranchHostNavigationModel<TRoute>
             [CreateEntry(rootRoute)]);
     }
 
-    private IReadOnlyList<RouteEntry> BuildCanonicalEntries(
+    private List<RouteEntry> BuildCanonicalEntries(
         TRoute route,
         IReadOnlyDictionary<string, object?>? metadata)
     {
         return BuildEntries(GetRecipe(route).CanonicalFactory(route, metadata));
     }
 
-    private IReadOnlyList<RouteEntry> BuildContextualTailEntries(
+    private List<RouteEntry> BuildContextualTailEntries(
         TRoute route,
         IReadOnlyDictionary<string, object?>? metadata)
     {
         return BuildEntries(GetRecipe(route).ContextualTailFactory(route, metadata));
     }
 
-    private IReadOnlyList<RouteEntry> BuildEntries(IReadOnlyList<StackRouteStep<TRoute>> steps)
+    private List<RouteEntry> BuildEntries(IReadOnlyList<StackRouteStep<TRoute>> steps)
     {
         ArgumentNullException.ThrowIfNull(steps);
 
@@ -208,7 +208,7 @@ public sealed class BranchHostNavigationModel<TRoute>
         return entries;
     }
 
-    private IReadOnlyList<RouteEntry> BuildPushedEntries(
+    private List<RouteEntry> BuildPushedEntries(
         IReadOnlyList<RouteEntry> currentEntries,
         TRoute route,
         IReadOnlyDictionary<string, object?>? metadata)
@@ -218,7 +218,7 @@ public sealed class BranchHostNavigationModel<TRoute>
         return nextEntries;
     }
 
-    private IReadOnlyList<RouteEntry>? BuildReplacedEntries(
+    private List<RouteEntry>? BuildReplacedEntries(
         IReadOnlyList<RouteEntry> currentEntries,
         TRoute route,
         IReadOnlyDictionary<string, object?>? metadata)
@@ -251,12 +251,11 @@ public sealed class BranchHostNavigationModel<TRoute>
 
     private bool ShouldReplaceWith(RouteEntry existingEntry, RouteEntry replacementEntry)
     {
-        if (StringComparer.Ordinal.Equals(existingEntry.Id, replacementEntry.Id)) return true;
-
-        return AreSameSlot(existingEntry, replacementEntry);
+        return StringComparer.Ordinal.Equals(existingEntry.Id, replacementEntry.Id) ||
+               AreSameSlot(existingEntry, replacementEntry);
     }
 
-    private int FindMatchingEntryIndex(IReadOnlyList<RouteEntry> entries, RouteEntry replacementEntry)
+    private int FindMatchingEntryIndex(List<RouteEntry> entries, RouteEntry replacementEntry)
     {
         for (var i = 0; i < entries.Count; i++)
             if (ShouldReplaceWith(entries[i], replacementEntry))

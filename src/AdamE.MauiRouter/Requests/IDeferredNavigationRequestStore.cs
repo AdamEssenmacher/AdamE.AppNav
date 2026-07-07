@@ -8,6 +8,7 @@ public interface IDeferredNavigationRequestStore
         RouterNavigationRequest request,
         CancellationToken cancellationToken = default);
 
+    // ReSharper disable once UnusedMemberInSuper.Global
     ValueTask<RouterNavigationRequest?> TryDequeueAsync(CancellationToken cancellationToken = default);
 
     ValueTask<IReadOnlyList<RouterNavigationRequest>> DrainAsync(CancellationToken cancellationToken = default);

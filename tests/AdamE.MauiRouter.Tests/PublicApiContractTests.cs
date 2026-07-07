@@ -5,7 +5,9 @@ using AdamE.MauiRouter.Maui;
 using AdamE.MauiRouter.Navigation;
 using AdamE.MauiRouter.Plans;
 using AdamE.MauiRouter.Policies;
+using AdamE.MauiRouter.Presentation;
 using AdamE.MauiRouter.Requests;
+using AdamE.MauiRouter.Routing;
 using AdamE.MauiRouter.Testing;
 
 namespace AdamE.MauiRouter.Tests;
@@ -133,6 +135,23 @@ public sealed class PublicApiContractTests
     }
 
     [Fact]
+    public void NavigationHistoryEntrySurfaceContainsOnlyCommittedRouteState()
+    {
+        string[] propertyNames = typeof(NavigationHistoryEntry)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Select(static property => property.Name)
+            .OrderBy(static name => name, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(
+        [
+            nameof(NavigationHistoryEntry.Request),
+            nameof(NavigationHistoryEntry.Route),
+            nameof(NavigationHistoryEntry.State)
+        ], propertyNames);
+    }
+
+    [Fact]
     public void NavigationRequestPolicyUsesContextOnlyApplySurface()
     {
         var method = Assert.Single(typeof(INavigationRequestPolicy).GetMethods(BindingFlags.Public | BindingFlags.Instance));
@@ -143,6 +162,28 @@ public sealed class PublicApiContractTests
         Assert.Equal(typeof(NavigationRequestPolicyContext), parameters[0].ParameterType);
         Assert.Equal(typeof(CancellationToken), parameters[1].ParameterType);
         Assert.True(parameters[1].HasDefaultValue);
+    }
+
+    [Fact]
+    public void RouteDiagnosticDataSurfaceIsConstructorOnly()
+    {
+        PropertyInfo property = Assert.Single(
+            typeof(RouteDiagnostic).GetProperties(BindingFlags.Public | BindingFlags.Instance),
+            static property => property.Name == nameof(RouteDiagnostic.Data));
+
+        Assert.Null(property.SetMethod);
+    }
+
+    [Fact]
+    public void NavigationReconciliationSourceExposesOnlyCommittedSources()
+    {
+        Assert.Equal(
+            [
+                nameof(NavigationReconciliationSource.NativeBackGesture),
+                nameof(NavigationReconciliationSource.ModalDismissed),
+                nameof(NavigationReconciliationSource.TabChanged)
+            ],
+            Enum.GetNames<NavigationReconciliationSource>());
     }
 
     [Fact]

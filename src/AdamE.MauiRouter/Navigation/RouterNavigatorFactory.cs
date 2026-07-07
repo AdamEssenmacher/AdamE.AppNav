@@ -40,7 +40,7 @@ public static class RouterNavigatorFactory
             new RouterNavigatorOptions
             {
                 InitialState = options.InitialState,
-                RequestPolicies = options.RequestPolicies ?? Array.Empty<INavigationRequestPolicy>(),
+                RequestPolicies = options.RequestPolicies,
                 FallbackRouteFactory = options.FallbackRouteFactory,
                 Diagnostics = options.Diagnostics,
                 BackNavigator = options.BackNavigator,

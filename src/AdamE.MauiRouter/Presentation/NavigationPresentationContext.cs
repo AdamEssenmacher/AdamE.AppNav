@@ -1,5 +1,6 @@
 using AdamE.MauiRouter.Requests;
 using AdamE.MauiRouter.State;
+using JetBrains.Annotations;
 
 namespace AdamE.MauiRouter.Presentation;
 
@@ -11,7 +12,7 @@ namespace AdamE.MauiRouter.Presentation;
 /// <param name="CurrentState">The router state before the plan is committed.</param>
 /// <param name="OperationId">The diagnostic correlation identifier for the active navigation operation.</param>
 public sealed record NavigationPresentationContext(
-    RouterNavigationRequest Request,
+    [UsedImplicitly] RouterNavigationRequest Request,
     AppRoute Route,
     NavigationState CurrentState,
     string OperationId);

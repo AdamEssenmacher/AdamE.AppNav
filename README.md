@@ -2,11 +2,18 @@
 
 AdamE.MauiRouter is a mobile-first, URL-native routing and navigation library for .NET MAUI apps.
 
-MAUI's default navigation model inherits a page-first design from Xamarin.Forms, from a time before Universal Links and App Links became the normal contract between apps, the OS, and the web. Back then it was more common to treat "mobile navigation" and "URL navigation" as separate systems.
+MAUI's default navigation model inherits a page-first design from Xamarin.Forms, from a time before Universal Links and
+App Links became the normal contract between apps, the OS, and the web. Back then it was more common to treat "mobile
+navigation" and "URL navigation" as separate systems.
 
-That distinction holds up less well now. Modern mobile apps receive navigation intent from everywhere: in-app taps, Universal Links, App Links, push notifications, QR codes, restore flows, and deferred replay after sign-in. Those should not require seven different navigation architectures.
+That distinction holds up less well now. Modern mobile apps receive navigation intent from everywhere: in-app taps,
+Universal Links, App Links, push notifications, QR codes, restore flows, and deferred replay after sign-in. Those should
+not require seven different navigation architectures.
 
-AdamE.MauiRouter starts from a different assumption: the durable navigation contract should be a route/URL, not a page push. A URL identifies where the user should be semantically. The app decides how that intent maps to authenticated state, branch hosts, stacks, modals, and the active MAUI presentation structure. The MAUI adapter then materializes native containers and reconciles native user gestures back into logical state and history.
+AdamE.MauiRouter starts from a different assumption: the durable navigation contract should be a route/URL, not a page
+push. A URL identifies where the user should be semantically. The app decides how that intent maps to authenticated
+state, branch hosts, stacks, modals, and the active MAUI presentation structure. The MAUI adapter then materializes
+native containers and reconciles native user gestures back into logical state and history.
 
 ```text
 https://example.com/stores/northwind/products/123?variant=blue&promo=spring
@@ -22,7 +29,8 @@ The core idea:
 URLs identify durable application state, not concrete MAUI pages.
 ```
 
-The core state model includes window targeting and window nodes, but the v1 MAUI adapter is intentionally single-active-window oriented rather than a full multi-window orchestration system.
+The core state model includes window targeting and window nodes, but the v1 MAUI adapter is intentionally
+single-active-window oriented rather than a full multi-window orchestration system.
 
 ## Route Identity And Route-Owned Metadata
 
@@ -32,8 +40,10 @@ MauiRouter deliberately separates route identity, route-owned metadata, and runt
 - `AppRouteRequest` is route identity plus app-owned route metadata.
 - `RouteStateRegistry` classifies metadata as canonical, restorable, or ephemeral.
 
-That split matters because it keeps route constructors focused on durable identity while still letting the app attach URL-affecting, persistence-affecting, or policy/planning-visible metadata when needed.
-Route records should use stable domain values and should not carry pages, view models, services, callbacks, native handles, or runtime provenance.
+That split matters because it keeps route constructors focused on durable identity while still letting the app attach
+URL-affecting, persistence-affecting, or policy/planning-visible metadata when needed.
+Route records should use stable domain values and should not carry pages, view models, services, callbacks, native
+handles, or runtime provenance.
 
 Typical examples:
 
@@ -41,13 +51,16 @@ Typical examples:
 - return-path metadata is restorable and may survive navigation persistence
 - trace or correlation metadata is ephemeral and stays runtime-only
 
-Provenance is different. It is runtime request context carried on `RouterNavigationRequest`, not route identity and not route-owned metadata.
+Provenance is different. It is runtime request context carried on `RouterNavigationRequest`, not route identity and not
+route-owned metadata.
 
-See the quick start section below for a longer `RouteStateRegistry` example and how those lifetimes plug into route formatting and persistence.
+See the quick start section below for a longer `RouteStateRegistry` example and how those lifetimes plug into route
+formatting and persistence.
 
 ## Why This Exists
 
-MAUI apps often start navigation from pages, Shell route names, view model names, or platform-specific deep-link callbacks. Those approaches work for simple flows, but they usually make URLs an afterthought.
+MAUI apps often start navigation from pages, Shell route names, view model names, or platform-specific deep-link
+callbacks. Those approaches work for simple flows, but they usually make URLs an afterthought.
 
 That becomes increasingly painful when navigation needs to answer questions like:
 
@@ -58,7 +71,8 @@ That becomes increasingly painful when navigation needs to answer questions like
 - If the user is signed out, should we bounce to login and replay later?
 - Given current app state, which branch, stack, modal, or active host should represent this route?
 
-MauiRouter keeps those concerns out of page constructors and ad hoc platform glue. It centralizes them in route matching, request policy, app planning, and presentation.
+MauiRouter keeps those concerns out of page constructors and ad hoc platform glue. It centralizes them in route
+matching, request policy, app planning, and presentation.
 
 ## Why URL-First Navigation
 
@@ -82,7 +96,8 @@ That has practical benefits:
 - Cold-start and warm-start navigations can use the same ingress model.
 - The app can keep durable route identity separate from route-owned metadata and runtime transport context.
 - Link provenance and trust can be evaluated before UI code runs.
-- Auth redirection, compatibility rewrites, and deferred navigation can be centralized instead of scattered across pages and platform hooks.
+- Auth redirection, compatibility rewrites, and deferred navigation can be centralized instead of scattered across pages
+  and platform hooks.
 - The app planner becomes the one place where route meaning meets current application state.
 
 ## Why Centralize Planning And Policy
@@ -94,9 +109,11 @@ That is the place to answer questions such as:
 - Is the user authenticated?
 - Is a requested game, workspace, tenant, or store currently selected?
 - Should this route focus an existing branch, replace a stack, push onto a stack, or open a modal?
-- Should the app land directly on the requested destination, or route through onboarding, login, or a compatibility flow first?
+- Should the app land directly on the requested destination, or route through onboarding, login, or a compatibility flow
+  first?
 
-Request policy and planning are where cross-cutting navigation concerns belong. They are easier to reason about there than in page code because they run before presentation and apply consistently to every ingress path.
+Request policy and planning are where cross-cutting navigation concerns belong. They are easier to reason about there
+than in page code because they run before presentation and apply consistently to every ingress path.
 
 Example:
 
@@ -112,21 +129,28 @@ That is a navigation flow, not just a deep-link flow. MauiRouter is designed to 
 
 ## Where It Fits In MAUI
 
-AdamE.MauiRouter is not a full app framework. It does not replace your DI container, view models, domain state, or page implementations.
+AdamE.MauiRouter is not a full app framework. It does not replace your DI container, view models, domain state, or page
+implementations.
 
 It does take a strong position on the navigation contract.
 
-In practice that means MauiRouter usually should replace, not sit alongside, other opinionated MAUI navigation stacks such as Shell, Prism, or similar frameworks. If another framework already owns route semantics, deep-link ingress, redirects, and stack/tab orchestration, MauiRouter is probably the wrong fit.
+In practice that means MauiRouter usually should replace, not sit alongside, other opinionated MAUI navigation stacks
+such as Shell, Prism, or similar frameworks. If another framework already owns route semantics, deep-link ingress,
+redirects, and stack/tab orchestration, MauiRouter is probably the wrong fit.
 
 ## Influence From `go_router`
 
 The closest mainstream influence is Flutter's [`go_router`](https://pub.dev/packages/go_router).
 
-`go_router` became popular because it made routes/URLs the primary contract for in-app navigation, deep links, redirects, and nested navigation. It showed that app navigation does not need one mental model for "normal navigation" and a second mental model for "deep links."
+`go_router` became popular because it made routes/URLs the primary contract for in-app navigation, deep links,
+redirects, and nested navigation. It showed that app navigation does not need one mental model for "normal navigation"
+and a second mental model for "deep links."
 
-MauiRouter borrows that route-first mindset and the idea that boundary concerns such as redirects, provenance, and policy belong near navigation ingress, not buried inside page code.
+MauiRouter borrows that route-first mindset and the idea that boundary concerns such as redirects, provenance, and
+policy belong near navigation ingress, not buried inside page code.
 
-It does not copy `go_router` directly. MAUI still has native container and platform-lifecycle concerns that Flutter solves differently. MauiRouter therefore separates:
+It does not copy `go_router` directly. MAUI still has native container and platform-lifecycle concerns that Flutter
+solves differently. MauiRouter therefore separates:
 
 - semantic route identity with `AppRoute`
 - app-authored navigation with `AppRouteRequest`
@@ -134,7 +158,8 @@ It does not copy `go_router` directly. MAUI still has native container and platf
 - app-owned planning with `IAppNavigationPlanner`
 - native MAUI presentation and bidirectional reconciliation
 
-That extra split is deliberate. It lets the app stay URL-native without pretending that native stacks, branch hosts, modals, app-link lifecycles, and swipe-back reconciliation do not exist.
+That extra split is deliberate. It lets the app stay URL-native without pretending that native stacks, branch hosts,
+modals, app-link lifecycles, and swipe-back reconciliation do not exist.
 
 ## Design Rules
 
@@ -142,14 +167,18 @@ That extra split is deliberate. It lets the app stay URL-native without pretendi
 - Hosts are structural, not routes.
 - Navigation structure is hierarchical and branch-aware, not a single global stack.
 - Query parameters may modify a route but must not define primary navigation structure.
-- Navigation provenance, normalization, authorization, and deferred replay belong at ingress/policy boundaries, not in page constructors.
+- Navigation provenance, normalization, authorization, and deferred replay belong at ingress/policy boundaries, not in
+  page constructors.
 - Provenance is runtime request context, not route identity or route metadata.
 - App planning is where route meaning meets current application state.
 - MAUI pages are adapter artifacts, never core state.
-- Presenters should preserve native containers and prefer incremental native mutations over wholesale container replacement whenever possible.
-- Presenters are bidirectional: native stack pops, modal dismissals, tab changes, and other native user-driven events may reconcile back into logical state and history.
+- Presenters should preserve native containers and prefer incremental native mutations over wholesale container
+  replacement whenever possible.
+- Presenters are bidirectional: native stack pops, modal dismissals, tab changes, and other native user-driven events
+  may reconcile back into logical state and history.
 
-For a MAUI integration walkthrough, see [docs/maui-integration.md](docs/maui-integration.md). For provenance field ownership, see [docs/provenance.md](docs/provenance.md).
+For a MAUI integration walkthrough, see [docs/maui-integration.md](docs/maui-integration.md). For provenance field
+ownership, see [docs/provenance.md](docs/provenance.md).
 
 ## Status
 
@@ -170,25 +199,25 @@ Until packages are published, consume the library with project references.
 
 ## Support Matrix
 
-| Area | v1 Support |
-| --- | --- |
-| Core target frameworks | `net9.0`, `net10.0` |
-| MAUI adapter targets | Android, iOS, Mac Catalyst |
-| MAUI containers | `NavigationPage`, `TabbedPage`, modal navigation |
-| Page creation | DI-backed page factories |
-| URL matching | Fluent runtime route table |
-| Route formatting | Fluent runtime formatters |
-| Navigation runtime | Serialized operations, bounded logical history, native reconciliation |
-| Platform links | Android intents, iOS/Mac Catalyst URL and user-activity lifecycle hooks |
-| Android predictive back | Not implemented in v1; state/planning model is intended to support it later |
-| Shell | Not supported; usually mutually exclusive |
-| Prism | Not supported; usually mutually exclusive |
-| Other opinionated MAUI navigation stacks | Generally not intended to be combined |
-| Windows MAUI adapter | Not targeted in v1 |
-| `netstandard` | Not targeted in v1 |
-| Source generators | Not included in v1 |
-| Attribute routing | Not included in v1 |
-| Full multi-window orchestration | State model seam only in v1 |
+| Area                                     | v1 Support                                                                  |
+|------------------------------------------|-----------------------------------------------------------------------------|
+| Core target frameworks                   | `net9.0`, `net10.0`                                                         |
+| MAUI adapter targets                     | Android, iOS, Mac Catalyst                                                  |
+| MAUI containers                          | `NavigationPage`, `TabbedPage`, modal navigation                            |
+| Page creation                            | DI-backed page factories                                                    |
+| URL matching                             | Fluent runtime route table                                                  |
+| Route formatting                         | Fluent runtime formatters                                                   |
+| Navigation runtime                       | Serialized operations, bounded logical history, native reconciliation       |
+| Platform links                           | Android intents, iOS/Mac Catalyst URL and user-activity lifecycle hooks     |
+| Android predictive back                  | Not implemented in v1; state/planning model is intended to support it later |
+| Shell                                    | Not supported; usually mutually exclusive                                   |
+| Prism                                    | Not supported; usually mutually exclusive                                   |
+| Other opinionated MAUI navigation stacks | Generally not intended to be combined                                       |
+| Windows MAUI adapter                     | Not targeted in v1                                                          |
+| `netstandard`                            | Not targeted in v1                                                          |
+| Source generators                        | Not included in v1                                                          |
+| Attribute routing                        | Not included in v1                                                          |
+| Full multi-window orchestration          | State model seam only in v1                                                 |
 
 ## Projects
 
@@ -263,17 +292,19 @@ Presentation applies the `NavigationPlan` to real UI.
 
 The MAUI presenter maps structural nodes to native MAUI containers:
 
-| Navigation node | MAUI surface |
-| --- | --- |
-| `StackNode` | `NavigationPage` |
-| `BranchHostNode` | `TabbedPage` |
-| `ModalNode` | Modal presentation |
+| Navigation node  | MAUI surface       |
+|------------------|--------------------|
+| `StackNode`      | `NavigationPage`   |
+| `BranchHostNode` | `TabbedPage`       |
+| `ModalNode`      | Modal presentation |
 
 Presenters are also bidirectional. Native user events can reconcile back into logical navigation state.
 
 ## Quick Start
 
-This section builds a minimal MAUI integration similar to the commerce sample. It keeps the first setup small: typed routes, route matching, app planning, MAUI page mapping, in-app `AppRouteRequest` navigation, runtime-boundary `RouterNavigationRequest`, and startup.
+This section builds a minimal MAUI integration similar to the commerce sample. It keeps the first setup small: typed
+routes, route matching, app planning, MAUI page mapping, in-app `AppRouteRequest` navigation, runtime-boundary
+`RouterNavigationRequest`, and startup.
 
 ### 1. Define Typed Routes
 
@@ -300,7 +331,8 @@ public sealed record OrdersRoute(string StoreId) : AppRoute;
 ### 2. Build A Route Table
 
 Use `RouteTable.Create` and map each route template to a typed route.
-The product route also maps the `CommerceRouteMetadata.Campaign` key defined in the next step so campaign data can round-trip through `AppRouteRequest` formatting and matching without becoming a constructor parameter.
+The product route also maps the `CommerceRouteMetadata.Campaign` key defined in the next step so campaign data can
+round-trip through `AppRouteRequest` formatting and matching without becoming a constructor parameter.
 
 ```csharp
 using AdamE.MauiRouter.Routing;
@@ -355,11 +387,13 @@ Route table responsibilities:
 - Validate templates and reject ambiguous overlaps at build time.
 - Stay independent from MAUI pages and native containers.
 
-At this point the app has a URL contract, but no branch hosts, stacks, pages, auth rules, or platform behavior. Those are deliberately separate.
+At this point the app has a URL contract, but no branch hosts, stacks, pages, auth rules, or platform behavior. Those
+are deliberately separate.
 
 ### 3. Define Route Metadata
 
-Route-owned metadata is app-defined state attached to an `AppRouteRequest`. Use it for values that should participate in route formatting, persistence, or downstream app behavior without becoming constructor parameters on the route type.
+Route-owned metadata is app-defined state attached to an `AppRouteRequest`. Use it for values that should participate in
+route formatting, persistence, or downstream app behavior without becoming constructor parameters on the route type.
 
 ```csharp
 using AdamE.MauiRouter;
@@ -379,11 +413,14 @@ public static class CommerceRouteMetadata
 }
 ```
 
-Canonical metadata can affect the durable URL, restorable metadata can survive navigation persistence, and ephemeral metadata stays runtime-only.
+Canonical metadata can affect the durable URL, restorable metadata can survive navigation persistence, and ephemeral
+metadata stays runtime-only.
 
 ### 4. Plan Navigation State
 
-Implement `IAppNavigationPlanner` to turn a typed route into logical navigation state. The planner receives the matched route, the runtime request, current navigation state, and operation id, so app-specific structure decisions stay centralized.
+Implement `IAppNavigationPlanner` to turn a typed route into logical navigation state. The planner receives the matched
+route, the runtime request, current navigation state, and operation id, so app-specific structure decisions stay
+centralized.
 
 The commerce quick start uses one central planner because several route types share the same branch-host structure:
 
@@ -506,7 +543,8 @@ The planner owns structure. It does not create MAUI pages; presentation remains 
 
 ### 5. Register MAUI Services
 
-Register the route table, planner, diagnostics, deferred request persistence, page mappings, app-link lifecycle hooks, startup, and navigator.
+Register the route table, planner, diagnostics, deferred request persistence, page mappings, app-link lifecycle hooks,
+startup, and navigator.
 
 ```csharp
 using AdamE.MauiRouter.Diagnostics;
@@ -552,13 +590,16 @@ public static class MauiProgram
 }
 ```
 
-`AddMauiRouterStartup` is optional, but recommended for MAUI apps that want the standard cold-start sequence: app links first, deferred request detection, fallback navigation, then window attachment.
-If route-owned metadata participates in URL formatting or deferred request persistence, keep those keys app-owned in a `RouteStateRegistry` and register that registry with deferred request persistence services.
+`AddMauiRouterStartup` is optional, but recommended for MAUI apps that want the standard cold-start sequence: app links
+first, deferred request detection, fallback navigation, then window attachment.
+If route-owned metadata participates in URL formatting or deferred request persistence, keep those keys app-owned in a
+`RouteStateRegistry` and register that registry with deferred request persistence services.
 Branch hosts are materialized as `TabbedPage`.
 
 ### 6. Create Pages With Route Constructor Parameters
 
-The MAUI adapter creates pages through DI. A page mapped with `MapPage<TRoute, TPage>()` can accept the route in its constructor.
+The MAUI adapter creates pages through DI. A page mapped with `MapPage<TRoute, TPage>()` can accept the route in its
+constructor.
 
 ```csharp
 using AdamE.MauiRouter.Navigation;
@@ -599,7 +640,9 @@ public sealed class ProductDetailPage : ContentPage
 }
 ```
 
-Page constructors receive the typed `AppRoute`, not route-entry metadata. If a page needs route-entry metadata, use `IMauiRoutePageLifecycleHook` or app-specific mapping logic instead of expecting an `AppRouteRequest` constructor parameter.
+Page constructors receive the typed `AppRoute`, not route-entry metadata. If a page needs route-entry metadata, use
+`IMauiRoutePageLifecycleHook` or app-specific mapping logic instead of expecting an `AppRouteRequest` constructor
+parameter.
 
 ### 7. Navigate
 
@@ -631,7 +674,8 @@ await navigator.NavigateAsync(
     NavigationRequestSource.InAppCommand);
 ```
 
-Navigate with a full runtime request only when you need transport concerns such as boundary ingress, source, window targeting, or policy handoff:
+Navigate with a full runtime request only when you need transport concerns such as boundary ingress, source, window
+targeting, or policy handoff:
 
 ```csharp
 var request = new RouterNavigationRequest(
@@ -649,7 +693,9 @@ await navigator.NavigateAsync(request);
 
 ### 8. Start The MAUI Router
 
-The MAUI startup service owns the recommended cold-start sequence. It waits briefly for buffered app links, restores a saved navigation snapshot when configured, falls back to an app-provided request when needed, and attaches the presenter to the `Window`.
+The MAUI startup service owns the recommended cold-start sequence. It waits briefly for buffered app links, restores a
+saved navigation snapshot when configured, falls back to an app-provided request when needed, and attaches the presenter
+to the `Window`.
 
 ```csharp
 public partial class App : Application
@@ -676,17 +722,24 @@ public partial class App : Application
 }
 ```
 
-`IMauiPresentationState` remains available for diagnostics and modal/window hosting concerns, but `IMauiRouterStartupService` is the recommended app integration point.
+`IMauiPresentationState` remains available for diagnostics and modal/window hosting concerns, but
+`IMauiRouterStartupService` is the recommended app integration point.
 
 ## Putting The Architecture To Work
 
-The quick start wires the minimal path. The same pieces also handle a more realistic navigation flow: a signed-out user opens a product link on cold start, the app validates the link, normalizes any legacy URL shape, redirects to login, defers the original request, and replays it after sign-in.
+The quick start wires the minimal path. The same pieces also handle a more realistic navigation flow: a signed-out user
+opens a product link on cold start, the app validates the link, normalizes any legacy URL shape, redirects to login,
+defers the original request, and replays it after sign-in.
 
 ### Boundary Ingress Carries Runtime Context
 
-Built-in MAUI app-link hooks create `RouterNavigationRequest` values internally from Android intents and iOS/Mac Catalyst URL or user-activity callbacks. App-owned external sources such as Branch, push, and QR bridges should dispatch equivalent runtime requests through `IMauiExternalNavigationDispatcher`.
+Built-in MAUI app-link hooks create `RouterNavigationRequest` values internally from Android intents and iOS/Mac
+Catalyst URL or user-activity callbacks. App-owned external sources such as Branch, push, and QR bridges should dispatch
+equivalent runtime requests through `IMauiExternalNavigationDispatcher`.
 
-MauiRouter does not ship Branch, push notification, QR scanner, or auth-provider SDK integrations. Provider-specific bridges stay in app code; MauiRouter owns the common routing contract, buffering, dedupe, policy, planning, and presentation pipeline.
+MauiRouter does not ship Branch, push notification, QR scanner, or auth-provider SDK integrations. Provider-specific
+bridges stay in app code; MauiRouter owns the common routing contract, buffering, dedupe, policy, planning, and
+presentation pipeline.
 
 ```csharp
 using AdamE.MauiRouter.Maui.AppLinks;
@@ -708,9 +761,12 @@ public sealed class BranchLinkBridge(IMauiExternalNavigationDispatcher dispatche
 }
 ```
 
-That request carries transport context: source, provenance, timestamp, optional window targeting, and request metadata. It is intentionally separate from the durable `AppRoute`.
+That request carries transport context: source, provenance, timestamp, optional window targeting, and request metadata.
+It is intentionally separate from the durable `AppRoute`.
 
-Auth callbacks are different. A raw auth callback should usually terminate in the app's auth subsystem, not become a router source. After sign-in, app code can replay a deferred request or dispatch an app-authored post-auth navigation request when the auth flow resolves to an actual navigation intent.
+Auth callbacks are different. A raw auth callback should usually terminate in the app's auth subsystem, not become a
+router source. After sign-in, app code can replay a deferred request or dispatch an app-authored post-auth navigation
+request when the auth flow resolves to an actual navigation intent.
 
 ### Route Metadata Stays App-Owned
 
@@ -724,7 +780,9 @@ var request = AppRouteRequest
     .WithMetadata(CommerceRouteMetadata.TraceId, Activity.Current?.TraceId.ToString());
 ```
 
-The `RouteStateRegistry` decides which metadata is canonical, restorable, or ephemeral. That keeps campaign, return-path, and trace-style data out of page constructors while still making it available to route formatting, persistence, policies, and planning when the app chooses.
+The `RouteStateRegistry` decides which metadata is canonical, restorable, or ephemeral. That keeps campaign,
+return-path, and trace-style data out of page constructors while still making it available to route formatting,
+persistence, policies, and planning when the app chooses.
 
 ### Policies Centralize Compatibility And Auth
 
@@ -737,7 +795,8 @@ builder.Services.AddSingleton<INavigationAccessEvaluator, CommerceAccessEvaluato
 builder.Services.AddSingleton<INavigationRequestPolicy, AccessGateNavigationPolicy>();
 ```
 
-`AddMauiRouterFileDeferredNavigationRequests()` registers both `IDeferredNavigationRequestStore` and `IDeferredNavigationRequestReplayer`. The app still chooses when to call replay.
+`AddMauiRouterFileDeferredNavigationRequests()` registers both `IDeferredNavigationRequestStore` and
+`IDeferredNavigationRequestReplayer`. The app still chooses when to call replay.
 
 A compatibility policy can normalize old URLs before the planner sees them:
 
@@ -793,7 +852,8 @@ public sealed class CommerceAccessEvaluator(IAuthState auth) : INavigationAccess
 }
 ```
 
-Deferred replay is provided by the library, but the app chooses when to invoke it. A common place is the auth boundary after sign-in completes:
+Deferred replay is provided by the library, but the app chooses when to invoke it. A common place is the auth boundary
+after sign-in completes:
 
 ```csharp
 public sealed class SignInCompletionHandler(
@@ -816,7 +876,8 @@ public sealed class SignInCompletionHandler(
 
 ### The Planner Sees Route Meaning And App State
 
-After matching and request policy, the planner receives the typed route plus request context and current navigation state. That is where route meaning becomes branch hosts, stacks, modals, and windows.
+After matching and request policy, the planner receives the typed route plus request context and current navigation
+state. That is where route meaning becomes branch hosts, stacks, modals, and windows.
 
 ```csharp
 public ValueTask<NavigationPlan> CreatePlanAsync(
@@ -854,17 +915,23 @@ public ValueTask<NavigationPlan> CreatePlanAsync(
 }
 ```
 
-This is the core split in practice: URLs and boundary requests describe intent, policies decide whether that intent is acceptable right now, the planner maps accepted intent into logical app state, and the MAUI presenter turns that state into native UI.
+This is the core split in practice: URLs and boundary requests describe intent, policies decide whether that intent is
+acceptable right now, the planner maps accepted intent into logical app state, and the MAUI presenter turns that state
+into native UI.
 
 ## MAUI Integration
 
 One common MauiRouter integration looks like this:
 
 1. Define durable semantic destinations as `AppRoute`.
-2. Use `AppRoute`, `AppRouteRequest`, `Uri`, or `RouterNavigationRequest` based on how much route metadata or runtime transport context the caller needs.
-3. Keep route-owned metadata app-defined in a `RouteStateRegistry` when formatting, persistence, or downstream app behavior depend on it.
-4. Register `AddMauiRouter(...)`, optional persistence or deferred-request services, and `AddMauiRouterStartup(...)` as needed by the app.
-5. Use `IMauiExternalNavigationDispatcher`, `IMauiRouterStartupService`, or direct `IRouterNavigator` calls where external lifecycle or transport-aware boundaries need explicit control.
+2. Use `AppRoute`, `AppRouteRequest`, `Uri`, or `RouterNavigationRequest` based on how much route metadata or runtime
+   transport context the caller needs.
+3. Keep route-owned metadata app-defined in a `RouteStateRegistry` when formatting, persistence, or downstream app
+   behavior depend on it.
+4. Register `AddMauiRouter(...)`, optional persistence or deferred-request services, and `AddMauiRouterStartup(...)` as
+   needed by the app.
+5. Use `IMauiExternalNavigationDispatcher`, `IMauiRouterStartupService`, or direct `IRouterNavigator` calls where
+   external lifecycle or transport-aware boundaries need explicit control.
 
 For one complete MAUI integration walkthrough, see [docs/maui-integration.md](docs/maui-integration.md).
 
@@ -907,7 +974,9 @@ var routeRequest = AppRouteRequest
     .WithMetadata(new RouteMetadataKey<string>("campaign"), "spring-sale");
 ```
 
-Use `AppRouteRequest` for route factories, metadata-bearing in-app navigation, URL formatting, and compatibility normalization. If runtime transport concerns such as URI ingress, source, window targeting, or policy/persistence handoff matter, convert it to `RouterNavigationRequest` at the call site or boundary:
+Use `AppRouteRequest` for route factories, metadata-bearing in-app navigation, URL formatting, and compatibility
+normalization. If runtime transport concerns such as URI ingress, source, window targeting, or policy/persistence
+handoff matter, convert it to `RouterNavigationRequest` at the call site or boundary:
 
 ```csharp
 var runtimeRequest = RouterNavigationRequest.FromRouteRequest(
@@ -917,7 +986,8 @@ var runtimeRequest = RouterNavigationRequest.FromRouteRequest(
 
 ### `RouterNavigationRequest`
 
-`RouterNavigationRequest` carries runtime transport context around a navigation intent. It is useful when the caller needs explicit URI ingress, source, window targeting, request metadata, provenance, or disposition.
+`RouterNavigationRequest` carries runtime transport context around a navigation intent. It is useful when the caller
+needs explicit URI ingress, source, window targeting, request metadata, provenance, or disposition.
 
 Important properties:
 
@@ -926,7 +996,8 @@ Important properties:
 - `Source`: app link, push, QR, in-app command, restore, test, or native reconciliation.
 - `WindowId`: optional target window.
 - `Metadata`: app-owned request metadata.
-- `Provenance`: runtime request context such as provider, original URI, referrer URI, correlation id, cold-start flag when known, and string attributes.
+- `Provenance`: runtime request context such as provider, original URI, referrer URI, correlation id, cold-start flag
+  when known, and string attributes.
 - `Timestamp`: request creation time.
 
 Factory helpers:
@@ -937,9 +1008,13 @@ RouterNavigationRequest.FromRoute(route, NavigationRequestSource.InAppCommand);
 RouterNavigationRequest.FromRouteRequest(routeRequest, NavigationRequestSource.InAppCommand);
 ```
 
-Common uses include app-link ingress, app-owned external bridges, startup fallback, restore, request-policy pipelines, deferred replay, tests, and any navigation flow that needs explicit transport metadata.
+Common uses include app-link ingress, app-owned external bridges, startup fallback, restore, request-policy pipelines,
+deferred replay, tests, and any navigation flow that needs explicit transport metadata.
 
-`NavigationRequestProvenance` is not part of `AppRoute`, `AppRouteRequest`, URL formatting, or `RouteStateRegistry`. Built-in MAUI app-link ingress sets provenance automatically. App-owned external sources such as Branch, push, QR, and provider SDK bridges should set it explicitly before dispatch. MauiRouter sets transport provenance it owns; apps set provider/business provenance they own. See [docs/provenance.md](docs/provenance.md) for the field ownership table.
+`NavigationRequestProvenance` is not part of `AppRoute`, `AppRouteRequest`, URL formatting, or `RouteStateRegistry`.
+Built-in MAUI app-link ingress sets provenance automatically. App-owned external sources such as Branch, push, QR, and
+provider SDK bridges should set it explicitly before dispatch. MauiRouter sets transport provenance it owns; apps set
+provider/business provenance they own. See [docs/provenance.md](docs/provenance.md) for the field ownership table.
 
 ```csharp
 var branchUri = new Uri("https://example.com/stores/northwind");
@@ -970,7 +1045,8 @@ Test
 NativeReconciliation
 ```
 
-Use the source to drive policies. For example, app-link requests might require authentication, push requests might carry notification metadata, and restore requests might skip animation.
+Use the source to drive policies. For example, app-link requests might require authentication, push requests might carry
+notification metadata, and restore requests might skip animation.
 
 ### `RouteTable`
 
@@ -1028,14 +1104,14 @@ Route templates are path-driven and support pragmatic inline syntax:
 
 Built-in constraints:
 
-| Constraint | Example | Notes |
-| --- | --- | --- |
-| `int` | `{productId:int}` | 32-bit integer, invariant culture |
-| `long` | `{orderId:long}` | 64-bit integer, invariant culture |
-| `guid` | `{id:guid}` | GUID formats accepted by `Guid.TryParse` |
-| `bool` | `{active:bool}` | Boolean values accepted by `bool.TryParse` |
-| `decimal` | `{price:decimal}` | Decimal number, invariant culture |
-| `alpha` | `{storeId:alpha}` | Letters only |
+| Constraint | Example           | Notes                                      |
+|------------|-------------------|--------------------------------------------|
+| `int`      | `{productId:int}` | 32-bit integer, invariant culture          |
+| `long`     | `{orderId:long}`  | 64-bit integer, invariant culture          |
+| `guid`     | `{id:guid}`       | GUID formats accepted by `Guid.TryParse`   |
+| `bool`     | `{active:bool}`   | Boolean values accepted by `bool.TryParse` |
+| `decimal`  | `{price:decimal}` | Decimal number, invariant culture          |
+| `alpha`    | `{storeId:alpha}` | Letters only                               |
 
 Custom constraints are registered on `RouteTableBuilder` and then used with the same inline syntax:
 
@@ -1056,13 +1132,21 @@ var routes = RouteTable.Create(routes => routes
             .PathParam("sku", route => route.Sku)));
 ```
 
-Custom constraints are builder-scoped, case-insensitive, and must be registered before mapping templates that reference them. They cannot redefine built-in constraint names. Matching and formatting use the same predicate, so an invalid formatted path value throws instead of producing an invalid URL.
+Custom constraints are builder-scoped, case-insensitive, and must be registered before mapping templates that reference
+them. They cannot redefine built-in constraint names. Matching and formatting use the same predicate, so an invalid
+formatted path value throws instead of producing an invalid URL.
 
-Optional path parameters must be complete trailing segments. Catch-all parameters must be final. Duplicate parameter names, unknown constraints, exact duplicate templates, and ambiguous overlapping templates are rejected when the route table is built.
+Optional path parameters must be complete trailing segments. Catch-all parameters must be final. Duplicate parameter
+names, unknown constraints, exact duplicate templates, and ambiguous overlapping templates are rejected when the route
+table is built.
 
-Overlapping constrained templates are allowed only when the built-in constraints are known to be disjoint. For example, `/values/{value:int}` and `/values/{value:alpha}` can coexist, while overlapping pairs such as `int`/`long`, `int`/`decimal`, `bool`/`alpha`, and `alpha`/`guid` are rejected.
+Overlapping constrained templates are allowed only when the built-in constraints are known to be disjoint. For example,
+`/values/{value:int}` and `/values/{value:alpha}` can coexist, while overlapping pairs such as `int`/`long`, `int`/
+`decimal`, `bool`/`alpha`, and `alpha`/`guid` are rejected.
 
-Custom constraints are treated conservatively during ambiguity validation. Equal-specificity custom constrained templates are assumed to overlap unless either constraint declares the other name in `disjointWith`. This declaration is symmetric for validation purposes.
+Custom constraints are treated conservatively during ambiguity validation. Equal-specificity custom constrained
+templates are assumed to overlap unless either constraint declares the other name in `disjointWith`. This declaration is
+symmetric for validation purposes.
 
 Route matching uses deterministic precedence:
 
@@ -1070,7 +1154,9 @@ Route matching uses deterministic precedence:
 literal > constrained parameter (including constrained optional parameter) > unconstrained parameter > unconstrained optional parameter > catch-all
 ```
 
-Exact shorter routes win over broader optional or catch-all routes when both can match the same URL. For example, `/docs` wins over `/docs/{*path}` for `/docs`, and `/stores/{storeId}` wins over `/stores/{storeId}/{section?}` for `/stores/northwind`. Registration order is only a final tie-breaker for non-ambiguous routes.
+Exact shorter routes win over broader optional or catch-all routes when both can match the same URL. For example,
+`/docs` wins over `/docs/{*path}` for `/docs`, and `/stores/{storeId}` wins over `/stores/{storeId}/{section?}` for
+`/stores/northwind`. Registration order is only a final tie-breaker for non-ambiguous routes.
 
 ### `RouteMatchContext`
 
@@ -1087,7 +1173,8 @@ match.QueryAll("tag");              // all repeated values
 match.QueryAll<Guid>("ids");        // typed repeated values
 ```
 
-`Query(name)` returns the last value for compatibility with single-value query usage. Use `QueryAll(name)` when repeated query keys are meaningful.
+`Query(name)` returns the last value for compatibility with single-value query usage. Use `QueryAll(name)` when repeated
+query keys are meaningful.
 
 Path values are required unless the template marks the segment optional. Query values are always optional.
 
@@ -1111,7 +1198,9 @@ If the formatter returns an enumerable value, `QueryParam` formats repeated keys
 
 ### Convention Routes
 
-`MapRoute<TRoute>` binds path parameters by member name and can bind query values with `Query(...)`. Because query values are always optional, any constructor parameter reached through a convention query binding must be nullable or provide a default value.
+`MapRoute<TRoute>` binds path parameters by member name and can bind query values with `Query(...)`. Because query
+values are always optional, any constructor parameter reached through a convention query binding must be nullable or
+provide a default value.
 
 ```csharp
 public sealed record SearchRoute(string StoreId, IReadOnlyList<string> Tags) : AppRoute;
@@ -1271,7 +1360,8 @@ NavigateAsync(Uri|AppRoute|AppRouteRequest|RouterNavigationRequest)
   -> state/history update
 ```
 
-Navigation operations are serialized. In-app navigation, back navigation, restore, and native reconciliation all run through the same internal queue so state, history, and presentation stay ordered.
+Navigation operations are serialized. In-app navigation, back navigation, restore, and native reconciliation all run
+through the same internal queue so state, history, and presentation stay ordered.
 
 Public state:
 
@@ -1287,7 +1377,8 @@ Common navigation entry points:
 - `NavigateAsync(AppRouteRequest...)` starts from a typed route plus route-owned metadata.
 - `NavigateAsync(RouterNavigationRequest...)` starts from an explicit runtime request.
 
-When a fallback route is selected, the route continues through request policies, app planning, plan policies, presentation, and history like any other semantic route.
+When a fallback route is selected, the route continues through request policies, app planning, plan policies,
+presentation, and history like any other semantic route.
 
 Back navigation:
 
@@ -1302,7 +1393,8 @@ if (!result.Handled)
 
 Additional public operations:
 
-- `ReconcileAsync(...)` accepts an explicit `NavigationReconciliation`; this is useful for host-owned or test-driven reconciliation.
+- `ReconcileAsync(...)` accepts an explicit `NavigationReconciliation`; this is useful for host-owned or test-driven
+  reconciliation.
 
 ### Policies
 
@@ -1349,20 +1441,19 @@ var current = history.Current;
 
 Each `NavigationHistoryEntry` contains:
 
-- `Id`
 - `Request`
 - `Route`
 - `State`
-- `Reason`
-- `Timestamp`
 
 History is bounded to `128` entries by default.
 
-Native stacks are projections of logical state, but native gestures can become authoritative user intent through reconciliation.
+Native stacks are projections of logical state, but native gestures can become authoritative user intent through
+reconciliation.
 
 ### Deferred Request Persistence
 
-Deferred request persistence stores pending `RouterNavigationRequest` values, not full router state. It is intended for protected app-link, invite, push, or similar flows where a request must wait until the app is ready to handle it.
+Deferred request persistence stores pending `RouterNavigationRequest` values, not full router state. It is intended for
+protected app-link, invite, push, or similar flows where a request must wait until the app is ready to handle it.
 
 ```csharp
 builder.Services.AddMauiRouterFileDeferredNavigationRequests(options =>
@@ -1372,15 +1463,21 @@ builder.Services.AddMauiRouterFileDeferredNavigationRequests(options =>
 });
 ```
 
-Deferred request snapshots store canonical route URIs, request source, window scope, provenance, and explicitly restorable route metadata. They do not store MAUI pages, DI scopes, handlers, native stacks, or full navigation history.
+Deferred request snapshots store canonical route URIs, request source, window scope, provenance, and explicitly
+restorable route metadata. They do not store MAUI pages, DI scopes, handlers, native stacks, or full navigation history.
 
-Route-owned metadata is omitted unless it is registered as `RouteStateLifetime.Restorable` in the configured `RouteStateRegistry`. Custom metadata outside the route state registry can be serialized by implementing `INavigationRequestMetadataSerializer`.
+Route-owned metadata is omitted unless it is registered as `RouteStateLifetime.Restorable` in the configured
+`RouteStateRegistry`. Custom metadata outside the route state registry can be serialized by implementing
+`INavigationRequestMetadataSerializer`.
 
-For cold start, register `AddMauiRouterStartup` and call `IMauiRouterStartupService.StartAsync(window)` from `CreateWindow`; the service checks buffered app links before fallback navigation and records whether deferred requests are pending.
+For cold start, register `AddMauiRouterStartup` and call `IMauiRouterStartupService.StartAsync(window)` from
+`CreateWindow`; the service checks buffered app links before fallback navigation and records whether deferred requests
+are pending.
 
 ### Diagnostics
 
-`NavigationDiagnostics` emits events for route matching, policies, planning, presentation, MAUI startup, reconciliation, back navigation, app-link delivery, and failures.
+`NavigationDiagnostics` emits events for route matching, policies, planning, presentation, MAUI startup, reconciliation,
+back navigation, app-link delivery, and failures.
 
 ```csharp
 var diagnostics = new NavigationDiagnostics();
@@ -1394,7 +1491,8 @@ diagnostics.EventWritten += (_, e) =>
 Every event has:
 
 - `OperationId`: stable id for one navigation, back, reconciliation, or app-link operation.
-- `Phase`: route matching, request policy, planning, plan policy, presentation, persistence, reconciliation, back, app link, or diagnostics.
+- `Phase`: route matching, request policy, planning, plan policy, presentation, persistence, reconciliation, back, app
+  link, or diagnostics.
 - `Severity`: trace, debug, information, warning, error, or critical.
 - `Data`: structured values with stable keys.
 
@@ -1445,7 +1543,8 @@ public sealed class LoggingNavigationObserver : INavigationDiagnosticObserver
 diagnostics.AddObserver(new LoggingNavigationObserver());
 ```
 
-Observer failures are isolated from navigation. Completion and failure events include diagnostic data such as duration and exception details where applicable.
+Observer failures are isolated from navigation. Completion and failure events include diagnostic data such as duration
+and exception details where applicable.
 
 Diagnostics can mirror directly to `ILogger`:
 
@@ -1454,9 +1553,11 @@ ILogger logger = loggerFactory.CreateLogger("Navigation");
 var diagnostics = new NavigationDiagnostics(logger);
 ```
 
-`AddMauiRouter` registers diagnostics with an `ILoggerFactory` when logging is available. The blessed MAUI runtime creates enabled diagnostics by default; use `NavigationDiagnostics.None` only in tests or custom internal composition.
+`AddMauiRouter` registers diagnostics with an `ILoggerFactory` when logging is available. The blessed MAUI runtime
+creates enabled diagnostics by default; use `NavigationDiagnostics.None` only in tests or custom internal composition.
 
-Diagnostics also mirror events into the current `Activity`. Navigation activities are emitted from `NavigationActivitySources.Default`.
+Diagnostics also mirror events into the current `Activity`. Navigation activities are emitted from
+`NavigationActivitySources.Default`.
 
 ```csharp
 using var listener = new ActivityListener
@@ -1475,7 +1576,8 @@ using var listener = new ActivityListener
 ActivitySource.AddActivityListener(listener);
 ```
 
-Activity tags include operation id, request source, route type, route template, plan kind, reconciliation source, window id, and failure metadata when applicable.
+Activity tags include operation id, request source, route type, route template, plan kind, reconciliation source, window
+id, and failure metadata when applicable.
 
 Event kinds include:
 
@@ -1576,7 +1678,8 @@ The MAUI adapter is intentionally separate from core. Core does not reference MA
 
 ### Recommended Registration
 
-Most apps should use `AddMauiRouter<TPlanner>()`, register app-owned `INavigationRequestPolicy` services, and keep page maps on `MauiRoutePageRegistry`.
+Most apps should use `AddMauiRouter<TPlanner>()`, register app-owned `INavigationRequestPolicy` services, and keep page
+maps on `MauiRoutePageRegistry`.
 
 ```csharp
 builder.Services.AddMauiRouter<CommerceNavigationPlanner>(
@@ -1586,7 +1689,8 @@ builder.Services.AddMauiRouter<CommerceNavigationPlanner>(
         .MapPage<ProductDetailRoute, ProductDetailPage>());
 ```
 
-If page mappings live outside the composition root, register them with `AddMauiRouterPages(...)` and keep `AddMauiRouter(...)` in the app host:
+If page mappings live outside the composition root, register them with `AddMauiRouterPages(...)` and keep
+`AddMauiRouter(...)` in the app host:
 
 ```csharp
 services.AddMauiRouterPages(pages => pages
@@ -1613,12 +1717,15 @@ Use the factory overload when you need custom construction.
 });
 ```
 
-Pages are created in a per-page DI scope by default. When the presenter removes a page from native navigation, it releases that scope.
-Page constructors receive the typed `AppRoute`, not route-entry metadata. If a page needs route-entry metadata, prefer `IMauiRoutePageLifecycleHook` or app-specific page wiring.
+Pages are created in a per-page DI scope by default. When the presenter removes a page from native navigation, it
+releases that scope.
+Page constructors receive the typed `AppRoute`, not route-entry metadata. If a page needs route-entry metadata, prefer
+`IMauiRoutePageLifecycleHook` or app-specific page wiring.
 
 ### Startup And Window Attachment
 
-Most MAUI apps should register the startup service and call it from `CreateWindow`. This is the standard cold-start entry point.
+Most MAUI apps should register the startup service and call it from `CreateWindow`. This is the standard cold-start
+entry point.
 
 ```csharp
 using AdamE.MauiRouter.Requests;
@@ -1645,23 +1752,28 @@ protected override Window CreateWindow(IActivationState? activationState)
 }
 ```
 
-Startup waits up to `MauiRouterStartupOptions.AppLinkGracePeriod` for a buffered app link. If one is pending, startup gives it priority. Otherwise it tries snapshot restore, then the optional `FallbackRequestFactory`, then attaches the window even when no navigation occurs. If app-link dispatch fails later, the buffered request stays pending so a later startup-adjacent trigger such as another dispatch or foreground change can retry it without losing order.
+Startup waits up to `MauiRouterStartupOptions.AppLinkGracePeriod` for a buffered app link. If one is pending, startup
+gives it priority. Otherwise it tries snapshot restore, then the optional `FallbackRequestFactory`, then attaches the
+window even when no navigation occurs. If app-link dispatch fails later, the buffered request stays pending so a later
+startup-adjacent trigger such as another dispatch or foreground change can retry it without losing order.
 
 ### Native Container Projection
 
 The v1 MAUI presenter projects state into real MAUI containers.
 
-| State node | MAUI projection |
-| --- | --- |
-| `StackNode` | `NavigationPage` |
-| `BranchHostNode` | `TabbedPage` |
-| `ModalNode` | `PushModalAsync` / `PopModalAsync` |
+| State node       | MAUI projection                    |
+|------------------|------------------------------------|
+| `StackNode`      | `NavigationPage`                   |
+| `BranchHostNode` | `TabbedPage`                       |
+| `ModalNode`      | `PushModalAsync` / `PopModalAsync` |
 
-This is deliberate. Native containers preserve platform behavior such as swipe-back, Android back behavior, tab UX, and modal presentation.
+This is deliberate. Native containers preserve platform behavior such as swipe-back, Android back behavior, tab UX, and
+modal presentation.
 
 ### Incremental Updates
 
-The presenter tries to reuse existing host containers when host ids and route entry ids still line up. It preserves branch pages by branch id, diffs navigation stacks by common route-entry prefix, and releases removed page scopes.
+The presenter tries to reuse existing host containers when host ids and route entry ids still line up. It preserves
+branch pages by branch id, diffs navigation stacks by common route-entry prefix, and releases removed page scopes.
 
 For example, if a catalog stack changes from:
 
@@ -1687,14 +1799,16 @@ Current committed native reconciliation sources:
 NativeBackGesture
 ModalDismissed
 TabChanged
-OtherNativeEvent
 ```
 
-Native user-driven back remains native-first: iOS swipe-back and Android native back behavior come from the real `NavigationPage`, and the presenter reconciles `Popped`/`PoppedToRoot` events after native stack changes.
+Native user-driven back remains native-first: iOS swipe-back and Android native back behavior come from the real
+`NavigationPage`, and the presenter reconciles `Popped`/`PoppedToRoot` events after native stack changes.
 
-Android predictive back is not implemented in v1. MauiRouter's state/planning model is intended to make predictive back feasible later, but true support requires Android-specific gesture preview, cancellation, and commit handling.
+Android predictive back is not implemented in v1. MauiRouter's state/planning model is intended to make predictive back
+feasible later, but true support requires Android-specific gesture preview, cancellation, and commit handling.
 
-The internal router runtime records reconciliation in logical history; app code continues to interact with `IRouterNavigator`.
+The internal router runtime records reconciliation in logical history; app code continues to interact with
+`IRouterNavigator`.
 
 ### App Links
 
@@ -1708,11 +1822,21 @@ builder
     .UseMauiRouterAppLinks();
 ```
 
-`UseMauiRouterAppLinks` listens for Android intents and iOS/Mac Catalyst URL/user-activity callbacks. Requests are buffered until `IMauiRouterStartupService.StartAsync(window)` marks the router ready. These built-in callbacks attach `NavigationRequestProvenance` automatically with providers from `MauiAppLinkProvenanceProviders`: `android-intent`, `ios-open-url`, `ios-user-activity`, and `maui-app-link`. For app-owned external sources such as Branch, push, or QR bridges, resolve `IMauiExternalNavigationDispatcher`, create a `RouterNavigationRequest` with explicit provenance, and call `Dispatch(RouterNavigationRequest?)`.
+`UseMauiRouterAppLinks` listens for Android intents and iOS/Mac Catalyst URL/user-activity callbacks. Requests are
+buffered until `IMauiRouterStartupService.StartAsync(window)` marks the router ready. These built-in callbacks attach
+`NavigationRequestProvenance` automatically with providers from `MauiAppLinkProvenanceProviders`: `android-intent`,
+`ios-open-url`, `ios-user-activity`, and `maui-app-link`. For app-owned external sources such as Branch, push, or QR
+bridges, resolve `IMauiExternalNavigationDispatcher`, create a `RouterNavigationRequest` with explicit provenance, and
+call `Dispatch(RouterNavigationRequest?)`.
 
-Interactive foreground boundaries such as a QR scanner may call `IRouterNavigator.NavigateAsync(RouterNavigationRequest)` directly when the caller must observe navigation failure to recover UI state. Keep that exception local to the interactive boundary and still attach explicit `NavigationRequestProvenance`.
+Interactive foreground boundaries such as a QR scanner may call
+`IRouterNavigator.NavigateAsync(RouterNavigationRequest)` directly when the caller must observe navigation failure to
+recover UI state. Keep that exception local to the interactive boundary and still attach explicit
+`NavigationRequestProvenance`.
 
-Raw auth callbacks are auth events, not a first-class router source. Handle them in the auth subsystem, then replay a deferred navigation request or dispatch an app-authored post-auth request if the completed auth flow produces a navigation intent.
+Raw auth callbacks are auth events, not a first-class router source. Handle them in the auth subsystem, then replay a
+deferred navigation request or dispatch an app-authored post-auth request if the completed auth flow produces a
+navigation intent.
 
 Platform manifest setup for Universal Links and Android App Links is still the app's responsibility.
 
@@ -1780,7 +1904,8 @@ TabbedPage
   Orders tab -> NavigationPage
 ```
 
-The query values `variant` and `promo` modify the product route. They do not select a branch host or define host structure.
+The query values `variant` and `promo` modify the product route. They do not select a branch host or define host
+structure.
 
 ## Recipes
 
@@ -1868,11 +1993,16 @@ Register it:
 services.AddSingleton<INavigationRequestPolicy, ClosedStorePolicy>();
 ```
 
-When a request policy changes the navigation target, the navigator treats that as a redirect. A target change means `Uri`, `Route`, `Source`, or `WindowId` changed. Metadata and timestamp changes are preserved, but they do not count as redirects and do not restart the pipeline.
+When a request policy changes the navigation target, the navigator treats that as a redirect. A target change means
+`Uri`, `Route`, `Source`, or `WindowId` changed. Metadata and timestamp changes are preserved, but they do not count as
+redirects and do not restart the pipeline.
 
-Redirects restart request-policy execution from the first policy, then continue through route matching, fallback, planning, presentation, diagnostics, and history as a normal navigation. This keeps authentication, tenant normalization, and canonical route policies deterministic.
+Redirects restart request-policy execution from the first policy, then continue through route matching, fallback,
+planning, presentation, diagnostics, and history as a normal navigation. This keeps authentication, tenant
+normalization, and canonical route policies deterministic.
 
-The blessed runtime allows up to `16` redirects by default. If a policy loop repeats a target or the redirect chain exceeds the limit, navigation throws `RouteRedirectLoopException` and does not mutate logical state or history.
+The blessed runtime allows up to `16` redirects by default. If a policy loop repeats a target or the redirect chain
+exceeds the limit, navigation throws `RouteRedirectLoopException` and does not mutate logical state or history.
 
 Redirect diagnostics use:
 
@@ -1905,7 +2035,8 @@ var plan = new NavigationPlan(nextState, NavigationPlanKind.Navigate, "Open cart
 
 ### Unit Test Navigation Without MAUI
 
-Use `AdamE.MauiRouter.Testing` for framework-neutral route, planner, navigator, diagnostics, and state helpers. The testing package has no MAUI or test-framework dependency.
+Use `AdamE.MauiRouter.Testing` for framework-neutral route, planner, navigator, diagnostics, and state helpers. The
+testing package has no MAUI or test-framework dependency.
 
 Route table tests:
 
@@ -2128,9 +2259,11 @@ dotnet pack src/AdamE.MauiRouter.Maui/AdamE.MauiRouter.Maui.csproj
 dotnet pack src/AdamE.MauiRouter.Testing/AdamE.MauiRouter.Testing.csproj
 ```
 
-For platform execution with XHarness and manual release checks, see [docs/release-checklist.md](docs/release-checklist.md).
+For platform execution with XHarness and manual release checks,
+see [docs/release-checklist.md](docs/release-checklist.md).
 
-For the next Scavos dogfooding checkpoint on whether route-owned metadata and request intent should stay split, see [docs/app-route-request-dogfood-checkpoint.md](docs/app-route-request-dogfood-checkpoint.md).
+For the next Scavos dogfooding checkpoint on whether route-owned metadata and request intent should stay split,
+see [docs/app-route-request-dogfood-checkpoint.md](docs/app-route-request-dogfood-checkpoint.md).
 
 Useful source scans:
 
@@ -2166,18 +2299,18 @@ Likely future work:
 
 ## Glossary
 
-| Term | Meaning |
-| --- | --- |
-| App route | Typed semantic destination, such as `ProductDetailRoute`. |
-| Navigation request | A route or URI plus source metadata. |
-| Route matching | URI/template parsing into a typed route. |
-| App planning | App-owned conversion from typed route to navigation state. |
-| Navigation state | Canonical logical model of windows, hosts, branches, stacks, and modals. |
-| Navigation plan | Intended mutation from current state to target state. |
-| Presenter | Adapter that materializes state into UI. |
-| Reconciliation | Native UI event updating logical state/history. |
-| Host | Structural container such as a branch host, stack, modal, or window. |
-| Route entry | A route placed into a structural node, usually a stack or modal. |
+| Term               | Meaning                                                                  |
+|--------------------|--------------------------------------------------------------------------|
+| App route          | Typed semantic destination, such as `ProductDetailRoute`.                |
+| Navigation request | A route or URI plus source metadata.                                     |
+| Route matching     | URI/template parsing into a typed route.                                 |
+| App planning       | App-owned conversion from typed route to navigation state.               |
+| Navigation state   | Canonical logical model of windows, hosts, branches, stacks, and modals. |
+| Navigation plan    | Intended mutation from current state to target state.                    |
+| Presenter          | Adapter that materializes state into UI.                                 |
+| Reconciliation     | Native UI event updating logical state/history.                          |
+| Host               | Structural container such as a branch host, stack, modal, or window.     |
+| Route entry        | A route placed into a structural node, usually a stack or modal.         |
 
 ## License
 

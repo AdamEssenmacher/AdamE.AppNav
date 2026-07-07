@@ -32,11 +32,9 @@ public sealed class RouteStateRegistryBuilder
     {
         ArgumentNullException.ThrowIfNull(key);
 
-        if (!_registrations.TryAdd(key.Name, new RouteStateRegistration(key.Name, typeof(TValue), lifetime)))
-        {
+        if (!_registrations.TryAdd(key.Name, new RouteStateRegistration(RouteMetadataKey<TValue>.ValueType, lifetime)))
             throw new InvalidOperationException(
                 $"Route state key '{key.Name}' is already registered.");
-        }
 
         return this;
     }

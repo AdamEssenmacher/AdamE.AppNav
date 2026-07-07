@@ -1,3 +1,5 @@
+using JetBrains.Annotations;
+
 namespace AdamE.MauiRouter.Routing;
 
 public sealed class RouteMatchContext
@@ -18,12 +20,13 @@ public sealed class RouteMatchContext
             StringComparer.OrdinalIgnoreCase);
     }
 
-    public Uri SourceUri { get; }
+    public Uri SourceUri { [UsedImplicitly] get; }
 
     public IReadOnlyDictionary<string, string> PathValues { get; }
 
     public IReadOnlyDictionary<string, string> QueryValues { get; }
 
+    // ReSharper disable once MemberCanBePrivate.Global
     public IReadOnlyDictionary<string, IReadOnlyList<string>> QueryValueLists { get; }
 
     internal IReadOnlyDictionary<string, object?> Metadata =>
@@ -33,44 +36,46 @@ public sealed class RouteMatchContext
 
     public string Path(string name)
     {
-        if (!PathValues.TryGetValue(name, out var value))
-        {
-            throw new KeyNotFoundException($"Path parameter '{name}' was not present in the matched route.");
-        }
-
-        return value;
+        return !PathValues.TryGetValue(name, out string? value)
+            ? throw new KeyNotFoundException($"Path parameter '{name}' was not present in the matched route.")
+            : value;
     }
 
-    public T Path<T>(string name) => RouteValueConverter.Convert<T>(Path(name), name);
+    public T Path<T>(string name)
+    {
+        return RouteValueConverter.Convert<T>(Path(name), name);
+    }
 
     public string? PathOptional(string name)
     {
-        return PathValues.TryGetValue(name, out var value) ? value : null;
+        return PathValues.GetValueOrDefault(name);
     }
 
     public T? PathOptional<T>(string name)
         where T : struct
     {
-        var value = PathOptional(name);
+        string? value = PathOptional(name);
         return value is null ? null : RouteValueConverter.Convert<T>(value, name);
     }
 
     public string? Query(string name)
     {
-        return QueryValues.TryGetValue(name, out var value) ? value : null;
+        return QueryValues.GetValueOrDefault(name);
     }
 
+    // ReSharper disable once MemberCanBePrivate.Global
     public T? Query<T>(string name)
     {
-        var value = Query(name);
+        string? value = Query(name);
         return value is null ? default : RouteValueConverter.Convert<T>(value, name);
     }
 
     public IReadOnlyList<string> QueryAll(string name)
     {
-        return QueryValueLists.TryGetValue(name, out var values) ? values : Array.Empty<string>();
+        return QueryValueLists.TryGetValue(name, out IReadOnlyList<string>? values) ? values : [];
     }
 
+    // ReSharper disable once UnusedMember.Global
     public IReadOnlyList<T> QueryAll<T>(string name)
     {
         return QueryAll(name)
@@ -78,6 +83,7 @@ public sealed class RouteMatchContext
             .ToArray();
     }
 
+    // ReSharper disable once UnusedMethodReturnValue.Global
     public T? QueryMetadata<T>(RouteMetadataKey<T> key, bool omitWhenNull = true)
     {
         ArgumentNullException.ThrowIfNull(key);
@@ -87,14 +93,13 @@ public sealed class RouteMatchContext
         return value;
     }
 
+    // ReSharper disable once MemberCanBePrivate.Global
     public void AddMetadata<T>(RouteMetadataKey<T> key, T? value, bool omitWhenNull = true)
     {
         ArgumentNullException.ThrowIfNull(key);
 
         if (value is null && omitWhenNull)
-        {
             return;
-        }
 
         _metadata ??= new Dictionary<string, object?>(StringComparer.Ordinal);
         _metadata[key.Name] = value;
@@ -105,9 +110,7 @@ public sealed class RouteMatchContext
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
         if (value is null && omitWhenNull)
-        {
             return;
-        }
 
         _metadata ??= new Dictionary<string, object?>(StringComparer.Ordinal);
         _metadata[name] = value;

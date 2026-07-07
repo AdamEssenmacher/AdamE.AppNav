@@ -27,7 +27,7 @@ public sealed class RouteDefinition
 
     internal RouteMatch Create(RouteMatchContext context)
     {
-        var route = _createRoute(context);
+        AppRoute route = _createRoute(context);
         return new RouteMatch(route, context.Metadata);
     }
 

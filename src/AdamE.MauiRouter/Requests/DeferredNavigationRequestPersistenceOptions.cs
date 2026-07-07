@@ -2,9 +2,9 @@ namespace AdamE.MauiRouter.Requests;
 
 public sealed class DeferredNavigationRequestPersistenceOptions
 {
-    public Uri BaseUri { get; set; } = new("https://example.com/");
+    public Uri BaseUri { get; init; } = new("https://example.com/");
 
-    public INavigationRequestMetadataSerializer? MetadataSerializer { get; set; }
+    public INavigationRequestMetadataSerializer? MetadataSerializer { get; init; }
 
-    public RouteStateRegistry? RouteStateRegistry { get; set; }
+    public RouteStateRegistry? RouteStateRegistry { get; init; }
 }
