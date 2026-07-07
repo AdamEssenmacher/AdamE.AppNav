@@ -1747,9 +1747,10 @@ protected override Window CreateWindow(IActivationState? activationState)
 ```
 
 Startup waits up to `AppNavStartupOptions.AppLinkGracePeriod` for a buffered app link. If one is pending, startup
-gives it priority. Otherwise it tries snapshot restore, then the optional `FallbackRequestFactory`, then attaches the
-window even when no navigation occurs. If app-link dispatch fails later, the buffered request stays pending so a later
-startup-adjacent trigger such as another dispatch or foreground change can retry it without losing order.
+gives it priority. Otherwise it checks the deferred-request store for pending protected requests, then tries the optional
+`FallbackRequestFactory`, then attaches the window even when no navigation occurs. If app-link dispatch fails later, the
+buffered request stays pending so a later startup-adjacent trigger such as another dispatch or foreground change can
+retry it without losing order.
 
 ### Native Container Projection
 
