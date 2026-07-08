@@ -202,6 +202,106 @@ public sealed class AppNavSourceGeneratorTests
     }
 
     [Fact]
+    public void PageModelTypeAllowsPartialPageWithBaseSuppliedByXaml()
+    {
+        const string source = """
+            using AdamE.AppNav;
+            using AdamE.AppNav.Maui;
+            using AdamE.AppNav.Routing;
+
+            namespace Scavos.Mobile.Presentation;
+
+            [AppNavRoute("/games/{gameId}/hub")]
+            public sealed record GameHubRoute(string GameId) : AppRoute;
+
+            [MauiRoutePage(typeof(GameHubRoute), PageModelType = typeof(HubTabPageModel))]
+            public partial class HubTab
+            {
+            }
+
+            public sealed class HubTabPageModel
+            {
+            }
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+
+        Assert.DoesNotContain(result.GeneratorDiagnostics, static diagnostic => diagnostic.Id == "APPNAV021");
+        Assert.Contains("page.BindingContext ??= global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<global::Scavos.Mobile.Presentation.HubTabPageModel>(services);", result.GeneratedSource);
+        AssertCompileCleanWithAdditionalSource(
+            result.Compilation,
+            """
+            using Microsoft.Maui.Controls;
+
+            namespace Scavos.Mobile.Presentation;
+
+            public partial class HubTab : ContentPage
+            {
+            }
+            """);
+    }
+
+    [Fact]
+    public void NonPartialPageWithoutPageBaseReportsDiagnostic()
+    {
+        const string source = """
+            using AdamE.AppNav;
+            using AdamE.AppNav.Maui;
+            using AdamE.AppNav.Routing;
+
+            namespace Scavos.Mobile.Presentation;
+
+            [AppNavRoute("/games/{gameId}/hub")]
+            public sealed record GameHubRoute(string GameId) : AppRoute;
+
+            [MauiRoutePage(typeof(GameHubRoute), PageModelType = typeof(HubTabPageModel))]
+            public sealed class HubTab
+            {
+            }
+
+            public sealed class HubTabPageModel
+            {
+            }
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+
+        Assert.Contains(result.GeneratorDiagnostics, static diagnostic => diagnostic.Id == "APPNAV021");
+    }
+
+    [Fact]
+    public void PartialPageWithExplicitNonPageBaseReportsDiagnostic()
+    {
+        const string source = """
+            using AdamE.AppNav;
+            using AdamE.AppNav.Maui;
+            using AdamE.AppNav.Routing;
+
+            namespace Scavos.Mobile.Presentation;
+
+            [AppNavRoute("/games/{gameId}/hub")]
+            public sealed record GameHubRoute(string GameId) : AppRoute;
+
+            public class HubTabBase
+            {
+            }
+
+            [MauiRoutePage(typeof(GameHubRoute), PageModelType = typeof(HubTabPageModel))]
+            public partial class HubTab : HubTabBase
+            {
+            }
+
+            public sealed class HubTabPageModel
+            {
+            }
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+
+        Assert.Contains(result.GeneratorDiagnostics, static diagnostic => diagnostic.Id == "APPNAV021");
+    }
+
+    [Fact]
     public void MissingPathPropertyReportsDiagnostic()
     {
         const string source = """
@@ -393,6 +493,17 @@ public sealed class AppNavSourceGeneratorTests
             .Where(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
             .ToArray();
         Assert.Empty(errors);
+    }
+
+    private static void AssertCompileCleanWithAdditionalSource(
+        Compilation compilation,
+        string source)
+    {
+        SyntaxTree syntaxTree = CSharpSyntaxTree.ParseText(
+            source,
+            CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.Latest));
+
+        AssertCompileClean(compilation.AddSyntaxTrees(syntaxTree));
     }
 
     private sealed record GeneratorResult(

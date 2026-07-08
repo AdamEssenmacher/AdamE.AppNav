@@ -1661,9 +1661,11 @@ Use the fluent type-based overload when page registration needs to stay runtime-
 
 ```csharp
 [MauiRoutePage(typeof(GameHubRoute), PageModelType = typeof(PlayPageModel))]
-public sealed partial class PlayPage : ContentPage;
+public sealed partial class PlayPage;
 ```
 
+For XAML-backed pages, the C# code-behind can rely on the XAML-generated partial for the `ContentPage` or custom page
+base type.
 When `PageModelType` is set, the generated factory resolves the page and page model from DI and assigns the model to
 `BindingContext` only when the page has not already set one.
 

@@ -822,7 +822,8 @@ internal static class PageModelFactory
         }
 
         if (symbols.MauiPage is not null &&
-            !SymbolFacts.IsAssignableTo(pageType, symbols.MauiPage))
+            !SymbolFacts.IsAssignableTo(pageType, symbols.MauiPage) &&
+            !CanDeferPageTypeValidation(pageType))
         {
             reportDiagnostic(Diagnostic.Create(
                 AppNavDiagnostics.InvalidPageType,
@@ -854,6 +855,22 @@ internal static class PageModelFactory
         }
 
         return new PageModel(pageType, routeType, fromServices, pageModelType, constructor, location);
+    }
+
+    private static bool CanDeferPageTypeValidation(INamedTypeSymbol pageType)
+    {
+        if (pageType.TypeKind != TypeKind.Class)
+            return false;
+
+        if (pageType.BaseType is { SpecialType: not SpecialType.System_Object })
+            return false;
+
+        return pageType.DeclaringSyntaxReferences
+            .Select(static reference => reference.GetSyntax())
+            .OfType<ClassDeclarationSyntax>()
+            .Any(static declaration =>
+                declaration.BaseList is null &&
+                declaration.Modifiers.Any(SyntaxKind.PartialKeyword));
     }
 
     private static IMethodSymbol? SelectPageConstructor(
