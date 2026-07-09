@@ -1051,6 +1051,9 @@ internal static class PageModelFactory
         if (routeType is null ||
             symbols.AppRoute is null ||
             !SymbolFacts.InheritsFrom(routeType, symbols.AppRoute) ||
+            routeType.IsAbstract ||
+            SymbolFacts.ContainsTypeParameters(routeType) ||
+            !SymbolFacts.IsAccessibleFromGeneratedCode(routeType) ||
             SymbolFacts.GetAttribute(routeType, AppNavSymbols.RouteAttributeName) is null)
         {
             reportDiagnostic(Diagnostic.Create(
@@ -1094,6 +1097,18 @@ internal static class PageModelFactory
 
             if (argument.Key == "PageModelType")
                 pageModelType = argument.Value.Value as INamedTypeSymbol;
+        }
+
+        if (pageModelType is not null &&
+            (SymbolFacts.ContainsTypeParameters(pageModelType) ||
+             !SymbolFacts.IsAccessibleFromGeneratedCode(pageModelType)))
+        {
+            reportDiagnostic(Diagnostic.Create(
+                AppNavDiagnostics.InvalidPageModelType,
+                location,
+                pageType.ToDisplayString(),
+                pageModelType.ToDisplayString()));
+            return null;
         }
 
         IMethodSymbol? constructor = null;
@@ -1956,9 +1971,7 @@ internal static class RouteValueSourceEmitter
             return "global::System.Guid.Parse(" + valueExpression + ")";
 
         string typeName = SymbolFacts.TypeName(type);
-        return "(" + typeName + ")global::System.ComponentModel.TypeDescriptor.GetConverter(typeof(" +
-               typeName + ")).ConvertFrom(null, global::System.Globalization.CultureInfo.InvariantCulture, " +
-               valueExpression + ")!";
+        return "ConvertRouteValue<" + typeName + ">(" + valueExpression + ", " + nameExpression + ")";
     }
 
     private static string EmitNumericParse(
@@ -2030,8 +2043,22 @@ internal static class ConstantEmitter
             case bool boolean:
                 return boolean ? "true" : "false";
             case float single:
+                if (float.IsNaN(single))
+                    return "global::System.Single.NaN";
+                if (float.IsPositiveInfinity(single))
+                    return "global::System.Single.PositiveInfinity";
+                if (float.IsNegativeInfinity(single))
+                    return "global::System.Single.NegativeInfinity";
+
                 return single.ToString("R", CultureInfo.InvariantCulture) + "f";
             case double dbl:
+                if (double.IsNaN(dbl))
+                    return "global::System.Double.NaN";
+                if (double.IsPositiveInfinity(dbl))
+                    return "global::System.Double.PositiveInfinity";
+                if (double.IsNegativeInfinity(dbl))
+                    return "global::System.Double.NegativeInfinity";
+
                 return dbl.ToString("R", CultureInfo.InvariantCulture) + "d";
             case decimal dec:
                 return dec.ToString(CultureInfo.InvariantCulture) + "m";
@@ -2091,6 +2118,18 @@ internal static class AppNavSourceEmitter
         builder.AppendLine("            return parse(value);");
         builder.AppendLine("        }");
         builder.AppendLine("        catch (global::System.OverflowException ex)");
+        builder.AppendLine("        {");
+        builder.AppendLine("            throw new global::System.FormatException(\"Route value '\" + name + \"' could not be converted to \" + typeof(TValue).Name + \".\", ex);");
+        builder.AppendLine("        }");
+        builder.AppendLine("    }");
+        builder.AppendLine();
+        builder.AppendLine("    private static TValue ConvertRouteValue<TValue>(string value, string name)");
+        builder.AppendLine("    {");
+        builder.AppendLine("        try");
+        builder.AppendLine("        {");
+        builder.AppendLine("            return (TValue)global::System.ComponentModel.TypeDescriptor.GetConverter(typeof(TValue)).ConvertFrom(null, global::System.Globalization.CultureInfo.InvariantCulture, value)!;");
+        builder.AppendLine("        }");
+        builder.AppendLine("        catch (global::System.ArgumentException ex)");
         builder.AppendLine("        {");
         builder.AppendLine("            throw new global::System.FormatException(\"Route value '\" + name + \"' could not be converted to \" + typeof(TValue).Name + \".\", ex);");
         builder.AppendLine("        }");

@@ -341,6 +341,16 @@ maps the `CommerceRouteMetadata.Campaign` key defined in the next step so campai
 RouteTable routes = AppNavGenerated.CreateRouteTable();
 ```
 
+NuGet packages include the generator as an analyzer asset. When consuming this repository by project reference before
+packages are published, add the generator project as an analyzer reference in the app project:
+
+```xml
+<ProjectReference Include="..\src\AdamE.AppNav.Generators\AdamE.AppNav.Generators.csproj"
+                  OutputItemType="Analyzer"
+                  ReferenceOutputAssembly="false"
+                  PrivateAssets="all" />
+```
+
 Route table responsibilities:
 
 - Match URLs to typed routes.

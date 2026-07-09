@@ -129,6 +129,18 @@ public sealed class RepositoryContractTests
     }
 
     [Fact]
+    public void ReleaseConfidenceRunsGeneratorTests()
+    {
+        var workflow = File.ReadAllText(
+            Path.Combine(RepositoryRoot(), ".github", "workflows", "release-confidence.yml"));
+
+        Assert.Contains(
+            "tests/AdamE.AppNav.Generators.Tests/AdamE.AppNav.Generators.Tests.csproj",
+            workflow,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AppLinkHelpersCreateAppLinkRequests()
     {
         var appLinksDirectory = Path.Combine(RepositoryRoot(), "src", "AdamE.AppNav.Maui");

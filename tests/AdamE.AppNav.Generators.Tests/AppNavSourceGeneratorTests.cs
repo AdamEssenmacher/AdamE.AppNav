@@ -121,6 +121,64 @@ public sealed class AppNavSourceGeneratorTests
     }
 
     [Fact]
+    public void GeneratedRouteTableReturnsFailedMatchForConverterArgumentFailures()
+    {
+        const string source = """
+            using System;
+            using System.ComponentModel;
+            using System.Globalization;
+            using AdamE.AppNav;
+            using AdamE.AppNav.Routing;
+
+            namespace Commerce.Sample;
+
+            [TypeConverter(typeof(SlugConverter))]
+            public readonly struct Slug
+            {
+                public Slug(string value)
+                {
+                    Value = value;
+                }
+
+                public string Value { get; }
+            }
+
+            public sealed class SlugConverter : TypeConverter
+            {
+                public override bool CanConvertFrom(ITypeDescriptorContext? context, Type sourceType)
+                {
+                    return sourceType == typeof(string) || base.CanConvertFrom(context, sourceType);
+                }
+
+                public override object? ConvertFrom(ITypeDescriptorContext? context, CultureInfo? culture, object value)
+                {
+                    string text = (string)value;
+                    if (text == "bad")
+                        throw new ArgumentException("Invalid slug.", nameof(value));
+
+                    return new Slug(text);
+                }
+            }
+
+            [AppNavRoute("/slugs/{slug}")]
+            public sealed record SlugRoute(Slug Slug) : AppRoute;
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+        Assert.Empty(result.GeneratorDiagnostics.Where(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assert.Contains("ConvertRouteValue<global::Commerce.Sample.Slug>", result.GeneratedSource);
+        Assembly assembly = Emit(result.Compilation);
+
+        Type generatedType = assembly.GetRequiredType("Commerce.Sample.AppNavGenerated");
+        var table = Assert.IsType<RouteTable>(generatedType.GetMethod("CreateRouteTable")!.Invoke(null, null));
+
+        RouteMatchResult match = table.Match(new Uri("/slugs/bad", UriKind.Relative));
+
+        Assert.False(match.IsSuccess);
+        Assert.Contains(match.Diagnostics, static diagnostic => diagnostic.Code == "route.value.invalid");
+    }
+
+    [Fact]
     public void GeneratedRouteTableReadsRepeatedQueryValuesForCollectionArguments()
     {
         const string source = """
@@ -438,6 +496,38 @@ public sealed class AppNavSourceGeneratorTests
     }
 
     [Fact]
+    public void GeneratedMauiPageModulePreservesNonFiniteFloatingPointDefaults()
+    {
+        const string source = """
+            using AdamE.AppNav;
+            using AdamE.AppNav.Maui;
+            using AdamE.AppNav.Routing;
+            using Microsoft.Maui.Controls;
+
+            namespace Commerce.Sample;
+
+            [AppNavRoute("/stores/{storeId}")]
+            public sealed record StoreRoute(string StoreId) : AppRoute;
+
+            [MauiRoutePage(typeof(StoreRoute))]
+            public sealed class StorePage : ContentPage
+            {
+                public StorePage(StoreRoute route, double value = double.NaN, float scale = float.PositiveInfinity)
+                {
+                }
+            }
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+
+        Assert.Empty(result.GeneratorDiagnostics.Where(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assert.Contains(
+            "new global::Commerce.Sample.StorePage(route, global::System.Double.NaN, global::System.Single.PositiveInfinity)",
+            result.GeneratedSource);
+        AssertCompileClean(result.Compilation);
+    }
+
+    [Fact]
     public void GeneratedMauiPageModuleBindsOnlyBestRouteConstructorParameter()
     {
         const string source = """
@@ -495,6 +585,31 @@ public sealed class AppNavSourceGeneratorTests
         GeneratorResult result = RunGenerator(source);
 
         Assert.Contains(result.GeneratorDiagnostics, static diagnostic => diagnostic.Id == "APPNAV021");
+    }
+
+    [Fact]
+    public void MauiPageMappingToOpenGenericRouteReportsDiagnostic()
+    {
+        const string source = """
+            using AdamE.AppNav;
+            using AdamE.AppNav.Maui;
+            using AdamE.AppNav.Routing;
+            using Microsoft.Maui.Controls;
+
+            namespace Commerce.Sample;
+
+            [AppNavRoute("/details")]
+            public sealed record DetailRoute<T>() : AppRoute;
+
+            [MauiRoutePage(typeof(DetailRoute<>), FromServices = true)]
+            public sealed class DetailPage : ContentPage
+            {
+            }
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+
+        Assert.Contains(result.GeneratorDiagnostics, static diagnostic => diagnostic.Id == "APPNAV020");
     }
 
     [Fact]
@@ -671,6 +786,35 @@ public sealed class AppNavSourceGeneratorTests
         Assert.Contains("ServiceProviderServiceExtensions.GetRequiredService<global::Scavos.Mobile.Presentation.PlayPage>(services)", result.GeneratedSource);
         Assert.Contains("page.BindingContext ??= global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<global::Scavos.Mobile.Presentation.PlayPageModel>(services);", result.GeneratedSource);
         AssertCompileClean(result.Compilation);
+    }
+
+    [Fact]
+    public void InvalidPageModelTypeReportsDiagnostic()
+    {
+        const string source = """
+            using AdamE.AppNav;
+            using AdamE.AppNav.Maui;
+            using AdamE.AppNav.Routing;
+            using Microsoft.Maui.Controls;
+
+            namespace Scavos.Mobile.Presentation;
+
+            [AppNavRoute("/games/{gameId}/hub")]
+            public sealed record GameHubRoute(string GameId) : AppRoute;
+
+            public sealed class PlayPageModel<T>
+            {
+            }
+
+            [MauiRoutePage(typeof(GameHubRoute), PageModelType = typeof(PlayPageModel<>))]
+            public sealed class PlayPage : ContentPage
+            {
+            }
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+
+        Assert.Contains(result.GeneratorDiagnostics, static diagnostic => diagnostic.Id == "APPNAV025");
     }
 
     [Fact]

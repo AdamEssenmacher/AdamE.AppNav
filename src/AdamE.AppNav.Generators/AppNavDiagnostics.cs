@@ -94,6 +94,11 @@ internal static class AppNavDiagnostics
         "MAUI page route is mapped more than once",
         "Route '{0}' is mapped to both page '{1}' and page '{2}'");
 
+    public static readonly DiagnosticDescriptor InvalidPageModelType = Error(
+        "APPNAV025",
+        "MAUI page model type is invalid",
+        "Page '{0}' uses page model type '{1}', but page model types must be non-generic and accessible from generated code");
+
     private static DiagnosticDescriptor Error(string id, string title, string message)
     {
         return new DiagnosticDescriptor(
