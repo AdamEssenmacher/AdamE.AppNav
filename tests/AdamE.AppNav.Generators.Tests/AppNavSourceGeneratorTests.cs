@@ -198,6 +198,97 @@ public sealed class AppNavSourceGeneratorTests
     }
 
     [Fact]
+    public void OpenGenericAppNavRouteReportsDiagnostic()
+    {
+        const string source = """
+            using AdamE.AppNav;
+            using AdamE.AppNav.Routing;
+
+            namespace Commerce.Sample;
+
+            [AppNavRoute("/details/{id}")]
+            public sealed record DetailRoute<T>(string Id) : AppRoute;
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+
+        Assert.Contains(result.GeneratorDiagnostics, static diagnostic => diagnostic.Id == "APPNAV012");
+    }
+
+    [Fact]
+    public void OverriddenBaseRoutePropertiesDoNotReportDuplicateDiagnostic()
+    {
+        const string source = """
+            using AdamE.AppNav;
+            using AdamE.AppNav.Routing;
+
+            namespace Commerce.Sample;
+
+            public abstract record EntityRoute : AppRoute
+            {
+                protected EntityRoute(string id)
+                {
+                    Id = id;
+                }
+
+                public virtual string Id { get; }
+            }
+
+            [AppNavRoute("/items/{id}")]
+            public sealed record ItemRoute : EntityRoute
+            {
+                public ItemRoute(string id) : base(id)
+                {
+                }
+
+                public override string Id => base.Id;
+            }
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+
+        Assert.DoesNotContain(result.GeneratorDiagnostics, static diagnostic => diagnostic.Id == "APPNAV013");
+        Assert.Empty(result.GeneratorDiagnostics.Where(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        AssertCompileClean(result.Compilation);
+    }
+
+    [Fact]
+    public void GeneratedRouteTableIgnoresAttributedRoutesFromReferencedAssemblies()
+    {
+        MetadataReference routeReference = EmitReference(
+            "Commerce.Contracts",
+            """
+            using AdamE.AppNav;
+            using AdamE.AppNav.Routing;
+
+            namespace Commerce.Contracts;
+
+            [AppNavRoute("/external")]
+            public sealed record ExternalRoute() : AppRoute;
+            """);
+
+        const string source = """
+            using AdamE.AppNav;
+            using AdamE.AppNav.Routing;
+
+            namespace Commerce.Sample;
+
+            [AppNavRoute("/local")]
+            public sealed record LocalRoute() : AppRoute;
+            """;
+
+        GeneratorResult result = RunGenerator(source, [routeReference]);
+
+        Assert.Empty(result.GeneratorDiagnostics.Where(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assert.DoesNotContain("ExternalRoute", result.GeneratedSource);
+        Assembly assembly = Emit(result.Compilation);
+        Type generatedType = assembly.GetRequiredType("Commerce.Sample.AppNavGenerated");
+        var table = Assert.IsType<RouteTable>(generatedType.GetMethod("CreateRouteTable")!.Invoke(null, null));
+        RouteDefinition definition = Assert.Single(table.Definitions);
+        Assert.Equal("LocalRoute", definition.RouteType.Name);
+    }
+
+    [Fact]
     public void GeneratedMauiPageModuleUsesExplicitRouteAndServiceConstructorArguments()
     {
         const string source = """
@@ -226,6 +317,72 @@ public sealed class AppNavSourceGeneratorTests
         Assert.Empty(result.GeneratorDiagnostics.Where(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
         Assert.Contains("public static global::AdamE.AppNav.Maui.IMauiRoutePageModule MauiPageModule", result.GeneratedSource);
         Assert.Contains("ServiceProviderServiceExtensions.GetRequiredService<global::AdamE.AppNav.Navigation.IRouterNavigator>(services)", result.GeneratedSource);
+        AssertCompileClean(result.Compilation);
+    }
+
+    [Fact]
+    public void GeneratedMauiPageModulePreservesDefaultStructConstructorDefaults()
+    {
+        const string source = """
+            using System.Threading;
+            using AdamE.AppNav;
+            using AdamE.AppNav.Maui;
+            using AdamE.AppNav.Routing;
+            using Microsoft.Maui.Controls;
+
+            namespace Commerce.Sample;
+
+            [AppNavRoute("/stores/{storeId}")]
+            public sealed record StoreRoute(string StoreId) : AppRoute;
+
+            [MauiRoutePage(typeof(StoreRoute))]
+            public sealed class StorePage : ContentPage
+            {
+                public StorePage(StoreRoute route, CancellationToken cancellationToken = default)
+                {
+                }
+            }
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+
+        Assert.Empty(result.GeneratorDiagnostics.Where(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assert.Contains(
+            "new global::Commerce.Sample.StorePage(route, default(global::System.Threading.CancellationToken))",
+            result.GeneratedSource);
+        Assert.DoesNotContain("new global::Commerce.Sample.StorePage(route, null)", result.GeneratedSource);
+        AssertCompileClean(result.Compilation);
+    }
+
+    [Fact]
+    public void GeneratedMauiPageModuleBindsOnlyBestRouteConstructorParameter()
+    {
+        const string source = """
+            #nullable enable
+            using AdamE.AppNav;
+            using AdamE.AppNav.Maui;
+            using AdamE.AppNav.Routing;
+            using Microsoft.Maui.Controls;
+
+            namespace Commerce.Sample;
+
+            [AppNavRoute("/stores/{storeId}")]
+            public sealed record StoreRoute(string StoreId) : AppRoute;
+
+            [MauiRoutePage(typeof(StoreRoute))]
+            public sealed class StorePage : ContentPage
+            {
+                public StorePage(StoreRoute route, object? bindingContext = null)
+                {
+                }
+            }
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+
+        Assert.Empty(result.GeneratorDiagnostics.Where(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assert.Contains("new global::Commerce.Sample.StorePage(route, null)", result.GeneratedSource);
+        Assert.DoesNotContain("new global::Commerce.Sample.StorePage(route, route)", result.GeneratedSource);
         AssertCompileClean(result.Compilation);
     }
 

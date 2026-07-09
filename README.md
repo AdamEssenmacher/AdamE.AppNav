@@ -1162,7 +1162,7 @@ binding must be nullable or provide a default value.
 ```csharp
 [AppNavRoute("/stores/{storeId}/search")]
 [AppNavQuery("Tags", Name = "tag")]
-public sealed record SearchRoute(string StoreId, IReadOnlyList<string> Tags) : AppRoute;
+public sealed record SearchRoute(string StoreId, IReadOnlyList<string>? Tags = null) : AppRoute;
 
 // /stores/northwind/search?tag=blue&tag=green
 ```

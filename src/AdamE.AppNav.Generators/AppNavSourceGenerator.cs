@@ -37,12 +37,17 @@ public sealed class AppNavSourceGenerator : IIncrementalGenerator
         List<RouteModel> routes = new();
         foreach (INamedTypeSymbol type in SymbolWalker.GetAllTypes(compilation.GlobalNamespace))
         {
+            if (!SymbolFacts.IsDeclaredInSource(type))
+                continue;
+
             AttributeData? routeAttribute = SymbolFacts.GetAttribute(type, AppNavSymbols.RouteAttributeName);
             if (routeAttribute is null)
                 continue;
 
             sawAppNavDeclaration = true;
-            if (type.IsAbstract || !SymbolFacts.InheritsFrom(type, symbols.AppRoute))
+            if (type.IsAbstract ||
+                type.TypeParameters.Length > 0 ||
+                !SymbolFacts.InheritsFrom(type, symbols.AppRoute))
             {
                 context.ReportDiagnostic(Diagnostic.Create(
                     AppNavDiagnostics.InvalidRouteType,
@@ -61,6 +66,9 @@ public sealed class AppNavSourceGenerator : IIncrementalGenerator
         List<PageModel> pages = new();
         foreach (INamedTypeSymbol type in SymbolWalker.GetAllTypes(compilation.GlobalNamespace))
         {
+            if (!SymbolFacts.IsDeclaredInSource(type))
+                continue;
+
             AttributeData? pageAttribute = SymbolFacts.GetAttribute(type, AppNavSymbols.MauiRoutePageAttributeName);
             if (pageAttribute is null)
                 continue;
@@ -348,6 +356,11 @@ internal static class SymbolFacts
         return syntaxReference?.GetSyntax().GetLocation() ?? symbol.Locations.FirstOrDefault();
     }
 
+    public static bool IsDeclaredInSource(ISymbol symbol)
+    {
+        return symbol.Locations.Any(static location => location.IsInSource);
+    }
+
     public static string TypeName(ITypeSymbol type)
     {
         return type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
@@ -533,8 +546,11 @@ internal static class RouteModelFactory
                     property.GetMethod?.DeclaredAccessibility != Accessibility.Public)
                     continue;
 
-                if (properties.TryGetValue(property.Name, out _))
+                if (properties.TryGetValue(property.Name, out IPropertySymbol? existingProperty))
                 {
+                    if (IsHiddenBaseProperty(existingProperty, property))
+                        continue;
+
                     if (duplicateNames.Add(property.Name))
                     {
                         reportDiagnostic(Diagnostic.Create(
@@ -554,6 +570,23 @@ internal static class RouteModelFactory
         }
 
         return properties;
+    }
+
+    private static bool IsHiddenBaseProperty(IPropertySymbol derivedProperty, IPropertySymbol baseProperty)
+    {
+        if (!StringComparer.Ordinal.Equals(derivedProperty.Name, baseProperty.Name) ||
+            !SymbolFacts.InheritsFrom(derivedProperty.ContainingType, baseProperty.ContainingType))
+            return false;
+
+        for (IPropertySymbol? overridden = derivedProperty.OverriddenProperty;
+             overridden is not null;
+             overridden = overridden.OverriddenProperty)
+        {
+            if (SymbolEqualityComparer.Default.Equals(overridden, baseProperty))
+                return true;
+        }
+
+        return true;
     }
 
     private static IReadOnlyList<QueryBinding> BuildQueryBindings(
@@ -1001,14 +1034,17 @@ internal static class PageModelFactory
         }
 
         IMethodSymbol? constructor = null;
+        IParameterSymbol? routeParameter = null;
         if (!fromServices && pageModelType is null)
         {
             constructor = SelectPageConstructor(pageType, routeType, location, reportDiagnostic);
             if (constructor is null)
                 return null;
+
+            routeParameter = SelectPageRouteParameter(constructor, routeType);
         }
 
-        return new PageModel(pageType, routeType, fromServices, pageModelType, constructor, location);
+        return new PageModel(pageType, routeType, fromServices, pageModelType, constructor, routeParameter, location);
     }
 
     private static bool CanDeferPageTypeValidation(INamedTypeSymbol pageType)
@@ -1059,7 +1095,7 @@ internal static class PageModelFactory
             return null;
         }
 
-        if (!selected.Parameters.Any(parameter => SymbolFacts.IsAssignableTo(routeType, parameter.Type)))
+        if (SelectPageRouteParameter(selected, routeType) is null)
         {
             reportDiagnostic(Diagnostic.Create(
                 AppNavDiagnostics.MissingPageRouteParameter,
@@ -1070,6 +1106,34 @@ internal static class PageModelFactory
         }
 
         return selected;
+    }
+
+    private static IParameterSymbol? SelectPageRouteParameter(IMethodSymbol constructor, INamedTypeSymbol routeType)
+    {
+        return constructor.Parameters
+            .Where(parameter => SymbolFacts.IsAssignableTo(routeType, parameter.Type))
+            .OrderBy(parameter => RouteParameterScore(routeType, parameter.Type))
+            .FirstOrDefault();
+    }
+
+    private static int RouteParameterScore(INamedTypeSymbol routeType, ITypeSymbol parameterType)
+    {
+        if (SymbolEqualityComparer.Default.Equals(routeType, parameterType))
+            return 0;
+
+        var distance = 1;
+        for (INamedTypeSymbol? current = routeType.BaseType; current is not null; current = current.BaseType)
+        {
+            if (SymbolEqualityComparer.Default.Equals(current, parameterType))
+                return distance;
+
+            distance++;
+        }
+
+        if (parameterType.SpecialType == SpecialType.System_Object)
+            return 1000;
+
+        return 500;
     }
 }
 
@@ -1120,6 +1184,7 @@ internal sealed class PageModel
         bool fromServices,
         INamedTypeSymbol? pageModelType,
         IMethodSymbol? constructor,
+        IParameterSymbol? routeParameter,
         Location? location)
     {
         PageType = pageType;
@@ -1127,6 +1192,7 @@ internal sealed class PageModel
         FromServices = fromServices;
         PageModelType = pageModelType;
         Constructor = constructor;
+        RouteParameter = routeParameter;
         Location = location;
     }
 
@@ -1139,6 +1205,8 @@ internal sealed class PageModel
     public INamedTypeSymbol? PageModelType { get; }
 
     public IMethodSymbol? Constructor { get; }
+
+    public IParameterSymbol? RouteParameter { get; }
 
     public Location? Location { get; }
 }
@@ -1847,7 +1915,7 @@ internal static class ConstantEmitter
     public static string Emit(ITypeSymbol type, object? value)
     {
         if (value is null)
-            return "null";
+            return type.IsValueType ? "default(" + SymbolFacts.TypeName(type) + ")" : "null";
 
         ITypeSymbol valueType = type is INamedTypeSymbol named &&
                                 named.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T
@@ -2127,7 +2195,7 @@ internal static class AppNavSourceEmitter
 
             string arguments = string.Join(", ", page.Constructor!.Parameters.Select(parameter =>
             {
-                if (SymbolFacts.IsAssignableTo(page.RouteType, parameter.Type))
+                if (SymbolEqualityComparer.Default.Equals(parameter, page.RouteParameter))
                     return "route";
 
                 if (parameter.Type.ToDisplayString() == "System.IServiceProvider")
