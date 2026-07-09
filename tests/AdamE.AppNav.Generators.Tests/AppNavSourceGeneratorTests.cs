@@ -94,6 +94,33 @@ public sealed class AppNavSourceGeneratorTests
     }
 
     [Fact]
+    public void GeneratedRouteTableReturnsFailedMatchForNumericOverflows()
+    {
+        const string source = """
+            using AdamE.AppNav;
+            using AdamE.AppNav.Routing;
+
+            namespace Commerce.Sample;
+
+            [AppNavRoute("/pages/{page}")]
+            public sealed record PageRoute(int Page) : AppRoute;
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+        Assert.Empty(result.GeneratorDiagnostics.Where(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assert.Contains("ParseNumber<global::System.Int32>", result.GeneratedSource);
+        Assembly assembly = Emit(result.Compilation);
+
+        Type generatedType = assembly.GetRequiredType("Commerce.Sample.AppNavGenerated");
+        var table = Assert.IsType<RouteTable>(generatedType.GetMethod("CreateRouteTable")!.Invoke(null, null));
+
+        RouteMatchResult match = table.Match(new Uri("/pages/999999999999999999999", UriKind.Relative));
+
+        Assert.False(match.IsSuccess);
+        Assert.Contains(match.Diagnostics, static diagnostic => diagnostic.Code == "route.value.invalid");
+    }
+
+    [Fact]
     public void GeneratedRouteTableReadsRepeatedQueryValuesForCollectionArguments()
     {
         const string source = """
@@ -140,6 +167,27 @@ public sealed class AppNavSourceGeneratorTests
 
             [AppNavRoute("/invalid")]
             public sealed class NotARoute;
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+
+        Assert.Contains(result.GeneratorDiagnostics, static diagnostic => diagnostic.Id == "APPNAV012");
+    }
+
+    [Fact]
+    public void InaccessibleAppNavRouteReportsDiagnostic()
+    {
+        const string source = """
+            using AdamE.AppNav;
+            using AdamE.AppNav.Routing;
+
+            namespace Commerce.Sample;
+
+            public static class Routes
+            {
+                [AppNavRoute("/hidden")]
+                private sealed record HiddenRoute() : AppRoute;
+            }
             """;
 
         GeneratorResult result = RunGenerator(source);
@@ -355,6 +403,41 @@ public sealed class AppNavSourceGeneratorTests
     }
 
     [Fact]
+    public void GeneratedMauiPageModulePreservesUnsignedEnumConstructorDefaults()
+    {
+        const string source = """
+            using AdamE.AppNav;
+            using AdamE.AppNav.Maui;
+            using AdamE.AppNav.Routing;
+            using Microsoft.Maui.Controls;
+
+            namespace Commerce.Sample;
+
+            public enum BigValue : ulong
+            {
+                Max = ulong.MaxValue
+            }
+
+            [AppNavRoute("/stores/{storeId}")]
+            public sealed record StoreRoute(string StoreId) : AppRoute;
+
+            [MauiRoutePage(typeof(StoreRoute))]
+            public sealed class StorePage : ContentPage
+            {
+                public StorePage(StoreRoute route, BigValue value = BigValue.Max)
+                {
+                }
+            }
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+
+        Assert.Empty(result.GeneratorDiagnostics.Where(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assert.Contains("(global::Commerce.Sample.BigValue)18446744073709551615UL", result.GeneratedSource);
+        AssertCompileClean(result.Compilation);
+    }
+
+    [Fact]
     public void GeneratedMauiPageModuleBindsOnlyBestRouteConstructorParameter()
     {
         const string source = """
@@ -384,6 +467,70 @@ public sealed class AppNavSourceGeneratorTests
         Assert.Contains("new global::Commerce.Sample.StorePage(route, null)", result.GeneratedSource);
         Assert.DoesNotContain("new global::Commerce.Sample.StorePage(route, route)", result.GeneratedSource);
         AssertCompileClean(result.Compilation);
+    }
+
+    [Fact]
+    public void OpenGenericMauiPageReportsDiagnostic()
+    {
+        const string source = """
+            using AdamE.AppNav;
+            using AdamE.AppNav.Maui;
+            using AdamE.AppNav.Routing;
+            using Microsoft.Maui.Controls;
+
+            namespace Commerce.Sample;
+
+            [AppNavRoute("/stores/{storeId}")]
+            public sealed record StoreRoute(string StoreId) : AppRoute;
+
+            [MauiRoutePage(typeof(StoreRoute))]
+            public sealed class StorePage<T> : ContentPage
+            {
+                public StorePage(StoreRoute route)
+                {
+                }
+            }
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+
+        Assert.Contains(result.GeneratorDiagnostics, static diagnostic => diagnostic.Id == "APPNAV021");
+    }
+
+    [Fact]
+    public void DuplicateMauiPageMappingsReportDiagnostic()
+    {
+        const string source = """
+            using AdamE.AppNav;
+            using AdamE.AppNav.Maui;
+            using AdamE.AppNav.Routing;
+            using Microsoft.Maui.Controls;
+
+            namespace Commerce.Sample;
+
+            [AppNavRoute("/stores/{storeId}")]
+            public sealed record StoreRoute(string StoreId) : AppRoute;
+
+            [MauiRoutePage(typeof(StoreRoute))]
+            public sealed class StorePage : ContentPage
+            {
+                public StorePage(StoreRoute route)
+                {
+                }
+            }
+
+            [MauiRoutePage(typeof(StoreRoute))]
+            public sealed class OtherStorePage : ContentPage
+            {
+                public OtherStorePage(StoreRoute route)
+                {
+                }
+            }
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+
+        Assert.Contains(result.GeneratorDiagnostics, static diagnostic => diagnostic.Id == "APPNAV024");
     }
 
     [Fact]

@@ -46,7 +46,8 @@ public sealed class AppNavSourceGenerator : IIncrementalGenerator
 
             sawAppNavDeclaration = true;
             if (type.IsAbstract ||
-                type.TypeParameters.Length > 0 ||
+                SymbolFacts.ContainsTypeParameters(type) ||
+                !SymbolFacts.IsAccessibleFromGeneratedCode(type) ||
                 !SymbolFacts.InheritsFrom(type, symbols.AppRoute))
             {
                 context.ReportDiagnostic(Diagnostic.Create(
@@ -82,6 +83,8 @@ public sealed class AppNavSourceGenerator : IIncrementalGenerator
             if (model is not null)
                 pages.Add(model);
         }
+
+        ValidatePageMappings(pages, context.ReportDiagnostic);
 
         if (routes.Count == 0 && pages.Count == 0 && !sawAppNavDeclaration)
             return;
@@ -122,6 +125,29 @@ public sealed class AppNavSourceGenerator : IIncrementalGenerator
                         left.Template.Value,
                         right.Template.Value));
                 }
+            }
+        }
+    }
+
+    private static void ValidatePageMappings(
+        IReadOnlyList<PageModel> pages,
+        Action<Diagnostic> reportDiagnostic)
+    {
+        for (var i = 0; i < pages.Count; i++)
+        {
+            for (int j = i + 1; j < pages.Count; j++)
+            {
+                PageModel left = pages[i];
+                PageModel right = pages[j];
+                if (!SymbolEqualityComparer.Default.Equals(left.RouteType, right.RouteType))
+                    continue;
+
+                reportDiagnostic(Diagnostic.Create(
+                    AppNavDiagnostics.DuplicatePageRoute,
+                    right.Location,
+                    right.RouteType.ToDisplayString(),
+                    left.PageType.ToDisplayString(),
+                    right.PageType.ToDisplayString()));
             }
         }
     }
@@ -359,6 +385,33 @@ internal static class SymbolFacts
     public static bool IsDeclaredInSource(ISymbol symbol)
     {
         return symbol.Locations.Any(static location => location.IsInSource);
+    }
+
+    public static bool ContainsTypeParameters(INamedTypeSymbol type)
+    {
+        for (INamedTypeSymbol? current = type; current is not null; current = current.ContainingType)
+        {
+            if (current.TypeParameters.Length > 0)
+                return true;
+        }
+
+        return false;
+    }
+
+    public static bool IsAccessibleFromGeneratedCode(INamedTypeSymbol type)
+    {
+        for (INamedTypeSymbol? current = type; current is not null; current = current.ContainingType)
+        {
+            if (!IsAccessibleFromGeneratedCode(current.DeclaredAccessibility))
+                return false;
+        }
+
+        return true;
+    }
+
+    private static bool IsAccessibleFromGeneratedCode(Accessibility accessibility)
+    {
+        return accessibility is Accessibility.Public or Accessibility.Internal or Accessibility.ProtectedOrInternal;
     }
 
     public static string TypeName(ITypeSymbol type)
@@ -1005,6 +1058,16 @@ internal static class PageModelFactory
                 location,
                 pageType.ToDisplayString(),
                 routeType?.ToDisplayString() ?? string.Empty));
+            return null;
+        }
+
+        if (SymbolFacts.ContainsTypeParameters(pageType) ||
+            !SymbolFacts.IsAccessibleFromGeneratedCode(pageType))
+        {
+            reportDiagnostic(Diagnostic.Create(
+                AppNavDiagnostics.InvalidPageType,
+                location,
+                pageType.ToDisplayString()));
             return null;
         }
 
@@ -1855,27 +1918,38 @@ internal static class RouteValueSourceEmitter
             case SpecialType.System_Boolean:
                 return "global::System.Boolean.Parse(" + valueExpression + ")";
             case SpecialType.System_Byte:
-                return "global::System.Byte.Parse(" + valueExpression + ", global::System.Globalization.CultureInfo.InvariantCulture)";
+                return EmitNumericParse("global::System.Byte", valueExpression, nameExpression,
+                    "appNavValue => global::System.Byte.Parse(appNavValue, global::System.Globalization.CultureInfo.InvariantCulture)");
             case SpecialType.System_SByte:
-                return "global::System.SByte.Parse(" + valueExpression + ", global::System.Globalization.CultureInfo.InvariantCulture)";
+                return EmitNumericParse("global::System.SByte", valueExpression, nameExpression,
+                    "appNavValue => global::System.SByte.Parse(appNavValue, global::System.Globalization.CultureInfo.InvariantCulture)");
             case SpecialType.System_Int16:
-                return "global::System.Int16.Parse(" + valueExpression + ", global::System.Globalization.CultureInfo.InvariantCulture)";
+                return EmitNumericParse("global::System.Int16", valueExpression, nameExpression,
+                    "appNavValue => global::System.Int16.Parse(appNavValue, global::System.Globalization.CultureInfo.InvariantCulture)");
             case SpecialType.System_UInt16:
-                return "global::System.UInt16.Parse(" + valueExpression + ", global::System.Globalization.CultureInfo.InvariantCulture)";
+                return EmitNumericParse("global::System.UInt16", valueExpression, nameExpression,
+                    "appNavValue => global::System.UInt16.Parse(appNavValue, global::System.Globalization.CultureInfo.InvariantCulture)");
             case SpecialType.System_Int32:
-                return "global::System.Int32.Parse(" + valueExpression + ", global::System.Globalization.CultureInfo.InvariantCulture)";
+                return EmitNumericParse("global::System.Int32", valueExpression, nameExpression,
+                    "appNavValue => global::System.Int32.Parse(appNavValue, global::System.Globalization.CultureInfo.InvariantCulture)");
             case SpecialType.System_UInt32:
-                return "global::System.UInt32.Parse(" + valueExpression + ", global::System.Globalization.CultureInfo.InvariantCulture)";
+                return EmitNumericParse("global::System.UInt32", valueExpression, nameExpression,
+                    "appNavValue => global::System.UInt32.Parse(appNavValue, global::System.Globalization.CultureInfo.InvariantCulture)");
             case SpecialType.System_Int64:
-                return "global::System.Int64.Parse(" + valueExpression + ", global::System.Globalization.CultureInfo.InvariantCulture)";
+                return EmitNumericParse("global::System.Int64", valueExpression, nameExpression,
+                    "appNavValue => global::System.Int64.Parse(appNavValue, global::System.Globalization.CultureInfo.InvariantCulture)");
             case SpecialType.System_UInt64:
-                return "global::System.UInt64.Parse(" + valueExpression + ", global::System.Globalization.CultureInfo.InvariantCulture)";
+                return EmitNumericParse("global::System.UInt64", valueExpression, nameExpression,
+                    "appNavValue => global::System.UInt64.Parse(appNavValue, global::System.Globalization.CultureInfo.InvariantCulture)");
             case SpecialType.System_Decimal:
-                return "global::System.Decimal.Parse(" + valueExpression + ", global::System.Globalization.NumberStyles.Number, global::System.Globalization.CultureInfo.InvariantCulture)";
+                return EmitNumericParse("global::System.Decimal", valueExpression, nameExpression,
+                    "appNavValue => global::System.Decimal.Parse(appNavValue, global::System.Globalization.NumberStyles.Number, global::System.Globalization.CultureInfo.InvariantCulture)");
             case SpecialType.System_Single:
-                return "global::System.Single.Parse(" + valueExpression + ", global::System.Globalization.CultureInfo.InvariantCulture)";
+                return EmitNumericParse("global::System.Single", valueExpression, nameExpression,
+                    "appNavValue => global::System.Single.Parse(appNavValue, global::System.Globalization.CultureInfo.InvariantCulture)");
             case SpecialType.System_Double:
-                return "global::System.Double.Parse(" + valueExpression + ", global::System.Globalization.CultureInfo.InvariantCulture)";
+                return EmitNumericParse("global::System.Double", valueExpression, nameExpression,
+                    "appNavValue => global::System.Double.Parse(appNavValue, global::System.Globalization.CultureInfo.InvariantCulture)");
         }
 
         if (type.ToDisplayString() == "System.Guid")
@@ -1885,6 +1959,16 @@ internal static class RouteValueSourceEmitter
         return "(" + typeName + ")global::System.ComponentModel.TypeDescriptor.GetConverter(typeof(" +
                typeName + ")).ConvertFrom(null, global::System.Globalization.CultureInfo.InvariantCulture, " +
                valueExpression + ")!";
+    }
+
+    private static string EmitNumericParse(
+        string typeName,
+        string valueExpression,
+        string nameExpression,
+        string parseExpression)
+    {
+        return "ParseNumber<" + typeName + ">(" + valueExpression + ", " + nameExpression +
+               ", static " + parseExpression + ")";
     }
 
     private static ITypeSymbol UnwrapNullable(ITypeSymbol type)
@@ -1923,8 +2007,19 @@ internal static class ConstantEmitter
             : type;
 
         if (valueType.TypeKind == TypeKind.Enum)
-            return "(" + SymbolFacts.TypeName(valueType) + ")" + Convert.ToInt64(value, CultureInfo.InvariantCulture)
-                   .ToString(CultureInfo.InvariantCulture);
+        {
+            string enumTypeName = SymbolFacts.TypeName(valueType);
+            if (valueType is INamedTypeSymbol enumType &&
+                enumType.EnumUnderlyingType?.SpecialType is SpecialType.System_UInt64)
+            {
+                return "(" + enumTypeName + ")" +
+                       Convert.ToUInt64(value, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture) +
+                       "UL";
+            }
+
+            return "(" + enumTypeName + ")" +
+                   Convert.ToInt64(value, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture);
+        }
 
         switch (value)
         {
@@ -1987,6 +2082,18 @@ internal static class AppNavSourceEmitter
         builder.AppendLine("            return result;");
         builder.AppendLine();
         builder.AppendLine("        throw new global::System.FormatException(\"Route value '\" + name + \"' could not be converted to \" + typeof(TEnum).Name + \".\");");
+        builder.AppendLine("    }");
+        builder.AppendLine();
+        builder.AppendLine("    private static TValue ParseNumber<TValue>(string value, string name, global::System.Func<string, TValue> parse)");
+        builder.AppendLine("    {");
+        builder.AppendLine("        try");
+        builder.AppendLine("        {");
+        builder.AppendLine("            return parse(value);");
+        builder.AppendLine("        }");
+        builder.AppendLine("        catch (global::System.OverflowException ex)");
+        builder.AppendLine("        {");
+        builder.AppendLine("            throw new global::System.FormatException(\"Route value '\" + name + \"' could not be converted to \" + typeof(TValue).Name + \".\", ex);");
+        builder.AppendLine("        }");
         builder.AppendLine("    }");
 
         EmitRouteModule(builder, routes);

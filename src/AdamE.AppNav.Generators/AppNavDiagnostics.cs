@@ -62,7 +62,7 @@ internal static class AppNavDiagnostics
     public static readonly DiagnosticDescriptor InvalidRouteType = Error(
         "APPNAV012",
         "Route declaration type is invalid",
-        "Type '{0}' has AppNavRouteAttribute but must be a concrete AppRoute");
+        "Type '{0}' has AppNavRouteAttribute but must be a concrete, non-generic, accessible AppRoute");
 
     public static readonly DiagnosticDescriptor DuplicateRoutePropertyName = Error(
         "APPNAV013",
@@ -88,6 +88,11 @@ internal static class AppNavDiagnostics
         "APPNAV023",
         "MAUI page constructor does not accept the mapped route",
         "Page '{0}' must expose a selected public constructor with a parameter assignable from route '{1}'");
+
+    public static readonly DiagnosticDescriptor DuplicatePageRoute = Error(
+        "APPNAV024",
+        "MAUI page route is mapped more than once",
+        "Route '{0}' is mapped to both page '{1}' and page '{2}'");
 
     private static DiagnosticDescriptor Error(string id, string title, string message)
     {
