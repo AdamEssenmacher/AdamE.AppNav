@@ -278,16 +278,20 @@ internal sealed class AppNavSymbols
         "Microsoft.Extensions.DependencyInjection.ActivatorUtilitiesConstructorAttribute";
 
     private AppNavSymbols(
+        Compilation compilation,
         INamedTypeSymbol? appRoute,
         INamedTypeSymbol? routeMetadataKey,
         INamedTypeSymbol? mauiPage,
         INamedTypeSymbol? mauiRoutePageAttribute)
     {
+        Compilation = compilation;
         AppRoute = appRoute;
         RouteMetadataKey = routeMetadataKey;
         MauiPage = mauiPage;
         MauiRoutePageAttribute = mauiRoutePageAttribute;
     }
+
+    public Compilation Compilation { get; }
 
     public INamedTypeSymbol? AppRoute { get; }
 
@@ -300,6 +304,7 @@ internal sealed class AppNavSymbols
     public static AppNavSymbols Create(Compilation compilation)
     {
         return new AppNavSymbols(
+            compilation,
             compilation.GetTypeByMetadataName(AppRouteName),
             compilation.GetTypeByMetadataName(RouteMetadataKeyName),
             compilation.GetTypeByMetadataName(MauiPageName),
@@ -758,7 +763,7 @@ internal static class RouteModelFactory
                 symbols.RouteMetadataKey is null ||
                 memberType is not INamedTypeSymbol namedMemberType ||
                 !SymbolEqualityComparer.Default.Equals(namedMemberType.ConstructedFrom, symbols.RouteMetadataKey) ||
-                !IsStaticAccessibleMember(member))
+                !IsStaticAccessibleMember(member, symbols.Compilation))
             {
                 reportDiagnostic(Diagnostic.Create(
                     AppNavDiagnostics.InvalidQueryProperty,
@@ -769,17 +774,7 @@ internal static class RouteModelFactory
                 continue;
             }
 
-            bool hasQueryName = TryGetRouteMetadataKeyName(member, out string? queryName);
-            if (!hasQueryName && member.DeclaringSyntaxReferences.Length > 0)
-            {
-                reportDiagnostic(Diagnostic.Create(
-                    AppNavDiagnostics.InvalidQueryProperty,
-                    location,
-                    routeType.ToDisplayString(),
-                    memberName ?? string.Empty));
-                hasErrors = true;
-                continue;
-            }
+            TryGetRouteMetadataKeyName(member, out string? queryName);
 
             string memberKey = declaringType.ToDisplayString() + "." + memberName;
             if (!members.Add(memberKey))
@@ -819,31 +814,17 @@ internal static class RouteModelFactory
         return bindings;
     }
 
-    private static bool IsStaticAccessibleMember(ISymbol member)
+    private static bool IsStaticAccessibleMember(ISymbol member, Compilation compilation)
     {
         if (!member.IsStatic)
             return false;
 
-        for (INamedTypeSymbol? containingType = member.ContainingType;
-             containingType is not null;
-             containingType = containingType.ContainingType)
-        {
-            if (!IsAccessibleFromGeneratedCode(containingType.DeclaredAccessibility))
-                return false;
-        }
+        if (!compilation.IsSymbolAccessibleWithin(member, compilation.Assembly))
+            return false;
 
-        Accessibility accessibility = member switch
-        {
-            IPropertySymbol property => property.GetMethod?.DeclaredAccessibility ?? property.DeclaredAccessibility,
-            _ => member.DeclaredAccessibility
-        };
-
-        return IsAccessibleFromGeneratedCode(accessibility);
-    }
-
-    private static bool IsAccessibleFromGeneratedCode(Accessibility accessibility)
-    {
-        return accessibility is Accessibility.Public or Accessibility.Internal or Accessibility.ProtectedOrInternal;
+        return member is not IPropertySymbol property ||
+               property.GetMethod is not null &&
+               compilation.IsSymbolAccessibleWithin(property.GetMethod, compilation.Assembly);
     }
 
     private static bool TryGetRouteMetadataKeyName(ISymbol member, out string? name)
@@ -2162,6 +2143,20 @@ internal static class AppNavSourceEmitter
         builder.AppendLine("        }");
         builder.AppendLine("    }");
 
+        if (routes.Any(static route => route.MetadataQueryBindings.Any(static binding => binding.QueryName is null)))
+        {
+            builder.AppendLine();
+            builder.AppendLine("    private static void ValidateQueryNames<TRoute>(params string[] names)");
+            builder.AppendLine("    {");
+            builder.AppendLine("        var queryNames = new global::System.Collections.Generic.HashSet<string>(global::System.StringComparer.OrdinalIgnoreCase);");
+            builder.AppendLine("        foreach (string name in names)");
+            builder.AppendLine("        {");
+            builder.AppendLine("            if (!queryNames.Add(name))");
+            builder.AppendLine("                throw new global::System.InvalidOperationException($\"Query binding for query parameter '{name}' is already registered for route type '{typeof(TRoute).FullName}'.\");");
+            builder.AppendLine("        }");
+            builder.AppendLine("    }");
+        }
+
         EmitRouteModule(builder, routes);
 
         if (pages.Count > 0)
@@ -2189,6 +2184,16 @@ internal static class AppNavSourceEmitter
     private static void EmitRouteMapping(StringBuilder builder, RouteModel route)
     {
         string routeTypeName = SymbolFacts.TypeName(route.RouteType);
+
+        if (route.MetadataQueryBindings.Any(static binding => binding.QueryName is null))
+        {
+            IEnumerable<string> queryNameExpressions = route.QueryBindings
+                .Select(static binding => SymbolDisplay.FormatLiteral(binding.QueryName, quote: true))
+                .Concat(route.MetadataQueryBindings.Select(static binding => binding.QueryNameExpression));
+            builder.AppendLine("            ValidateQueryNames<" + routeTypeName + ">(" +
+                               string.Join(", ", queryNameExpressions) + ");");
+        }
+
         builder.AppendLine("            routes.Map<" + routeTypeName + ">(");
         builder.AppendLine("                " + SymbolDisplay.FormatLiteral(route.Template.Value, quote: true) + ",");
         builder.AppendLine("                static match =>");

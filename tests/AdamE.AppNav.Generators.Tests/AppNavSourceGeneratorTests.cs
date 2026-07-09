@@ -12,6 +12,13 @@ using Microsoft.Maui.Controls;
 
 namespace AdamE.AppNav.Generators.Tests;
 
+public static class ReferencedMetadataKeys
+{
+    public static RouteMetadataKey<string> Campaign { get; } = new("campaign");
+
+    public static RouteMetadataKey<string> CampaignAlias { get; } = new("CAMPAIGN");
+}
+
 public sealed class AppNavSourceGeneratorTests
 {
     [Fact]
@@ -958,6 +965,96 @@ public sealed class AppNavSourceGeneratorTests
     }
 
     [Fact]
+    public void GeneratedRouteTableUsesLocalMetadataKeyNamesThatAreNotCompileTimeConstants()
+    {
+        const string source = """
+            using AdamE.AppNav;
+            using AdamE.AppNav.Routing;
+
+            namespace Commerce.Sample;
+
+            internal static class Metadata
+            {
+                internal static RouteMetadataKey<string> Campaign { get; } = CreateCampaignKey();
+
+                private static RouteMetadataKey<string> CreateCampaignKey() => new("campaign");
+            }
+
+            [AppNavRoute("/stores/{storeId}")]
+            [AppNavQueryMetadata(typeof(Metadata), nameof(Metadata.Campaign))]
+            public sealed record StoreRoute(string StoreId) : AppRoute;
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+
+        Assert.Empty(result.GeneratorDiagnostics.Where(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assert.Contains("global::Commerce.Sample.Metadata.Campaign.Name", result.GeneratedSource);
+        Assembly assembly = Emit(result.Compilation);
+
+        Type generatedType = assembly.GetRequiredType("Commerce.Sample.AppNavGenerated");
+        var table = Assert.IsType<RouteTable>(generatedType.GetMethod("CreateRouteTable")!.Invoke(null, null));
+        var match = table.Match(new Uri("/stores/northwind?campaign=spring-launch", UriKind.Relative));
+
+        Assert.True(match.IsSuccess);
+        Assert.Equal("spring-launch", match.Metadata["campaign"]);
+    }
+
+    [Fact]
+    public void ReferencedMetadataKeyNameConflictingWithRouteQueryFailsAtRegistration()
+    {
+        const string source = """
+            using AdamE.AppNav;
+            using AdamE.AppNav.Generators.Tests;
+            using AdamE.AppNav.Routing;
+
+            namespace Commerce.Sample;
+
+            [AppNavRoute("/stores/{storeId}")]
+            [AppNavQuery(nameof(Campaign), Name = "CAMPAIGN")]
+            [AppNavQueryMetadata(typeof(ReferencedMetadataKeys), nameof(ReferencedMetadataKeys.Campaign))]
+            public sealed record StoreRoute(string StoreId, string? Campaign = null) : AppRoute;
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+
+        Assert.Empty(result.GeneratorDiagnostics.Where(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assembly assembly = Emit(result.Compilation);
+        Type generatedType = assembly.GetRequiredType("Commerce.Sample.AppNavGenerated");
+
+        var exception = Assert.Throws<TargetInvocationException>(
+            () => generatedType.GetMethod("CreateRouteTable")!.Invoke(null, null));
+        var duplicate = Assert.IsType<InvalidOperationException>(exception.InnerException);
+        Assert.Contains("query parameter 'campaign'", duplicate.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void DuplicateReferencedMetadataKeyNamesFailAtRegistration()
+    {
+        const string source = """
+            using AdamE.AppNav;
+            using AdamE.AppNav.Generators.Tests;
+            using AdamE.AppNav.Routing;
+
+            namespace Commerce.Sample;
+
+            [AppNavRoute("/stores/{storeId}")]
+            [AppNavQueryMetadata(typeof(ReferencedMetadataKeys), nameof(ReferencedMetadataKeys.Campaign))]
+            [AppNavQueryMetadata(typeof(ReferencedMetadataKeys), nameof(ReferencedMetadataKeys.CampaignAlias))]
+            public sealed record StoreRoute(string StoreId) : AppRoute;
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+
+        Assert.Empty(result.GeneratorDiagnostics.Where(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assembly assembly = Emit(result.Compilation);
+        Type generatedType = assembly.GetRequiredType("Commerce.Sample.AppNavGenerated");
+
+        var exception = Assert.Throws<TargetInvocationException>(
+            () => generatedType.GetMethod("CreateRouteTable")!.Invoke(null, null));
+        Assert.IsType<InvalidOperationException>(exception.InnerException);
+    }
+
+    [Fact]
     public void DuplicateRouteAndMetadataQueryNamesReportDiagnostic()
     {
         const string source = """
@@ -1030,6 +1127,40 @@ public sealed class AppNavSourceGeneratorTests
         GeneratorResult result = RunGenerator(source);
 
         Assert.Contains(result.GeneratorDiagnostics, static diagnostic => diagnostic.Id == "APPNAV003");
+    }
+
+    [Fact]
+    public void InaccessibleReferencedMetadataMemberReportsDiagnostic()
+    {
+        MetadataReference metadataReference = EmitReference(
+            "Commerce.Contracts",
+            """
+            using AdamE.AppNav.Routing;
+
+            namespace Commerce.Contracts;
+
+            public static class Metadata
+            {
+                internal static RouteMetadataKey<string> Campaign { get; } = new("campaign");
+            }
+            """);
+
+        const string source = """
+            using AdamE.AppNav;
+            using AdamE.AppNav.Routing;
+            using Commerce.Contracts;
+
+            namespace Commerce.Sample;
+
+            [AppNavRoute("/stores/{storeId}")]
+            [AppNavQueryMetadata(typeof(Metadata), "Campaign")]
+            public sealed record StoreRoute(string StoreId) : AppRoute;
+            """;
+
+        GeneratorResult result = RunGenerator(source, [metadataReference]);
+
+        Assert.Contains(result.GeneratorDiagnostics, static diagnostic => diagnostic.Id == "APPNAV003");
+        AssertCompileClean(result.Compilation);
     }
 
     [Fact]
