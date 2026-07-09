@@ -37,14 +37,20 @@ public sealed class AppNavSourceGenerator : IIncrementalGenerator
         List<RouteModel> routes = new();
         foreach (INamedTypeSymbol type in SymbolWalker.GetAllTypes(compilation.GlobalNamespace))
         {
-            if (type.IsAbstract || !SymbolFacts.InheritsFrom(type, symbols.AppRoute))
-                continue;
-
             AttributeData? routeAttribute = SymbolFacts.GetAttribute(type, AppNavSymbols.RouteAttributeName);
             if (routeAttribute is null)
                 continue;
 
             sawAppNavDeclaration = true;
+            if (type.IsAbstract || !SymbolFacts.InheritsFrom(type, symbols.AppRoute))
+            {
+                context.ReportDiagnostic(Diagnostic.Create(
+                    AppNavDiagnostics.InvalidRouteType,
+                    SymbolFacts.GetLocation(type, routeAttribute),
+                    type.ToDisplayString()));
+                continue;
+            }
+
             RouteModel? model = RouteModelFactory.TryCreate(type, routeAttribute, symbols, context.ReportDiagnostic);
             if (model is not null)
                 routes.Add(model);
@@ -183,7 +189,8 @@ public sealed class AppNavFluentRegistrationAnalyzer : DiagnosticAnalyzer
             AppNavDiagnostics.NoUsableConstructor,
             AppNavDiagnostics.AmbiguousConstructor,
             AppNavDiagnostics.UnsafeQueryConstructorParameter,
-            AppNavDiagnostics.UnsupportedRouteValueType);
+            AppNavDiagnostics.UnsupportedRouteValueType,
+            AppNavDiagnostics.DuplicateRoutePropertyName);
 
     public override void Initialize(AnalysisContext context)
     {
@@ -422,7 +429,15 @@ internal static class RouteModelFactory
             return;
         }
 
-        Dictionary<string, IPropertySymbol> properties = GetPublicProperties(routeType);
+        var hasPropertyErrors = false;
+        Dictionary<string, IPropertySymbol> properties = GetPublicProperties(
+            routeType,
+            location,
+            reportDiagnostic,
+            ref hasPropertyErrors);
+        if (hasPropertyErrors)
+            return;
+
         foreach (TemplateParameter parameter in parsedTemplate!.Parameters)
         {
             if (!properties.TryGetValue(parameter.Name, out IPropertySymbol? property))
@@ -448,8 +463,12 @@ internal static class RouteModelFactory
         Action<Diagnostic> reportDiagnostic,
         bool includeAttributeQueries = true)
     {
-        Dictionary<string, IPropertySymbol> properties = GetPublicProperties(routeType);
         var hasErrors = false;
+        Dictionary<string, IPropertySymbol> properties = GetPublicProperties(
+            routeType,
+            location,
+            reportDiagnostic,
+            ref hasErrors);
         var pathProperties = new Dictionary<string, IPropertySymbol>(StringComparer.OrdinalIgnoreCase);
 
         foreach (TemplateParameter parameter in template.Parameters)
@@ -496,9 +515,14 @@ internal static class RouteModelFactory
             location);
     }
 
-    private static Dictionary<string, IPropertySymbol> GetPublicProperties(INamedTypeSymbol routeType)
+    private static Dictionary<string, IPropertySymbol> GetPublicProperties(
+        INamedTypeSymbol routeType,
+        Location? fallbackLocation,
+        Action<Diagnostic> reportDiagnostic,
+        ref bool hasErrors)
     {
         var properties = new Dictionary<string, IPropertySymbol>(StringComparer.OrdinalIgnoreCase);
+        var duplicateNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         for (INamedTypeSymbol? current = routeType; current is not null; current = current.BaseType)
         {
             foreach (IPropertySymbol property in current.GetMembers().OfType<IPropertySymbol>())
@@ -509,8 +533,23 @@ internal static class RouteModelFactory
                     property.GetMethod?.DeclaredAccessibility != Accessibility.Public)
                     continue;
 
-                if (!properties.ContainsKey(property.Name))
-                    properties.Add(property.Name, property);
+                if (properties.TryGetValue(property.Name, out _))
+                {
+                    if (duplicateNames.Add(property.Name))
+                    {
+                        reportDiagnostic(Diagnostic.Create(
+                            AppNavDiagnostics.DuplicateRoutePropertyName,
+                            property.Locations.FirstOrDefault(static candidate => candidate.IsInSource) ??
+                            fallbackLocation,
+                            routeType.ToDisplayString(),
+                            property.Name));
+                    }
+
+                    hasErrors = true;
+                    continue;
+                }
+
+                properties.Add(property.Name, property);
             }
         }
 
@@ -585,7 +624,8 @@ internal static class RouteModelFactory
             }
 
             bool omitWhenNull = GetNamedBool(attribute, "OmitWhenNull", defaultValue: true);
-            ReportUnsupportedValueType(routeType, property.Type, queryName, location, reportDiagnostic);
+            ReportUnsupportedValueType(routeType, property.Type, queryName, location, reportDiagnostic,
+                allowQueryCollections: true);
             bindings.Add(new QueryBinding(property, queryName, omitWhenNull));
         }
 
@@ -871,9 +911,11 @@ internal static class RouteModelFactory
         ITypeSymbol type,
         string name,
         Location? location,
-        Action<Diagnostic> reportDiagnostic)
+        Action<Diagnostic> reportDiagnostic,
+        bool allowQueryCollections = false)
     {
-        if (RouteValueSourceEmitter.IsDirectlySupported(type))
+        if (RouteValueSourceEmitter.IsDirectlySupported(type) ||
+            (allowQueryCollections && RouteValueSourceEmitter.IsDirectlySupportedQueryCollection(type)))
             return;
 
         reportDiagnostic(Diagnostic.Create(
@@ -1364,7 +1406,7 @@ internal sealed class ParsedRouteTemplate
             return false;
         }
 
-        segment = TemplateSegment.Literal(segmentText);
+        segment = TemplateSegment.Literal(Uri.UnescapeDataString(segmentText));
         return true;
     }
 
@@ -1639,15 +1681,90 @@ internal static class RouteValueSourceEmitter
         return valueType.ToDisplayString() == "System.Guid";
     }
 
-    public static string EmitParse(ITypeSymbol type, string valueExpression)
+    public static bool IsDirectlySupportedQueryCollection(ITypeSymbol type)
+    {
+        return TryGetSupportedQueryCollection(type, out ITypeSymbol? elementType, out _) &&
+               elementType is not null &&
+               IsDirectlySupported(elementType);
+    }
+
+    public static bool TryGetSupportedQueryCollection(
+        ITypeSymbol type,
+        out ITypeSymbol? elementType,
+        out QueryCollectionKind kind)
+    {
+        if (type.SpecialType == SpecialType.System_String)
+        {
+            elementType = null;
+            kind = QueryCollectionKind.None;
+            return false;
+        }
+
+        if (type is IArrayTypeSymbol { Rank: 1 } arrayType)
+        {
+            elementType = arrayType.ElementType;
+            kind = QueryCollectionKind.Array;
+            return true;
+        }
+
+        if (type is INamedTypeSymbol namedType && namedType.IsGenericType)
+        {
+            string definition = namedType.OriginalDefinition.ToDisplayString();
+            if (definition is "System.Collections.Generic.IEnumerable<T>" or
+                "System.Collections.Generic.IReadOnlyCollection<T>" or
+                "System.Collections.Generic.IReadOnlyList<T>" or
+                "System.Collections.Generic.ICollection<T>" or
+                "System.Collections.Generic.IList<T>")
+            {
+                elementType = namedType.TypeArguments[0];
+                kind = QueryCollectionKind.Array;
+                return true;
+            }
+
+            if (definition == "System.Collections.Generic.List<T>")
+            {
+                elementType = namedType.TypeArguments[0];
+                kind = QueryCollectionKind.List;
+                return true;
+            }
+        }
+
+        elementType = null;
+        kind = QueryCollectionKind.None;
+        return false;
+    }
+
+    public static string EmitParse(ITypeSymbol type, string valueExpression, string? nameExpression = null)
     {
         ITypeSymbol valueType = UnwrapNullable(type);
         bool nullable = IsNullableValueType(type);
-        string parsed = EmitNonNullableParse(valueType, valueExpression);
+        string parsed = EmitNonNullableParse(
+            valueType,
+            valueExpression,
+            nameExpression ?? SymbolDisplay.FormatLiteral("value", quote: true));
 
         return nullable
             ? "(" + SymbolFacts.TypeName(type) + ")" + parsed
             : parsed;
+    }
+
+    public static string EmitQueryCollectionParse(
+        ITypeSymbol type,
+        string valuesExpression,
+        string nameExpression)
+    {
+        if (!TryGetSupportedQueryCollection(type, out ITypeSymbol? elementType, out QueryCollectionKind kind) ||
+            elementType is null)
+            return EmitParse(type, valuesExpression, nameExpression);
+
+        string select = "global::System.Linq.Enumerable.Select(" + valuesExpression +
+                        ", static appNavItem => " + EmitParse(elementType, "appNavItem", nameExpression) + ")";
+        return kind switch
+        {
+            QueryCollectionKind.List => "new global::System.Collections.Generic.List<" +
+                                        SymbolFacts.TypeName(elementType) + ">(" + select + ")",
+            _ => "global::System.Linq.Enumerable.ToArray(" + select + ")"
+        };
     }
 
     public static string EmitDefault(IParameterSymbol parameter)
@@ -1658,11 +1775,10 @@ internal static class RouteValueSourceEmitter
         return "default(" + SymbolFacts.TypeName(parameter.Type) + ")";
     }
 
-    private static string EmitNonNullableParse(ITypeSymbol type, string valueExpression)
+    private static string EmitNonNullableParse(ITypeSymbol type, string valueExpression, string nameExpression)
     {
         if (type.TypeKind == TypeKind.Enum)
-            return "(" + SymbolFacts.TypeName(type) + ")global::System.Enum.Parse(typeof(" +
-                   SymbolFacts.TypeName(type) + "), " + valueExpression + ", ignoreCase: true)";
+            return "ParseEnum<" + SymbolFacts.TypeName(type) + ">(" + valueExpression + ", " + nameExpression + ")";
 
         switch (type.SpecialType)
         {
@@ -1716,6 +1832,13 @@ internal static class RouteValueSourceEmitter
     {
         return type is INamedTypeSymbol named &&
                named.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T;
+    }
+
+    public enum QueryCollectionKind
+    {
+        None,
+        Array,
+        List
     }
 }
 
@@ -1788,6 +1911,16 @@ internal static class AppNavSourceEmitter
             builder.AppendLine("    public static global::AdamE.AppNav.Maui.IMauiRoutePageModule MauiPageModule { get; } = new GeneratedMauiPageModule();");
         }
 
+        builder.AppendLine();
+        builder.AppendLine("    private static TEnum ParseEnum<TEnum>(string value, string name)");
+        builder.AppendLine("        where TEnum : struct, global::System.Enum");
+        builder.AppendLine("    {");
+        builder.AppendLine("        if (global::System.Enum.TryParse<TEnum>(value, ignoreCase: true, out var result))");
+        builder.AppendLine("            return result;");
+        builder.AppendLine();
+        builder.AppendLine("        throw new global::System.FormatException(\"Route value '\" + name + \"' could not be converted to \" + typeof(TEnum).Name + \".\");");
+        builder.AppendLine("    }");
+
         EmitRouteModule(builder, routes);
 
         if (pages.Count > 0)
@@ -1843,8 +1976,24 @@ internal static class AppNavSourceEmitter
                     break;
                 }
                 case ConstructorArgumentKind.Query:
-                    builder.AppendLine("                    string? appNavValue" + i + " = match.Query(" +
-                                       SymbolDisplay.FormatLiteral(argument.QueryBinding!.QueryName, quote: true) + ");");
+                    if (RouteValueSourceEmitter.TryGetSupportedQueryCollection(
+                            argument.Parameter.Type,
+                            out _,
+                            out _))
+                    {
+                        builder.AppendLine("                    global::System.Collections.Generic.IReadOnlyList<string>? appNavValue" +
+                                           i + " = match.QueryValueLists.ContainsKey(" +
+                                           SymbolDisplay.FormatLiteral(argument.QueryBinding!.QueryName, quote: true) +
+                                           ") ? match.QueryAll(" +
+                                           SymbolDisplay.FormatLiteral(argument.QueryBinding.QueryName, quote: true) +
+                                           ") : null;");
+                    }
+                    else
+                    {
+                        builder.AppendLine("                    string? appNavValue" + i + " = match.Query(" +
+                                           SymbolDisplay.FormatLiteral(argument.QueryBinding!.QueryName, quote: true) + ");");
+                    }
+
                     break;
             }
         }
@@ -1858,7 +2007,10 @@ internal static class AppNavSourceEmitter
                                ", out string? " + valueName + "))");
             builder.AppendLine("                    {");
             builder.AppendLine("                        match.AddMetadata(" + metadataBinding.AccessExpression + ", " +
-                               RouteValueSourceEmitter.EmitParse(metadataBinding.ValueType, valueName) +
+                               RouteValueSourceEmitter.EmitParse(
+                                   metadataBinding.ValueType,
+                                   valueName,
+                                   SymbolDisplay.FormatLiteral(metadataBinding.QueryName, quote: true)) +
                                ", omitWhenNull: " + BoolLiteral(metadataBinding.OmitWhenNull) + ");");
             builder.AppendLine("                    }");
             if (!metadataBinding.OmitWhenNull)
@@ -1911,11 +2063,30 @@ internal static class AppNavSourceEmitter
                 string variable = "appNavValue" + index;
                 if (argument.Kind == ConstructorArgumentKind.Path &&
                     argument.PathParameter is { IsOptional: false, IsCatchAll: false })
-                    return RouteValueSourceEmitter.EmitParse(argument.Parameter.Type, variable + "!");
+                    return RouteValueSourceEmitter.EmitParse(
+                        argument.Parameter.Type,
+                        variable + "!",
+                        SymbolDisplay.FormatLiteral(argument.PathParameter.Name, quote: true));
 
                 string defaultValue = RouteValueSourceEmitter.EmitDefault(argument.Parameter);
+                if (argument.Kind == ConstructorArgumentKind.Query &&
+                    RouteValueSourceEmitter.TryGetSupportedQueryCollection(argument.Parameter.Type, out _, out _))
+                {
+                    return variable + " is null ? " + defaultValue + " : " +
+                           RouteValueSourceEmitter.EmitQueryCollectionParse(
+                               argument.Parameter.Type,
+                               variable,
+                               SymbolDisplay.FormatLiteral(argument.QueryBinding!.QueryName, quote: true));
+                }
+
+                string valueName = argument.Kind == ConstructorArgumentKind.Query
+                    ? argument.QueryBinding!.QueryName
+                    : argument.PathParameter!.Name;
                 return variable + " is null ? " + defaultValue + " : " +
-                       RouteValueSourceEmitter.EmitParse(argument.Parameter.Type, variable);
+                       RouteValueSourceEmitter.EmitParse(
+                           argument.Parameter.Type,
+                           variable,
+                           SymbolDisplay.FormatLiteral(valueName, quote: true));
             }
             default:
                 return RouteValueSourceEmitter.EmitDefault(argument.Parameter);

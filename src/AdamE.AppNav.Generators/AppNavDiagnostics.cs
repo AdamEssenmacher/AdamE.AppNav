@@ -59,6 +59,16 @@ internal static class AppNavDiagnostics
         "Route value type falls back to runtime conversion",
         "Route '{0}' uses value type '{1}' for '{2}', which is not directly source-generated; runtime conversion may require trim/AOT annotations");
 
+    public static readonly DiagnosticDescriptor InvalidRouteType = Error(
+        "APPNAV012",
+        "Route declaration type is invalid",
+        "Type '{0}' has AppNavRouteAttribute but must be a concrete AppRoute");
+
+    public static readonly DiagnosticDescriptor DuplicateRoutePropertyName = Error(
+        "APPNAV013",
+        "Route exposes duplicate public properties",
+        "Route '{0}' exposes multiple public readable properties named '{1}' ignoring case");
+
     public static readonly DiagnosticDescriptor InvalidPageRoute = Error(
         "APPNAV020",
         "MAUI page route mapping is invalid",

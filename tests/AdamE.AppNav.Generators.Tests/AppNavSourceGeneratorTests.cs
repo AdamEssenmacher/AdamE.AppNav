@@ -62,6 +62,142 @@ public sealed class AppNavSourceGeneratorTests
     }
 
     [Fact]
+    public void GeneratedRouteTableReturnsFailedMatchForInvalidEnumValues()
+    {
+        const string source = """
+            using AdamE.AppNav;
+            using AdamE.AppNav.Routing;
+
+            namespace Commerce.Sample;
+
+            public enum OrderStatus
+            {
+                Open,
+                Closed
+            }
+
+            [AppNavRoute("/orders/{status}")]
+            public sealed record OrderRoute(OrderStatus Status) : AppRoute;
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+        Assert.Empty(result.GeneratorDiagnostics.Where(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assembly assembly = Emit(result.Compilation);
+
+        Type generatedType = assembly.GetRequiredType("Commerce.Sample.AppNavGenerated");
+        var table = Assert.IsType<RouteTable>(generatedType.GetMethod("CreateRouteTable")!.Invoke(null, null));
+
+        RouteMatchResult match = table.Match(new Uri("/orders/not-a-status", UriKind.Relative));
+
+        Assert.False(match.IsSuccess);
+        Assert.Contains(match.Diagnostics, static diagnostic => diagnostic.Code == "route.value.invalid");
+    }
+
+    [Fact]
+    public void GeneratedRouteTableReadsRepeatedQueryValuesForCollectionArguments()
+    {
+        const string source = """
+            #nullable enable
+            using System.Collections.Generic;
+            using AdamE.AppNav;
+            using AdamE.AppNav.Routing;
+
+            namespace Commerce.Sample;
+
+            [AppNavRoute("/search")]
+            [AppNavQuery(nameof(Tags), Name = "tag")]
+            public sealed record SearchRoute(IReadOnlyList<string>? Tags = null) : AppRoute;
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+        Assert.Empty(result.GeneratorDiagnostics.Where(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assert.Contains("match.QueryAll(\"tag\")", result.GeneratedSource);
+        Assembly assembly = Emit(result.Compilation);
+
+        Type generatedType = assembly.GetRequiredType("Commerce.Sample.AppNavGenerated");
+        var table = Assert.IsType<RouteTable>(generatedType.GetMethod("CreateRouteTable")!.Invoke(null, null));
+
+        RouteMatchResult match = table.Match(new Uri("/search?tag=blue&tag=green", UriKind.Relative));
+
+        Assert.True(match.IsSuccess);
+        object? tagsValue = match.Route!.GetType().GetProperty("Tags")!.GetValue(match.Route);
+        var tags = Assert.IsAssignableFrom<IEnumerable<string>>(tagsValue);
+        Assert.Equal(["blue", "green"], tags);
+        Assert.Equal("/search?tag=blue&tag=green", table.Format(match.Route));
+    }
+
+    [Fact]
+    public void AppNavRouteOnNonAppRouteReportsDiagnostic()
+    {
+        const string source = """
+            using AdamE.AppNav;
+            using AdamE.AppNav.Routing;
+
+            namespace Commerce.Sample;
+
+            [AppNavRoute("/stores")]
+            public sealed record StoreRoute() : AppRoute;
+
+            [AppNavRoute("/invalid")]
+            public sealed class NotARoute;
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+
+        Assert.Contains(result.GeneratorDiagnostics, static diagnostic => diagnostic.Id == "APPNAV012");
+    }
+
+    [Fact]
+    public void EscapedLiteralRoutesParticipateInAmbiguityChecks()
+    {
+        const string source = """
+            using AdamE.AppNav;
+            using AdamE.AppNav.Routing;
+
+            namespace Commerce.Sample;
+
+            [AppNavRoute("/files/a%20b")]
+            public sealed record EncodedFileRoute() : AppRoute;
+
+            [AppNavRoute("/files/a b")]
+            public sealed record LiteralFileRoute() : AppRoute;
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+
+        Assert.Contains(result.GeneratorDiagnostics, static diagnostic => diagnostic.Id == "APPNAV010");
+    }
+
+    [Fact]
+    public void DuplicatePublicRoutePropertiesIgnoringCaseReportDiagnostic()
+    {
+        const string source = """
+            using AdamE.AppNav;
+            using AdamE.AppNav.Routing;
+
+            namespace Commerce.Sample;
+
+            [AppNavRoute("/items/{id}")]
+            public sealed class ItemRoute : AppRoute
+            {
+                public ItemRoute(string id)
+                {
+                    Id = id;
+                    this.id = id;
+                }
+
+                public string Id { get; }
+
+                public string id { get; }
+            }
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+
+        Assert.Contains(result.GeneratorDiagnostics, static diagnostic => diagnostic.Id == "APPNAV013");
+    }
+
+    [Fact]
     public void GeneratedMauiPageModuleUsesExplicitRouteAndServiceConstructorArguments()
     {
         const string source = """
