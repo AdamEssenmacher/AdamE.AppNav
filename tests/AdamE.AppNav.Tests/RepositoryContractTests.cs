@@ -118,6 +118,29 @@ public sealed class RepositoryContractTests
     }
 
     [Fact]
+    public void CorePackageIncludesGeneratorAnalyzerWithoutEvaluationTimeExistsGuard()
+    {
+        var coreProject = File.ReadAllText(
+            Path.Combine(RepositoryRoot(), "src", "AdamE.AppNav", "AdamE.AppNav.csproj"));
+
+        Assert.Contains("AdamE.AppNav.Generators.dll", coreProject, StringComparison.Ordinal);
+        Assert.Contains("PackagePath=\"analyzers/dotnet/cs\"", coreProject, StringComparison.Ordinal);
+        Assert.DoesNotContain("Exists('..\\AdamE.AppNav.Generators", coreProject, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReleaseConfidenceRunsGeneratorTests()
+    {
+        var workflow = File.ReadAllText(
+            Path.Combine(RepositoryRoot(), ".github", "workflows", "release-confidence.yml"));
+
+        Assert.Contains(
+            "tests/AdamE.AppNav.Generators.Tests/AdamE.AppNav.Generators.Tests.csproj",
+            workflow,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AppLinkHelpersCreateAppLinkRequests()
     {
         var appLinksDirectory = Path.Combine(RepositoryRoot(), "src", "AdamE.AppNav.Maui");
@@ -212,7 +235,7 @@ public sealed class RepositoryContractTests
         Assert.Contains("CommerceRouteFactory.", pageSource, StringComparison.Ordinal);
         Assert.DoesNotContain("RouterNavigationRequest", pageSource, StringComparison.Ordinal);
         Assert.DoesNotMatch(@"(?<![A-Za-z0-9_])RouterNavigator(?![A-Za-z0-9_])", pageSource);
-        Assert.Contains("QueryMetadata(CommerceRouteMetadata.Campaign)", sampleSource, StringComparison.Ordinal);
+        Assert.Contains("AppNavQueryMetadata(typeof(CommerceRouteMetadata), nameof(CommerceRouteMetadata.Campaign))", sampleSource, StringComparison.Ordinal);
         Assert.Contains("CommerceRouteMetadata.RouteStateRegistry", sampleSource, StringComparison.Ordinal);
     }
 

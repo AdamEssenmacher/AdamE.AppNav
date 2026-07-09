@@ -1,9 +1,11 @@
 using AdamE.AppNav.Navigation;
+using AdamE.AppNav.Maui;
 using AdamE.AppNav.Requests;
 using Commerce.Sample.Routes;
 
 namespace Commerce.Sample.Pages;
 
+[MauiRoutePage(typeof(StoreCatalogRoute))]
 public sealed class StoreCatalogPage : ContentPage
 {
     private readonly StoreCatalogRoute _route;

@@ -213,7 +213,7 @@ Until packages are published, consume the library with project references.
 | Other opinionated MAUI navigation stacks | Generally not intended to be combined                                       |
 | Windows MAUI adapter                     | Not targeted in v1                                                          |
 | `netstandard`                            | Not targeted in v1                                                          |
-| Source generators                        | Not included in v1                                                          |
+| Source generators                        | Attribute-driven route and MAUI page modules                               |
 | Attribute routing                        | Not included in v1                                                          |
 | Full multi-window orchestration          | State model seam only in v1                                                 |
 
@@ -306,71 +306,49 @@ Routes are normal C# types. They describe semantic destinations, not pages.
 
 ```csharp
 using AdamE.AppNav;
+using AdamE.AppNav.Routing;
 
+[AppNavRoute("/stores/{storeId}")]
 public sealed record StoreHomeRoute(string StoreId) : AppRoute;
 
+[AppNavRoute("/stores/{storeId}/catalog")]
 public sealed record StoreCatalogRoute(string StoreId) : AppRoute;
 
+[AppNavRoute("/stores/{storeId}/products/{productId:int}")]
+[AppNavQuery("Variant")]
+[AppNavQuery("Promo")]
+[AppNavQueryMetadata(typeof(CommerceRouteMetadata), nameof(CommerceRouteMetadata.Campaign))]
 public sealed record ProductDetailRoute(
     string StoreId,
     int ProductId,
     string? Variant = null,
     string? Promo = null) : AppRoute;
 
+[AppNavRoute("/stores/{storeId}/cart")]
 public sealed record CartRoute(string StoreId) : AppRoute;
 
+[AppNavRoute("/stores/{storeId}/orders")]
 public sealed record OrdersRoute(string StoreId) : AppRoute;
 ```
 
-### 2. Build A Route Table
+### 2. Generate A Route Table
 
-Use `RouteTable.Create` and map each route template to a typed route.
-The product route also maps the `CommerceRouteMetadata.Campaign` key defined in the next step so campaign data can
-round-trip through `AppRouteRequest` formatting and matching without becoming a constructor parameter.
+The AppNav generator turns route attributes into an `AppNavGenerated.CreateRouteTable()` helper. The product route also
+maps the `CommerceRouteMetadata.Campaign` key defined in the next step so campaign data can round-trip through
+`AppRouteRequest` formatting and matching without becoming a constructor parameter.
 
 ```csharp
-using AdamE.AppNav.Routing;
+RouteTable routes = AppNavGenerated.CreateRouteTable();
+```
 
-public static class SampleRouteTable
-{
-    public static RouteTable Create()
-    {
-        return RouteTable.Create(routes => routes
-            .Map(
-                "/stores/{storeId}",
-                match => new StoreHomeRoute(match.Path("storeId")),
-                format => format.PathParam("storeId", route => route.StoreId))
-            .Map(
-                "/stores/{storeId}/catalog",
-                match => new StoreCatalogRoute(match.Path("storeId")),
-                format => format.PathParam("storeId", route => route.StoreId))
-            .Map(
-                "/stores/{storeId}/products/{productId:int}",
-                match =>
-                {
-                    match.QueryMetadata(CommerceRouteMetadata.Campaign);
-                    return new ProductDetailRoute(
-                        match.Path("storeId"),
-                        match.Path<int>("productId"),
-                        match.Query("variant"),
-                        match.Query("promo"));
-                },
-                format => format
-                    .PathParam("storeId", route => route.StoreId)
-                    .PathParam("productId", route => route.ProductId)
-                    .QueryParam("variant", route => route.Variant)
-                    .QueryParam("promo", route => route.Promo)
-                    .QueryMetadata(CommerceRouteMetadata.Campaign))
-            .Map(
-                "/stores/{storeId}/cart",
-                match => new CartRoute(match.Path("storeId")),
-                format => format.PathParam("storeId", route => route.StoreId))
-            .Map(
-                "/stores/{storeId}/orders",
-                match => new OrdersRoute(match.Path("storeId")),
-                format => format.PathParam("storeId", route => route.StoreId)));
-    }
-}
+NuGet packages include the generator as an analyzer asset. When consuming this repository by project reference before
+packages are published, add the generator project as an analyzer reference in the app project:
+
+```xml
+<ProjectReference Include="..\src\AdamE.AppNav.Generators\AdamE.AppNav.Generators.csproj"
+                  OutputItemType="Analyzer"
+                  ReferenceOutputAssembly="false"
+                  PrivateAssets="all" />
 ```
 
 Route table responsibilities:
@@ -563,13 +541,8 @@ public static class MauiProgram
             options.RouteStateRegistry = CommerceRouteMetadata.RouteStateRegistry;
         });
         builder.Services.AddAppNav<CommerceNavigationPlanner>(
-            SampleRouteTable.Create(),
-            pages => pages
-                .MapPage<StoreHomeRoute, StoreHomePage>()
-                .MapPage<StoreCatalogRoute, StoreCatalogPage>()
-                .MapPage<ProductDetailRoute, ProductDetailPage>()
-                .MapPage<CartRoute, CartPage>()
-                .MapPage<OrdersRoute, OrdersPage>());
+            AppNavGenerated.CreateRouteTable(),
+            pages => pages.AddModule(AppNavGenerated.MauiPageModule));
         builder.Services.AddAppNavStartup(options =>
         {
             options.FallbackRequestFactory = (_, _) =>
@@ -1192,26 +1165,20 @@ If the formatter returns an enumerable value, `QueryParam` formats repeated keys
 
 ### Convention Routes
 
-`MapRoute<TRoute>` binds path parameters by member name and can bind query values with `Query(...)`. Because query
-values are always optional, any constructor parameter reached through a convention query binding must be nullable or
-provide a default value.
+Route attributes use the same convention binding rules as `MapRoute<TRoute>`: path parameters bind by public property
+and constructor parameter name, and query values are always optional. Any constructor parameter reached through a query
+binding must be nullable or provide a default value.
 
 ```csharp
-public sealed record SearchRoute(string StoreId, IReadOnlyList<string> Tags) : AppRoute;
-
-routes.Map(
-    "/stores/{storeId}/search",
-    match => new SearchRoute(
-        match.Path("storeId"),
-        match.QueryAll("tag")),
-    format => format
-        .PathParam("storeId", route => route.StoreId)
-        .QueryParam("tag", route => route.Tags));
+[AppNavRoute("/stores/{storeId}/search")]
+[AppNavQuery("Tags", Name = "tag")]
+public sealed record SearchRoute(string StoreId, IReadOnlyList<string>? Tags = null) : AppRoute;
 
 // /stores/northwind/search?tag=blue&tag=green
 ```
 
-Optional path parameters and catch-all parameters are omitted when their formatter returns `null` or an empty string.
+Use fluent `RouteTableBuilder.Map(...)` or `MapRoute<TRoute>(...)` for dynamic route tables, custom constraints, or
+cases that intentionally need runtime-bound registration.
 
 ### `NavigationState`
 
@@ -1677,10 +1644,8 @@ maps on `MauiRoutePageRegistry`.
 
 ```csharp
 builder.Services.AddAppNav<CommerceNavigationPlanner>(
-    SampleRouteTable.Create(),
-    pages => pages
-        .MapPage<StoreHomeRoute, StoreHomePage>()
-        .MapPage<ProductDetailRoute, ProductDetailPage>());
+    AppNavGenerated.CreateRouteTable(),
+    pages => pages.AddModule(AppNavGenerated.MauiPageModule));
 ```
 
 If page mappings live outside the composition root, register them with `AddAppNavPages(...)` and keep
@@ -1688,13 +1653,31 @@ If page mappings live outside the composition root, register them with `AddAppNa
 
 ```csharp
 services.AddAppNavPages(pages => pages
-    .MapPage<StoreHomeRoute, StoreHomePage>()
-    .MapPage<ProductDetailRoute, ProductDetailPage>());
+    .AddModule(AppNavGenerated.MauiPageModule));
+```
+
+Layered apps can keep routes in a referenced UI/navigation assembly and pages in a MAUI presentation assembly:
+
+```csharp
+builder.Services.AddAppNav<ScavosNavigationPlanner>(
+    Scavos.UI.AppNavGenerated.CreateRouteTable(),
+    pages => pages.AddModule(Scavos.Mobile.Presentation.AppNavGenerated.MauiPageModule));
 ```
 
 ### Page Mapping
 
-Use the type-based overload when the page can be created by DI.
+Use `[MauiRoutePage(typeof(ProductDetailRoute))]` on pages that should be included in the generated MAUI page module.
+Use the fluent type-based overload when page registration needs to stay runtime-bound.
+
+```csharp
+[MauiRoutePage(typeof(GameHubRoute), PageModelType = typeof(PlayPageModel))]
+public sealed partial class PlayPage;
+```
+
+For XAML-backed pages, the C# code-behind can rely on the XAML-generated partial for the `ContentPage` or custom page
+base type.
+When `PageModelType` is set, the generated factory resolves the page and page model from DI and assigns the model to
+`BindingContext` only when the page has not already set one.
 
 ```csharp
 .MapPage<ProductDetailRoute, ProductDetailPage>()

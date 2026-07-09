@@ -1,7 +1,9 @@
+using AdamE.AppNav.Maui;
 using Commerce.Sample.Routes;
 
 namespace Commerce.Sample.Pages;
 
+[MauiRoutePage(typeof(OrdersRoute))]
 public sealed class OrdersPage : ContentPage
 {
     public OrdersPage(OrdersRoute route)

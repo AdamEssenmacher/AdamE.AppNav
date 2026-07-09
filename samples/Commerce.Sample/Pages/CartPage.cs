@@ -1,9 +1,11 @@
 using AdamE.AppNav.Navigation;
+using AdamE.AppNav.Maui;
 using AdamE.AppNav.Requests;
 using Commerce.Sample.Routes;
 
 namespace Commerce.Sample.Pages;
 
+[MauiRoutePage(typeof(CartRoute))]
 public sealed class CartPage : ContentPage
 {
     private readonly CartRoute _route;

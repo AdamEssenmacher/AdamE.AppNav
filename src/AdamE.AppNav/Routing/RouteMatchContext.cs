@@ -111,7 +111,7 @@ public sealed class RouteMatchContext
         _metadata[key.Name] = value;
     }
 
-    internal void AddMetadata(string name, object? value, bool omitWhenNull = true)
+    public void AddMetadata(string name, object? value, bool omitWhenNull = true)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
 

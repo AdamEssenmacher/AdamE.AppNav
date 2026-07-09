@@ -42,13 +42,9 @@ public static class MauiProgram
 						NavigationRequestSource.InAppCommand));
 		});
 		builder.Services.AddAppNav<CommerceNavigationPlanner>(
-			SampleRouteTable.Create(),
+			AppNavGenerated.CreateRouteTable(),
 			options => options
-				.MapPage<StoreHomeRoute, StoreHomePage>()
-				.MapPage<StoreCatalogRoute, StoreCatalogPage>()
-				.MapPage<ProductDetailRoute, ProductDetailPage>()
-				.MapPage<CartRoute, CartPage>()
-				.MapPage<OrdersRoute, OrdersPage>()
+				.AddModule(AppNavGenerated.MauiPageModule)
 				.MapPage<CommerceNotFoundRoute, CommerceNotFoundPage>());
 
 		return builder.Build();

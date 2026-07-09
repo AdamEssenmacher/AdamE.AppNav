@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace AdamE.AppNav.Routing;
 
 public sealed class RouteTableBuilder
@@ -52,7 +54,9 @@ public sealed class RouteTableBuilder
         return this;
     }
 
-    public RouteTableBuilder MapRoute<TRoute>(
+    public RouteTableBuilder MapRoute<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.PublicProperties)]
+        TRoute>(
         string template,
         Action<ConventionRouteBuilder<TRoute>>? configure = null)
         where TRoute : AppRoute

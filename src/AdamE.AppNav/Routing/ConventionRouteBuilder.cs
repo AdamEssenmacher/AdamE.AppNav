@@ -1,10 +1,13 @@
 using System.Linq.Expressions;
 using System.Reflection;
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 
 namespace AdamE.AppNav.Routing;
 
-public sealed class ConventionRouteBuilder<TRoute>
+public sealed class ConventionRouteBuilder<
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)]
+    TRoute>
     where TRoute : AppRoute
 {
     private readonly List<ConventionQueryBinding> _queryBindings = [];

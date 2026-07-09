@@ -85,6 +85,9 @@ public sealed class PublicApiContractTests
                 "AdamE.AppNav.RouteStateLifetime",
                 "AdamE.AppNav.RouteStateRegistry",
                 "AdamE.AppNav.RouteStateRegistryBuilder",
+                "AdamE.AppNav.Routing.AppNavQueryAttribute",
+                "AdamE.AppNav.Routing.AppNavQueryMetadataAttribute",
+                "AdamE.AppNav.Routing.AppNavRouteAttribute",
                 "AdamE.AppNav.Routing.ConventionRouteBuilder`1",
                 "AdamE.AppNav.Routing.IRouteTableModule",
                 "AdamE.AppNav.Routing.RouteDefinition",
@@ -200,11 +203,23 @@ public sealed class PublicApiContractTests
                 "AdamE.AppNav.Maui.IMauiPresentationState",
                 "AdamE.AppNav.Maui.IMauiRoutePageLifecycleHook",
                 "AdamE.AppNav.Maui.IMauiRoutePageModule",
+                "AdamE.AppNav.Maui.MauiRoutePageAttribute",
                 "AdamE.AppNav.Maui.MauiRoutePageRegistry",
                 "AdamE.AppNav.Maui.MauiRoutePageReuseKind",
                 "AdamE.AppNav.Maui.MauiRoutePageUpdateContext",
                 "AdamE.AppNav.Maui.Requests.MauiFileDeferredNavigationRequestStoreOptions"
             ]);
+    }
+
+    [Fact]
+    public void MauiRoutePageAttributeIncludesPageModelTypeApi()
+    {
+        var property = typeof(MauiRoutePageAttribute).GetProperty(nameof(MauiRoutePageAttribute.PageModelType));
+
+        Assert.NotNull(property);
+        Assert.Equal(typeof(Type), property.PropertyType);
+        Assert.True(property.CanRead);
+        Assert.True(property.CanWrite);
     }
 
     [Fact]

@@ -44,6 +44,9 @@ jobs:
       - name: Core tests
         run: dotnet test tests/AdamE.AppNav.Tests/AdamE.AppNav.Tests.csproj
 
+      - name: Generator tests
+        run: dotnet test tests/AdamE.AppNav.Generators.Tests/AdamE.AppNav.Generators.Tests.csproj
+
       - name: MAUI adapter build
         run: dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj
 
