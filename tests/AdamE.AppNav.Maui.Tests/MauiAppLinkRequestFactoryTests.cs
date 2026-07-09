@@ -13,6 +13,7 @@ using Foundation;
 
 namespace AdamE.AppNav.Maui.Tests;
 
+[Collection(ExternalNavigationBridgeTestCollection.Name)]
 public sealed class MauiAppLinkRequestFactoryTests
 {
     [Fact]

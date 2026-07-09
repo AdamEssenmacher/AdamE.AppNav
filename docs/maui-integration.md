@@ -96,6 +96,11 @@ A common cold-start sequence is:
 3. fallback request
 4. window attachment
 
+App-link lifecycle ingress targets one active AppNav MAUI host per process. The most recently created host receives
+platform callbacks. Disposing that host cancels its in-flight external navigation and drops its queued requests;
+callbacks arriving after disposal remain buffered until a replacement host is created. Disposing an older host does
+not unregister a newer one.
+
 ## Other Public Runtime Seams
 
 `IRouterNavigator` also exposes URI navigation overloads and `ReconcileAsync(...)`. Those are useful for host-owned orchestration, testing, and explicit runtime control.

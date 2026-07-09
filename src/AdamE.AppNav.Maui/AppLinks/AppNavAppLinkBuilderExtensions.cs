@@ -63,7 +63,7 @@ public static class AppNavAppLinkBuilderExtensions
             return false;
         }
 
-        MauiExternalNavigationDispatcher.Submit(request);
+        MauiExternalNavigationBridge.Submit(request);
         return true;
     }
 }
