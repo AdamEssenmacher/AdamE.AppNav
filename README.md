@@ -1735,6 +1735,11 @@ gives it priority. Otherwise it checks the deferred-request store for pending pr
 buffered request stays pending so a later startup-adjacent trigger such as another dispatch or foreground change can
 retry it without losing order.
 
+Platform app-link ingress targets one active AppNav MAUI host per process, with the newest host taking ownership.
+Disposing a host cancels its in-flight external navigation and drops requests still queued by that host. App links
+received after disposal remain in the process bootstrap buffer until a replacement host is created; disposing an older
+host cannot unregister a newer one.
+
 ### Native Container Projection
 
 The v1 MAUI presenter projects state into real MAUI containers.

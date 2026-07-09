@@ -5,41 +5,27 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace AdamE.AppNav.Maui.AppLinks;
 
-internal sealed class MauiExternalNavigationDispatcher : IMauiExternalNavigationDispatcher
+internal sealed class MauiExternalNavigationDispatcher : IMauiExternalNavigationDispatcher, IDisposable
 {
-    private static readonly Lock BootstrapGate = new();
-    private static readonly Queue<RouterNavigationRequest> BootstrapPending = new();
-    private static readonly HashSet<RouterNavigationRequest> BootstrapDeduped = new(MauiNavigationRequestEquivalenceComparer.Instance);
-    private static MauiExternalNavigationDispatcher? _current;
-
     private readonly IServiceProvider _services;
     private readonly NavigationDiagnostics _diagnostics;
     private readonly Lock _gate = new();
     private readonly Queue<RouterNavigationRequest> _pending = new();
     private readonly HashSet<RouterNavigationRequest> _deduped = new(MauiNavigationRequestEquivalenceComparer.Instance);
     private TaskCompletionSource<bool> _pendingRequestAvailable = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private CancellationTokenSource? _activeDrainCancellation;
     private bool _ready;
     private bool _foregrounded;
     private bool _drainScheduled;
+    private bool _disposed;
 
     public MauiExternalNavigationDispatcher(IServiceProvider services, NavigationDiagnostics diagnostics)
     {
         _services = services ?? throw new ArgumentNullException(nameof(services));
         _diagnostics = diagnostics ?? NavigationDiagnostics.None;
 
-        RouterNavigationRequest[] bootstrapRequests;
-        lock (BootstrapGate)
-        {
-            _current = this;
-            bootstrapRequests = BootstrapPending.ToArray();
-            BootstrapPending.Clear();
-            BootstrapDeduped.Clear();
-        }
-
-        foreach (var request in bootstrapRequests)
-        {
-            Enqueue(request);
-        }
+        foreach (RouterNavigationRequest request in MauiExternalNavigationBridge.Register(this))
+            TryEnqueue(request);
     }
 
     public bool HasPendingRequests
@@ -48,45 +34,18 @@ internal sealed class MauiExternalNavigationDispatcher : IMauiExternalNavigation
         {
             lock (_gate)
             {
-                return _pending.Count > 0;
+                return !_disposed && _pending.Count > 0;
             }
         }
-    }
-
-    public static void Submit(RouterNavigationRequest? request)
-    {
-        if (request is null)
-        {
-            return;
-        }
-
-        MauiExternalNavigationDispatcher? current;
-        lock (BootstrapGate)
-        {
-            current = _current;
-            if (current is null)
-            {
-                if (!BootstrapDeduped.Add(request))
-                {
-                    return;
-                }
-
-                BootstrapPending.Enqueue(request);
-                return;
-            }
-        }
-
-        current.Dispatch(request);
     }
 
     public void Dispatch(RouterNavigationRequest? request)
     {
         if (request is null)
-        {
             return;
-        }
 
-        Enqueue(request);
+        if (!TryEnqueue(request))
+            throw new ObjectDisposedException(nameof(MauiExternalNavigationDispatcher));
     }
 
     public async ValueTask<bool> WaitForPendingRequestAsync(
@@ -101,6 +60,9 @@ internal sealed class MauiExternalNavigationDispatcher : IMauiExternalNavigation
         Task waitTask;
         lock (_gate)
         {
+            if (_disposed)
+                return false;
+
             if (_pending.Count > 0)
             {
                 return true;
@@ -136,6 +98,9 @@ internal sealed class MauiExternalNavigationDispatcher : IMauiExternalNavigation
     {
         lock (_gate)
         {
+            if (_disposed)
+                return;
+
             _ready = true;
         }
 
@@ -146,6 +111,9 @@ internal sealed class MauiExternalNavigationDispatcher : IMauiExternalNavigation
     {
         lock (_gate)
         {
+            if (_disposed)
+                return;
+
             _foregrounded = foregrounded;
         }
 
@@ -155,8 +123,59 @@ internal sealed class MauiExternalNavigationDispatcher : IMauiExternalNavigation
         }
     }
 
-    private void Enqueue(RouterNavigationRequest request)
+    internal bool TryDispatchFromBridge(RouterNavigationRequest request)
     {
+        return TryEnqueue(request);
+    }
+
+    public void Dispose()
+    {
+        CancellationTokenSource? activeDrainCancellation;
+        TaskCompletionSource<bool> pendingRequestAvailable;
+        lock (_gate)
+        {
+            if (_disposed)
+                return;
+
+            _disposed = true;
+            _ready = false;
+            _foregrounded = false;
+            _drainScheduled = false;
+            _pending.Clear();
+            _deduped.Clear();
+            activeDrainCancellation = _activeDrainCancellation;
+            pendingRequestAvailable = _pendingRequestAvailable;
+        }
+
+        MauiExternalNavigationBridge.Unregister(this);
+        try
+        {
+            activeDrainCancellation?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // The drain completed after disposal captured its cancellation source.
+        }
+
+        pendingRequestAvailable.TrySetResult(false);
+    }
+
+    private bool TryEnqueue(RouterNavigationRequest request)
+    {
+        var queued = false;
+        lock (_gate)
+        {
+            if (_disposed)
+                return false;
+
+            if (_deduped.Add(request))
+            {
+                _pending.Enqueue(request);
+                _pendingRequestAvailable.TrySetResult(true);
+                queued = true;
+            }
+        }
+
         var operationId = OperationId();
         var detail = request.Uri?.ToString() ?? request.Source.ToString();
         _diagnostics.Write(
@@ -164,23 +183,6 @@ internal sealed class MauiExternalNavigationDispatcher : IMauiExternalNavigation
             operationId,
             detail,
             RequestData(request));
-
-        var queued = false;
-        var shouldScheduleDrain = false;
-        lock (_gate)
-        {
-            if (!_deduped.Add(request))
-            {
-                shouldScheduleDrain = true;
-            }
-            else
-            {
-                _pending.Enqueue(request);
-                _pendingRequestAvailable.TrySetResult(true);
-                queued = true;
-                shouldScheduleDrain = true;
-            }
-        }
 
         if (queued)
         {
@@ -191,97 +193,118 @@ internal sealed class MauiExternalNavigationDispatcher : IMauiExternalNavigation
                 RequestData(request));
         }
 
-        if (shouldScheduleDrain)
-        {
-            ScheduleDrainIfReady();
-        }
+        ScheduleDrainIfReady();
+        return true;
     }
 
     private void ScheduleDrainIfReady()
     {
+        CancellationTokenSource drainCancellation;
         lock (_gate)
         {
-            if (_drainScheduled || !_ready || !_foregrounded || _pending.Count == 0)
+            if (_disposed || _drainScheduled || !_ready || !_foregrounded || _pending.Count == 0)
             {
                 return;
             }
 
             _drainScheduled = true;
+            drainCancellation = new CancellationTokenSource();
+            _activeDrainCancellation = drainCancellation;
         }
 
-        _ = DrainObservedAsync();
+        _ = DrainObservedAsync(drainCancellation);
     }
 
-    private async Task DrainObservedAsync()
+    private async Task DrainObservedAsync(CancellationTokenSource drainCancellation)
     {
-        while (true)
+        try
         {
-            RouterNavigationRequest? request;
-            lock (_gate)
+            while (true)
             {
-                if (!_ready || !_foregrounded || _pending.Count == 0)
-                {
-                    _drainScheduled = false;
-                    return;
-                }
-
-                request = _pending.Peek();
-            }
-
-            var operationId = OperationId();
-            var detail = request.Uri?.ToString() ?? request.Source.ToString();
-            _diagnostics.Write(
-                NavigationDiagnosticEventKind.AppLinkDispatched,
-                operationId,
-                detail,
-                RequestData(request));
-
-            var shouldStop = false;
-            var dispatchSucceeded = false;
-            try
-            {
-                var navigator = _services.GetRequiredService<IRouterNavigator>();
-                await navigator.NavigateAsync(request).ConfigureAwait(false);
-                dispatchSucceeded = true;
-            }
-            catch (Exception ex)
-            {
-                _diagnostics.Write(
-                    NavigationDiagnosticEventKind.AppLinkFailed,
-                    operationId,
-                    detail,
-                    FailureData(request, ex));
-            }
-            finally
-            {
+                RouterNavigationRequest? request;
                 lock (_gate)
                 {
-                    if (dispatchSucceeded)
+                    if (_disposed || !_ready || !_foregrounded || _pending.Count == 0)
                     {
-                        if (_pending.Count > 0)
-                        {
-                            _pending.Dequeue();
-                        }
+                        _drainScheduled = false;
+                        return;
+                    }
 
-                        _deduped.Remove(request);
-                        if (!_ready || !_foregrounded || _pending.Count == 0)
+                    request = _pending.Peek();
+                }
+
+                var operationId = OperationId();
+                var detail = request.Uri?.ToString() ?? request.Source.ToString();
+                _diagnostics.Write(
+                    NavigationDiagnosticEventKind.AppLinkDispatched,
+                    operationId,
+                    detail,
+                    RequestData(request));
+
+                var shouldStop = false;
+                var dispatchSucceeded = false;
+                try
+                {
+                    var navigator = _services.GetRequiredService<IRouterNavigator>();
+                    await navigator
+                        .NavigateAsync(request, drainCancellation.Token)
+                        .ConfigureAwait(false);
+                    dispatchSucceeded = true;
+                }
+                catch (OperationCanceledException) when (drainCancellation.IsCancellationRequested)
+                {
+                    shouldStop = true;
+                }
+                catch (Exception ex)
+                {
+                    _diagnostics.Write(
+                        NavigationDiagnosticEventKind.AppLinkFailed,
+                        operationId,
+                        detail,
+                        FailureData(request, ex));
+                }
+                finally
+                {
+                    lock (_gate)
+                    {
+                        if (_disposed || drainCancellation.IsCancellationRequested)
+                        {
+                            _drainScheduled = false;
+                            shouldStop = true;
+                        }
+                        else if (dispatchSucceeded)
+                        {
+                            if (_pending.Count > 0)
+                                _pending.Dequeue();
+
+                            _deduped.Remove(request);
+                            if (!_ready || !_foregrounded || _pending.Count == 0)
+                            {
+                                _drainScheduled = false;
+                                shouldStop = true;
+                            }
+                        }
+                        else
                         {
                             _drainScheduled = false;
                             shouldStop = true;
                         }
                     }
-                    else
-                    {
-                        _drainScheduled = false;
-                        shouldStop = true;
-                    }
                 }
+
+                if (shouldStop)
+                    return;
+            }
+        }
+        finally
+        {
+            lock (_gate)
+            {
+                if (ReferenceEquals(_activeDrainCancellation, drainCancellation))
+                    _activeDrainCancellation = null;
             }
 
-            if (shouldStop)
-            {
-                return;
-            }
+            drainCancellation.Dispose();
         }
     }
 
@@ -353,64 +376,4 @@ internal sealed class MauiExternalNavigationDispatcher : IMauiExternalNavigation
         }
     }
 
-    private sealed class MauiNavigationRequestEquivalenceComparer : IEqualityComparer<RouterNavigationRequest>
-    {
-        public static MauiNavigationRequestEquivalenceComparer Instance { get; } = new();
-
-        public bool Equals(RouterNavigationRequest? x, RouterNavigationRequest? y)
-        {
-            if (ReferenceEquals(x, y))
-            {
-                return true;
-            }
-
-            if (x is null || y is null)
-            {
-                return false;
-            }
-
-            if (!Equals(x.Uri, y.Uri) ||
-                !Equals(x.Route, y.Route) ||
-                x.Source != y.Source ||
-                !StringComparer.Ordinal.Equals(x.WindowId, y.WindowId) ||
-                x.Disposition != y.Disposition ||
-                !Equals(x.Provenance, y.Provenance) ||
-                x.Metadata.Count != y.Metadata.Count)
-            {
-                return false;
-            }
-
-            foreach (var pair in x.Metadata)
-            {
-                if (!y.Metadata.TryGetValue(pair.Key, out var otherValue) ||
-                    !Equals(pair.Value, otherValue))
-                {
-                    return false;
-                }
-            }
-
-            return true;
-        }
-
-        public int GetHashCode(RouterNavigationRequest obj)
-        {
-            ArgumentNullException.ThrowIfNull(obj);
-
-            var hash = new HashCode();
-            hash.Add(obj.Uri);
-            hash.Add(obj.Route);
-            hash.Add(obj.Source);
-            hash.Add(obj.WindowId, StringComparer.Ordinal);
-            hash.Add(obj.Disposition);
-            hash.Add(obj.Provenance);
-            foreach (var pair in obj.Metadata.OrderBy(static pair => pair.Key, StringComparer.Ordinal))
-            {
-                hash.Add(pair.Key, StringComparer.Ordinal);
-                hash.Add(pair.Value?.GetType());
-                hash.Add(pair.Value);
-            }
-
-            return hash.ToHashCode();
-        }
-    }
 }

@@ -15,6 +15,7 @@ using Microsoft.Maui.Controls;
 
 namespace AdamE.AppNav.Maui.Tests;
 
+[Collection(ExternalNavigationBridgeTestCollection.Name)]
 public sealed class AppNavStartupServiceTests
 {
     private static readonly Uri BaseUri = new("https://example.com/");
@@ -23,11 +24,11 @@ public sealed class AppNavStartupServiceTests
     public async Task StartAsync_FallbackNavigation_UsesInjectedRouterNavigator()
     {
         var navigator = new RecordingRouterNavigator();
-        var services = new ServiceCollection()
+        using var services = new ServiceCollection()
             .AddSingleton<IRouterNavigator>(navigator)
             .AddSingleton(new NavigationDiagnostics())
             .BuildServiceProvider();
-        var dispatcher = new MauiExternalNavigationDispatcher(
+        using var dispatcher = new MauiExternalNavigationDispatcher(
             services,
             services.GetRequiredService<NavigationDiagnostics>());
         var windowAttachment = new RecordingWindowAttachment();
@@ -59,11 +60,11 @@ public sealed class AppNavStartupServiceTests
     {
         var diagnostics = new NavigationDiagnostics();
         var navigator = new RecordingRouterNavigator();
-        var services = new ServiceCollection()
+        using var services = new ServiceCollection()
             .AddSingleton<IRouterNavigator>(navigator)
             .AddSingleton(diagnostics)
             .BuildServiceProvider();
-        var dispatcher = new MauiExternalNavigationDispatcher(services, diagnostics);
+        using var dispatcher = new MauiExternalNavigationDispatcher(services, diagnostics);
         dispatcher.Dispatch(RouterNavigationRequest.FromRoute(new TestRoute("pending"), NavigationRequestSource.AppLink));
 
         var windowAttachment = new RecordingWindowAttachment();
@@ -98,12 +99,12 @@ public sealed class AppNavStartupServiceTests
         diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
         var navigator = new RecordingRouterNavigator();
         var deferredStore = new RecordingDeferredRequestStore { HasDeferredRequestsResult = true };
-        var services = new ServiceCollection()
+        using var services = new ServiceCollection()
             .AddSingleton<IRouterNavigator>(navigator)
             .AddSingleton(diagnostics)
             .AddSingleton<IDeferredNavigationRequestStore>(deferredStore)
             .BuildServiceProvider();
-        var dispatcher = new MauiExternalNavigationDispatcher(services, diagnostics);
+        using var dispatcher = new MauiExternalNavigationDispatcher(services, diagnostics);
         var windowAttachment = new RecordingWindowAttachment();
         var startup = new AppNavStartupService(
             navigator,
@@ -142,12 +143,12 @@ public sealed class AppNavStartupServiceTests
         {
             HasDeferredRequestsException = new JsonException("Deferred request JSON was corrupt.")
         };
-        var services = new ServiceCollection()
+        using var services = new ServiceCollection()
             .AddSingleton<IRouterNavigator>(navigator)
             .AddSingleton(diagnostics)
             .AddSingleton<IDeferredNavigationRequestStore>(deferredStore)
             .BuildServiceProvider();
-        var dispatcher = new MauiExternalNavigationDispatcher(
+        using var dispatcher = new MauiExternalNavigationDispatcher(
             services,
             diagnostics);
         var windowAttachment = new RecordingWindowAttachment();
@@ -204,12 +205,12 @@ public sealed class AppNavStartupServiceTests
                     Path = path,
                     BaseUri = BaseUri
                 });
-            var services = new ServiceCollection()
+            using var services = new ServiceCollection()
                 .AddSingleton<IRouterNavigator>(navigator)
                 .AddSingleton(diagnostics)
                 .AddSingleton<IDeferredNavigationRequestStore>(deferredStore)
                 .BuildServiceProvider();
-            var dispatcher = new MauiExternalNavigationDispatcher(
+            using var dispatcher = new MauiExternalNavigationDispatcher(
                 services,
                 diagnostics);
             var windowAttachment = new RecordingWindowAttachment();
@@ -261,12 +262,12 @@ public sealed class AppNavStartupServiceTests
             HasDeferredRequestsException = new JsonException("Deferred request JSON was corrupt."),
             ClearException = clearException
         };
-        var services = new ServiceCollection()
+        using var services = new ServiceCollection()
             .AddSingleton<IRouterNavigator>(navigator)
             .AddSingleton(new NavigationDiagnostics())
             .AddSingleton<IDeferredNavigationRequestStore>(deferredStore)
             .BuildServiceProvider();
-        var dispatcher = new MauiExternalNavigationDispatcher(
+        using var dispatcher = new MauiExternalNavigationDispatcher(
             services,
             services.GetRequiredService<NavigationDiagnostics>());
         var windowAttachment = new RecordingWindowAttachment();
@@ -299,11 +300,11 @@ public sealed class AppNavStartupServiceTests
     public async Task StartAsync_NoFallbackRequest_AttachesWindowWithoutNavigation()
     {
         var navigator = new RecordingRouterNavigator();
-        var services = new ServiceCollection()
+        using var services = new ServiceCollection()
             .AddSingleton<IRouterNavigator>(navigator)
             .AddSingleton(new NavigationDiagnostics())
             .BuildServiceProvider();
-        var dispatcher = new MauiExternalNavigationDispatcher(
+        using var dispatcher = new MauiExternalNavigationDispatcher(
             services,
             services.GetRequiredService<NavigationDiagnostics>());
         var windowAttachment = new RecordingWindowAttachment();

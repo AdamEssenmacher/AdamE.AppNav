@@ -7,9 +7,11 @@ using AdamE.AppNav.Presentation;
 using AdamE.AppNav.Requests;
 using AdamE.AppNav.State;
 using Microsoft.Extensions.DependencyInjection;
+using System.Runtime.CompilerServices;
 
 namespace AdamE.AppNav.Maui.Tests;
 
+[Collection(ExternalNavigationBridgeTestCollection.Name)]
 public sealed class MauiExternalNavigationDispatcherTests
 {
     [Fact]
@@ -291,6 +293,210 @@ public sealed class MauiExternalNavigationDispatcherTests
         Assert.False(runtimeDispatcher.HasPendingRequests);
     }
 
+    [Fact]
+    public async Task StaticSubmitBeforeHostCreation_IsDeliveredAfterRegistration()
+    {
+        var request = RouterNavigationRequest.FromRoute(new TestRoute("bootstrap"), NavigationRequestSource.AppLink);
+        MauiExternalNavigationBridge.Submit(request);
+
+        var navigator = new RecordingRouterNavigator();
+        using var provider = CreateDispatcherProvider(navigator);
+        var dispatcher = provider.GetRequiredService<MauiExternalNavigationDispatcher>();
+        dispatcher.MarkReady();
+        dispatcher.SetForegrounded(true);
+
+        await WaitUntilAsync(() => navigator.Calls.Count == 1);
+
+        Assert.Equal([request], navigator.Calls);
+    }
+
+    [Fact]
+    public async Task StaticSubmitAfterHostDisposal_IsDeliveredToReplacementHost()
+    {
+        var firstNavigator = new RecordingRouterNavigator();
+        var firstProvider = CreateDispatcherProvider(firstNavigator);
+        firstProvider.GetRequiredService<MauiExternalNavigationDispatcher>();
+        firstProvider.Dispose();
+
+        var request = RouterNavigationRequest.FromRoute(new TestRoute("replacement"), NavigationRequestSource.AppLink);
+        MauiExternalNavigationBridge.Submit(request);
+
+        var replacementNavigator = new RecordingRouterNavigator();
+        using var replacementProvider = CreateDispatcherProvider(replacementNavigator);
+        var replacement = replacementProvider.GetRequiredService<MauiExternalNavigationDispatcher>();
+        replacement.MarkReady();
+        replacement.SetForegrounded(true);
+
+        await WaitUntilAsync(() => replacementNavigator.Calls.Count == 1);
+
+        Assert.Empty(firstNavigator.Calls);
+        Assert.Equal([request], replacementNavigator.Calls);
+    }
+
+    [Fact]
+    public async Task DisposingOlderHost_DoesNotUnregisterNewerHost()
+    {
+        var olderProvider = CreateDispatcherProvider(new RecordingRouterNavigator());
+        olderProvider.GetRequiredService<MauiExternalNavigationDispatcher>();
+
+        var currentNavigator = new RecordingRouterNavigator();
+        using var currentProvider = CreateDispatcherProvider(currentNavigator);
+        var current = currentProvider.GetRequiredService<MauiExternalNavigationDispatcher>();
+        current.MarkReady();
+        current.SetForegrounded(true);
+
+        olderProvider.Dispose();
+        var request = RouterNavigationRequest.FromRoute(new TestRoute("current"), NavigationRequestSource.AppLink);
+        MauiExternalNavigationBridge.Submit(request);
+
+        await WaitUntilAsync(() => currentNavigator.Calls.Count == 1);
+
+        Assert.Equal([request], currentNavigator.Calls);
+    }
+
+    [Fact]
+    public async Task DisposingHost_DropsItsQueuedRequests()
+    {
+        var dropped = RouterNavigationRequest.FromRoute(new TestRoute("dropped"), NavigationRequestSource.AppLink);
+        var oldNavigator = new RecordingRouterNavigator();
+        var oldProvider = CreateDispatcherProvider(oldNavigator);
+        var oldDispatcher = oldProvider.GetRequiredService<MauiExternalNavigationDispatcher>();
+        oldDispatcher.MarkReady();
+        oldDispatcher.SetForegrounded(false);
+        oldDispatcher.Dispatch(dropped);
+        Assert.True(oldDispatcher.HasPendingRequests);
+
+        oldProvider.Dispose();
+
+        var currentNavigator = new RecordingRouterNavigator();
+        using var currentProvider = CreateDispatcherProvider(currentNavigator);
+        var currentDispatcher = currentProvider.GetRequiredService<MauiExternalNavigationDispatcher>();
+        currentDispatcher.MarkReady();
+        currentDispatcher.SetForegrounded(true);
+        await Task.Delay(100);
+        Assert.Empty(currentNavigator.Calls);
+
+        var current = RouterNavigationRequest.FromRoute(new TestRoute("current"), NavigationRequestSource.AppLink);
+        MauiExternalNavigationBridge.Submit(current);
+        await WaitUntilAsync(() => currentNavigator.Calls.Count == 1);
+
+        Assert.Empty(oldNavigator.Calls);
+        Assert.Equal([current], currentNavigator.Calls);
+    }
+
+    [Fact]
+    public async Task DisposingHost_DropsRequestsRetainedAfterFailure()
+    {
+        var failed = RouterNavigationRequest.FromRoute(new TestRoute("failed"), NavigationRequestSource.AppLink);
+        var oldNavigator = new RecordingRouterNavigator((_, _) =>
+            throw new InvalidOperationException("Dispatch failed."));
+        var oldProvider = CreateDispatcherProvider(oldNavigator);
+        var oldDispatcher = oldProvider.GetRequiredService<MauiExternalNavigationDispatcher>();
+        oldDispatcher.MarkReady();
+        oldDispatcher.SetForegrounded(true);
+        oldDispatcher.Dispatch(failed);
+        await WaitUntilAsync(() => oldNavigator.Calls.Count == 1);
+        Assert.True(oldDispatcher.HasPendingRequests);
+
+        oldProvider.Dispose();
+
+        var replacementNavigator = new RecordingRouterNavigator();
+        using var replacementProvider = CreateDispatcherProvider(replacementNavigator);
+        var replacement = replacementProvider.GetRequiredService<MauiExternalNavigationDispatcher>();
+        replacement.MarkReady();
+        replacement.SetForegrounded(true);
+
+        Assert.False(replacement.HasPendingRequests);
+        Assert.Empty(replacementNavigator.Calls);
+    }
+
+    [Fact]
+    public async Task DisposingHost_CancelsInFlightDispatchWithoutFailureDiagnostic()
+    {
+        var navigationStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var navigationCancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var diagnostics = new NavigationDiagnostics();
+        var events = new List<NavigationDiagnosticEvent>();
+        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+        var navigator = new RecordingRouterNavigator((_, cancellationToken) =>
+        {
+            navigationStarted.TrySetResult();
+            return new ValueTask<NavigationResult>(WaitForCancellationAsync(cancellationToken, navigationCancelled));
+        });
+        var provider = CreateDispatcherProvider(navigator, diagnostics);
+        var dispatcher = provider.GetRequiredService<MauiExternalNavigationDispatcher>();
+        dispatcher.MarkReady();
+        dispatcher.SetForegrounded(true);
+        dispatcher.Dispatch(RouterNavigationRequest.FromRoute(
+            new TestRoute("in-flight"),
+            NavigationRequestSource.AppLink));
+        await navigationStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        provider.Dispose();
+
+        await navigationCancelled.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.DoesNotContain(events, diagnosticEvent =>
+            diagnosticEvent.Kind == NavigationDiagnosticEventKind.AppLinkFailed);
+
+        var replacementNavigator = new RecordingRouterNavigator();
+        using var replacementProvider = CreateDispatcherProvider(replacementNavigator);
+        var replacement = replacementProvider.GetRequiredService<MauiExternalNavigationDispatcher>();
+        replacement.MarkReady();
+        replacement.SetForegrounded(true);
+
+        Assert.False(replacement.HasPendingRequests);
+        Assert.Empty(replacementNavigator.Calls);
+    }
+
+    [Fact]
+    public async Task DisposingHost_ReleasesPendingWaiters()
+    {
+        var provider = CreateDispatcherProvider(new RecordingRouterNavigator());
+        var dispatcher = provider.GetRequiredService<MauiExternalNavigationDispatcher>();
+        Task<bool> waiting = dispatcher
+            .WaitForPendingRequestAsync(TimeSpan.FromMinutes(1))
+            .AsTask();
+
+        provider.Dispose();
+
+        Assert.False(await waiting.WaitAsync(TimeSpan.FromSeconds(2)));
+        Assert.False(await dispatcher.WaitForPendingRequestAsync(TimeSpan.FromMinutes(1)));
+    }
+
+    [Fact]
+    public void DisposedDispatcher_RejectsDirectDispatchAndAllowsLifecycleCleanup()
+    {
+        var provider = CreateDispatcherProvider(new RecordingRouterNavigator());
+        var dispatcher = provider.GetRequiredService<MauiExternalNavigationDispatcher>();
+        provider.Dispose();
+
+        dispatcher.Dispatch(null);
+        dispatcher.MarkReady();
+        dispatcher.SetForegrounded(true);
+        dispatcher.Dispose();
+
+        Assert.False(dispatcher.HasPendingRequests);
+        Assert.Throws<ObjectDisposedException>(() => dispatcher.Dispatch(
+            RouterNavigationRequest.FromRoute(new TestRoute("disposed"), NavigationRequestSource.AppLink)));
+    }
+
+    [Fact]
+    public void RepeatedHostDisposal_ReleasesProvidersAndDispatchers()
+    {
+        HostWeakReferences[] hosts = Enumerable.Range(0, 32)
+            .Select(_ => CreateAndDisposeHost())
+            .ToArray();
+
+        ForceFullCollection();
+
+        Assert.All(hosts, host =>
+        {
+            Assert.False(host.Provider.IsAlive);
+            Assert.False(host.Dispatcher.IsAlive);
+            Assert.False(host.Navigator.IsAlive);
+        });
+    }
+
     private static async Task WaitUntilAsync(Func<bool> predicate, int timeoutMs = 2000)
     {
         var started = Environment.TickCount64;
@@ -304,6 +510,64 @@ public sealed class MauiExternalNavigationDispatcherTests
             await Task.Delay(20);
         }
     }
+
+    private static ServiceProvider CreateDispatcherProvider(
+        RecordingRouterNavigator navigator,
+        NavigationDiagnostics? diagnostics = null)
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton(diagnostics ?? new NavigationDiagnostics());
+        services.AddSingleton<IRouterNavigator>(navigator);
+        services.AddSingleton<MauiExternalNavigationDispatcher>();
+        services.AddSingleton<IMauiExternalNavigationDispatcher>(provider =>
+            provider.GetRequiredService<MauiExternalNavigationDispatcher>());
+        return services.BuildServiceProvider();
+    }
+
+    private static async Task<NavigationResult> WaitForCancellationAsync(
+        CancellationToken cancellationToken,
+        TaskCompletionSource navigationCancelled)
+    {
+        try
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            throw new InvalidOperationException("The navigation dispatch was not cancelled.");
+        }
+        catch (OperationCanceledException)
+        {
+            navigationCancelled.TrySetResult();
+            throw;
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static HostWeakReferences CreateAndDisposeHost()
+    {
+        var navigator = new RecordingRouterNavigator();
+        ServiceProvider provider = CreateDispatcherProvider(navigator);
+        var dispatcher = provider.GetRequiredService<MauiExternalNavigationDispatcher>();
+        var references = new HostWeakReferences(
+            new WeakReference(provider),
+            new WeakReference(dispatcher),
+            new WeakReference(navigator));
+
+        provider.Dispose();
+        return references;
+    }
+
+    private static void ForceFullCollection()
+    {
+        for (var i = 0; i < 4; i++)
+        {
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+            GC.WaitForPendingFinalizers();
+        }
+    }
+
+    private sealed record HostWeakReferences(
+        WeakReference Provider,
+        WeakReference Dispatcher,
+        WeakReference Navigator);
 
     private sealed record TestRoute(string Id) : AppRoute;
 

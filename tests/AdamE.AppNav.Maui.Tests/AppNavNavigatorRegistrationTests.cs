@@ -14,6 +14,7 @@ using Microsoft.Maui.Controls;
 
 namespace AdamE.AppNav.Maui.Tests;
 
+[Collection(ExternalNavigationBridgeTestCollection.Name)]
 public sealed class AppNavNavigatorRegistrationTests
 {
     [Fact]
