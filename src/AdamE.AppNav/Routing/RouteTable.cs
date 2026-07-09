@@ -2,9 +2,14 @@ namespace AdamE.AppNav.Routing;
 
 public sealed class RouteTable
 {
+    private readonly Dictionary<Type, RouteDefinition> _definitionsByRouteType;
+    private readonly RouteCandidateIndex _candidateIndex;
+
     internal RouteTable(IReadOnlyList<RouteDefinition> definitions)
     {
         Definitions = definitions;
+        _definitionsByRouteType = BuildDefinitionIndex(definitions);
+        _candidateIndex = RouteCandidateIndex.Create(definitions);
     }
 
     // ReSharper disable once MemberCanBePrivate.Global
@@ -24,19 +29,20 @@ public sealed class RouteTable
         ArgumentNullException.ThrowIfNull(uri);
 
         (string path, string query) = SplitUri(uri);
+        string[] pathSegments = RouteTemplate.SplitPathForMatch(path);
         IReadOnlyDictionary<string, IReadOnlyList<string>> queryValues = QueryString.Parse(query);
 
-        foreach (RouteDefinition definition in Definitions)
+        foreach (RouteDefinition definition in _candidateIndex.Select(pathSegments))
         {
-            IReadOnlyDictionary<string, string>? pathValues = definition.Template.Match(path);
+            IReadOnlyDictionary<string, string>? pathValues = definition.Template.Match(pathSegments);
             if (pathValues is null)
                 continue;
 
             try
             {
                 var context = new RouteMatchContext(uri, pathValues, queryValues);
-                RouteMatch match = definition.Create(context);
-                return RouteMatchResult.Success(match.Route, definition, match.Metadata);
+                (AppRoute route, IReadOnlyDictionary<string, object?> metadata) = definition.Create(context);
+                return RouteMatchResult.Success(route, definition, metadata);
             }
             catch (Exception ex) when (ex is FormatException or KeyNotFoundException or NotSupportedException)
             {
@@ -119,12 +125,20 @@ public sealed class RouteTable
              currentType is not null && currentType != typeof(object);
              currentType = currentType.BaseType)
         {
-            RouteDefinition? definition = Definitions.FirstOrDefault(candidate => candidate.RouteType == currentType);
-            if (definition is not null)
+            if (_definitionsByRouteType.TryGetValue(currentType, out RouteDefinition? definition))
                 return definition;
         }
 
         return null;
+    }
+
+    private static Dictionary<Type, RouteDefinition> BuildDefinitionIndex(IReadOnlyList<RouteDefinition> definitions)
+    {
+        var index = new Dictionary<Type, RouteDefinition>();
+        foreach (RouteDefinition definition in definitions)
+            index.TryAdd(definition.RouteType, definition);
+
+        return index;
     }
 
     private static (string Path, string Query) SplitUri(Uri uri)
@@ -141,5 +155,92 @@ public sealed class RouteTable
         return queryIndex < 0
             ? (text, string.Empty)
             : (text[..queryIndex], text[(queryIndex + 1)..]);
+    }
+
+    private sealed class RouteCandidateIndex
+    {
+        private RouteCandidateIndex(CandidateNode root)
+        {
+            Root = root;
+        }
+
+        private CandidateNode Root { get; }
+
+        public static RouteCandidateIndex Create(IReadOnlyList<RouteDefinition> definitions)
+        {
+            var root = new CandidateNode([]);
+            foreach (RouteDefinition definition in definitions)
+            {
+                CandidateNode node = root;
+                foreach (string literal in definition.Template.LiteralPrefix)
+                    node = node.GetOrAddChild(literal);
+            }
+
+            AssignCandidates(root, definitions);
+            return new RouteCandidateIndex(root);
+        }
+
+        public IReadOnlyList<RouteDefinition> Select(IReadOnlyList<string> pathSegments)
+        {
+            CandidateNode node = Root;
+            foreach (string segment in pathSegments)
+            {
+                if (!node.Children.TryGetValue(segment, out CandidateNode? next))
+                    break;
+
+                node = next;
+            }
+
+            return node.Candidates;
+        }
+
+        private static void AssignCandidates(CandidateNode node, IReadOnlyList<RouteDefinition> definitions)
+        {
+            node.Candidates = definitions
+                .Where(definition => IsPrefixMatch(definition.Template.LiteralPrefix, node.Prefix))
+                .ToArray();
+
+            foreach (CandidateNode child in node.Children.Values)
+                AssignCandidates(child, definitions);
+        }
+
+        private static bool IsPrefixMatch(IReadOnlyList<string> routePrefix, IReadOnlyList<string> nodePrefix)
+        {
+            if (routePrefix.Count > nodePrefix.Count)
+                return false;
+
+            for (var i = 0; i < routePrefix.Count; i++)
+            {
+                if (!StringComparer.Ordinal.Equals(routePrefix[i], nodePrefix[i]))
+                    return false;
+            }
+
+            return true;
+        }
+
+        private sealed class CandidateNode
+        {
+            public CandidateNode(IReadOnlyList<string> prefix)
+            {
+                Prefix = prefix;
+            }
+
+            public IReadOnlyList<string> Prefix { get; }
+
+            public Dictionary<string, CandidateNode> Children { get; } = new(StringComparer.Ordinal);
+
+            public RouteDefinition[] Candidates { get; set; } = [];
+
+            public CandidateNode GetOrAddChild(string literal)
+            {
+                if (Children.TryGetValue(literal, out CandidateNode? child))
+                    return child;
+
+                string[] childPrefix = [..Prefix, literal];
+                child = new CandidateNode(childPrefix);
+                Children[literal] = child;
+                return child;
+            }
+        }
     }
 }

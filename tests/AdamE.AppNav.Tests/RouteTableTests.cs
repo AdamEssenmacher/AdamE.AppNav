@@ -558,6 +558,34 @@ public sealed class RouteTableTests
     }
 
     [Fact]
+    public void MatchDecodesLiteralSegmentsBeforeCandidateSelection()
+    {
+        var table = RouteTable.Create(routes => routes
+            .Map(
+                "/stores/northwind",
+                _ => new TestRoutes.StoreRoute("northwind")));
+
+        Assert.Equal(
+            new TestRoutes.StoreRoute("northwind"),
+            table.Match(new Uri("/stores/north%77ind", UriKind.Relative)).Route);
+    }
+
+    [Fact]
+    public void MatchRetainsGenericCandidatesWhenLongerLiteralPrefixDoesNotMatch()
+    {
+        var table = RouteTable.Create(routes => routes
+            .Map(
+                "/products/new/details",
+                _ => new NewProductRoute())
+            .Map(
+                "/products/{slug}",
+                match => new ProductSlugRoute(match.Path("slug")),
+                format => format.PathParam("slug", route => route.Slug)));
+
+        Assert.Equal(new ProductSlugRoute("other"), table.Match(new Uri("/products/other", UriKind.Relative)).Route);
+    }
+
+    [Fact]
     public void ExactShorterRoutesWinOverOptionalTrailingRoutesRegardlessOfRegistrationOrder()
     {
         var table = RouteTable.Create(routes => routes

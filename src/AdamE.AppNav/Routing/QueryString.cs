@@ -2,10 +2,14 @@ namespace AdamE.AppNav.Routing;
 
 internal static class QueryString
 {
+    private static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> EmptyQueryValueLists =
+        new System.Collections.ObjectModel.ReadOnlyDictionary<string, IReadOnlyList<string>>(
+            new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase));
+
     public static IReadOnlyDictionary<string, IReadOnlyList<string>> Parse(string query)
     {
         if (string.IsNullOrWhiteSpace(query))
-            return new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+            return EmptyQueryValueLists;
 
         var result = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         foreach (string pair in query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))

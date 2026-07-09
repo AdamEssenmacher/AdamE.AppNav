@@ -15,6 +15,8 @@ dotnet test tests/AdamE.AppNav.Tests/AdamE.AppNav.Tests.csproj
 dotnet build tests/AdamE.AppNav.Maui.Tests/AdamE.AppNav.Maui.Tests.csproj -f net10.0-maccatalyst
 dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj
 dotnet build samples/Commerce.Sample/Commerce.Sample.csproj -f net10.0-maccatalyst
+dotnet build benchmarks/AdamE.AppNav.Benchmarks/AdamE.AppNav.Benchmarks.csproj -c Release
+dotnet run -c Release --project benchmarks/AdamE.AppNav.Benchmarks -- --check-budgets
 dotnet pack src/AdamE.AppNav/AdamE.AppNav.csproj
 dotnet pack src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj
 ```
@@ -56,6 +58,7 @@ The release-confidence workflow runs core tests, MAUI adapter build, Commerce Ma
 - Commerce uses app-link startup, fallback routing, deferred request persistence, and shared-element ids.
 - App-link cold start prefers the incoming link over fallback startup navigation.
 - Deferred request persistence recovers from corrupt or unsupported persisted payloads by clearing the store and continuing startup.
+- Optional release-candidate performance review: run `dotnet run -c Release --project benchmarks/AdamE.AppNav.Benchmarks -- --filter "*" --join`.
 - Logs contain no unhandled exceptions, stale hidden shared-element views, failed native delegates, or missing cleanup diagnostics.
 
 ## Known V1 Limits
@@ -64,5 +67,5 @@ The release-confidence workflow runs core tests, MAUI adapter build, Commerce Ma
 - No Windows MAUI adapter target.
 - No MVU presenter.
 - No complete multi-window orchestration.
-- No route matcher trie/indexing performance work.
+- No full trie-based route matcher; the current literal-prefix candidate index has benchmark and allocation-budget coverage across 10, 100, and 1000 routes.
 - No custom tab selection animation.
