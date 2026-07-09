@@ -182,7 +182,8 @@ public sealed class AppNavFluentRegistrationAnalyzer : DiagnosticAnalyzer
             AppNavDiagnostics.PathQueryOverlap,
             AppNavDiagnostics.NoUsableConstructor,
             AppNavDiagnostics.AmbiguousConstructor,
-            AppNavDiagnostics.UnsafeQueryConstructorParameter);
+            AppNavDiagnostics.UnsafeQueryConstructorParameter,
+            AppNavDiagnostics.UnsupportedRouteValueType);
 
     public override void Initialize(AnalysisContext context)
     {
@@ -350,6 +351,15 @@ internal static class SymbolFacts
         return type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
     }
 
+    public static string Identifier(string name)
+    {
+        return SyntaxFacts.IsValidIdentifier(name) &&
+               SyntaxFacts.GetKeywordKind(name) == SyntaxKind.None &&
+               SyntaxFacts.GetContextualKeywordKind(name) == SyntaxKind.None
+            ? name
+            : "@" + name;
+    }
+
     public static bool IsAssignableTo(ITypeSymbol source, ITypeSymbol target)
     {
         for (ITypeSymbol? current = source; current is not null; current = current.BaseType)
@@ -398,7 +408,11 @@ internal static class RouteModelFactory
         if (routeType is null)
             return;
 
-        if (!ParsedRouteTemplate.TryParse(template, out ParsedRouteTemplate? parsedTemplate, out string? parseError))
+        if (!ParsedRouteTemplate.TryParse(
+                template,
+                out ParsedRouteTemplate? parsedTemplate,
+                out string? parseError,
+                allowCustomConstraints: true))
         {
             reportDiagnostic(Diagnostic.Create(
                 AppNavDiagnostics.InvalidRouteTemplate,
@@ -408,7 +422,22 @@ internal static class RouteModelFactory
             return;
         }
 
-        TryCreate(routeType, parsedTemplate!, location, symbols, reportDiagnostic, includeAttributeQueries: false);
+        Dictionary<string, IPropertySymbol> properties = GetPublicProperties(routeType);
+        foreach (TemplateParameter parameter in parsedTemplate!.Parameters)
+        {
+            if (!properties.TryGetValue(parameter.Name, out IPropertySymbol? property))
+            {
+                reportDiagnostic(Diagnostic.Create(
+                    AppNavDiagnostics.MissingPathMember,
+                    location,
+                    routeType.ToDisplayString(),
+                    parameter.Name,
+                    parsedTemplate.Value));
+                continue;
+            }
+
+            ReportUnsupportedValueType(routeType, property.Type, parameter.Name, location, reportDiagnostic);
+        }
     }
 
     private static RouteModel? TryCreate(
@@ -446,7 +475,7 @@ internal static class RouteModelFactory
             : Array.Empty<QueryBinding>();
 
         IReadOnlyList<MetadataQueryBinding> metadataBindings = includeAttributeQueries
-            ? BuildMetadataBindings(routeType, symbols, reportDiagnostic, ref hasErrors)
+            ? BuildMetadataBindings(routeType, symbols, queryBindings, reportDiagnostic, ref hasErrors)
             : Array.Empty<MetadataQueryBinding>();
 
         IMethodSymbol? constructor = SelectConstructor(routeType, template, queryBindings, location, reportDiagnostic, ref hasErrors);
@@ -566,11 +595,16 @@ internal static class RouteModelFactory
     private static IReadOnlyList<MetadataQueryBinding> BuildMetadataBindings(
         INamedTypeSymbol routeType,
         AppNavSymbols symbols,
+        IReadOnlyList<QueryBinding> queryBindings,
         Action<Diagnostic> reportDiagnostic,
         ref bool hasErrors)
     {
         var bindings = new List<MetadataQueryBinding>();
         var members = new HashSet<string>(StringComparer.Ordinal);
+        var queryNames = new HashSet<string>(
+            queryBindings.Select(static binding => binding.QueryName),
+            StringComparer.OrdinalIgnoreCase);
+        var metadataNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (AttributeData attribute in SymbolFacts.GetAttributes(routeType, AppNavSymbols.QueryMetadataAttributeName))
         {
@@ -596,7 +630,9 @@ internal static class RouteModelFactory
                 member is null ||
                 symbols.RouteMetadataKey is null ||
                 memberType is not INamedTypeSymbol namedMemberType ||
-                !SymbolEqualityComparer.Default.Equals(namedMemberType.ConstructedFrom, symbols.RouteMetadataKey))
+                !SymbolEqualityComparer.Default.Equals(namedMemberType.ConstructedFrom, symbols.RouteMetadataKey) ||
+                !IsStaticAccessibleMember(member) ||
+                !TryGetRouteMetadataKeyName(member, out string? queryName))
             {
                 reportDiagnostic(Diagnostic.Create(
                     AppNavDiagnostics.InvalidQueryProperty,
@@ -608,22 +644,98 @@ internal static class RouteModelFactory
             }
 
             string memberKey = declaringType.ToDisplayString() + "." + memberName;
-            if (!members.Add(memberKey))
+            if (!members.Add(memberKey) ||
+                !metadataNames.Add(queryName!) ||
+                !queryNames.Add(queryName!))
             {
                 reportDiagnostic(Diagnostic.Create(
                     AppNavDiagnostics.DuplicateQueryName,
                     location,
                     routeType.ToDisplayString(),
-                    memberName!));
+                    queryName!));
                 hasErrors = true;
                 continue;
             }
 
             bool omitWhenNull = GetNamedBool(attribute, "OmitWhenNull", defaultValue: true);
-            bindings.Add(new MetadataQueryBinding(declaringType, memberName!, namedMemberType.TypeArguments[0], omitWhenNull));
+            ReportUnsupportedValueType(routeType, namedMemberType.TypeArguments[0], queryName!, location, reportDiagnostic);
+            bindings.Add(new MetadataQueryBinding(
+                declaringType,
+                memberName!,
+                queryName!,
+                namedMemberType.TypeArguments[0],
+                omitWhenNull));
         }
 
         return bindings;
+    }
+
+    private static bool IsStaticAccessibleMember(ISymbol member)
+    {
+        if (!member.IsStatic)
+            return false;
+
+        for (INamedTypeSymbol? containingType = member.ContainingType;
+             containingType is not null;
+             containingType = containingType.ContainingType)
+        {
+            if (!IsAccessibleFromGeneratedCode(containingType.DeclaredAccessibility))
+                return false;
+        }
+
+        Accessibility accessibility = member switch
+        {
+            IPropertySymbol property => property.GetMethod?.DeclaredAccessibility ?? property.DeclaredAccessibility,
+            _ => member.DeclaredAccessibility
+        };
+
+        return IsAccessibleFromGeneratedCode(accessibility);
+    }
+
+    private static bool IsAccessibleFromGeneratedCode(Accessibility accessibility)
+    {
+        return accessibility is Accessibility.Public or Accessibility.Internal or Accessibility.ProtectedOrInternal;
+    }
+
+    private static bool TryGetRouteMetadataKeyName(ISymbol member, out string? name)
+    {
+        foreach (SyntaxReference reference in member.DeclaringSyntaxReferences)
+        {
+            ExpressionSyntax? initializer = reference.GetSyntax() switch
+            {
+                VariableDeclaratorSyntax variable => variable.Initializer?.Value,
+                PropertyDeclarationSyntax property => property.Initializer?.Value ?? property.ExpressionBody?.Expression,
+                _ => null
+            };
+
+            if (initializer is not null && TryGetRouteMetadataKeyName(initializer, out name))
+                return true;
+        }
+
+        name = null;
+        return false;
+    }
+
+    private static bool TryGetRouteMetadataKeyName(ExpressionSyntax expression, out string? name)
+    {
+        SeparatedSyntaxList<ArgumentSyntax>? arguments = expression switch
+        {
+            ObjectCreationExpressionSyntax objectCreation => objectCreation.ArgumentList?.Arguments,
+            ImplicitObjectCreationExpressionSyntax implicitCreation => implicitCreation.ArgumentList?.Arguments,
+            _ => null
+        };
+
+        if (arguments is { Count: > 0 } &&
+            arguments.Value[0].Expression is LiteralExpressionSyntax literal &&
+            literal.IsKind(SyntaxKind.StringLiteralExpression) &&
+            literal.Token.ValueText is { Length: > 0 } value)
+        {
+            name = value;
+            return true;
+        }
+
+        name = null;
+        return false;
     }
 
     private static IMethodSymbol? SelectConstructor(
@@ -1007,10 +1119,16 @@ internal sealed class QueryBinding
 
 internal sealed class MetadataQueryBinding
 {
-    public MetadataQueryBinding(INamedTypeSymbol declaringType, string memberName, ITypeSymbol valueType, bool omitWhenNull)
+    public MetadataQueryBinding(
+        INamedTypeSymbol declaringType,
+        string memberName,
+        string queryName,
+        ITypeSymbol valueType,
+        bool omitWhenNull)
     {
         DeclaringType = declaringType;
         MemberName = memberName;
+        QueryName = queryName;
         ValueType = valueType;
         OmitWhenNull = omitWhenNull;
     }
@@ -1019,11 +1137,13 @@ internal sealed class MetadataQueryBinding
 
     public string MemberName { get; }
 
+    public string QueryName { get; }
+
     public ITypeSymbol ValueType { get; }
 
     public bool OmitWhenNull { get; }
 
-    public string AccessExpression => SymbolFacts.TypeName(DeclaringType) + "." + MemberName;
+    public string AccessExpression => SymbolFacts.TypeName(DeclaringType) + "." + SymbolFacts.Identifier(MemberName);
 }
 
 internal sealed class ConstructorArgument
@@ -1097,7 +1217,11 @@ internal sealed class ParsedRouteTemplate
 
     private int? MaximumSegmentCount => Segments.Any(segment => segment.IsCatchAll) ? (int?)null : Segments.Count;
 
-    public static bool TryParse(string? value, out ParsedRouteTemplate? template, out string? error)
+    public static bool TryParse(
+        string? value,
+        out ParsedRouteTemplate? template,
+        out string? error,
+        bool allowCustomConstraints = false)
     {
         template = null;
         error = null;
@@ -1117,7 +1241,7 @@ internal sealed class ParsedRouteTemplate
         var segments = new List<TemplateSegment>();
         foreach (string segmentText in SplitPath(value))
         {
-            if (!TryParseSegment(segmentText, out TemplateSegment? segment, out error))
+            if (!TryParseSegment(segmentText, allowCustomConstraints, out TemplateSegment? segment, out error))
                 return false;
 
             segments.Add(segment!);
@@ -1175,7 +1299,11 @@ internal sealed class ParsedRouteTemplate
             parameter.IsOptional && StringComparer.OrdinalIgnoreCase.Equals(parameter.Name, name));
     }
 
-    private static bool TryParseSegment(string segmentText, out TemplateSegment? segment, out string? error)
+    private static bool TryParseSegment(
+        string segmentText,
+        bool allowCustomConstraints,
+        out TemplateSegment? segment,
+        out string? error)
     {
         segment = null;
         error = null;
@@ -1220,7 +1348,7 @@ internal sealed class ParsedRouteTemplate
                 return false;
             }
 
-            if (constraint is not null && !BuiltInConstraints.Contains(constraint))
+            if (constraint is not null && !allowCustomConstraints && !BuiltInConstraints.Contains(constraint))
             {
                 error = $"Route constraint '{constraint}' is not supported by source-generated routes.";
                 return false;
@@ -1721,9 +1849,28 @@ internal static class AppNavSourceEmitter
             }
         }
 
-        foreach (MetadataQueryBinding metadataBinding in route.MetadataQueryBindings)
-            builder.AppendLine("                    match.QueryMetadata(" + metadataBinding.AccessExpression +
+        for (var i = 0; i < route.MetadataQueryBindings.Count; i++)
+        {
+            MetadataQueryBinding metadataBinding = route.MetadataQueryBindings[i];
+            string valueName = "appNavMetadataValue" + i;
+            builder.AppendLine("                    if (match.QueryValues.TryGetValue(" +
+                               SymbolDisplay.FormatLiteral(metadataBinding.QueryName, quote: true) +
+                               ", out string? " + valueName + "))");
+            builder.AppendLine("                    {");
+            builder.AppendLine("                        match.AddMetadata(" + metadataBinding.AccessExpression + ", " +
+                               RouteValueSourceEmitter.EmitParse(metadataBinding.ValueType, valueName) +
                                ", omitWhenNull: " + BoolLiteral(metadataBinding.OmitWhenNull) + ");");
+            builder.AppendLine("                    }");
+            if (!metadataBinding.OmitWhenNull)
+            {
+                builder.AppendLine("                    else");
+                builder.AppendLine("                    {");
+                builder.AppendLine("                        match.AddMetadata(" +
+                                   SymbolDisplay.FormatLiteral(metadataBinding.QueryName, quote: true) +
+                                   ", null, omitWhenNull: false);");
+                builder.AppendLine("                    }");
+            }
+        }
 
         string arguments = string.Join(", ", route.ConstructorArguments.Select(EmitConstructorArgument));
         builder.AppendLine("                    return new " + routeTypeName + "(" + arguments + ");");
@@ -1736,14 +1883,14 @@ internal static class AppNavSourceEmitter
             IPropertySymbol property = route.PathProperties[parameter.Name];
             builder.AppendLine("                    format.PathParam(" +
                                SymbolDisplay.FormatLiteral(parameter.Name, quote: true) +
-                               ", static route => route." + property.Name + ");");
+                               ", static route => route." + SymbolFacts.Identifier(property.Name) + ");");
         }
 
         foreach (QueryBinding queryBinding in route.QueryBindings)
         {
             builder.AppendLine("                    format.QueryParam(" +
                                SymbolDisplay.FormatLiteral(queryBinding.QueryName, quote: true) +
-                               ", static route => route." + queryBinding.Property.Name +
+                               ", static route => route." + SymbolFacts.Identifier(queryBinding.Property.Name) +
                                ", omitWhenNull: " + BoolLiteral(queryBinding.OmitWhenNull) + ");");
         }
 
@@ -1814,6 +1961,12 @@ internal static class AppNavSourceEmitter
 
                 if (parameter.Type.ToDisplayString() == "System.IServiceProvider")
                     return "services";
+
+                if (parameter.HasExplicitDefaultValue)
+                    return ConstantEmitter.Emit(parameter.Type, parameter.ExplicitDefaultValue);
+
+                if (parameter.IsOptional)
+                    return "default(" + SymbolFacts.TypeName(parameter.Type) + ")";
 
                 return "global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<" +
                        SymbolFacts.TypeName(parameter.Type) + ">(services)";

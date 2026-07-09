@@ -25,8 +25,7 @@
         <None Include="..\AdamE.AppNav.Generators\bin\$(Configuration)\$(AppNavGeneratorTargetFramework)\AdamE.AppNav.Generators.dll"
               Pack="true"
               PackagePath="analyzers/dotnet/cs"
-              Visible="false"
-              Condition="Exists('..\AdamE.AppNav.Generators\bin\$(Configuration)\$(AppNavGeneratorTargetFramework)\AdamE.AppNav.Generators.dll')"/>
+              Visible="false"/>
     </ItemGroup>
 
 </Project>

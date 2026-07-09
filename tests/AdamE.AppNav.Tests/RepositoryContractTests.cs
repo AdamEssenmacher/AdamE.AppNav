@@ -118,6 +118,17 @@ public sealed class RepositoryContractTests
     }
 
     [Fact]
+    public void CorePackageIncludesGeneratorAnalyzerWithoutEvaluationTimeExistsGuard()
+    {
+        var coreProject = File.ReadAllText(
+            Path.Combine(RepositoryRoot(), "src", "AdamE.AppNav", "AdamE.AppNav.csproj"));
+
+        Assert.Contains("AdamE.AppNav.Generators.dll", coreProject, StringComparison.Ordinal);
+        Assert.Contains("PackagePath=\"analyzers/dotnet/cs\"", coreProject, StringComparison.Ordinal);
+        Assert.DoesNotContain("Exists('..\\AdamE.AppNav.Generators", coreProject, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AppLinkHelpersCreateAppLinkRequests()
     {
         var appLinksDirectory = Path.Combine(RepositoryRoot(), "src", "AdamE.AppNav.Maui");
