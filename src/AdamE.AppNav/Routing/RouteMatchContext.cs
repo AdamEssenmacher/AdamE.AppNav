@@ -4,6 +4,10 @@ namespace AdamE.AppNav.Routing;
 
 public sealed class RouteMatchContext
 {
+    private static readonly IReadOnlyDictionary<string, string> EmptyQueryValues =
+        new System.Collections.ObjectModel.ReadOnlyDictionary<string, string>(
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
+
     private Dictionary<string, object?>? _metadata;
 
     internal RouteMatchContext(
@@ -14,10 +18,12 @@ public sealed class RouteMatchContext
         SourceUri = sourceUri;
         PathValues = path;
         QueryValueLists = query;
-        QueryValues = query.ToDictionary(
-            pair => pair.Key,
-            pair => pair.Value.Count == 0 ? string.Empty : pair.Value[^1],
-            StringComparer.OrdinalIgnoreCase);
+        QueryValues = query.Count == 0
+            ? EmptyQueryValues
+            : query.ToDictionary(
+                pair => pair.Key,
+                pair => pair.Value.Count == 0 ? string.Empty : pair.Value[^1],
+                StringComparer.OrdinalIgnoreCase);
     }
 
     public Uri SourceUri { [UsedImplicitly] get; }
@@ -31,7 +37,7 @@ public sealed class RouteMatchContext
 
     internal IReadOnlyDictionary<string, object?> Metadata =>
         _metadata is null
-            ? new Dictionary<string, object?>(StringComparer.Ordinal)
+            ? RouteMatchResult.EmptyMetadata
             : new Dictionary<string, object?>(_metadata, StringComparer.Ordinal);
 
     public string Path(string name)

@@ -2,13 +2,20 @@ namespace AdamE.AppNav.Routing;
 
 public sealed class RouteTemplate
 {
-    private readonly IReadOnlyList<TemplateSegment> _segments;
+    private static readonly IReadOnlyDictionary<string, string> EmptyPathValues =
+        new System.Collections.ObjectModel.ReadOnlyDictionary<string, string>(
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
+
+    private readonly TemplateSegment[] _segments;
     private readonly Dictionary<string, TemplateSegment> _parameters;
     private readonly RouteConstraintRegistry _constraints;
+    private readonly string[] _literalPrefix;
+    private readonly int _minimumSegmentCount;
+    private readonly int? _maximumSegmentCount;
 
     private RouteTemplate(
         string value,
-        IReadOnlyList<TemplateSegment> segments,
+        TemplateSegment[] segments,
         RouteConstraintRegistry constraints)
     {
         Value = value;
@@ -18,6 +25,11 @@ public sealed class RouteTemplate
             .Where(segment => segment.ParameterName is not null)
             .ToDictionary(segment => segment.ParameterName!, StringComparer.OrdinalIgnoreCase);
         ParameterNames = _parameters.Keys.ToArray();
+        _literalPrefix = CreateLiteralPrefix(segments);
+        _minimumSegmentCount = segments.Count(segment => segment is { IsOptional: false, IsCatchAll: false });
+        _maximumSegmentCount = segments.Any(segment => segment.IsCatchAll)
+            ? null
+            : segments.Length;
     }
 
     public string Value { get; }
@@ -25,12 +37,13 @@ public sealed class RouteTemplate
     public IReadOnlyList<string> ParameterNames { get; }
 
     private int MinimumSegmentCount =>
-        _segments.Count(segment => segment is { IsOptional: false, IsCatchAll: false });
+        _minimumSegmentCount;
 
     private int? MaximumSegmentCount =>
-        _segments.Any(segment => segment.IsCatchAll)
-            ? null
-            : _segments.Count;
+        _maximumSegmentCount;
+
+    internal IReadOnlyList<string> LiteralPrefix =>
+        _literalPrefix;
 
     public static RouteTemplate Parse(string value)
     {
@@ -55,30 +68,31 @@ public sealed class RouteTemplate
 
     public IReadOnlyDictionary<string, string>? Match(string path)
     {
-        string[] pathSegments = SplitPath(path).ToArray();
-        if (pathSegments.Length < MinimumSegmentCount)
+        return Match(SplitPathForMatch(path));
+    }
+
+    internal IReadOnlyDictionary<string, string>? Match(IReadOnlyList<string> pathSegments)
+    {
+        if (pathSegments.Count < MinimumSegmentCount)
             return null;
 
-        if (MaximumSegmentCount is { } max && pathSegments.Length > max)
+        if (MaximumSegmentCount is { } max && pathSegments.Count > max)
             return null;
 
-        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, string>? values = null;
         var pathIndex = 0;
 
         foreach (TemplateSegment templateSegment in _segments)
         {
             if (templateSegment.IsCatchAll)
             {
-                string[] remaining = pathSegments
-                    .Skip(pathIndex)
-                    .Select(Uri.UnescapeDataString)
-                    .ToArray();
-                values[templateSegment.ParameterName!] = string.Join("/", remaining);
-                pathIndex = pathSegments.Length;
+                values ??= new Dictionary<string, string>(_parameters.Count, StringComparer.OrdinalIgnoreCase);
+                values[templateSegment.ParameterName!] = JoinRemainingSegments(pathSegments, pathIndex);
+                pathIndex = pathSegments.Count;
                 break;
             }
 
-            if (pathIndex >= pathSegments.Length)
+            if (pathIndex >= pathSegments.Count)
             {
                 if (templateSegment.IsOptional)
                     continue;
@@ -86,13 +100,14 @@ public sealed class RouteTemplate
                 return null;
             }
 
-            string pathSegment = Uri.UnescapeDataString(pathSegments[pathIndex]);
+            string pathSegment = pathSegments[pathIndex];
 
             if (templateSegment.ParameterName is not null)
             {
                 if (!_constraints.Satisfies(pathSegment, templateSegment.Constraint))
                     return null;
 
+                values ??= new Dictionary<string, string>(_parameters.Count, StringComparer.OrdinalIgnoreCase);
                 values[templateSegment.ParameterName] = pathSegment;
                 pathIndex++;
                 continue;
@@ -104,14 +119,14 @@ public sealed class RouteTemplate
             pathIndex++;
         }
 
-        return pathIndex == pathSegments.Length ? values : null;
+        return pathIndex == pathSegments.Count ? values ?? EmptyPathValues : null;
     }
 
     public string Format(IReadOnlyDictionary<string, string> pathValues)
     {
         ArgumentNullException.ThrowIfNull(pathValues);
 
-        var segments = new List<string>(_segments.Count);
+        var segments = new List<string>(_segments.Length);
         foreach (TemplateSegment segment in _segments)
         {
             if (segment.ParameterName is null)
@@ -166,7 +181,7 @@ public sealed class RouteTemplate
     {
         int min = Math.Max(MinimumSegmentCount, other.MinimumSegmentCount);
         int max = MaximumSegmentCount is null || other.MaximumSegmentCount is null
-            ? Math.Max(_segments.Count, other._segments.Count)
+            ? Math.Max(_segments.Length, other._segments.Length)
             : Math.Min(MaximumSegmentCount.Value, other.MaximumSegmentCount.Value);
 
         if (min > max)
@@ -188,17 +203,17 @@ public sealed class RouteTemplate
 
     internal int ComparePrecedence(RouteTemplate other)
     {
-        int count = Math.Max(_segments.Count, other._segments.Count);
+        int count = Math.Max(_segments.Length, other._segments.Length);
         for (var i = 0; i < count; i++)
         {
-            TemplateSegment? left = i < _segments.Count ? _segments[i] : null;
-            TemplateSegment? right = i < other._segments.Count ? other._segments[i] : null;
+            TemplateSegment? left = i < _segments.Length ? _segments[i] : null;
+            TemplateSegment? right = i < other._segments.Length ? other._segments[i] : null;
             int comparison = CompareSegmentPrecedence(left, right);
             if (comparison != 0)
                 return comparison;
         }
 
-        return _segments.Count.CompareTo(other._segments.Count);
+        return _segments.Length.CompareTo(other._segments.Length);
     }
 
     private static int CompareSegmentPrecedence(TemplateSegment? left, TemplateSegment? right)
@@ -219,10 +234,10 @@ public sealed class RouteTemplate
 
     private TemplateSegment? SegmentAt(int index)
     {
-        if (index < _segments.Count)
+        if (index < _segments.Length)
             return _segments[index];
 
-        return _segments.Count > 0 && _segments[^1].IsCatchAll
+        return _segments.Length > 0 && _segments[^1].IsCatchAll
             ? _segments[^1]
             : null;
     }
@@ -315,11 +330,54 @@ public sealed class RouteTemplate
         return _constraints.CanOverlap(left.Constraint, rightTemplate._constraints, right.Constraint);
     }
 
-    private static IEnumerable<string> SplitPath(string path)
+    internal static string[] SplitPath(string path)
     {
-        return path.Trim('/').Length == 0
-            ? Enumerable.Empty<string>()
-            : path.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+        string trimmed = path.Trim('/');
+        return trimmed.Length == 0
+            ? []
+            : trimmed.Split('/', StringSplitOptions.RemoveEmptyEntries);
+    }
+
+    internal static string[] SplitPathForMatch(string path)
+    {
+        string[] segments = SplitPath(path);
+        for (var i = 0; i < segments.Length; i++)
+        {
+            if (segments[i].Contains('%', StringComparison.Ordinal))
+                segments[i] = Uri.UnescapeDataString(segments[i]);
+        }
+
+        return segments;
+    }
+
+    private static string JoinRemainingSegments(IReadOnlyList<string> pathSegments, int startIndex)
+    {
+        int remaining = pathSegments.Count - startIndex;
+        if (remaining <= 0)
+            return string.Empty;
+
+        if (remaining == 1)
+            return pathSegments[startIndex];
+
+        return string.Join(
+            "/",
+            pathSegments.Skip(startIndex));
+    }
+
+    private static string[] CreateLiteralPrefix(TemplateSegment[] segments)
+    {
+        var count = 0;
+        while (count < segments.Length && segments[count].Literal is not null)
+            count++;
+
+        if (count == 0)
+            return [];
+
+        var prefix = new string[count];
+        for (var i = 0; i < count; i++)
+            prefix[i] = segments[i].Literal!;
+
+        return prefix;
     }
 
     internal sealed record TemplateSegment(

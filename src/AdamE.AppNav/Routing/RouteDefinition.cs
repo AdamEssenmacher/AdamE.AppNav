@@ -25,10 +25,10 @@ public sealed class RouteDefinition
 
     public int Order { get; }
 
-    internal RouteMatch Create(RouteMatchContext context)
+    internal (AppRoute Route, IReadOnlyDictionary<string, object?> Metadata) Create(RouteMatchContext context)
     {
         AppRoute route = _createRoute(context);
-        return new RouteMatch(route, context.Metadata);
+        return (route, context.Metadata);
     }
 
     internal string Format(AppRoute route, IReadOnlyDictionary<string, object?>? metadata = null)
@@ -36,7 +36,3 @@ public sealed class RouteDefinition
         return _formatRoute(route, metadata);
     }
 }
-
-internal sealed record RouteMatch(
-    AppRoute Route,
-    IReadOnlyDictionary<string, object?> Metadata);

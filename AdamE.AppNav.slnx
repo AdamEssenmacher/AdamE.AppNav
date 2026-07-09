@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/AdamE.AppNav.Benchmarks/AdamE.AppNav.Benchmarks.csproj" />
+  </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/Commerce.Sample/Commerce.Sample.csproj" />
   </Folder>

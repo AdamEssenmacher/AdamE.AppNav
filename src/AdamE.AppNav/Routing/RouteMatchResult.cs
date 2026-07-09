@@ -7,6 +7,10 @@ public sealed record RouteMatchResult(
     IReadOnlyDictionary<string, object?> Metadata,
     IReadOnlyList<RouteDiagnostic> Diagnostics)
 {
+    internal static readonly IReadOnlyDictionary<string, object?> EmptyMetadata =
+        new System.Collections.ObjectModel.ReadOnlyDictionary<string, object?>(
+            new Dictionary<string, object?>(StringComparer.Ordinal));
+
     public static RouteMatchResult Success(
         AppRoute route,
         RouteDefinition definition,
@@ -16,7 +20,7 @@ public sealed record RouteMatchResult(
             true,
             route,
             definition,
-            metadata ?? new Dictionary<string, object?>(StringComparer.Ordinal),
+            metadata ?? EmptyMetadata,
             []);
     }
 
@@ -26,7 +30,7 @@ public sealed record RouteMatchResult(
             false,
             null,
             null,
-            new Dictionary<string, object?>(StringComparer.Ordinal),
+            EmptyMetadata,
             diagnostics);
     }
 }
