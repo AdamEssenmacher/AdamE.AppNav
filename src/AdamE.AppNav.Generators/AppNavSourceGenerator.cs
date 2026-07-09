@@ -753,12 +753,24 @@ internal static class RouteModelFactory
 
             if (declaringType is null ||
                 string.IsNullOrWhiteSpace(memberName) ||
+                SymbolFacts.ContainsTypeParameters(declaringType) ||
                 member is null ||
                 symbols.RouteMetadataKey is null ||
                 memberType is not INamedTypeSymbol namedMemberType ||
                 !SymbolEqualityComparer.Default.Equals(namedMemberType.ConstructedFrom, symbols.RouteMetadataKey) ||
-                !IsStaticAccessibleMember(member) ||
-                !TryGetRouteMetadataKeyName(member, out string? queryName))
+                !IsStaticAccessibleMember(member))
+            {
+                reportDiagnostic(Diagnostic.Create(
+                    AppNavDiagnostics.InvalidQueryProperty,
+                    location,
+                    routeType.ToDisplayString(),
+                    memberName ?? string.Empty));
+                hasErrors = true;
+                continue;
+            }
+
+            bool hasQueryName = TryGetRouteMetadataKeyName(member, out string? queryName);
+            if (!hasQueryName && member.DeclaringSyntaxReferences.Length > 0)
             {
                 reportDiagnostic(Diagnostic.Create(
                     AppNavDiagnostics.InvalidQueryProperty,
@@ -770,25 +782,36 @@ internal static class RouteModelFactory
             }
 
             string memberKey = declaringType.ToDisplayString() + "." + memberName;
-            if (!members.Add(memberKey) ||
-                !metadataNames.Add(queryName!) ||
-                !queryNames.Add(queryName!))
+            if (!members.Add(memberKey))
             {
                 reportDiagnostic(Diagnostic.Create(
                     AppNavDiagnostics.DuplicateQueryName,
                     location,
                     routeType.ToDisplayString(),
-                    queryName!));
+                    queryName ?? memberName!));
+                hasErrors = true;
+                continue;
+            }
+
+            if (queryName is not null &&
+                (!metadataNames.Add(queryName) ||
+                 !queryNames.Add(queryName)))
+            {
+                reportDiagnostic(Diagnostic.Create(
+                    AppNavDiagnostics.DuplicateQueryName,
+                    location,
+                    routeType.ToDisplayString(),
+                    queryName));
                 hasErrors = true;
                 continue;
             }
 
             bool omitWhenNull = GetNamedBool(attribute, "OmitWhenNull", defaultValue: true);
-            ReportUnsupportedValueType(routeType, namedMemberType.TypeArguments[0], queryName!, location, reportDiagnostic);
+            ReportUnsupportedValueType(routeType, namedMemberType.TypeArguments[0], queryName ?? memberName!, location, reportDiagnostic);
             bindings.Add(new MetadataQueryBinding(
                 declaringType,
                 memberName!,
-                queryName!,
+                queryName,
                 namedMemberType.TypeArguments[0],
                 omitWhenNull));
         }
@@ -1310,7 +1333,7 @@ internal sealed class MetadataQueryBinding
     public MetadataQueryBinding(
         INamedTypeSymbol declaringType,
         string memberName,
-        string queryName,
+        string? queryName,
         ITypeSymbol valueType,
         bool omitWhenNull)
     {
@@ -1325,13 +1348,17 @@ internal sealed class MetadataQueryBinding
 
     public string MemberName { get; }
 
-    public string QueryName { get; }
+    public string? QueryName { get; }
 
     public ITypeSymbol ValueType { get; }
 
     public bool OmitWhenNull { get; }
 
     public string AccessExpression => SymbolFacts.TypeName(DeclaringType) + "." + SymbolFacts.Identifier(MemberName);
+
+    public string QueryNameExpression => QueryName is null
+        ? AccessExpression + ".Name"
+        : SymbolDisplay.FormatLiteral(QueryName, quote: true);
 }
 
 internal sealed class ConstructorArgument
@@ -2217,14 +2244,14 @@ internal static class AppNavSourceEmitter
             MetadataQueryBinding metadataBinding = route.MetadataQueryBindings[i];
             string valueName = "appNavMetadataValue" + i;
             builder.AppendLine("                    if (match.QueryValues.TryGetValue(" +
-                               SymbolDisplay.FormatLiteral(metadataBinding.QueryName, quote: true) +
+                               metadataBinding.QueryNameExpression +
                                ", out string? " + valueName + "))");
             builder.AppendLine("                    {");
             builder.AppendLine("                        match.AddMetadata(" + metadataBinding.AccessExpression + ", " +
                                RouteValueSourceEmitter.EmitParse(
                                    metadataBinding.ValueType,
                                    valueName,
-                                   SymbolDisplay.FormatLiteral(metadataBinding.QueryName, quote: true)) +
+                                   metadataBinding.QueryNameExpression) +
                                ", omitWhenNull: " + BoolLiteral(metadataBinding.OmitWhenNull) + ");");
             builder.AppendLine("                    }");
             if (!metadataBinding.OmitWhenNull)
@@ -2232,7 +2259,7 @@ internal static class AppNavSourceEmitter
                 builder.AppendLine("                    else");
                 builder.AppendLine("                    {");
                 builder.AppendLine("                        match.AddMetadata(" +
-                                   SymbolDisplay.FormatLiteral(metadataBinding.QueryName, quote: true) +
+                                   metadataBinding.QueryNameExpression +
                                    ", null, omitWhenNull: false);");
                 builder.AppendLine("                    }");
             }

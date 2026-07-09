@@ -923,6 +923,41 @@ public sealed class AppNavSourceGeneratorTests
     }
 
     [Fact]
+    public void GeneratedRouteTableUsesReferencedMetadataKeyNames()
+    {
+        MetadataReference metadataReference = EmitReference(
+            "Commerce.Contracts",
+            """
+            using AdamE.AppNav.Routing;
+
+            namespace Commerce.Contracts;
+
+            public static class Metadata
+            {
+                public static RouteMetadataKey<string> Campaign { get; } = new("campaign");
+            }
+            """);
+
+        const string source = """
+            using AdamE.AppNav;
+            using AdamE.AppNav.Routing;
+            using Commerce.Contracts;
+
+            namespace Commerce.Sample;
+
+            [AppNavRoute("/stores/{storeId}")]
+            [AppNavQueryMetadata(typeof(Metadata), nameof(Metadata.Campaign))]
+            public sealed record StoreRoute(string StoreId) : AppRoute;
+            """;
+
+        GeneratorResult result = RunGenerator(source, [metadataReference]);
+
+        Assert.Empty(result.GeneratorDiagnostics.Where(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assert.Contains("global::Commerce.Contracts.Metadata.Campaign.Name", result.GeneratedSource);
+        AssertCompileClean(result.Compilation);
+    }
+
+    [Fact]
     public void DuplicateRouteAndMetadataQueryNamesReportDiagnostic()
     {
         const string source = """
@@ -989,6 +1024,30 @@ public sealed class AppNavSourceGeneratorTests
 
             [AppNavRoute("/stores/{storeId}")]
             [AppNavQueryMetadata(typeof(Metadata), nameof(Metadata.Campaign))]
+            public sealed record StoreRoute(string StoreId) : AppRoute;
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+
+        Assert.Contains(result.GeneratorDiagnostics, static diagnostic => diagnostic.Id == "APPNAV003");
+    }
+
+    [Fact]
+    public void OpenGenericMetadataContainerReportsDiagnostic()
+    {
+        const string source = """
+            using AdamE.AppNav;
+            using AdamE.AppNav.Routing;
+
+            namespace Commerce.Sample;
+
+            public static class Metadata<T>
+            {
+                public static RouteMetadataKey<string> Campaign { get; } = new("campaign");
+            }
+
+            [AppNavRoute("/stores/{storeId}")]
+            [AppNavQueryMetadata(typeof(Metadata<>), nameof(Metadata<object>.Campaign))]
             public sealed record StoreRoute(string StoreId) : AppRoute;
             """;
 
