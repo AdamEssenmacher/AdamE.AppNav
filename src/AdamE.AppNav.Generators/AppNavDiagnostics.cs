@@ -56,8 +56,8 @@ internal static class AppNavDiagnostics
 
     public static readonly DiagnosticDescriptor UnsupportedRouteValueType = Warning(
         "APPNAV011",
-        "Route value type falls back to runtime conversion",
-        "Route '{0}' uses value type '{1}' for '{2}', which is not directly source-generated; runtime conversion may require trim/AOT annotations");
+        "Route value type requires an explicit codec",
+        "Route '{0}' uses value type '{1}' for '{2}', which requires registration with RouteTableBuilder.AddValueCodec");
 
     public static readonly DiagnosticDescriptor InvalidRouteType = Error(
         "APPNAV012",
@@ -68,6 +68,11 @@ internal static class AppNavDiagnostics
         "APPNAV013",
         "Route exposes duplicate public properties",
         "Route '{0}' exposes multiple public readable properties named '{1}' ignoring case");
+
+    public static readonly DiagnosticDescriptor UnsafeOptionalPathConstructorParameter = Error(
+        "APPNAV014",
+        "Optional path constructor parameter is not missing-safe",
+        "Optional path binding '{0}' on route '{1}' targets constructor parameter '{2}', but the path value may be absent; make the parameter nullable or provide a default value");
 
     public static readonly DiagnosticDescriptor InvalidPageRoute = Error(
         "APPNAV020",

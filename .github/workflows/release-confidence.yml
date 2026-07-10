@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - master
+      - preview
   workflow_dispatch:
     inputs:
       run-ios-platform-tests:
@@ -50,8 +51,42 @@ jobs:
       - name: MAUI adapter build
         run: dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj
 
+      - name: AOT analyzer build
+        run: >-
+          dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj
+          -c Release
+          -f net9.0
+          -p:EnableTrimAnalyzer=true
+          -p:EnableAotAnalyzer=true
+          -p:SuppressTrimAnalysisWarnings=false
+          -p:WarningsNotAsErrors=NU1900
+          -warnaserror
+
       - name: Commerce sample build
         run: dotnet build samples/Commerce.Sample/Commerce.Sample.csproj -f net10.0-maccatalyst
+
+      - name: Commerce Mac Catalyst NativeAOT publish
+        run: >-
+          dotnet publish samples/Commerce.Sample/Commerce.Sample.csproj
+          -c Release
+          -f net10.0-maccatalyst
+          -r maccatalyst-arm64
+          -p:PublishAot=true
+          -p:EnableCodeSigning=false
+          -p:CodesignKey=-
+          -p:CodesignProvision=
+          -o artifacts/aot/maccatalyst
+
+      - name: Commerce Android full-trim publish
+        run: >-
+          dotnet publish samples/Commerce.Sample/Commerce.Sample.csproj
+          -c Release
+          -f net10.0-android
+          -r android-arm64
+          -p:PublishTrimmed=true
+          -p:TrimMode=full
+          -p:AndroidLinkMode=Full
+          -o artifacts/aot/android-arm64
 
       - name: Pack packages
         run: |
@@ -67,6 +102,7 @@ jobs:
           name: release-confidence-artifacts
           path: |
             artifacts/packages
+            artifacts/aot
             artifacts/xharness
 
   ios-platform-tests:

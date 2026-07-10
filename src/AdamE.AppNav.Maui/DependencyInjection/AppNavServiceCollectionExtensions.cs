@@ -10,12 +10,15 @@ using AdamE.AppNav.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using System.Diagnostics.CodeAnalysis;
 
 namespace AdamE.AppNav.Maui.DependencyInjection;
 
 public static class AppNavServiceCollectionExtensions
 {
-    public static IServiceCollection AddAppNav<TPlanner>(
+    public static IServiceCollection AddAppNav<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
+    TPlanner>(
         this IServiceCollection services,
         RouteTable routes,
         Action<MauiRoutePageRegistry>? configurePages = null)

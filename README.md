@@ -213,9 +213,20 @@ Until packages are published, consume the library with project references.
 | Other opinionated MAUI navigation stacks | Generally not intended to be combined                                       |
 | Windows MAUI adapter                     | Not targeted in v1                                                          |
 | `netstandard`                            | Not targeted in v1                                                          |
-| Source generators                        | Attribute-driven route and MAUI page modules                               |
-| Attribute routing                        | Not included in v1                                                          |
+| Source generators                        | Attribute-driven route and MAUI page modules                                |
+| Attribute routing                        | `AppNavRoute`, query, metadata, and MAUI page attributes                    |
 | Full multi-window orchestration          | State model seam only in v1                                                 |
+
+## Trimming And NativeAOT
+
+`AdamE.AppNav` and `AdamE.AppNav.Maui` declare `IsAotCompatible` and are built with the trim and AOT analyzers enabled.
+Release confidence publishes the Commerce sample with Mac Catalyst NativeAOT and with Android full trimming plus
+release AOT compilation.
+
+Deferred request persistence uses source-generated `System.Text.Json` metadata. Registered restorable state uses the
+same route value codecs as URL matching and formatting. A custom `INavigationRequestMetadataSerializer` must return
+`null` or stable scalar values: `string`, `bool`, integer and floating-point primitives, `decimal`, or `Guid`. Persisted
+metadata stores stable scalar discriminators, never assembly-qualified CLR type names.
 
 ## Projects
 
@@ -358,6 +369,22 @@ Route table responsibilities:
 - Format typed routes back into canonical URL paths.
 - Validate templates and reject ambiguous overlaps at build time.
 - Stay independent from MAUI pages and native containers.
+
+AppNav uses explicit, per-table value codecs and does not fall back to `TypeDescriptor`, dynamic type loading, or
+reflection-based conversion. Strings, booleans, integer and floating-point primitives, `decimal`, and `Guid` are built
+in. Generated enum routes register their enum codec automatically. Register domain value types before the generated
+module is added:
+
+```csharp
+RouteTable routes = AppNavGenerated.CreateRouteTable(builder => builder
+    .AddValueCodec<ProductCode>(
+        static text => ProductCode.Parse(text),
+        static value => value.ToString()));
+```
+
+`MapRoute<TRoute>` validates codec requirements when the table is built. For fluent convention routes that use enums,
+call `AddEnumValueCodec<TEnum>()`. Missing custom codecs fail route-table construction instead of deferring the failure
+to a trimmed or NativeAOT runtime.
 
 At this point the app has a URL contract, but no branch hosts, stacks, pages, auth rules, or platform behavior. Those
 are deliberately separate.

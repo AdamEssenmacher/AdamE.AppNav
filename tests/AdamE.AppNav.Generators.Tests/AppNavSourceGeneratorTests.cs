@@ -51,7 +51,7 @@ public sealed class AppNavSourceGeneratorTests
         Assembly assembly = Emit(result.Compilation);
 
         Type generatedType = assembly.GetRequiredType("Commerce.Sample.AppNavGenerated");
-        var table = Assert.IsType<RouteTable>(generatedType.GetMethod("CreateRouteTable")!.Invoke(null, null));
+        var table = Assert.IsType<RouteTable>(generatedType.GetMethod("CreateRouteTable", Type.EmptyTypes)!.Invoke(null, null));
 
         var match = table.Match(new Uri("/stores/northwind/products/123?variant=blue&promo=spring&campaign=spring-launch", UriKind.Relative));
         Assert.True(match.IsSuccess);
@@ -92,7 +92,7 @@ public sealed class AppNavSourceGeneratorTests
         Assembly assembly = Emit(result.Compilation);
 
         Type generatedType = assembly.GetRequiredType("Commerce.Sample.AppNavGenerated");
-        var table = Assert.IsType<RouteTable>(generatedType.GetMethod("CreateRouteTable")!.Invoke(null, null));
+        var table = Assert.IsType<RouteTable>(generatedType.GetMethod("CreateRouteTable", Type.EmptyTypes)!.Invoke(null, null));
 
         RouteMatchResult match = table.Match(new Uri("/orders/not-a-status", UriKind.Relative));
 
@@ -115,11 +115,11 @@ public sealed class AppNavSourceGeneratorTests
 
         GeneratorResult result = RunGenerator(source);
         Assert.Empty(result.GeneratorDiagnostics.Where(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
-        Assert.Contains("ParseNumber<global::System.Int32>", result.GeneratedSource);
+        Assert.Contains("match.ConvertValue<", result.GeneratedSource);
         Assembly assembly = Emit(result.Compilation);
 
         Type generatedType = assembly.GetRequiredType("Commerce.Sample.AppNavGenerated");
-        var table = Assert.IsType<RouteTable>(generatedType.GetMethod("CreateRouteTable")!.Invoke(null, null));
+        var table = Assert.IsType<RouteTable>(generatedType.GetMethod("CreateRouteTable", Type.EmptyTypes)!.Invoke(null, null));
 
         RouteMatchResult match = table.Match(new Uri("/pages/999999999999999999999", UriKind.Relative));
 
@@ -128,61 +128,73 @@ public sealed class AppNavSourceGeneratorTests
     }
 
     [Fact]
-    public void GeneratedRouteTableReturnsFailedMatchForConverterArgumentFailures()
+    public void GeneratedRouteTableRequiresAndUsesExplicitCustomValueCodec()
     {
         const string source = """
             using System;
-            using System.ComponentModel;
-            using System.Globalization;
             using AdamE.AppNav;
             using AdamE.AppNav.Routing;
 
             namespace Commerce.Sample;
 
-            [TypeConverter(typeof(SlugConverter))]
-            public readonly struct Slug
-            {
-                public Slug(string value)
-                {
-                    Value = value;
-                }
-
-                public string Value { get; }
-            }
-
-            public sealed class SlugConverter : TypeConverter
-            {
-                public override bool CanConvertFrom(ITypeDescriptorContext? context, Type sourceType)
-                {
-                    return sourceType == typeof(string) || base.CanConvertFrom(context, sourceType);
-                }
-
-                public override object? ConvertFrom(ITypeDescriptorContext? context, CultureInfo? culture, object value)
-                {
-                    string text = (string)value;
-                    if (text == "bad")
-                        throw new ArgumentException("Invalid slug.", nameof(value));
-
-                    return new Slug(text);
-                }
-            }
+            public readonly record struct Slug(string Value);
 
             [AppNavRoute("/slugs/{slug}")]
             public sealed record SlugRoute(Slug Slug) : AppRoute;
+
+            public static partial class AppNavGenerated
+            {
+                public static RouteTable CreateConfiguredRouteTable()
+                {
+                    return CreateRouteTable(routes => routes.AddValueCodec<Slug>(
+                        value => value == "bad"
+                            ? throw new FormatException("Invalid slug.")
+                            : new Slug(value),
+                        value => value.Value));
+                }
+            }
             """;
 
         GeneratorResult result = RunGenerator(source);
         Assert.Empty(result.GeneratorDiagnostics.Where(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
-        Assert.Contains("ConvertRouteValue<global::Commerce.Sample.Slug>", result.GeneratedSource);
+        Assert.Contains("routes.RequireValueCodec<global::Commerce.Sample.Slug>()", result.GeneratedSource);
+        Assert.Contains("match.ConvertValue<global::Commerce.Sample.Slug>", result.GeneratedSource);
         Assembly assembly = Emit(result.Compilation);
 
         Type generatedType = assembly.GetRequiredType("Commerce.Sample.AppNavGenerated");
-        var table = Assert.IsType<RouteTable>(generatedType.GetMethod("CreateRouteTable")!.Invoke(null, null));
+        var missingCodec = Assert.Throws<TargetInvocationException>(
+            () => generatedType.GetMethod("CreateRouteTable", Type.EmptyTypes)!.Invoke(null, null));
+        Assert.IsType<InvalidOperationException>(missingCodec.InnerException);
+
+        var table = Assert.IsType<RouteTable>(
+            generatedType.GetMethod("CreateConfiguredRouteTable")!.Invoke(null, null));
 
         RouteMatchResult match = table.Match(new Uri("/slugs/bad", UriKind.Relative));
 
         Assert.False(match.IsSuccess);
         Assert.Contains(match.Diagnostics, static diagnostic => diagnostic.Code == "route.value.invalid");
+
+        RouteMatchResult success = table.Match(new Uri("/slugs/good", UriKind.Relative));
+        Assert.True(success.IsSuccess);
+        Assert.Equal("/slugs/good", table.Format(success.Route!));
+    }
+
+    [Fact]
+    public void OptionalPathWithNonNullableConstructorParameterReportsDiagnostic()
+    {
+        const string source = """
+            using AdamE.AppNav;
+            using AdamE.AppNav.Routing;
+
+            namespace Commerce.Sample;
+
+            [AppNavRoute("/products/{productId:int?}")]
+            public sealed record ProductRoute(int ProductId) : AppRoute;
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+
+        Assert.Contains(result.GeneratorDiagnostics, static diagnostic => diagnostic.Id == "APPNAV014");
     }
 
     [Fact]
@@ -207,7 +219,7 @@ public sealed class AppNavSourceGeneratorTests
         Assembly assembly = Emit(result.Compilation);
 
         Type generatedType = assembly.GetRequiredType("Commerce.Sample.AppNavGenerated");
-        var table = Assert.IsType<RouteTable>(generatedType.GetMethod("CreateRouteTable")!.Invoke(null, null));
+        var table = Assert.IsType<RouteTable>(generatedType.GetMethod("CreateRouteTable", Type.EmptyTypes)!.Invoke(null, null));
 
         RouteMatchResult match = table.Match(new Uri("/search?tag=blue&tag=green", UriKind.Relative));
 
@@ -396,7 +408,7 @@ public sealed class AppNavSourceGeneratorTests
         Assert.DoesNotContain("ExternalRoute", result.GeneratedSource);
         Assembly assembly = Emit(result.Compilation);
         Type generatedType = assembly.GetRequiredType("Commerce.Sample.AppNavGenerated");
-        var table = Assert.IsType<RouteTable>(generatedType.GetMethod("CreateRouteTable")!.Invoke(null, null));
+        var table = Assert.IsType<RouteTable>(generatedType.GetMethod("CreateRouteTable", Type.EmptyTypes)!.Invoke(null, null));
         RouteDefinition definition = Assert.Single(table.Definitions);
         Assert.Equal("LocalRoute", definition.RouteType.Name);
     }
@@ -888,7 +900,7 @@ public sealed class AppNavSourceGeneratorTests
         Assembly assembly = Emit(result.Compilation);
 
         Type generatedType = assembly.GetRequiredType("Commerce.Sample.AppNavGenerated");
-        var table = Assert.IsType<RouteTable>(generatedType.GetMethod("CreateRouteTable")!.Invoke(null, null));
+        var table = Assert.IsType<RouteTable>(generatedType.GetMethod("CreateRouteTable", Type.EmptyTypes)!.Invoke(null, null));
 
         var match = table.Match(new Uri("/stores/northwind", UriKind.Relative));
 
@@ -920,7 +932,7 @@ public sealed class AppNavSourceGeneratorTests
         Assembly assembly = Emit(result.Compilation);
 
         Type generatedType = assembly.GetRequiredType("Commerce.Sample.AppNavGenerated");
-        var table = Assert.IsType<RouteTable>(generatedType.GetMethod("CreateRouteTable")!.Invoke(null, null));
+        var table = Assert.IsType<RouteTable>(generatedType.GetMethod("CreateRouteTable", Type.EmptyTypes)!.Invoke(null, null));
 
         var match = table.Match(new Uri("/stores/northwind", UriKind.Relative));
 
@@ -992,7 +1004,7 @@ public sealed class AppNavSourceGeneratorTests
         Assembly assembly = Emit(result.Compilation);
 
         Type generatedType = assembly.GetRequiredType("Commerce.Sample.AppNavGenerated");
-        var table = Assert.IsType<RouteTable>(generatedType.GetMethod("CreateRouteTable")!.Invoke(null, null));
+        var table = Assert.IsType<RouteTable>(generatedType.GetMethod("CreateRouteTable", Type.EmptyTypes)!.Invoke(null, null));
         var match = table.Match(new Uri("/stores/northwind?campaign=spring-launch", UriKind.Relative));
 
         Assert.True(match.IsSuccess);
@@ -1022,7 +1034,7 @@ public sealed class AppNavSourceGeneratorTests
         Type generatedType = assembly.GetRequiredType("Commerce.Sample.AppNavGenerated");
 
         var exception = Assert.Throws<TargetInvocationException>(
-            () => generatedType.GetMethod("CreateRouteTable")!.Invoke(null, null));
+            () => generatedType.GetMethod("CreateRouteTable", Type.EmptyTypes)!.Invoke(null, null));
         var duplicate = Assert.IsType<InvalidOperationException>(exception.InnerException);
         Assert.Contains("query parameter 'campaign'", duplicate.Message, StringComparison.OrdinalIgnoreCase);
     }
@@ -1050,7 +1062,7 @@ public sealed class AppNavSourceGeneratorTests
         Type generatedType = assembly.GetRequiredType("Commerce.Sample.AppNavGenerated");
 
         var exception = Assert.Throws<TargetInvocationException>(
-            () => generatedType.GetMethod("CreateRouteTable")!.Invoke(null, null));
+            () => generatedType.GetMethod("CreateRouteTable", Type.EmptyTypes)!.Invoke(null, null));
         Assert.IsType<InvalidOperationException>(exception.InnerException);
     }
 

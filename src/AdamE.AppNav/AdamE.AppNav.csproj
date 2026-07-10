@@ -1,6 +1,8 @@
-<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk" TreatAsLocalProperty="PublishAot;PublishTrimmed">
 
     <PropertyGroup>
+        <PublishAot>false</PublishAot>
+        <PublishTrimmed>false</PublishTrimmed>
         <TargetFrameworks>net9.0;net10.0</TargetFrameworks>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
@@ -9,6 +11,7 @@
         <NoWarn>$(NoWarn);1591</NoWarn>
         <PackageId>AdamE.AppNav</PackageId>
         <Description>UI-platform-agnostic application navigation and URL routing core for .NET applications.</Description>
+        <IsAotCompatible>true</IsAotCompatible>
         <AppNavGeneratorTargetFramework>$([System.String]::Concat('net','standard2.0'))</AppNavGeneratorTargetFramework>
     </PropertyGroup>
 
@@ -21,7 +24,8 @@
         <ProjectReference Include="..\AdamE.AppNav.Generators\AdamE.AppNav.Generators.csproj"
                           OutputItemType="Analyzer"
                           ReferenceOutputAssembly="false"
-                          PrivateAssets="all"/>
+                          PrivateAssets="all"
+                          GlobalPropertiesToRemove="PublishAot;IsAotCompatible;IsTrimmable;EnableTrimAnalyzer;EnableAotAnalyzer;PublishTrimmed;TrimMode"/>
         <None Include="..\AdamE.AppNav.Generators\bin\$(Configuration)\$(AppNavGeneratorTargetFramework)\AdamE.AppNav.Generators.dll"
               Pack="true"
               PackagePath="analyzers/dotnet/cs"

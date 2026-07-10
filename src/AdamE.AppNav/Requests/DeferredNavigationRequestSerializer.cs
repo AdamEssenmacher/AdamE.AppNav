@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using System.Globalization;
 using AdamE.AppNav.Routing;
 
@@ -155,7 +154,10 @@ public sealed class DeferredNavigationRequestSerializer(
                     continue;
 
                 serialized ??= new Dictionary<string, NavigationMetadataValueSnapshot>(StringComparer.Ordinal);
-                serialized[pair.Key] = SerializeValueSnapshot(pair.Key, pair.Value, registration.ValueType);
+                serialized[pair.Key] = SerializeRegisteredValueSnapshot(
+                    pair.Key,
+                    pair.Value,
+                    registration.ValueType);
             }
 
         if (_options.MetadataSerializer is null)
@@ -173,7 +175,7 @@ public sealed class DeferredNavigationRequestSerializer(
         foreach (KeyValuePair<string, object?> pair in customMetadata)
         {
             serialized ??= new Dictionary<string, NavigationMetadataValueSnapshot>(StringComparer.Ordinal);
-            serialized[pair.Key] = SerializeValueSnapshot(pair.Key, pair.Value);
+            serialized[pair.Key] = SerializeCustomValueSnapshot(pair.Key, pair.Value);
         }
 
         return serialized;
@@ -205,7 +207,10 @@ public sealed class DeferredNavigationRequestSerializer(
                 if (registration.Lifetime != RouteStateLifetime.Restorable) continue;
 
                 restored ??= new Dictionary<string, object?>(StringComparer.Ordinal);
-                restored[pair.Key] = DeserializeValueSnapshot(pair.Key, pair.Value, registration.ValueType);
+                restored[pair.Key] = DeserializeRegisteredValueSnapshot(
+                    pair.Key,
+                    pair.Value,
+                    registration.ValueType);
                 continue;
             }
 
@@ -213,7 +218,7 @@ public sealed class DeferredNavigationRequestSerializer(
                 continue;
 
             customMetadata ??= new Dictionary<string, object?>(StringComparer.Ordinal);
-            customMetadata[pair.Key] = DeserializeValueSnapshot(pair.Key, pair.Value);
+            customMetadata[pair.Key] = DeserializeCustomValueSnapshot(pair.Key, pair.Value);
         }
 
         if (customMetadata is not { Count: > 0 } || _options.MetadataSerializer is null)
@@ -248,76 +253,110 @@ public sealed class DeferredNavigationRequestSerializer(
         return unknown;
     }
 
-    private static NavigationMetadataValueSnapshot SerializeValueSnapshot(
+    private NavigationMetadataValueSnapshot SerializeRegisteredValueSnapshot(
         string key,
         object? value,
-        Type? declaredType = null)
+        Type declaredType)
     {
         if (value is null)
-            return new NavigationMetadataValueSnapshot(declaredType?.AssemblyQualifiedName, null, true);
+            return new NavigationMetadataValueSnapshot(null, null, true);
 
-        Type valueType = declaredType ?? value.GetType();
         return new NavigationMetadataValueSnapshot(
-            valueType.AssemblyQualifiedName,
-            SerializeValue(key, value, valueType));
+            null,
+            _routes.ValueCodecs.Format(value, declaredType, key));
     }
 
-    private static object? DeserializeValueSnapshot(
+    private object? DeserializeRegisteredValueSnapshot(
         string key,
         NavigationMetadataValueSnapshot snapshot,
-        Type? declaredType = null)
+        Type declaredType)
     {
         if (snapshot.IsNull || snapshot.Value is null) return null;
-
-        Type? valueType = declaredType ?? ResolveValueType(key, snapshot.Type);
-        return valueType is null || valueType == typeof(string)
-            ? snapshot.Value
-            : RouteValueConverter.Convert(snapshot.Value, valueType, key);
+        return _routes.ValueCodecs.Convert(snapshot.Value, declaredType, key);
     }
 
-    private static Type? ResolveValueType(string key, string? typeName)
+    private static NavigationMetadataValueSnapshot SerializeCustomValueSnapshot(string key, object? value)
     {
-        if (string.IsNullOrWhiteSpace(typeName)) return null;
-
-        var valueType = Type.GetType(typeName, false);
-        if (valueType is not null) return valueType;
-
-        throw new InvalidOperationException(
-            $"Navigation metadata '{key}' declared persisted type '{typeName}' could not be resolved.");
+        return value is null
+            ? new NavigationMetadataValueSnapshot(null, null, true)
+            : PersistedScalarValue.Serialize(key, value);
     }
 
-    private static string SerializeValue(string key, object value, Type declaredType)
+    private static object? DeserializeCustomValueSnapshot(
+        string key,
+        NavigationMetadataValueSnapshot snapshot)
     {
-        Type conversionType = Nullable.GetUnderlyingType(declaredType) ?? declaredType;
+        if (snapshot.IsNull) return null;
+        if (snapshot.Value is null)
+            throw new InvalidOperationException($"Navigation metadata '{key}' has no persisted value.");
+        if (string.IsNullOrWhiteSpace(snapshot.Type))
+            throw new InvalidOperationException($"Navigation metadata '{key}' has no persisted scalar type.");
 
-        try
+        return PersistedScalarValue.Deserialize(key, snapshot.Type, snapshot.Value);
+    }
+
+    private static class PersistedScalarValue
+    {
+        public static NavigationMetadataValueSnapshot Serialize(string key, object value)
         {
-            if (conversionType == typeof(string)) return (string)value;
-
-            if (conversionType.IsEnum) return value.ToString()!;
-
-            TypeConverter converter = TypeDescriptor.GetConverter(conversionType);
-            if (converter.CanConvertTo(typeof(string)))
-                if (converter.ConvertTo(null, CultureInfo.InvariantCulture, value, typeof(string)) is string converted)
-                    return converted;
-
-            if (value is IFormattable formattable)
+            return value switch
             {
-                var formatted = formattable.ToString(null, CultureInfo.InvariantCulture);
-                return formatted;
-            }
-
-            if (value.ToString() is { } fallback) return fallback;
+                string typed => Snapshot("string", typed),
+                bool typed => Snapshot("bool", typed.ToString()),
+                byte typed => Snapshot("byte", typed.ToString(CultureInfo.InvariantCulture)),
+                sbyte typed => Snapshot("sbyte", typed.ToString(CultureInfo.InvariantCulture)),
+                short typed => Snapshot("int16", typed.ToString(CultureInfo.InvariantCulture)),
+                ushort typed => Snapshot("uint16", typed.ToString(CultureInfo.InvariantCulture)),
+                int typed => Snapshot("int32", typed.ToString(CultureInfo.InvariantCulture)),
+                uint typed => Snapshot("uint32", typed.ToString(CultureInfo.InvariantCulture)),
+                long typed => Snapshot("int64", typed.ToString(CultureInfo.InvariantCulture)),
+                ulong typed => Snapshot("uint64", typed.ToString(CultureInfo.InvariantCulture)),
+                decimal typed => Snapshot("decimal", typed.ToString(CultureInfo.InvariantCulture)),
+                float typed => Snapshot("single", typed.ToString("R", CultureInfo.InvariantCulture)),
+                double typed => Snapshot("double", typed.ToString("R", CultureInfo.InvariantCulture)),
+                Guid typed => Snapshot("guid", typed.ToString()),
+                _ => throw new NotSupportedException(
+                    $"Custom navigation metadata '{key}' serialized to unsupported type " +
+                    $"'{value.GetType().FullName}'. Return a supported scalar value instead.")
+            };
         }
-        catch (Exception ex) when (ex is ArgumentException or FormatException or NotSupportedException)
+
+        public static object Deserialize(string key, string type, string value)
         {
-            throw new FormatException(
-                $"Navigation metadata '{key}' could not be serialized as {conversionType.Name}.",
-                ex);
+            try
+            {
+                return type switch
+                {
+                    "string" => value,
+                    "bool" => bool.Parse(value),
+                    "byte" => byte.Parse(value, NumberStyles.Integer, CultureInfo.InvariantCulture),
+                    "sbyte" => sbyte.Parse(value, NumberStyles.Integer, CultureInfo.InvariantCulture),
+                    "int16" => short.Parse(value, NumberStyles.Integer, CultureInfo.InvariantCulture),
+                    "uint16" => ushort.Parse(value, NumberStyles.Integer, CultureInfo.InvariantCulture),
+                    "int32" => int.Parse(value, NumberStyles.Integer, CultureInfo.InvariantCulture),
+                    "uint32" => uint.Parse(value, NumberStyles.Integer, CultureInfo.InvariantCulture),
+                    "int64" => long.Parse(value, NumberStyles.Integer, CultureInfo.InvariantCulture),
+                    "uint64" => ulong.Parse(value, NumberStyles.Integer, CultureInfo.InvariantCulture),
+                    "decimal" => decimal.Parse(value, NumberStyles.Number, CultureInfo.InvariantCulture),
+                    "single" => float.Parse(value, NumberStyles.Float, CultureInfo.InvariantCulture),
+                    "double" => double.Parse(value, NumberStyles.Float, CultureInfo.InvariantCulture),
+                    "guid" => Guid.Parse(value),
+                    _ => throw new InvalidOperationException(
+                        $"Navigation metadata '{key}' uses unsupported persisted scalar type '{type}'.")
+                };
+            }
+            catch (Exception ex) when (ex is FormatException or OverflowException or ArgumentException)
+            {
+                throw new FormatException(
+                    $"Navigation metadata '{key}' could not be restored as persisted scalar type '{type}'.",
+                    ex);
+            }
         }
 
-        throw new NotSupportedException(
-            $"Navigation metadata '{key}' cannot be serialized as {conversionType.FullName}.");
+        private static NavigationMetadataValueSnapshot Snapshot(string type, string value)
+        {
+            return new NavigationMetadataValueSnapshot(type, value);
+        }
     }
 
     private static Dictionary<string, object?>? MergeMetadata(

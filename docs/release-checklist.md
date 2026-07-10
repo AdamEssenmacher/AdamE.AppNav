@@ -14,7 +14,10 @@ This checklist is for validating a production release candidate before publishin
 dotnet test tests/AdamE.AppNav.Tests/AdamE.AppNav.Tests.csproj
 dotnet build tests/AdamE.AppNav.Maui.Tests/AdamE.AppNav.Maui.Tests.csproj -f net10.0-maccatalyst
 dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj
+dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net9.0 -p:EnableTrimAnalyzer=true -p:EnableAotAnalyzer=true -p:SuppressTrimAnalysisWarnings=false -p:WarningsNotAsErrors=NU1900 -warnaserror
 dotnet build samples/Commerce.Sample/Commerce.Sample.csproj -f net10.0-maccatalyst
+dotnet publish samples/Commerce.Sample/Commerce.Sample.csproj -c Release -f net10.0-maccatalyst -r maccatalyst-arm64 -p:PublishAot=true -p:EnableCodeSigning=false -p:CodesignKey=- -p:CodesignProvision= -o artifacts/aot/maccatalyst
+dotnet publish samples/Commerce.Sample/Commerce.Sample.csproj -c Release -f net10.0-android -r android-arm64 -p:PublishTrimmed=true -p:TrimMode=full -p:AndroidLinkMode=Full -o artifacts/aot/android-arm64
 dotnet build benchmarks/AdamE.AppNav.Benchmarks/AdamE.AppNav.Benchmarks.csproj -c Release
 dotnet run -c Release --project benchmarks/AdamE.AppNav.Benchmarks -- --check-budgets
 dotnet pack src/AdamE.AppNav/AdamE.AppNav.csproj
@@ -50,7 +53,7 @@ The runner fails if XHarness launches the app but does not produce test results.
 
 ## CI
 
-The release-confidence workflow runs core tests, MAUI adapter build, Commerce Mac Catalyst build, package packing, and Mac Catalyst XHarness tests on every push and pull request. iOS simulator and Android emulator platform jobs are available as manual `workflow_dispatch` gates for runners with stable simulator/emulator support.
+The release-confidence workflow runs core and generator tests, a warning-as-error AOT analyzer build, Mac Catalyst NativeAOT and Android full-trim sample publishes, package packing, and Mac Catalyst XHarness tests on every push and pull request. iOS simulator and Android emulator platform jobs are available as manual `workflow_dispatch` gates for runners with stable simulator/emulator support.
 
 ## Manual Smoke Checks
 

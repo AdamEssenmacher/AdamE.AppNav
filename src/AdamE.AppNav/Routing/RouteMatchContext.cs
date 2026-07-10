@@ -1,4 +1,5 @@
 using JetBrains.Annotations;
+using System.ComponentModel;
 
 namespace AdamE.AppNav.Routing;
 
@@ -9,12 +10,15 @@ public sealed class RouteMatchContext
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
 
     private Dictionary<string, object?>? _metadata;
+    private readonly RouteValueCodecRegistry _valueCodecs;
 
     internal RouteMatchContext(
         Uri sourceUri,
         IReadOnlyDictionary<string, string> path,
-        IReadOnlyDictionary<string, IReadOnlyList<string>> query)
+        IReadOnlyDictionary<string, IReadOnlyList<string>> query,
+        RouteValueCodecRegistry valueCodecs)
     {
+        _valueCodecs = valueCodecs;
         SourceUri = sourceUri;
         PathValues = path;
         QueryValueLists = query;
@@ -49,7 +53,7 @@ public sealed class RouteMatchContext
 
     public T Path<T>(string name)
     {
-        return RouteValueConverter.Convert<T>(Path(name), name);
+        return ConvertValue<T>(Path(name), name);
     }
 
     public string? PathOptional(string name)
@@ -61,7 +65,7 @@ public sealed class RouteMatchContext
         where T : struct
     {
         string? value = PathOptional(name);
-        return value is null ? null : RouteValueConverter.Convert<T>(value, name);
+        return value is null ? null : ConvertValue<T>(value, name);
     }
 
     public string? Query(string name)
@@ -73,7 +77,7 @@ public sealed class RouteMatchContext
     public T? Query<T>(string name)
     {
         string? value = Query(name);
-        return value is null ? default : RouteValueConverter.Convert<T>(value, name);
+        return value is null ? default : ConvertValue<T>(value, name);
     }
 
     public IReadOnlyList<string> QueryAll(string name)
@@ -85,8 +89,24 @@ public sealed class RouteMatchContext
     public IReadOnlyList<T> QueryAll<T>(string name)
     {
         return QueryAll(name)
-            .Select(value => RouteValueConverter.Convert<T>(value, name))
+            .Select(value => ConvertValue<T>(value, name))
             .ToArray();
+    }
+
+    /// <summary>
+    /// Converts a raw route value with the codec registered for <typeparamref name="TValue"/>.
+    /// </summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public TValue ConvertValue<TValue>(string value, string name)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        return _valueCodecs.Convert<TValue>(value, name);
+    }
+
+    internal object? ConvertValue(string value, Type targetType, string name)
+    {
+        return _valueCodecs.Convert(value, targetType, name);
     }
 
     // ReSharper disable once UnusedMethodReturnValue.Global

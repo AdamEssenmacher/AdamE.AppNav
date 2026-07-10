@@ -8,11 +8,6 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
 {
     public const string DefaultFileName = "appnav-deferred-requests.json";
 
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
-    {
-        WriteIndented = false
-    };
-
     private readonly string _path;
     private readonly DeferredNavigationRequestSerializer _serializer;
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -155,9 +150,9 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
         }
 
         await using var stream = File.OpenRead(_path);
-        var snapshot = await JsonSerializer.DeserializeAsync<DeferredNavigationRequestStoreSnapshot>(
+        var snapshot = await JsonSerializer.DeserializeAsync(
             stream,
-            JsonOptions,
+            AppNavJsonSerializerContext.Default.DeferredNavigationRequestStoreSnapshot,
             cancellationToken).ConfigureAwait(false);
 
         var restoredRequests = snapshot is null
@@ -218,7 +213,7 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
                 await JsonSerializer.SerializeAsync(
                     stream,
                     snapshot,
-                    JsonOptions,
+                    AppNavJsonSerializerContext.Default.DeferredNavigationRequestStoreSnapshot,
                     cancellationToken).ConfigureAwait(false);
                 await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
             }

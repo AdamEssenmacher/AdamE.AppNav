@@ -84,6 +84,78 @@ public sealed class DeferredNavigationRequestSerializerTests
     }
 
     [Fact]
+    public void CreateSnapshotAndRestore_UsesRouteCodecForRegisteredCustomState()
+    {
+        var draft = new RouteMetadataKey<DraftId>("draft");
+        var routes = RouteTable.Create(builder => builder
+            .AddValueCodec<DraftId>(
+                static value => new DraftId(Guid.Parse(value)),
+                static value => value.Value.ToString("N"))
+            .MapRoute<TestRoutes.StoreRoute>("/stores/{storeId}"));
+        var serializer = new DeferredNavigationRequestSerializer(routes, new DeferredNavigationRequestPersistenceOptions
+        {
+            BaseUri = BaseUri,
+            RouteStateRegistry = RouteStateRegistry.Create(builder => builder.Restorable(draft))
+        });
+        var draftId = new DraftId(Guid.NewGuid());
+        var request = RouterNavigationRequest.FromRoute(
+            new TestRoutes.StoreRoute("northwind"),
+            NavigationRequestSource.InAppCommand,
+            metadata: new Dictionary<string, object?> { [draft.Name] = draftId });
+
+        var snapshot = serializer.CreateSnapshot([request]);
+        NavigationMetadataValueSnapshot persisted = Assert.Single(snapshot.Requests).Metadata![draft.Name];
+        var restored = Assert.Single(serializer.Restore(snapshot));
+
+        Assert.Equal(DeferredNavigationRequestStoreSnapshot.CurrentSchemaVersion, snapshot.SchemaVersion);
+        Assert.Null(persisted.Type);
+        Assert.Equal(draftId.Value.ToString("N"), persisted.Value);
+        Assert.Equal(draftId, restored.Metadata[draft.Name]);
+    }
+
+    [Fact]
+    public void CustomMetadataSerializerPersistsStableScalarDiscriminators()
+    {
+        var routes = TestRoutes.CreateTable();
+        var serializer = new DeferredNavigationRequestSerializer(routes, new DeferredNavigationRequestPersistenceOptions
+        {
+            BaseUri = BaseUri,
+            MetadataSerializer = new PassThroughMetadataSerializer()
+        });
+        var request = RouterNavigationRequest.FromRoute(
+            new TestRoutes.StoreRoute("northwind"),
+            NavigationRequestSource.InAppCommand,
+            metadata: new Dictionary<string, object?> { ["attempt"] = 3 });
+
+        var snapshot = serializer.CreateSnapshot([request]);
+        NavigationMetadataValueSnapshot persisted = Assert.Single(snapshot.Requests).Metadata!["attempt"];
+        var restored = Assert.Single(serializer.Restore(snapshot));
+
+        Assert.Equal("int32", persisted.Type);
+        Assert.Equal("3", persisted.Value);
+        Assert.Equal(3, restored.Metadata["attempt"]);
+    }
+
+    [Fact]
+    public void CustomMetadataSerializerRejectsUnstableRuntimeTypes()
+    {
+        var serializer = new DeferredNavigationRequestSerializer(TestRoutes.CreateTable(),
+            new DeferredNavigationRequestPersistenceOptions
+            {
+                BaseUri = BaseUri,
+                MetadataSerializer = new PassThroughMetadataSerializer()
+            });
+        var request = RouterNavigationRequest.FromRoute(
+            new TestRoutes.StoreRoute("northwind"),
+            NavigationRequestSource.InAppCommand,
+            metadata: new Dictionary<string, object?> { ["timestamp"] = DateTime.UtcNow });
+
+        var exception = Assert.Throws<NotSupportedException>(() => serializer.CreateSnapshot([request]));
+
+        Assert.Contains("Return a supported scalar value", exception.Message);
+    }
+
+    [Fact]
     public void CreateSnapshotAndRestore_RoundTripsProvenance()
     {
         var routes = TestRoutes.CreateTable();
@@ -162,4 +234,6 @@ public sealed class DeferredNavigationRequestSerializerTests
 
         public IReadOnlyDictionary<string, object?>? Deserialize(IReadOnlyDictionary<string, object?> metadata) => metadata;
     }
+
+    private readonly record struct DraftId(Guid Value);
 }

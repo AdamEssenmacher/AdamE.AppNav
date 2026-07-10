@@ -27,6 +27,9 @@ public sealed record NavigationRequestProvenanceSnapshot(
 /// <summary>
 /// Represents one serialized navigation metadata value.
 /// </summary>
+/// <param name="Type">A stable scalar discriminator, or <see langword="null"/> for registered route state.</param>
+/// <param name="Value">The invariant serialized value.</param>
+/// <param name="IsNull">Whether the original value was <see langword="null"/>.</param>
 public sealed record NavigationMetadataValueSnapshot(
     string? Type,
     string? Value,

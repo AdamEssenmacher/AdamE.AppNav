@@ -1,10 +1,13 @@
 using System.Diagnostics.CodeAnalysis;
+using System.ComponentModel;
 
 namespace AdamE.AppNav.Routing;
 
 public sealed class RouteTableBuilder
 {
     private readonly List<RouteDefinition> _definitions = [];
+    private readonly RouteValueCodecCollection _valueCodecs = new();
+    private readonly HashSet<Type> _requiredValueCodecs = [];
     private RouteConstraintRegistry _constraints = RouteConstraintRegistry.BuiltIn;
     private int _nextOrder;
 
@@ -30,6 +33,37 @@ public sealed class RouteTableBuilder
         return this;
     }
 
+    /// <summary>
+    /// Registers the canonical parser and formatter for a route value type.
+    /// </summary>
+    public RouteTableBuilder AddValueCodec<TValue>(
+        Func<string, TValue> parse,
+        Func<TValue, string> format)
+    {
+        _valueCodecs.Add(parse, format);
+        return this;
+    }
+
+    /// <summary>
+    /// Registers a case-insensitive parser and named-value formatter for an enum route value type.
+    /// </summary>
+    public RouteTableBuilder AddEnumValueCodec<TEnum>()
+        where TEnum : struct, Enum
+    {
+        _valueCodecs.AddEnum<TEnum>();
+        return this;
+    }
+
+    /// <summary>
+    /// Records that a route module requires a codec for the specified value type.
+    /// </summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public RouteTableBuilder RequireValueCodec<TValue>()
+    {
+        RequireValueCodec(typeof(TValue));
+        return this;
+    }
+
     public RouteTableBuilder Map<TRoute>(
         string template,
         Func<RouteMatchContext, TRoute> createRoute,
@@ -48,7 +82,7 @@ public sealed class RouteTableBuilder
             typeof(TRoute),
             routeTemplate,
             createRoute,
-            (route, metadata) => formatBuilder.Format((TRoute)route, routeTemplate, metadata),
+            (route, metadata, codecs) => formatBuilder.Format((TRoute)route, routeTemplate, codecs, metadata),
             _nextOrder++));
 
         return this;
@@ -56,7 +90,7 @@ public sealed class RouteTableBuilder
 
     public RouteTableBuilder MapRoute<
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.PublicProperties)]
-        TRoute>(
+    TRoute>(
         string template,
         Action<ConventionRouteBuilder<TRoute>>? configure = null)
         where TRoute : AppRoute
@@ -67,6 +101,8 @@ public sealed class RouteTableBuilder
         var builder = new ConventionRouteBuilder<TRoute>();
         configure?.Invoke(builder);
         ConventionRouteBinder<TRoute> binder = ConventionRouteBinder<TRoute>.Create(routeTemplate, builder);
+        foreach (Type valueType in binder.RequiredValueTypes)
+            RequireValueCodec(valueType);
 
         _definitions.Add(new RouteDefinition(
             typeof(TRoute),
@@ -77,7 +113,7 @@ public sealed class RouteTableBuilder
                 binder.ApplyMetadata(context);
                 return route;
             },
-            (route, metadata) => binder.Format((TRoute)route, metadata),
+            (route, metadata, codecs) => binder.Format((TRoute)route, codecs, metadata),
             _nextOrder++));
 
         return this;
@@ -85,6 +121,12 @@ public sealed class RouteTableBuilder
 
     public RouteTable Build()
     {
+        Type? missingCodec = _requiredValueCodecs.FirstOrDefault(type => !_valueCodecs.Contains(type));
+        if (missingCodec is not null)
+            throw new InvalidOperationException(
+                $"Route value type '{missingCodec.FullName}' requires a registered codec. " +
+                $"Call {nameof(AddValueCodec)} before building the route table.");
+
         IGrouping<string, RouteDefinition>? duplicateTemplate = _definitions
             .GroupBy(definition => definition.Template.Value, StringComparer.OrdinalIgnoreCase)
             .FirstOrDefault(group => group.Count() > 1);
@@ -94,22 +136,27 @@ public sealed class RouteTableBuilder
                 $"Route template '{duplicateTemplate.Key}' is registered more than once.");
 
         for (var i = 0; i < _definitions.Count; i++)
-        for (int j = i + 1; j < _definitions.Count; j++)
-        {
-            RouteDefinition left = _definitions[i];
-            RouteDefinition right = _definitions[j];
-            if (left.Template.ComparePrecedence(right.Template) == 0 &&
-                left.Template.CanOverlap(right.Template))
-                throw new InvalidOperationException(
-                    $"Route templates '{left.Template.Value}' and '{right.Template.Value}' are ambiguous.");
-        }
+            for (int j = i + 1; j < _definitions.Count; j++)
+            {
+                RouteDefinition left = _definitions[i];
+                RouteDefinition right = _definitions[j];
+                if (left.Template.ComparePrecedence(right.Template) == 0 &&
+                    left.Template.CanOverlap(right.Template))
+                    throw new InvalidOperationException(
+                        $"Route templates '{left.Template.Value}' and '{right.Template.Value}' are ambiguous.");
+            }
 
         RouteDefinition[] sorted = _definitions
             .OrderBy(definition => definition.Template, RouteTemplatePrecedenceComparer.Instance)
             .ThenBy(definition => definition.Order)
             .ToArray();
 
-        return new RouteTable(sorted);
+        return new RouteTable(sorted, _valueCodecs.Build());
+    }
+
+    private void RequireValueCodec(Type type)
+    {
+        _requiredValueCodecs.Add(RouteValueCodecRegistry.Normalize(type));
     }
 
     private sealed class RouteTemplatePrecedenceComparer : IComparer<RouteTemplate>

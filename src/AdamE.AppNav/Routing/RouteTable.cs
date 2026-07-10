@@ -5,15 +5,18 @@ public sealed class RouteTable
     private readonly Dictionary<Type, RouteDefinition> _definitionsByRouteType;
     private readonly RouteCandidateIndex _candidateIndex;
 
-    internal RouteTable(IReadOnlyList<RouteDefinition> definitions)
+    internal RouteTable(IReadOnlyList<RouteDefinition> definitions, RouteValueCodecRegistry valueCodecs)
     {
         Definitions = definitions;
+        ValueCodecs = valueCodecs;
         _definitionsByRouteType = BuildDefinitionIndex(definitions);
         _candidateIndex = RouteCandidateIndex.Create(definitions);
     }
 
     // ReSharper disable once MemberCanBePrivate.Global
     public IReadOnlyList<RouteDefinition> Definitions { get; }
+
+    internal RouteValueCodecRegistry ValueCodecs { get; }
 
     public static RouteTable Create(Action<RouteTableBuilder> configure)
     {
@@ -40,7 +43,7 @@ public sealed class RouteTable
 
             try
             {
-                var context = new RouteMatchContext(uri, pathValues, queryValues);
+                var context = new RouteMatchContext(uri, pathValues, queryValues, ValueCodecs);
                 (AppRoute route, IReadOnlyDictionary<string, object?> metadata) = definition.Create(context);
                 return RouteMatchResult.Success(route, definition, metadata);
             }
@@ -92,7 +95,7 @@ public sealed class RouteTable
         RouteDefinition? definition = FindDefinition(routeType);
         return definition is null
             ? throw new InvalidOperationException($"No route formatter is registered for {routeType.FullName}.")
-            : definition.Format(route, metadata);
+            : definition.Format(route, ValueCodecs, metadata);
     }
 
     public Uri FormatUri(AppRoute route, Uri baseUri)
@@ -236,7 +239,7 @@ public sealed class RouteTable
                 if (Children.TryGetValue(literal, out CandidateNode? child))
                     return child;
 
-                string[] childPrefix = [..Prefix, literal];
+                string[] childPrefix = [.. Prefix, literal];
                 child = new CandidateNode(childPrefix);
                 Children[literal] = child;
                 return child;

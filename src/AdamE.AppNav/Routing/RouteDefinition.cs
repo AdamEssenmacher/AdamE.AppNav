@@ -3,13 +3,13 @@ namespace AdamE.AppNav.Routing;
 public sealed class RouteDefinition
 {
     private readonly Func<RouteMatchContext, AppRoute> _createRoute;
-    private readonly Func<AppRoute, IReadOnlyDictionary<string, object?>?, string> _formatRoute;
+    private readonly Func<AppRoute, IReadOnlyDictionary<string, object?>?, RouteValueCodecRegistry, string> _formatRoute;
 
     internal RouteDefinition(
         Type routeType,
         RouteTemplate template,
         Func<RouteMatchContext, AppRoute> createRoute,
-        Func<AppRoute, IReadOnlyDictionary<string, object?>?, string> formatRoute,
+        Func<AppRoute, IReadOnlyDictionary<string, object?>?, RouteValueCodecRegistry, string> formatRoute,
         int order)
     {
         RouteType = routeType ?? throw new ArgumentNullException(nameof(routeType));
@@ -31,8 +31,11 @@ public sealed class RouteDefinition
         return (route, context.Metadata);
     }
 
-    internal string Format(AppRoute route, IReadOnlyDictionary<string, object?>? metadata = null)
+    internal string Format(
+        AppRoute route,
+        RouteValueCodecRegistry codecs,
+        IReadOnlyDictionary<string, object?>? metadata = null)
     {
-        return _formatRoute(route, metadata);
+        return _formatRoute(route, metadata, codecs);
     }
 }

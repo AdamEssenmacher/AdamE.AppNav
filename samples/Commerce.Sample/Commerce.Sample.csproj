@@ -69,7 +69,8 @@
 	  <ProjectReference Include="..\..\src\AdamE.AppNav.Generators\AdamE.AppNav.Generators.csproj"
 	                    OutputItemType="Analyzer"
 	                    ReferenceOutputAssembly="false"
-	                    PrivateAssets="all" />
+	                    PrivateAssets="all"
+	                    GlobalPropertiesToRemove="PublishAot;IsAotCompatible;IsTrimmable;EnableTrimAnalyzer;EnableAotAnalyzer;PublishTrimmed;TrimMode" />
 	</ItemGroup>
 
 </Project>

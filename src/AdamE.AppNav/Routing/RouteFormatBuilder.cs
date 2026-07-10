@@ -1,6 +1,3 @@
-using System.Collections;
-using System.Globalization;
-
 namespace AdamE.AppNav.Routing;
 
 public sealed class RouteFormatBuilder<TRoute>
@@ -41,6 +38,7 @@ public sealed class RouteFormatBuilder<TRoute>
     internal string Format(
         TRoute route,
         RouteTemplate template,
+        RouteValueCodecRegistry codecs,
         IReadOnlyDictionary<string, object?>? metadata = null)
     {
         var pathValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -49,7 +47,7 @@ public sealed class RouteFormatBuilder<TRoute>
             if (!_pathParams.TryGetValue(parameter, out Func<TRoute, object?>? formatter))
                 throw new InvalidOperationException($"No formatter was registered for path parameter '{parameter}'.");
 
-            string? value = ConvertToString(formatter(route));
+            string? value = RouteValueFormatting.Format(formatter(route), parameter, codecs);
             if (string.IsNullOrEmpty(value))
             {
                 if (template.IsOptionalParameter(parameter) || template.IsCatchAllParameter(parameter))
@@ -64,17 +62,17 @@ public sealed class RouteFormatBuilder<TRoute>
         string path = template.Format(pathValues);
         var query = new List<string>();
         foreach (QueryFormatter<TRoute> queryParam in _queryParams)
-            query.AddRange(from value in ConvertToStrings(queryParam.Value(route))
-                where value is not null || !queryParam.OmitWhenNull
-                select $"{Uri.EscapeDataString(queryParam.Name)}={Uri.EscapeDataString(value ?? string.Empty)}");
+            query.AddRange(from value in RouteValueFormatting.FormatMany(queryParam.Value(route), queryParam.Name, codecs)
+                           where value is not null || !queryParam.OmitWhenNull
+                           select $"{Uri.EscapeDataString(queryParam.Name)}={Uri.EscapeDataString(value ?? string.Empty)}");
 
         foreach (MetadataQueryFormatter queryParam in _metadataQueryParams)
         {
             object? metadataValue = null;
             metadata?.TryGetValue(queryParam.MetadataName, out metadataValue);
-            query.AddRange(from value in ConvertToStrings(metadataValue)
-                where value is not null || !queryParam.OmitWhenNull
-                select $"{Uri.EscapeDataString(queryParam.QueryName)}={Uri.EscapeDataString(value ?? string.Empty)}");
+            query.AddRange(from value in RouteValueFormatting.FormatMany(metadataValue, queryParam.QueryName, codecs)
+                           where value is not null || !queryParam.OmitWhenNull
+                           select $"{Uri.EscapeDataString(queryParam.QueryName)}={Uri.EscapeDataString(value ?? string.Empty)}");
         }
 
         return query.Count == 0 ? path : $"{path}?{string.Join("&", query)}";
@@ -86,37 +84,6 @@ public sealed class RouteFormatBuilder<TRoute>
             if (!_pathParams.ContainsKey(parameter))
                 throw new InvalidOperationException(
                     $"Route template '{template.Value}' requires a formatter for path parameter '{parameter}'.");
-    }
-
-    private static string? ConvertToString(object? value)
-    {
-        return value switch
-        {
-            null => null,
-            string text => text,
-            IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture),
-            _ => value.ToString()
-        };
-    }
-
-    private static IEnumerable<string?> ConvertToStrings(object? value)
-    {
-        switch (value)
-        {
-            case null or string:
-                yield return ConvertToString(value);
-                yield break;
-            case IEnumerable enumerable:
-            {
-                foreach (object? item in enumerable)
-                    yield return ConvertToString(item);
-
-                yield break;
-            }
-            default:
-                yield return ConvertToString(value);
-                break;
-        }
     }
 
     private sealed record QueryFormatter<T>(

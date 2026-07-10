@@ -483,6 +483,40 @@ public sealed class RouteTableTests
     }
 
     [Fact]
+    public void ConventionRouteUsesExplicitCustomValueCodecForMatchingAndFormatting()
+    {
+        var table = RouteTable.Create(routes => routes
+            .AddValueCodec<SlugValue>(
+                static value => new SlugValue(value.ToUpperInvariant()),
+                static value => value.Value.ToLowerInvariant())
+            .MapRoute<CustomSlugRoute>("/slugs/{slug}"));
+
+        var match = table.Match(new Uri("/slugs/northwind", UriKind.Relative));
+
+        Assert.Equal(new CustomSlugRoute(new SlugValue("NORTHWIND")), match.Route);
+        Assert.Equal("/slugs/northwind", table.Format(match.Route!));
+    }
+
+    [Fact]
+    public void ConventionRouteRejectsMissingCustomValueCodecWhenTableIsBuilt()
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() => RouteTable.Create(routes =>
+            routes.MapRoute<CustomSlugRoute>("/slugs/{slug}")));
+
+        Assert.Contains("requires a registered codec", exception.Message);
+    }
+
+    [Fact]
+    public void ConventionRouteRejectsNonNullableOptionalPathParameterAtRegistration()
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() => RouteTable.Create(routes =>
+            routes.MapRoute<RequiredProductIdRoute>("/products/{productId:int?}")));
+
+        Assert.Contains("path value may be absent", exception.Message);
+        Assert.Contains("nullable or provide a default value", exception.Message);
+    }
+
+    [Fact]
     public void ConventionRouteRejectsMissingPathMemberAtRegistration()
     {
         Assert.Throws<InvalidOperationException>(() => RouteTable.Create(routes =>
@@ -866,6 +900,10 @@ public sealed class RouteTableTests
     private sealed record RequiredProductIdRoute(int ProductId) : AppRoute;
 
     private sealed record ProductSlugRoute(string Slug) : AppRoute;
+
+    private readonly record struct SlugValue(string Value);
+
+    private sealed record CustomSlugRoute(SlugValue Slug) : AppRoute;
 
     private sealed record DocsRoute(string Path) : AppRoute;
 

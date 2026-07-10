@@ -1,13 +1,11 @@
-using System.Collections;
 using System.Diagnostics.CodeAnalysis;
-using System.Globalization;
 using System.Reflection;
 
 namespace AdamE.AppNav.Routing;
 
 internal sealed class ConventionRouteBinder<
     [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.PublicProperties)]
-    TRoute>
+TRoute>
     where TRoute : AppRoute
 {
     private readonly RouteTemplate _template;
@@ -45,6 +43,7 @@ internal sealed class ConventionRouteBinder<
         ValidateQueryBindings(builder.QueryBindings, properties, pathProperties);
         ConstructorInfo constructor = SelectConstructor(template, builder.QueryBindings);
         ValidateQueryBoundConstructorParameters(constructor, builder.QueryBindings);
+        ValidateOptionalPathConstructorParameters(constructor, template);
         IReadOnlyList<ConstructorArgument> arguments =
             BindConstructorArguments(constructor, template, builder.QueryBindings);
 
@@ -55,6 +54,28 @@ internal sealed class ConventionRouteBinder<
             pathProperties,
             builder.QueryBindings.ToArray(),
             builder.MetadataQueryBindings.ToArray());
+    }
+
+    public IReadOnlyCollection<Type> RequiredValueTypes
+    {
+        get
+        {
+            var types = new HashSet<Type>();
+            foreach (ConstructorArgument argument in _arguments)
+                if (argument.Kind is ConstructorArgumentKind.Path or ConstructorArgumentKind.Query)
+                    types.Add(RouteValueCodecRegistry.Normalize(argument.ParameterType));
+
+            foreach (PropertyInfo property in _pathProperties.Values)
+                AddFormattedValueType(types, property.PropertyType);
+
+            foreach (ConventionQueryBinding binding in _queryBindings)
+                AddFormattedValueType(types, binding.Property.PropertyType);
+
+            foreach (ConventionMetadataQueryBinding binding in _metadataQueryBindings)
+                AddFormattedValueType(types, binding.ValueType);
+
+            return types;
+        }
     }
 
     public TRoute CreateRoute(RouteMatchContext context)
@@ -80,17 +101,20 @@ internal sealed class ConventionRouteBinder<
 
             context.AddMetadata(
                 binding.MetadataName,
-                RouteValueConverter.Convert(value, binding.ValueType, binding.QueryName),
+                context.ConvertValue(value, binding.ValueType, binding.QueryName),
                 binding.OmitWhenNull);
         }
     }
 
-    public string Format(TRoute route, IReadOnlyDictionary<string, object?>? metadata = null)
+    public string Format(
+        TRoute route,
+        RouteValueCodecRegistry codecs,
+        IReadOnlyDictionary<string, object?>? metadata = null)
     {
         var pathValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (string parameter in _template.ParameterNames)
         {
-            string? value = ConvertToString(_pathProperties[parameter].GetValue(route));
+            string? value = RouteValueFormatting.Format(_pathProperties[parameter].GetValue(route), parameter, codecs);
             if (!string.IsNullOrEmpty(value))
                 pathValues[parameter] = value;
         }
@@ -98,17 +122,19 @@ internal sealed class ConventionRouteBinder<
         string path = _template.Format(pathValues);
         var query = new List<string>();
         foreach (ConventionQueryBinding binding in _queryBindings)
-            query.AddRange(from value in ConvertToStrings(binding.Property.GetValue(route))
-                where value is not null || !binding.OmitWhenNull
-                select $"{Uri.EscapeDataString(binding.QueryName)}={Uri.EscapeDataString(value ?? string.Empty)}");
+            query.AddRange(from value in RouteValueFormatting.FormatMany(
+                    binding.Property.GetValue(route), binding.QueryName, codecs)
+                           where value is not null || !binding.OmitWhenNull
+                           select $"{Uri.EscapeDataString(binding.QueryName)}={Uri.EscapeDataString(value ?? string.Empty)}");
 
         foreach (ConventionMetadataQueryBinding binding in _metadataQueryBindings)
         {
             object? metadataValue = null;
             metadata?.TryGetValue(binding.MetadataName, out metadataValue);
-            query.AddRange(from value in ConvertToStrings(metadataValue)
-                where value is not null || !binding.OmitWhenNull
-                select $"{Uri.EscapeDataString(binding.QueryName)}={Uri.EscapeDataString(value ?? string.Empty)}");
+            query.AddRange(from value in RouteValueFormatting.FormatMany(
+                    metadataValue, binding.QueryName, codecs)
+                           where value is not null || !binding.OmitWhenNull
+                           select $"{Uri.EscapeDataString(binding.QueryName)}={Uri.EscapeDataString(value ?? string.Empty)}");
         }
 
         return query.Count == 0 ? path : $"{path}?{string.Join("&", query)}";
@@ -217,6 +243,29 @@ internal sealed class ConventionRouteBinder<
         }
     }
 
+    private static void ValidateOptionalPathConstructorParameters(
+        ConstructorInfo constructor,
+        RouteTemplate template)
+    {
+        Dictionary<string, ParameterInfo> parameters = constructor.GetParameters()
+            .ToDictionary(static parameter => parameter.Name!, StringComparer.OrdinalIgnoreCase);
+
+        foreach (string parameterName in template.ParameterNames)
+        {
+            if (!template.IsOptionalParameter(parameterName) && !template.IsCatchAllParameter(parameterName))
+                continue;
+
+            ParameterInfo parameter = parameters[parameterName];
+            if (IsMissingSafeParameter(parameter))
+                continue;
+
+            throw new InvalidOperationException(
+                $"Optional path binding '{parameterName}' on route type '{typeof(TRoute).FullName}' " +
+                $"targets constructor parameter '{parameter.Name}', but the path value may be absent. " +
+                "Make the parameter nullable or provide a default value.");
+        }
+    }
+
     private static HashSet<string> GetRequiredConstructorNames(
         RouteTemplate template,
         IReadOnlyList<ConventionQueryBinding> queryBindings)
@@ -247,6 +296,11 @@ internal sealed class ConventionRouteBinder<
 
     private static bool IsMissingSafeQueryParameter(ParameterInfo parameter)
     {
+        return IsMissingSafeParameter(parameter);
+    }
+
+    private static bool IsMissingSafeParameter(ParameterInfo parameter)
+    {
         if (parameter.HasDefaultValue || parameter.IsOptional)
             return true;
 
@@ -271,50 +325,39 @@ internal sealed class ConventionRouteBinder<
             {
                 if (pathNames.Contains(parameter.Name!))
                     return ConstructorArgument.Path(parameter.Name!, parameter.ParameterType, parameter.DefaultValue,
-                        parameter.HasDefaultValue);
+                        parameter.HasDefaultValue || parameter.IsOptional);
 
                 if (queryByProperty.TryGetValue(parameter.Name!, out ConventionQueryBinding? query))
                     return ConstructorArgument.Query(
                         query.QueryName,
                         parameter.ParameterType,
                         parameter.DefaultValue,
-                        parameter.HasDefaultValue);
+                        parameter.HasDefaultValue || parameter.IsOptional);
 
                 return ConstructorArgument.Default(parameter.ParameterType, parameter.DefaultValue,
-                    parameter.HasDefaultValue);
+                    parameter.HasDefaultValue || parameter.IsOptional);
             })
             .ToArray();
     }
 
-    private static string? ConvertToString(object? value)
+    private static void AddFormattedValueType(ISet<Type> types, Type type)
     {
-        return value switch
+        Type valueType = RouteValueCodecRegistry.Normalize(type);
+        if (valueType != typeof(string) && valueType.IsArray)
+            valueType = valueType.GetElementType()!;
+        else if (valueType != typeof(string) && valueType.IsGenericType)
         {
-            null => null,
-            string text => text,
-            IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture),
-            _ => value.ToString()
-        };
-    }
-
-    private static IEnumerable<string?> ConvertToStrings(object? value)
-    {
-        switch (value)
-        {
-            case null or string:
-                yield return ConvertToString(value);
-                yield break;
-            case IEnumerable enumerable:
-            {
-                foreach (object? item in enumerable)
-                    yield return ConvertToString(item);
-
-                yield break;
-            }
-            default:
-                yield return ConvertToString(value);
-                break;
+            Type definition = valueType.GetGenericTypeDefinition();
+            if (definition == typeof(IEnumerable<>) ||
+                definition == typeof(IReadOnlyCollection<>) ||
+                definition == typeof(IReadOnlyList<>) ||
+                definition == typeof(ICollection<>) ||
+                definition == typeof(IList<>) ||
+                definition == typeof(List<>))
+                valueType = valueType.GetGenericArguments()[0];
         }
+
+        types.Add(RouteValueCodecRegistry.Normalize(valueType));
     }
 
     private sealed record ConstructorArgument(
@@ -357,20 +400,20 @@ internal sealed class ConventionRouteBinder<
         private object? ResolvePath(RouteMatchContext context)
         {
             return context.PathValues.TryGetValue(Name!, out string? value)
-                ? RouteValueConverter.Convert(value, ParameterType, Name!)
+                ? context.ConvertValue(value, ParameterType, Name!)
                 : GetDefault();
         }
 
         private object? ResolveQuery(RouteMatchContext context)
         {
             return context.QueryValues.TryGetValue(Name!, out string? value)
-                ? RouteValueConverter.Convert(value, ParameterType, Name!)
+                ? context.ConvertValue(value, ParameterType, Name!)
                 : GetDefault();
         }
 
         private object? GetDefault()
         {
-            return HasDefaultValue ? DefaultValue : RouteValueConverter.DefaultFor(ParameterType);
+            return HasDefaultValue ? DefaultValue : null;
         }
     }
 
