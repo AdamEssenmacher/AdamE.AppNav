@@ -72,6 +72,56 @@ public sealed class MauiRoutePageFactoryTests
     }
 
     [Fact]
+    public void PresentationPage_InheritsOwnerBindingContextAndDisposesItsOwnScopeOnRelease()
+    {
+        var services = new ServiceCollection();
+        services.AddScoped<ScopedMarker>();
+        services.AddTransient<PresentationPage>();
+        using var provider = services.BuildServiceProvider();
+        var options = new MauiRoutePresentationOptions
+        {
+            UseScopedPages = true
+        };
+        var factory = new MauiRoutePageFactory(provider, options);
+        var ownerBindingContext = new object();
+        var owner = new ContentPage { BindingContext = ownerBindingContext };
+
+        var page = Assert.IsType<PresentationPage>(factory.CreatePresentationPage(
+            typeof(PresentationPage),
+            owner,
+            inheritBindingContext: true));
+
+        Assert.Same(ownerBindingContext, page.BindingContext);
+        Assert.False(page.Marker.IsDisposed);
+
+        factory.ReleasePresentationPage(page);
+
+        Assert.Null(page.BindingContext);
+        Assert.True(page.Marker.IsDisposed);
+    }
+
+    [Fact]
+    public void PresentationPage_CanKeepItsOwnBindingContext()
+    {
+        var services = new ServiceCollection();
+        services.AddTransient<IndependentBindingPage>();
+        using var provider = services.BuildServiceProvider();
+        var factory = new MauiRoutePageFactory(provider, new MauiRoutePresentationOptions());
+        var owner = new ContentPage { BindingContext = new object() };
+
+        var page = Assert.IsType<IndependentBindingPage>(factory.CreatePresentationPage(
+            typeof(IndependentBindingPage),
+            owner,
+            inheritBindingContext: false));
+
+        Assert.Same(page.OwnBindingContext, page.BindingContext);
+
+        factory.ReleasePresentationPage(page);
+
+        Assert.Same(page.OwnBindingContext, page.BindingContext);
+    }
+
+    [Fact]
     public void CreatePage_PrefersMostSpecificMappedPageForDerivedRoute()
     {
         using var provider = new ServiceCollection().BuildServiceProvider();
@@ -134,6 +184,21 @@ public sealed class MauiRoutePageFactoryTests
     private sealed class ScopedPage(ScopedMarker marker) : ContentPage
     {
         public ScopedMarker Marker { get; } = marker;
+    }
+
+    private sealed class PresentationPage(ScopedMarker marker) : ContentPage
+    {
+        public ScopedMarker Marker { get; } = marker;
+    }
+
+    private sealed class IndependentBindingPage : ContentPage
+    {
+        public IndependentBindingPage()
+        {
+            BindingContext = OwnBindingContext;
+        }
+
+        public object OwnBindingContext { get; } = new();
     }
 
     private sealed class ScopedMarker : IDisposable

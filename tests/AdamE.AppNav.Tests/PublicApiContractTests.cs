@@ -203,10 +203,12 @@ public sealed class PublicApiContractTests
                 "AdamE.AppNav.Maui.IMauiPresentationState",
                 "AdamE.AppNav.Maui.IMauiRoutePageLifecycleHook",
                 "AdamE.AppNav.Maui.IMauiRoutePageModule",
+                "AdamE.AppNav.Maui.IMauiRoutePresentationNavigator",
                 "AdamE.AppNav.Maui.MauiRoutePageAttribute",
                 "AdamE.AppNav.Maui.MauiRoutePageRegistry",
                 "AdamE.AppNav.Maui.MauiRoutePageReuseKind",
                 "AdamE.AppNav.Maui.MauiRoutePageUpdateContext",
+                "AdamE.AppNav.Maui.MauiRoutePresentationPageOptions",
                 "AdamE.AppNav.Maui.Requests.MauiFileDeferredNavigationRequestStoreOptions"
             ]);
     }

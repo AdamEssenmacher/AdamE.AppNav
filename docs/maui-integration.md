@@ -105,6 +105,34 @@ not unregister a newer one.
 
 `IRouterNavigator` also exposes URI navigation overloads and `ReconcileAsync(...)`. Those are useful for host-owned orchestration, testing, and explicit runtime control.
 
+## Route-Owned Presentation Pages
+
+Some workflows are one semantic destination but need several native pages. A setup wizard, checkout flow, or editor can remain one `AppRoute` while its steps participate in iOS swipe-back and Android system back.
+
+Register each presentation page with DI, then inject `IMauiRoutePresentationNavigator` into the route page or its presentation model:
+
+```csharp
+services.AddTransient<ShippingPage>();
+services.AddTransient<ReviewPage>();
+
+await presentationNavigator.PushAsync<ShippingPage>("shipping");
+await presentationNavigator.PushAsync<ReviewPage>("review");
+```
+
+Each logical route entry owns a native segment consisting of its route page followed by its presentation pages. AppNav preserves that segment while the route entry remains in the logical stack, even when another logical route temporarily covers it. Removing the owner route releases the entire segment.
+
+Presentation pages:
+
+- do not add routes, route entries, or logical history
+- inherit the owning route page binding context by default
+- are resolved in independent DI scopes and released when popped
+- require a nonblank key unique within their owner segment
+- are transient and are not restored after process recreation
+
+Native back automatically pops the presentation page without reconciling away the logical route. For an explicit presentation-only back command, call `IMauiRoutePresentationNavigator.PopAsync()`. `IRouterNavigator.BackAsync()` remains deliberately logical and can remove the owning route.
+
+The active route must be hosted by a router-owned `NavigationPage`. Route-only modals without a navigation stack cannot push route-owned pages.
+
 ## Notes
 
 - Built-in MAUI app-link ingress sets provenance automatically.

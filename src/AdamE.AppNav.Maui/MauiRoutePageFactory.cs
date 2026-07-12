@@ -21,9 +21,13 @@ internal interface IMauiRoutePageFactory
 {
     Page CreatePage(RouteEntry entry);
 
+    Page CreatePresentationPage(Type pageType, Page ownerRoutePage, bool inheritBindingContext);
+
     void UpdatePage(Page page, RouteEntry entry, MauiRoutePageUpdateContext context);
 
     void ReleasePage(Page page);
+
+    void ReleasePresentationPage(Page page);
 }
 
 public interface IMauiRoutePageLifecycleHook
@@ -39,6 +43,20 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
 {
     private static readonly BindableProperty PageServiceScopeProperty =
         BindableProperty.CreateAttached("RouterPageServiceScope", typeof(IServiceScope), typeof(MauiRoutePageFactory), null);
+
+    private static readonly BindableProperty PresentationPageServiceScopeProperty =
+        BindableProperty.CreateAttached(
+            "RouterPresentationPageServiceScope",
+            typeof(IServiceScope),
+            typeof(MauiRoutePageFactory),
+            null);
+
+    private static readonly BindableProperty InheritedBindingContextProperty =
+        BindableProperty.CreateAttached(
+            "RouterInheritedBindingContext",
+            typeof(bool),
+            typeof(MauiRoutePageFactory),
+            false);
 
     private readonly IServiceProvider _serviceProvider;
     private readonly MauiRoutePresentationOptions _options;
@@ -85,6 +103,55 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
         }
     }
 
+    public Page CreatePresentationPage(Type pageType, Page ownerRoutePage, bool inheritBindingContext)
+    {
+        ArgumentNullException.ThrowIfNull(pageType);
+        ArgumentNullException.ThrowIfNull(ownerRoutePage);
+
+        if (!typeof(Page).IsAssignableFrom(pageType))
+        {
+            throw new ArgumentException(
+                $"Presentation page type '{pageType.FullName}' must derive from '{typeof(Page).FullName}'.",
+                nameof(pageType));
+        }
+
+        IServiceScope? scope = null;
+        var services = _serviceProvider;
+
+        if (_options.UseScopedPages)
+        {
+            scope = _serviceProvider.CreateScope();
+            services = scope.ServiceProvider;
+        }
+
+        try
+        {
+            if (services.GetRequiredService(pageType) is not Page page)
+            {
+                throw new InvalidOperationException(
+                    $"Registered presentation page service '{pageType.FullName}' did not resolve to a MAUI Page.");
+            }
+
+            if (scope is not null)
+            {
+                SetPresentationPageServiceScope(page, scope);
+            }
+
+            if (inheritBindingContext)
+            {
+                page.BindingContext = ownerRoutePage.BindingContext;
+                SetInheritedBindingContext(page, true);
+            }
+
+            return page;
+        }
+        catch
+        {
+            scope?.Dispose();
+            throw;
+        }
+    }
+
     public void UpdatePage(Page page, RouteEntry entry, MauiRoutePageUpdateContext context)
     {
         ArgumentNullException.ThrowIfNull(page);
@@ -119,6 +186,25 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
         InvokePageReleased(page, _serviceProvider);
     }
 
+    public void ReleasePresentationPage(Page page)
+    {
+        ArgumentNullException.ThrowIfNull(page);
+
+        if (GetInheritedBindingContext(page))
+        {
+            page.BindingContext = null;
+            SetInheritedBindingContext(page, false);
+        }
+
+        if (GetPresentationPageServiceScope(page) is not { } scope)
+        {
+            return;
+        }
+
+        SetPresentationPageServiceScope(page, null);
+        scope.Dispose();
+    }
+
     private void InvokePageCreated(Page page, RouteEntry entry, IServiceProvider services)
     {
         foreach (var hook in services.GetServices<IMauiRoutePageLifecycleHook>())
@@ -148,5 +234,25 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
     private static IServiceScope? GetPageServiceScope(BindableObject bindableObject)
     {
         return bindableObject.GetValue(PageServiceScopeProperty) as IServiceScope;
+    }
+
+    private static void SetPresentationPageServiceScope(BindableObject bindableObject, IServiceScope? scope)
+    {
+        bindableObject.SetValue(PresentationPageServiceScopeProperty, scope);
+    }
+
+    private static IServiceScope? GetPresentationPageServiceScope(BindableObject bindableObject)
+    {
+        return bindableObject.GetValue(PresentationPageServiceScopeProperty) as IServiceScope;
+    }
+
+    private static void SetInheritedBindingContext(BindableObject bindableObject, bool value)
+    {
+        bindableObject.SetValue(InheritedBindingContextProperty, value);
+    }
+
+    private static bool GetInheritedBindingContext(BindableObject bindableObject)
+    {
+        return bindableObject.GetValue(InheritedBindingContextProperty) is true;
     }
 }

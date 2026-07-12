@@ -166,6 +166,16 @@ public static class NavigationDiagnosticDataKeys
     public const string RouteEntryId = "routeEntryId";
 
     /// <summary>
+    /// Logical route entry identifier that owns a presentation-only page.
+    /// </summary>
+    public const string PresentationOwnerRouteEntryId = "presentationOwnerRouteEntryId";
+
+    /// <summary>
+    /// Route-local key assigned to a presentation-only page.
+    /// </summary>
+    public const string PresentationPageKey = "presentationPageKey";
+
+    /// <summary>
     /// Modal identifier associated with a presented modal.
     /// </summary>
     public const string ModalId = "modalId";

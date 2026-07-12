@@ -17,8 +17,14 @@ internal sealed class InstrumentedRoutePageFactory : IMauiRoutePageFactory
 
     public IReadOnlyList<Page> ReleasedPages => _releasedPages.ToArray();
 
+    public IReadOnlyList<Page> CreatedPresentationPages => _createdPresentationPages.ToArray();
+
+    public IReadOnlyList<Page> ReleasedPresentationPages => _releasedPresentationPages.ToArray();
+
     private readonly List<Page> _createdPages = new();
     private readonly List<Page> _releasedPages = new();
+    private readonly List<Page> _createdPresentationPages = new();
+    private readonly List<Page> _releasedPresentationPages = new();
 
     public InstrumentedRoutePageFactory(
         Func<RouteEntry, Page>? createPage = null,
@@ -41,6 +47,18 @@ internal sealed class InstrumentedRoutePageFactory : IMauiRoutePageFactory
         return page;
     }
 
+    public Page CreatePresentationPage(Type pageType, Page ownerRoutePage, bool inheritBindingContext)
+    {
+        var page = Assert.IsAssignableFrom<Page>(Activator.CreateInstance(pageType));
+        if (inheritBindingContext)
+        {
+            page.BindingContext = ownerRoutePage.BindingContext;
+        }
+
+        _createdPresentationPages.Add(page);
+        return page;
+    }
+
     public void UpdatePage(Page page, RouteEntry entry, MauiRoutePageUpdateContext context)
     {
         _updateCounts.TryGetValue(page, out var count);
@@ -53,6 +71,14 @@ internal sealed class InstrumentedRoutePageFactory : IMauiRoutePageFactory
     public void ReleasePage(Page page)
     {
         _releasedPages.Add(page);
+        _releaseCounts.TryGetValue(page, out var count);
+        _releaseCounts[page] = count + 1;
+    }
+
+    public void ReleasePresentationPage(Page page)
+    {
+        page.BindingContext = null;
+        _releasedPresentationPages.Add(page);
         _releaseCounts.TryGetValue(page, out var count);
         _releaseCounts[page] = count + 1;
     }

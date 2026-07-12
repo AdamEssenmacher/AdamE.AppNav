@@ -1814,6 +1814,11 @@ TabChanged
 Native user-driven back remains native-first: iOS swipe-back and Android native back behavior come from the real
 `NavigationPage`, and the presenter reconciles `Popped`/`PoppedToRoot` events after native stack changes.
 
+A logical route may also own presentation-only MAUI pages through `IMauiRoutePresentationNavigator`. These pages form
+a native segment behind the route page, participate in platform back behavior, and remain outside semantic route state
+and history. See [MAUI Integration](docs/maui-integration.md#route-owned-presentation-pages) for the lifetime and back
+semantics.
+
 Android predictive back is not implemented in v1. AppNav's state/planning model is intended to make predictive back
 feasible later, but true support requires Android-specific gesture preview, cancellation, and commit handling.
 

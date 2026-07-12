@@ -16,6 +16,20 @@ internal static class MauiPresentationMetadata
     private static readonly BindableProperty ModalIdProperty =
         BindableProperty.CreateAttached("RouterModalId", typeof(string), typeof(MauiPresentationMetadata), null);
 
+    private static readonly BindableProperty PresentationOwnerRouteEntryIdProperty =
+        BindableProperty.CreateAttached(
+            "RouterPresentationOwnerRouteEntryId",
+            typeof(string),
+            typeof(MauiPresentationMetadata),
+            null);
+
+    private static readonly BindableProperty PresentationPageKeyProperty =
+        BindableProperty.CreateAttached(
+            "RouterPresentationPageKey",
+            typeof(string),
+            typeof(MauiPresentationMetadata),
+            null);
+
     public static void SetHostId(BindableObject bindableObject, string id)
     {
         bindableObject.SetValue(HostIdProperty, id);
@@ -54,5 +68,25 @@ internal static class MauiPresentationMetadata
     public static string? GetModalId(BindableObject? bindableObject)
     {
         return bindableObject?.GetValue(ModalIdProperty) as string;
+    }
+
+    public static void SetPresentationOwnerRouteEntryId(BindableObject bindableObject, string? id)
+    {
+        bindableObject.SetValue(PresentationOwnerRouteEntryIdProperty, id);
+    }
+
+    public static string? GetPresentationOwnerRouteEntryId(BindableObject? bindableObject)
+    {
+        return bindableObject?.GetValue(PresentationOwnerRouteEntryIdProperty) as string;
+    }
+
+    public static void SetPresentationPageKey(BindableObject bindableObject, string? key)
+    {
+        bindableObject.SetValue(PresentationPageKeyProperty, key);
+    }
+
+    public static string? GetPresentationPageKey(BindableObject? bindableObject)
+    {
+        return bindableObject?.GetValue(PresentationPageKeyProperty) as string;
     }
 }

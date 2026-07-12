@@ -9,7 +9,11 @@ using Microsoft.Maui.Controls;
 
 namespace AdamE.AppNav.Maui;
 
-internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPresentationState, IDisposable
+internal sealed class MauiNavigationPresenter :
+    INavigationPresenter,
+    IMauiPresentationState,
+    IMauiRoutePresentationNavigator,
+    IDisposable
 {
     private readonly IMauiRoutePageFactory _pageFactory;
     private readonly MauiRoutePresentationOptions _presentationOptions;
@@ -17,10 +21,12 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
     private readonly MauiExternalNavigationDispatcher? _externalNavigationDispatcher;
     private readonly NavigationDiagnostics _diagnostics;
     private readonly Dictionary<NavigationPage, string> _navigationPageStackIds = new(PageReferenceComparer<NavigationPage>.Instance);
-    private readonly Dictionary<NavigationPage, HashSet<Page>> _navigationPageKnownPages = new(PageReferenceComparer<NavigationPage>.Instance);
+    private readonly Dictionary<NavigationPage, IReadOnlyList<Page>> _navigationPageKnownPages =
+        new(PageReferenceComparer<NavigationPage>.Instance);
     private readonly HashSet<TabbedPage> _trackedTabbedPages = new(PageReferenceComparer<TabbedPage>.Instance);
     private readonly HashSet<Page> _trackedModalPages = new(PageReferenceComparer<Page>.Instance);
     private readonly HashSet<Page> _releasedPages = new(PageReferenceComparer<Page>.Instance);
+    private readonly SemaphoreSlim _presentationOperationLock = new(1, 1);
     private NavigationState _lastState = NavigationState.Empty;
     private Window? _attachedWindow;
     private string? _attachedWindowId;
@@ -66,6 +72,57 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
 
         return CurrentPage?.Navigation.ModalStack.Any(candidate => ReferenceEquals(candidate, page)) == true ||
                _attachedWindow?.Page?.Navigation.ModalStack.Any(candidate => ReferenceEquals(candidate, page)) == true;
+    }
+
+    public async ValueTask PushAsync<TPage>(
+        string key,
+        MauiRoutePresentationPageOptions? options = null,
+        CancellationToken cancellationToken = default)
+        where TPage : Page
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+
+        options ??= new MauiRoutePresentationPageOptions();
+        await _presentationOperationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (MainThread.IsMainThread)
+            {
+                await PushPresentationPageOnMainThreadAsync(typeof(TPage), key, options, cancellationToken);
+                return;
+            }
+
+            await MainThread.InvokeOnMainThreadAsync(
+                () => PushPresentationPageOnMainThreadAsync(typeof(TPage), key, options, cancellationToken));
+        }
+        finally
+        {
+            _presentationOperationLock.Release();
+        }
+    }
+
+    public async ValueTask<bool> PopAsync(
+        bool animated = true,
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        await _presentationOperationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (MainThread.IsMainThread)
+            {
+                return await PopPresentationPageOnMainThreadAsync(animated, cancellationToken);
+            }
+
+            return await MainThread.InvokeOnMainThreadAsync(
+                () => PopPresentationPageOnMainThreadAsync(animated, cancellationToken));
+        }
+        finally
+        {
+            _presentationOperationLock.Release();
+        }
     }
 
     public void Dispose()
@@ -118,6 +175,8 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         _trackedModalPages.Clear();
         _releasedPages.Clear();
         _lastState = NavigationState.Empty;
+
+        _presentationOperationLock.Dispose();
 
         _diagnostics.Write(
             NavigationDiagnosticEventKind.PresentationPresenterDisposed,
@@ -214,13 +273,21 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(context);
 
-        if (MainThread.IsMainThread)
+        await _presentationOperationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            await ApplyOnMainThreadAsync(plan, context, cancellationToken);
-            return;
-        }
+            if (MainThread.IsMainThread)
+            {
+                await ApplyOnMainThreadAsync(plan, context, cancellationToken);
+                return;
+            }
 
-        await MainThread.InvokeOnMainThreadAsync(() => ApplyOnMainThreadAsync(plan, context, cancellationToken));
+            await MainThread.InvokeOnMainThreadAsync(() => ApplyOnMainThreadAsync(plan, context, cancellationToken));
+        }
+        finally
+        {
+            _presentationOperationLock.Release();
+        }
     }
 
     private async Task ApplyOnMainThreadAsync(
@@ -273,6 +340,142 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
             _activeOperationId = null;
             _suppressReconciliation = false;
         }
+    }
+
+    private async Task PushPresentationPageOnMainThreadAsync(
+        Type pageType,
+        string key,
+        MauiRoutePresentationPageOptions options,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var navigationPage = ResolveTopNavigationPage(CurrentPage);
+        if (navigationPage is null || !_navigationPageStackIds.ContainsKey(navigationPage))
+        {
+            throw new InvalidOperationException(
+                "The current route is not hosted by a router-owned NavigationPage and cannot own presentation pages.");
+        }
+
+        var projection = RequireValidProjection(navigationPage.Navigation.NavigationStack);
+        if (projection.Segments.Count == 0)
+        {
+            throw new InvalidOperationException("The current native navigation stack has no logical route page.");
+        }
+
+        var owner = projection.Segments[^1];
+        var topPage = navigationPage.Navigation.NavigationStack[^1];
+        var topKey = MauiPresentationMetadata.GetPresentationPageKey(topPage);
+        if (StringComparer.Ordinal.Equals(topKey, key))
+        {
+            return;
+        }
+
+        if (owner.PresentationPages.Any(page =>
+                StringComparer.Ordinal.Equals(MauiPresentationMetadata.GetPresentationPageKey(page), key)))
+        {
+            throw new InvalidOperationException(
+                $"Presentation key '{key}' already exists below the top of route entry '{owner.RouteEntryId}'.");
+        }
+
+        var page = _pageFactory.CreatePresentationPage(
+            pageType,
+            owner.RoutePage,
+            options.InheritBindingContext);
+        try
+        {
+            if (page is NavigationPage or TabbedPage)
+            {
+                throw new InvalidOperationException(
+                    $"Route-owned presentation page '{page.GetType().FullName}' cannot be a navigation container.");
+            }
+
+            if (page.Parent is not null)
+            {
+                throw new InvalidOperationException(
+                    $"Route-owned presentation page '{page.GetType().FullName}' is already attached to a visual tree.");
+            }
+
+            SetPresentationOwnerRouteEntryId(page, owner.RouteEntryId);
+            SetPresentationPageKey(page, key);
+            WritePageLifecycle(
+                NavigationDiagnosticEventKind.PresentationPageCreated,
+                page,
+                "Route-owned presentation page was created.");
+
+            cancellationToken.ThrowIfCancellationRequested();
+            await navigationPage.Navigation.PushAsync(page, options.Animated);
+            UpdateKnownNavigationPages(navigationPage);
+        }
+        catch
+        {
+            DetachPageTree(page);
+            SetPresentationOwnerRouteEntryId(page, null);
+            SetPresentationPageKey(page, null);
+            throw;
+        }
+    }
+
+    private async Task<bool> PopPresentationPageOnMainThreadAsync(
+        bool animated,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var navigationPage = ResolveTopNavigationPage(CurrentPage);
+        if (navigationPage is null || !_navigationPageStackIds.ContainsKey(navigationPage))
+        {
+            return false;
+        }
+
+        var projection = RequireValidProjection(navigationPage.Navigation.NavigationStack);
+        if (projection.Segments.Count == 0 || projection.Segments[^1].PresentationPages.Count == 0)
+        {
+            return false;
+        }
+
+        var removed = await navigationPage.Navigation.PopAsync(animated);
+        if (removed is null)
+        {
+            return false;
+        }
+
+        ReleaseNavigationPagesRemovedFromNativeStack(navigationPage);
+        return true;
+    }
+
+    private static MauiNavigationStackProjection RequireValidProjection(IReadOnlyList<Page> pages)
+    {
+        var projection = MauiNavigationStackProjection.Create(pages);
+        if (projection.Error is not { } error)
+        {
+            return projection;
+        }
+
+        throw new InvalidOperationException(
+            $"Native navigation stack is invalid at page index {error.PageIndex}: {error.Message}");
+    }
+
+    private static NavigationPage? ResolveTopNavigationPage(Page? page)
+    {
+        if (page is null)
+        {
+            return null;
+        }
+
+        var topModal = page.Navigation.ModalStack.LastOrDefault();
+        if (topModal is not null && !ReferenceEquals(topModal, page))
+        {
+            return ResolveTopNavigationPage(topModal);
+        }
+
+        return page switch
+        {
+            NavigationPage navigationPage => navigationPage,
+            TabbedPage tabbedPage when tabbedPage.CurrentPage is not null =>
+                ResolveTopNavigationPage(tabbedPage.CurrentPage),
+            _ => null
+        };
     }
 
     private async Task<Page> MaterializeNodeAsync(
@@ -361,10 +564,12 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         CancellationToken cancellationToken)
     {
         var currentStack = navigationPage.Navigation.NavigationStack;
-        var previousStackCount = currentStack.Count;
-        var commonCount = CommonRoutePrefix(currentStack, stack.Entries);
+        var currentProjection = RequireValidProjection(currentStack);
+        var previousStackCount = currentProjection.Segments.Count;
+        var commonCount = CommonRoutePrefix(currentProjection.Segments, stack.Entries);
+        var retainedNativePageCount = currentProjection.NativePageCountForSegmentPrefix(commonCount);
 
-        while (navigationPage.Navigation.NavigationStack.Count > commonCount)
+        while (navigationPage.Navigation.NavigationStack.Count > retainedNativePageCount)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var removed = await navigationPage.Navigation.PopAsync(animated: false);
@@ -374,15 +579,16 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
             }
         }
 
-        for (var i = navigationPage.Navigation.NavigationStack.Count; i < stack.Entries.Count; i++)
+        for (var i = commonCount; i < stack.Entries.Count; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var page = CreateRoutePage(stack.Entries[i]);
             await navigationPage.Navigation.PushAsync(page, animated: false);
         }
 
+        var updatedProjection = RequireValidProjection(navigationPage.Navigation.NavigationStack);
         UpdateReusedStackPages(
-            navigationPage.Navigation.NavigationStack,
+            updatedProjection.Segments,
             stack.Entries,
             commonCount,
             isNavigationTarget,
@@ -392,18 +598,22 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
 
     private static bool StackRootMatches(NavigationPage navigationPage, StackNode stack)
     {
-        return navigationPage.Navigation.NavigationStack.Count > 0 &&
+        var projection = MauiNavigationStackProjection.Create(navigationPage.Navigation.NavigationStack);
+        return projection.IsValid &&
+               projection.Segments.Count > 0 &&
                stack.Entries.Count > 0 &&
-               StringComparer.Ordinal.Equals(GetRouteEntryId(navigationPage.Navigation.NavigationStack[0]), stack.Entries[0].Id);
+               StringComparer.Ordinal.Equals(projection.Segments[0].RouteEntryId, stack.Entries[0].Id);
     }
 
-    private static int CommonRoutePrefix(IReadOnlyList<Page> pages, IReadOnlyList<RouteEntry> entries)
+    private static int CommonRoutePrefix(
+        IReadOnlyList<MauiNavigationStackSegment> segments,
+        IReadOnlyList<RouteEntry> entries)
     {
-        var count = Math.Min(pages.Count, entries.Count);
+        var count = Math.Min(segments.Count, entries.Count);
         var common = 0;
         for (var i = 0; i < count; i++)
         {
-            if (!StringComparer.Ordinal.Equals(GetRouteEntryId(pages[i]), entries[i].Id))
+            if (!StringComparer.Ordinal.Equals(segments[i].RouteEntryId, entries[i].Id))
             {
                 break;
             }
@@ -603,17 +813,17 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
     }
 
     private void UpdateReusedStackPages(
-        IReadOnlyList<Page> pages,
+        IReadOnlyList<MauiNavigationStackSegment> segments,
         IReadOnlyList<RouteEntry> entries,
         int commonCount,
         bool isNavigationTarget,
         int previousStackCount)
     {
-        var count = Math.Min(commonCount, Math.Min(pages.Count, entries.Count));
+        var count = Math.Min(commonCount, Math.Min(segments.Count, entries.Count));
         for (var i = 0; i < count; i++)
         {
             UpdateRoutePage(
-                pages[i],
+                segments[i].RoutePage,
                 entries[i],
                 new MauiRoutePageUpdateContext(
                     ClassifyReuseKind(
@@ -758,7 +968,7 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
     private void UpdateKnownNavigationPages(NavigationPage navigationPage)
     {
         _navigationPageKnownPages[navigationPage] = navigationPage.Navigation.NavigationStack
-            .ToHashSet(PageReferenceComparer<Page>.Instance);
+            .ToArray();
     }
 
     private void ReleaseNavigationPagesRemovedFromNativeStack(NavigationPage navigationPage)
@@ -768,13 +978,16 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
 
         if (_navigationPageKnownPages.TryGetValue(navigationPage, out var knownPages))
         {
-            foreach (var removedPage in knownPages.Where(page => !currentPages.Contains(page)).ToArray())
+            foreach (var removedPage in knownPages
+                         .Where(page => !currentPages.Contains(page))
+                         .Reverse()
+                         .ToArray())
             {
                 DetachPageTree(removedPage);
             }
         }
 
-        _navigationPageKnownPages[navigationPage] = currentPages;
+        _navigationPageKnownPages[navigationPage] = navigationPage.Navigation.NavigationStack.ToArray();
     }
 
     private void TrackNavigationPage(NavigationPage navigationPage, string stackId)
@@ -901,7 +1114,7 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         {
             case NavigationPage navigationPage:
                 UntrackNavigationPage(navigationPage);
-                foreach (var child in navigationPage.Navigation.NavigationStack.ToArray())
+                foreach (var child in navigationPage.Navigation.NavigationStack.Reverse().ToArray())
                 {
                     DetachPageTree(child, visited);
                 }
@@ -918,7 +1131,14 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
             default:
                 if (shouldRelease)
                 {
-                    _pageFactory.ReleasePage(page);
+                    if (IsPresentationPage(page))
+                    {
+                        _pageFactory.ReleasePresentationPage(page);
+                    }
+                    else
+                    {
+                        _pageFactory.ReleasePage(page);
+                    }
                 }
 
                 break;
@@ -1023,11 +1243,38 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
 
     private void ReconcileStackFromNative(string stackId, NavigationPage navigationPage)
     {
-        var remainingRouteEntryIds = navigationPage.Navigation.NavigationStack
-            .Select(GetRouteEntryId)
-            .Where(id => !string.IsNullOrWhiteSpace(id))
-            .Cast<string>()
+        var projection = MauiNavigationStackProjection.Create(navigationPage.Navigation.NavigationStack);
+        if (projection.Error is { } error)
+        {
+            _diagnostics.Write(
+                NavigationDiagnosticEventKind.PresentationVerificationFailed,
+                LifecycleOperationId(),
+                $"Native navigation stack is invalid at page index {error.PageIndex}: {error.Message}",
+                new Dictionary<string, object?>
+                {
+                    [NavigationDiagnosticDataKeys.PresentationPath] = $"$.nativeStack[{error.PageIndex}]",
+                    [NavigationDiagnosticDataKeys.PresentationExpected] = "valid route-owned page segment",
+                    [NavigationDiagnosticDataKeys.PresentationActual] = error.Message
+                });
+            return;
+        }
+
+        var remainingRouteEntryIds = projection.Segments
+            .Select(static segment => segment.RouteEntryId)
             .ToArray();
+        var ownerModalId = FindOwningModalId(navigationPage);
+        var currentRouteEntryIds = FindStack(
+                _lastState.ActiveWindow,
+                ownerModalId,
+                stackId)?
+            .Entries
+            .Select(static entry => entry.Id)
+            .ToArray();
+        if (currentRouteEntryIds is not null &&
+            currentRouteEntryIds.SequenceEqual(remainingRouteEntryIds, StringComparer.Ordinal))
+        {
+            return;
+        }
 
         var updatedWindow = UpdateWindowForPresentedNode(
             navigationPage,
@@ -1037,10 +1284,43 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
             return;
         }
 
-        var ownerModalId = FindOwningModalId(navigationPage);
         var updatedState = _lastState.ReplaceWindow(updatedWindow);
         var route = FindTopRouteForPresentedNode(updatedWindow, ownerModalId);
         RequestReconciliation(updatedState, NavigationReconciliationSource.NativeBackGesture, "Native stack pop changed.", route);
+    }
+
+    private static StackNode? FindStack(WindowNode? window, string? ownerModalId, string stackId)
+    {
+        if (window is null)
+        {
+            return null;
+        }
+
+        NavigationNode? content;
+        if (string.IsNullOrWhiteSpace(ownerModalId))
+        {
+            content = window.Root;
+        }
+        else
+        {
+            content = window.Modals
+                .FirstOrDefault(modal => StringComparer.Ordinal.Equals(modal.Id, ownerModalId))?
+                .Content;
+        }
+
+        return content is null ? null : FindStack(content, stackId);
+    }
+
+    private static StackNode? FindStack(NavigationNode node, string stackId)
+    {
+        return node switch
+        {
+            StackNode stack when StringComparer.Ordinal.Equals(stack.Id, stackId) => stack,
+            BranchHostNode branchHost when branchHost.SelectedBranch is not null =>
+                FindStack(branchHost.SelectedBranch.Content, stackId),
+            ModalNode modal when modal.Content is not null => FindStack(modal.Content, stackId),
+            _ => null
+        };
     }
 
     private WindowNode? UpdateWindowForPresentedNode(
@@ -1320,6 +1600,11 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
         AddIfPresent(data, NavigationDiagnosticDataKeys.HostId, GetHostId(page));
         AddIfPresent(data, NavigationDiagnosticDataKeys.BranchId, GetBranchId(page));
         AddIfPresent(data, NavigationDiagnosticDataKeys.RouteEntryId, GetRouteEntryId(page));
+        AddIfPresent(
+            data,
+            NavigationDiagnosticDataKeys.PresentationOwnerRouteEntryId,
+            GetPresentationOwnerRouteEntryId(page));
+        AddIfPresent(data, NavigationDiagnosticDataKeys.PresentationPageKey, GetPresentationPageKey(page));
         AddIfPresent(data, NavigationDiagnosticDataKeys.ModalId, GetModalId(page));
 
         return data;
@@ -1391,6 +1676,32 @@ internal sealed class MauiNavigationPresenter : INavigationPresenter, IMauiPrese
     private static string? GetModalId(BindableObject? bindableObject)
     {
         return MauiPresentationMetadata.GetModalId(bindableObject);
+    }
+
+    private static void SetPresentationOwnerRouteEntryId(BindableObject bindableObject, string? id)
+    {
+        MauiPresentationMetadata.SetPresentationOwnerRouteEntryId(bindableObject, id);
+    }
+
+    private static string? GetPresentationOwnerRouteEntryId(BindableObject? bindableObject)
+    {
+        return MauiPresentationMetadata.GetPresentationOwnerRouteEntryId(bindableObject);
+    }
+
+    private static void SetPresentationPageKey(BindableObject bindableObject, string? key)
+    {
+        MauiPresentationMetadata.SetPresentationPageKey(bindableObject, key);
+    }
+
+    private static string? GetPresentationPageKey(BindableObject? bindableObject)
+    {
+        return MauiPresentationMetadata.GetPresentationPageKey(bindableObject);
+    }
+
+    private static bool IsPresentationPage(BindableObject bindableObject)
+    {
+        return !string.IsNullOrWhiteSpace(GetPresentationOwnerRouteEntryId(bindableObject)) ||
+               !string.IsNullOrWhiteSpace(GetPresentationPageKey(bindableObject));
     }
 
     private sealed class PageReferenceComparer<TPage> : IEqualityComparer<TPage>

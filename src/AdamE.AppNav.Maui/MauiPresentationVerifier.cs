@@ -102,14 +102,26 @@ internal sealed class MauiPresentationVerifier : IMauiPresentationVerifier
         }
 
         var navigationStack = navigationPage.Navigation.NavigationStack;
-        if (navigationStack.Count != stack.Entries.Count)
+        var projection = MauiNavigationStackProjection.Create(navigationStack);
+        if (projection.Error is { } error)
         {
-            return Mismatch($"{path}.entries.count", stack.Entries.Count.ToString(), navigationStack.Count.ToString());
+            return Mismatch(
+                $"{path}.nativeStack[{error.PageIndex}]",
+                "valid route-owned page segment",
+                error.Message);
+        }
+
+        if (projection.Segments.Count != stack.Entries.Count)
+        {
+            return Mismatch(
+                $"{path}.entries.count",
+                stack.Entries.Count.ToString(),
+                projection.Segments.Count.ToString());
         }
 
         for (var i = 0; i < stack.Entries.Count; i++)
         {
-            var routeEntryId = MauiPresentationMetadata.GetRouteEntryId(navigationStack[i]);
+            var routeEntryId = projection.Segments[i].RouteEntryId;
             if (!StringComparer.Ordinal.Equals(routeEntryId, stack.Entries[i].Id))
             {
                 return Mismatch($"{path}.entries[{i}].routeEntryId", stack.Entries[i].Id, routeEntryId ?? "null");
@@ -241,6 +253,8 @@ internal sealed class MauiPresentationVerifier : IMauiPresentationVerifier
         AddPart(parts, "host", MauiPresentationMetadata.GetHostId(page));
         AddPart(parts, "branch", MauiPresentationMetadata.GetBranchId(page));
         AddPart(parts, "routeEntry", MauiPresentationMetadata.GetRouteEntryId(page));
+        AddPart(parts, "presentationOwner", MauiPresentationMetadata.GetPresentationOwnerRouteEntryId(page));
+        AddPart(parts, "presentationKey", MauiPresentationMetadata.GetPresentationPageKey(page));
         AddPart(parts, "modal", MauiPresentationMetadata.GetModalId(page));
         return string.Join(" ", parts);
     }
