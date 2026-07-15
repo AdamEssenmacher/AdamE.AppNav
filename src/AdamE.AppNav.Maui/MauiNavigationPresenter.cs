@@ -382,6 +382,7 @@ internal sealed class MauiNavigationPresenter :
             pageType,
             owner.RoutePage,
             options.InheritBindingContext);
+        var isPresenterOwned = false;
         try
         {
             if (page is NavigationPage or TabbedPage)
@@ -398,6 +399,7 @@ internal sealed class MauiNavigationPresenter :
 
             SetPresentationOwnerRouteEntryId(page, owner.RouteEntryId);
             SetPresentationPageKey(page, key);
+            isPresenterOwned = true;
             WritePageLifecycle(
                 NavigationDiagnosticEventKind.PresentationPageCreated,
                 page,
@@ -409,7 +411,15 @@ internal sealed class MauiNavigationPresenter :
         }
         catch
         {
-            DetachPageTree(page);
+            if (isPresenterOwned)
+            {
+                DetachPageTree(page);
+            }
+            else
+            {
+                _pageFactory.ReleasePresentationPage(page);
+            }
+
             SetPresentationOwnerRouteEntryId(page, null);
             SetPresentationPageKey(page, null);
             throw;
