@@ -154,6 +154,8 @@ public static class AppNavServiceCollectionExtensions
             provider.GetService<NavigationDiagnostics>(),
             provider.GetRequiredService<MauiRoutePresentationOptions>()));
         services.AddSingleton<IMauiPresentationState>(provider => provider.GetRequiredService<MauiNavigationPresenter>());
+        services.AddSingleton<IMauiRoutePresentationNavigator>(provider =>
+            provider.GetRequiredService<MauiNavigationPresenter>());
 
         return services;
     }

@@ -29,6 +29,23 @@ public sealed class MauiPresentationVerifierTests
     }
 
     [Fact]
+    public async Task VerifyAcceptsRouteOwnedPresentationPagesBetweenLogicalEntries()
+    {
+        var state = State(Stack("stack", Entry("home"), Entry("create"), Entry("detail")));
+        var root = RoutePage("home");
+        var navigationPage = new NavigationPage(root);
+        MauiPresentationMetadata.SetHostId(navigationPage, "stack");
+        await navigationPage.Navigation.PushAsync(RoutePage("create"), animated: false);
+        await navigationPage.Navigation.PushAsync(PresentationPage("create", "setting"), animated: false);
+        await navigationPage.Navigation.PushAsync(PresentationPage("create", "vibe"), animated: false);
+        await navigationPage.Navigation.PushAsync(RoutePage("detail"), animated: false);
+
+        var mismatch = Verify(state, navigationPage);
+
+        Assert.Null(mismatch);
+    }
+
+    [Fact]
     public void VerifyAcceptsMatchingTabbedBranchHost()
     {
         var branchHost = BranchHost("tabs", "catalog");
@@ -94,6 +111,35 @@ public sealed class MauiPresentationVerifierTests
         Assert.Equal("$.root.entries.count", mismatch.Path);
         Assert.Equal("2", mismatch.Expected);
         Assert.Equal("1", mismatch.Actual);
+    }
+
+    [Fact]
+    public async Task VerifyReportsPresentationPageWithWrongOwner()
+    {
+        var state = State(Stack("stack", Entry("home"), Entry("create")));
+        var navigationPage = StackPage("stack", "home", "create");
+        await navigationPage.Navigation.PushAsync(PresentationPage("home", "setting"), animated: false);
+
+        var mismatch = Verify(state, navigationPage);
+
+        Assert.NotNull(mismatch);
+        Assert.Equal("$.root.nativeStack[2]", mismatch.Path);
+        Assert.Contains("does not match preceding route entry", mismatch.Actual, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task VerifyReportsDuplicatePresentationKeyWithinOwner()
+    {
+        var state = State(Stack("stack", Entry("home"), Entry("create")));
+        var navigationPage = StackPage("stack", "home", "create");
+        await navigationPage.Navigation.PushAsync(PresentationPage("create", "setting"), animated: false);
+        await navigationPage.Navigation.PushAsync(PresentationPage("create", "setting"), animated: false);
+
+        var mismatch = Verify(state, navigationPage);
+
+        Assert.NotNull(mismatch);
+        Assert.Equal("$.root.nativeStack[3]", mismatch.Path);
+        Assert.Contains("appears more than once", mismatch.Actual, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -297,6 +343,14 @@ public sealed class MauiPresentationVerifierTests
     {
         var page = new ContentPage { Title = entryId };
         MauiPresentationMetadata.SetRouteEntryId(page, entryId);
+        return page;
+    }
+
+    private static ContentPage PresentationPage(string ownerRouteEntryId, string key)
+    {
+        var page = new ContentPage { Title = key };
+        MauiPresentationMetadata.SetPresentationOwnerRouteEntryId(page, ownerRouteEntryId);
+        MauiPresentationMetadata.SetPresentationPageKey(page, key);
         return page;
     }
 

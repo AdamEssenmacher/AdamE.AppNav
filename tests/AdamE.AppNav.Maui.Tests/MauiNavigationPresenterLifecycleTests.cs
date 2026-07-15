@@ -827,6 +827,252 @@ public sealed class MauiNavigationPresenterLifecycleTests
     }
 
     [Fact]
+    public async Task RouteOwnedPresentationPagePushesWithoutChangingLogicalState()
+    {
+        var fixture = new PresenterFixture();
+        NavigationReconciliation? reconciliation = null;
+        fixture.Presenter.ReconciliationRequested += (_, args) => reconciliation = args.Reconciliation;
+        var state = Plan(Stack("home", Entry("home"), Entry("create")));
+
+        await fixture.Presenter.ApplyAsync(state, Context(new TestPageRoute("create")));
+
+        var navigationPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        var ownerPage = navigationPage.Navigation.NavigationStack[^1];
+        var bindingContext = new object();
+        ownerPage.BindingContext = bindingContext;
+
+        await fixture.Presenter.PushAsync<TestPresentationPage>(
+            "setting",
+            new MauiRoutePresentationPageOptions { Animated = false });
+
+        var presentationPage = Assert.IsType<TestPresentationPage>(navigationPage.Navigation.NavigationStack[^1]);
+        Assert.Null(MauiPresentationMetadata.GetRouteEntryId(presentationPage));
+        Assert.Equal("create", MauiPresentationMetadata.GetPresentationOwnerRouteEntryId(presentationPage));
+        Assert.Equal("setting", MauiPresentationMetadata.GetPresentationPageKey(presentationPage));
+        Assert.Same(bindingContext, presentationPage.BindingContext);
+        Assert.Null(reconciliation);
+        Assert.Single(fixture.Factory.CreatedPresentationPages);
+
+        fixture.Presenter.Dispose();
+    }
+
+    [Fact]
+    public async Task RejectedPresentationNavigationContainerDisposesItsScope()
+    {
+        var services = new ServiceCollection();
+        services.AddScoped<PresentationScopeMarker>();
+        RejectedPresentationNavigationPage? createdPage = null;
+        services.AddTransient<RejectedPresentationNavigationPage>(serviceProvider =>
+        {
+            var page = new RejectedPresentationNavigationPage(
+                serviceProvider.GetRequiredService<PresentationScopeMarker>());
+            createdPage = page;
+            return page;
+        });
+        using var provider = services.BuildServiceProvider();
+        var options = new MauiRoutePresentationOptions { UseScopedPages = true };
+        options.Pages.MapPage<TestPageRoute>((_, _) => new ContentPage());
+        using var presenter = new MauiNavigationPresenter(
+            new MauiRoutePageFactory(provider, options),
+            presentationOptions: options);
+
+        await presenter.ApplyAsync(
+            Plan(Stack("home", Entry("home"), Entry("create"))),
+            Context(new TestPageRoute("create")));
+        var navigationPage = Assert.IsType<NavigationPage>(presenter.CurrentPage);
+        var originalStack = navigationPage.Navigation.NavigationStack.ToArray();
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            presenter.PushAsync<RejectedPresentationNavigationPage>(
+                "invalid",
+                new MauiRoutePresentationPageOptions { Animated = false }).AsTask());
+
+        var page = Assert.IsType<RejectedPresentationNavigationPage>(createdPage);
+        Assert.Contains("cannot be a navigation container", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(1, page.Marker.DisposeCount);
+        Assert.Equal(originalStack, navigationPage.Navigation.NavigationStack.ToArray());
+
+        presenter.Dispose();
+        Assert.Equal(1, page.Marker.DisposeCount);
+    }
+
+    [Fact]
+    public async Task RejectedAttachedPresentationPageDisposesItsScopeAndPreservesItsTree()
+    {
+        var services = new ServiceCollection();
+        services.AddScoped<PresentationScopeMarker>();
+        RejectedAttachedPresentationPage? createdPage = null;
+        NavigationPage? externalNavigationPage = null;
+        services.AddTransient<RejectedAttachedPresentationPage>(serviceProvider =>
+        {
+            var page = new RejectedAttachedPresentationPage(
+                serviceProvider.GetRequiredService<PresentationScopeMarker>());
+            createdPage = page;
+            externalNavigationPage = new NavigationPage(page);
+            return page;
+        });
+        using var provider = services.BuildServiceProvider();
+        var options = new MauiRoutePresentationOptions { UseScopedPages = true };
+        options.Pages.MapPage<TestPageRoute>((_, _) => new ContentPage());
+        using var presenter = new MauiNavigationPresenter(
+            new MauiRoutePageFactory(provider, options),
+            presentationOptions: options);
+
+        await presenter.ApplyAsync(
+            Plan(Stack("home", Entry("home"), Entry("create"))),
+            Context(new TestPageRoute("create")));
+
+        var navigationPage = Assert.IsType<NavigationPage>(presenter.CurrentPage);
+        var originalStack = navigationPage.Navigation.NavigationStack.ToArray();
+        originalStack[^1].BindingContext = new object();
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            presenter.PushAsync<RejectedAttachedPresentationPage>(
+                "invalid",
+                new MauiRoutePresentationPageOptions
+                {
+                    Animated = false,
+                    InheritBindingContext = true
+                }).AsTask());
+
+        var page = Assert.IsType<RejectedAttachedPresentationPage>(createdPage);
+        var externalOwner = Assert.IsType<NavigationPage>(externalNavigationPage);
+        Assert.Contains("already attached to a visual tree", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(1, page.Marker.DisposeCount);
+        Assert.Null(page.BindingContext);
+        Assert.Same(externalOwner, page.Parent);
+        Assert.Same(page, Assert.Single(externalOwner.Navigation.NavigationStack));
+        Assert.Equal(originalStack, navigationPage.Navigation.NavigationStack.ToArray());
+
+        presenter.Dispose();
+        Assert.Equal(1, page.Marker.DisposeCount);
+    }
+
+    [Fact]
+    public async Task NativePopOfRouteOwnedPageDoesNotReconcileLogicalState()
+    {
+        var fixture = new PresenterFixture();
+        NavigationReconciliation? reconciliation = null;
+        fixture.Presenter.ReconciliationRequested += (_, args) => reconciliation = args.Reconciliation;
+
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("home", Entry("home"), Entry("create"))),
+            Context(new TestPageRoute("create")));
+        await fixture.Presenter.PushAsync<TestPresentationPage>(
+            "setting",
+            new MauiRoutePresentationPageOptions { Animated = false });
+
+        var navigationPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        var presentationPage = navigationPage.Navigation.NavigationStack[^1];
+        await navigationPage.Navigation.PopAsync(animated: false);
+
+        Assert.Null(reconciliation);
+        Assert.Equal(new[] { "home", "create" },
+            navigationPage.Navigation.NavigationStack.Select(MauiPresentationMetadata.GetRouteEntryId));
+        Assert.Contains(presentationPage, fixture.Factory.ReleasedPresentationPages);
+
+        fixture.Presenter.Dispose();
+    }
+
+    [Fact]
+    public async Task LogicalRouteAboveOwnerPreservesOwnedPresentationSegment()
+    {
+        var fixture = new PresenterFixture();
+        var createState = Plan(Stack("home", Entry("home"), Entry("create")));
+        var coveredState = Plan(Stack("home", Entry("home"), Entry("create"), Entry("detail")));
+
+        await fixture.Presenter.ApplyAsync(createState, Context(new TestPageRoute("create")));
+        await fixture.Presenter.PushAsync<TestPresentationPage>(
+            "setting",
+            new MauiRoutePresentationPageOptions { Animated = false });
+
+        var navigationPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        var settingPage = navigationPage.Navigation.NavigationStack[^1];
+
+        await fixture.Presenter.ApplyAsync(
+            coveredState,
+            Context(new TestPageRoute("detail"), createState.TargetState));
+
+        Assert.Equal(4, navigationPage.Navigation.NavigationStack.Count);
+        Assert.Same(settingPage, navigationPage.Navigation.NavigationStack[2]);
+        Assert.Equal("detail", MauiPresentationMetadata.GetRouteEntryId(navigationPage.Navigation.NavigationStack[3]));
+
+        await fixture.Presenter.ApplyAsync(
+            createState,
+            Context(new TestPageRoute("create"), coveredState.TargetState));
+
+        Assert.Equal(3, navigationPage.Navigation.NavigationStack.Count);
+        Assert.Same(settingPage, navigationPage.Navigation.NavigationStack[^1]);
+        Assert.DoesNotContain(settingPage, fixture.Factory.ReleasedPresentationPages);
+
+        fixture.Presenter.Dispose();
+    }
+
+    [Fact]
+    public async Task RemovingOwnerRouteReleasesItsPresentationPages()
+    {
+        var fixture = new PresenterFixture();
+        var createState = Plan(Stack("home", Entry("home"), Entry("create")));
+
+        await fixture.Presenter.ApplyAsync(createState, Context(new TestPageRoute("create")));
+        await fixture.Presenter.PushAsync<TestPresentationPage>(
+            "setting",
+            new MauiRoutePresentationPageOptions { Animated = false });
+
+        var navigationPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        var settingPage = navigationPage.Navigation.NavigationStack[^1];
+
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("home", Entry("home"))),
+            Context(new TestPageRoute("home"), createState.TargetState));
+
+        Assert.Single(navigationPage.Navigation.NavigationStack);
+        Assert.Contains(settingPage, fixture.Factory.ReleasedPresentationPages);
+
+        fixture.Presenter.Dispose();
+    }
+
+    [Fact]
+    public async Task PresentationKeysAreIdempotentAtTopAndUniqueWithinOwnerSegment()
+    {
+        var fixture = new PresenterFixture();
+
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("home", Entry("home"), Entry("create"))),
+            Context(new TestPageRoute("create")));
+
+        var options = new MauiRoutePresentationPageOptions { Animated = false };
+        await fixture.Presenter.PushAsync<TestPresentationPage>("setting", options);
+        await fixture.Presenter.PushAsync<TestPresentationPage>("setting", options);
+        Assert.Single(fixture.Factory.CreatedPresentationPages);
+
+        await fixture.Presenter.PushAsync<TestPresentationPage>("vibe", options);
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Presenter.PushAsync<TestPresentationPage>("setting", options).AsTask());
+
+        Assert.Contains("already exists below the top", exception.Message, StringComparison.Ordinal);
+        fixture.Presenter.Dispose();
+    }
+
+    [Fact]
+    public async Task PresentationNavigatorPopStopsAtLogicalRoutePage()
+    {
+        var fixture = new PresenterFixture();
+
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("home", Entry("home"), Entry("create"))),
+            Context(new TestPageRoute("create")));
+        await fixture.Presenter.PushAsync<TestPresentationPage>(
+            "setting",
+            new MauiRoutePresentationPageOptions { Animated = false });
+
+        Assert.True(await fixture.Presenter.PopAsync(animated: false));
+        Assert.False(await fixture.Presenter.PopAsync(animated: false));
+
+        fixture.Presenter.Dispose();
+    }
+
+    [Fact]
     public async Task NativeStackPopToRootReconcilesToActualRootEntry()
     {
         var fixture = new PresenterFixture();
@@ -1206,4 +1452,26 @@ public sealed class MauiNavigationPresenterLifecycleTests
             throw new NotSupportedException("Lifecycle registration tests do not execute navigation.");
         }
     }
+
+    private sealed class RejectedPresentationNavigationPage(PresentationScopeMarker marker) : NavigationPage
+    {
+        public PresentationScopeMarker Marker { get; } = marker;
+    }
+
+    private sealed class RejectedAttachedPresentationPage(PresentationScopeMarker marker) : ContentPage
+    {
+        public PresentationScopeMarker Marker { get; } = marker;
+    }
+
+    private sealed class PresentationScopeMarker : IDisposable
+    {
+        public int DisposeCount { get; private set; }
+
+        public void Dispose()
+        {
+            DisposeCount++;
+        }
+    }
+
+    public sealed class TestPresentationPage : ContentPage;
 }

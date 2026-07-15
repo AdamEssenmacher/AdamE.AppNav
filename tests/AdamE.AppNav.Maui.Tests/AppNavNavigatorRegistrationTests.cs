@@ -32,11 +32,13 @@ public sealed class AppNavNavigatorRegistrationTests
         var windowAttachment = provider.GetRequiredService<IMauiWindowAttachment>();
         var presenter = provider.GetRequiredService<MauiNavigationPresenter>();
         var presentationState = provider.GetRequiredService<IMauiPresentationState>();
+        var routePresentationNavigator = provider.GetRequiredService<IMauiRoutePresentationNavigator>();
         var dispatcher = provider.GetRequiredService<IMauiExternalNavigationDispatcher>();
 
         Assert.Same(runtime, navigator);
         Assert.Same(runtime, windowAttachment);
         Assert.Same(presenter, presentationState);
+        Assert.Same(presenter, routePresentationNavigator);
         Assert.NotNull(dispatcher);
     }
 
