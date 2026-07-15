@@ -88,6 +88,12 @@ public class NavigationBenchmarks : RouteBenchmarkBase
     {
         return _navigator.NavigateAsync(ExplicitTargetRoute).GetAwaiter().GetResult();
     }
+
+    [GlobalCleanup]
+    public void Cleanup()
+    {
+        _navigator.Dispose();
+    }
 }
 
 [MemoryDiagnoser]

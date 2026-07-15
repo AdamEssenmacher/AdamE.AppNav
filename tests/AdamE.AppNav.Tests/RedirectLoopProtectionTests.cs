@@ -12,6 +12,89 @@ namespace AdamE.AppNav.Tests;
 public sealed class RedirectLoopProtectionTests
 {
     [Fact]
+    public async Task TransformerTargetChangesRestartInRegistrationOrderAndEmitDiagnostics()
+    {
+        var diagnostics = new NavigationDiagnostics();
+        var events = new List<NavigationDiagnosticEvent>();
+        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+        var firstTransformer = new DelegateRequestTransformer(context =>
+            context.Request.Route is RedirectRoute { Value: "legacy" }
+                ? context.Request.WithTarget(new RedirectRoute("normalized"))
+                : context.Request);
+        var secondTransformer = new DelegateRequestTransformer(context =>
+            context.Request.Route is RedirectRoute { Value: "normalized" }
+                ? context.Request.WithTarget(new RedirectRoute("final"))
+                : context.Request);
+        var provenance = new NavigationRequestProvenance("test-provider", correlationId: "correlation-1");
+        var planner = new RecordingPlanner();
+        var navigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            planner,
+            NullNavigationPresenter.Instance,
+            new RouterNavigatorOptions
+            {
+                Diagnostics = diagnostics,
+                RequestTransformers = [firstTransformer, secondTransformer]
+            });
+
+        await navigator.NavigateAsync(RouterNavigationRequest.FromRoute(
+            new RedirectRoute("legacy"),
+            NavigationRequestSource.Test,
+            provenance: provenance));
+
+        Assert.Equal(new RedirectRoute("final"), planner.LastRoute);
+        Assert.Equal(provenance, planner.LastRequest!.Provenance);
+        Assert.Equal(3, firstTransformer.CallCount);
+        Assert.Equal(2, secondTransformer.CallCount);
+        Assert.Equal(2, events.Count(diagnosticEvent =>
+            diagnosticEvent.Kind == NavigationDiagnosticEventKind.RequestRedirected));
+        NavigationDiagnosticEvent[] transformStarted = events
+            .Where(diagnosticEvent => diagnosticEvent.Kind == NavigationDiagnosticEventKind.RequestTransformStarted)
+            .ToArray();
+        Assert.Equal(5, transformStarted.Length);
+        Assert.All(transformStarted, diagnosticEvent =>
+        {
+            Assert.Equal(
+                typeof(DelegateRequestTransformer).FullName,
+                diagnosticEvent.Data[NavigationDiagnosticDataKeys.RequestTransformerType]);
+            Assert.Equal(NavigationDiagnosticPhase.RequestTransformation, diagnosticEvent.Phase);
+        });
+        Assert.Contains(events, diagnosticEvent =>
+            diagnosticEvent.Kind == NavigationDiagnosticEventKind.RequestTransformCompleted &&
+            diagnosticEvent.Phase == NavigationDiagnosticPhase.RequestTransformation);
+    }
+
+    [Fact]
+    public async Task TransformerAndPolicyShareRedirectHistory()
+    {
+        var transformer = new DelegateRequestTransformer(context =>
+            context.Request.Route is RedirectRoute { Value: "legacy" }
+                ? context.Request.WithTarget(new RedirectRoute("normalized"))
+                : context.Request);
+        var policy = new DelegateRequestPolicy(context =>
+            context.Route is RedirectRoute { Value: "normalized" }
+                ? context.Request.WithTarget(new RedirectRoute("legacy"))
+                : context.Request);
+        var navigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            new RecordingPlanner(),
+            NullNavigationPresenter.Instance,
+            new RouterNavigatorOptions
+            {
+                RequestTransformers = [transformer],
+                RequestPolicies = [policy]
+            });
+
+        var exception = await Assert.ThrowsAsync<RouteRedirectLoopException>(() => navigator
+            .NavigateAsync(new RedirectRoute("legacy"), NavigationRequestSource.Test)
+            .AsTask());
+
+        Assert.Equal(2, exception.Redirects.Count);
+        Assert.Equal(new RedirectRoute("legacy"), exception.LastRequest.Route);
+        Assert.Empty(navigator.History.Entries);
+    }
+
+    [Fact]
     public async Task PolicyRedirectRestartsRequestPolicyPipeline()
     {
         var diagnostics = new NavigationDiagnostics();
@@ -283,6 +366,26 @@ public sealed class RedirectLoopProtectionTests
         {
             CallCount++;
             return ValueTask.FromResult(_apply(context));
+        }
+    }
+
+    private sealed class DelegateRequestTransformer : INavigationRequestTransformer
+    {
+        private readonly Func<NavigationRequestTransformContext, RouterNavigationRequest> _transform;
+
+        public DelegateRequestTransformer(Func<NavigationRequestTransformContext, RouterNavigationRequest> transform)
+        {
+            _transform = transform;
+        }
+
+        public int CallCount { get; private set; }
+
+        public ValueTask<RouterNavigationRequest> TransformAsync(
+            NavigationRequestTransformContext context,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            return ValueTask.FromResult(_transform(context));
         }
     }
 

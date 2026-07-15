@@ -118,8 +118,8 @@ Example:
 
 1. A signed-out user taps an invite link from email on a cold start.
 2. The link enters as a `RouterNavigationRequest` with URI, source, and provenance.
-3. A request policy validates origin and rewrites any legacy URL shape.
-4. An access policy sees that auth is required, redirects to login, and stores the original request for deferred replay.
+3. A request transformer validates origin and rewrites any legacy URL shape before matching.
+4. A post-match access policy sees that auth is required, redirects to login, and stores the original request for deferred replay.
 5. After sign-in, app code calls `ReplayAsync()` at the auth boundary.
 6. The planner maps the semantic route into the correct branch, stack, modal, and active presentation structure.
 7. The MAUI presenter materializes native pages and preserves platform back behavior.
@@ -672,10 +672,9 @@ Navigate with a full runtime request only when you need transport concerns such 
 targeting, or policy handoff:
 
 ```csharp
-var request = new RouterNavigationRequest(
-    uri: new Uri("https://example.com/stores/northwind/cart"),
-    route: null,
-    source: NavigationRequestSource.Push,
+var request = RouterNavigationRequest.FromUri(
+    new Uri("https://example.com/stores/northwind/cart"),
+    NavigationRequestSource.Push,
     windowId: "main",
     metadata: new Dictionary<string, object?>
     {
@@ -780,11 +779,12 @@ persistence, policies, and planning when the app chooses.
 
 ### Policies Centralize Compatibility And Auth
 
-Register request policies as services. `AddAppNav` discovers them and applies them before planning and presentation.
+Register request transformers and policies as services. `AddAppNav` discovers each collection in DI registration order.
+Transformers run before matching; policies run after matching and before planning and presentation.
 
 ```csharp
 builder.Services.AddAppNavFileDeferredNavigationRequests();
-builder.Services.AddSingleton<INavigationRequestPolicy, LegacyProductUrlPolicy>();
+builder.Services.AddSingleton<INavigationRequestTransformer, LegacyProductUrlTransformer>();
 builder.Services.AddSingleton<INavigationAccessEvaluator, CommerceAccessEvaluator>();
 builder.Services.AddSingleton<INavigationRequestPolicy, AccessGateNavigationPolicy>();
 ```
@@ -792,31 +792,39 @@ builder.Services.AddSingleton<INavigationRequestPolicy, AccessGateNavigationPoli
 `AddAppNavFileDeferredNavigationRequests()` registers both `IDeferredNavigationRequestStore` and
 `IDeferredNavigationRequestReplayer`. The app still chooses when to call replay.
 
-A compatibility policy can normalize old URLs before the planner sees them:
+A compatibility transformer can normalize an unmatched legacy URL before the route table sees it:
 
 ```csharp
-public sealed class LegacyProductUrlPolicy : INavigationRequestPolicy
+public sealed class LegacyProductUrlTransformer : INavigationRequestTransformer
 {
-    public ValueTask<RouterNavigationRequest> ApplyAsync(
-        NavigationRequestPolicyContext context,
+    public ValueTask<RouterNavigationRequest> TransformAsync(
+        NavigationRequestTransformContext context,
         CancellationToken cancellationToken = default)
     {
         var request = context.Request;
 
-        if (request.Uri?.AbsolutePath is not { } path ||
-            !path.StartsWith("/p/", StringComparison.Ordinal))
+        if (request.Uri is not { } uri)
         {
             return ValueTask.FromResult(request);
         }
 
-        var productId = path["/p/".Length..];
-        var normalized = new Uri($"https://example.com/stores/northwind/products/{productId}");
-
-        return ValueTask.FromResult(request with
+        var path = uri.IsAbsoluteUri ? uri.AbsolutePath : uri.OriginalString;
+        var suffixIndex = path.IndexOfAny(['?', '#']);
+        if (suffixIndex >= 0)
         {
-            Uri = normalized,
-            Route = null
-        });
+            path = path[..suffixIndex];
+        }
+
+        if (!path.StartsWith("/p/", StringComparison.Ordinal) ||
+            path[3..] is not { Length: > 0 } productId)
+        {
+            return ValueTask.FromResult(request);
+        }
+
+        var normalized = new Uri(
+            $"https://example.com/stores/northwind/products/{Uri.EscapeDataString(productId)}");
+
+        return ValueTask.FromResult(request.WithTarget(normalized));
     }
 }
 ```
@@ -870,7 +878,7 @@ public sealed class SignInCompletionHandler(
 
 ### The Planner Sees Route Meaning And App State
 
-After matching and request policy, the planner receives the typed route plus request context and current navigation
+After transformation, matching, and request policy, the planner receives the typed route plus request context and current navigation
 state. That is where route meaning becomes branch hosts, stacks, modals, and windows.
 
 ```csharp
@@ -985,8 +993,8 @@ needs explicit URI ingress, source, window targeting, request metadata, provenan
 
 Important properties:
 
-- `Uri`: incoming URL, if the request starts from a URL.
-- `Route`: typed route, if already known.
+- `Uri`: incoming URL when the request starts from a URL.
+- `Route`: typed route when the target is already known.
 - `Source`: app link, push, QR, in-app command, restore, test, or native reconciliation.
 - `WindowId`: optional target window.
 - `Metadata`: app-owned request metadata.
@@ -1001,6 +1009,10 @@ RouterNavigationRequest.FromUri(uri, NavigationRequestSource.AppLink);
 RouterNavigationRequest.FromRoute(route, NavigationRequestSource.InAppCommand);
 RouterNavigationRequest.FromRouteRequest(routeRequest, NavigationRequestSource.InAppCommand);
 ```
+
+Every request has exactly one target: `Uri` or `Route`. Both target properties are externally getter-only. Use
+`request.WithTarget(uri)` or `request.WithTarget(route)` to atomically replace the target while preserving source,
+window, metadata, timestamp, disposition, and provenance.
 
 Common uses include app-link ingress, app-owned external bridges, startup fallback, restore, request-policy pipelines,
 deferred replay, tests, and any navigation flow that needs explicit transport metadata.
@@ -1170,6 +1182,11 @@ match.QueryAll<Guid>("ids");        // typed repeated values
 `Query(name)` returns the last value for compatibility with single-value query usage. Use `QueryAll(name)` when repeated
 query keys are meaningful.
 
+Convention and generated query bindings also consume all repeated values when a route constructor uses a
+one-dimensional array, `IEnumerable<T>`, `IReadOnlyCollection<T>`, `IReadOnlyList<T>`, `ICollection<T>`, `IList<T>`,
+or `List<T>`. Wire order is preserved and only the element codec is required. Nested collections, multidimensional
+arrays, other collection shapes, and nullable value-type elements are rejected when the table is built or generated.
+
 Path values are required unless the template marks the segment optional. Query values are always optional.
 
 Typed conversion uses invariant culture and type converters where available.
@@ -1194,7 +1211,7 @@ If the formatter returns an enumerable value, `QueryParam` formats repeated keys
 
 Route attributes use the same convention binding rules as `MapRoute<TRoute>`: path parameters bind by public property
 and constructor parameter name, and query values are always optional. Any constructor parameter reached through a query
-binding must be nullable or provide a default value.
+binding must have the same type as its public property and must be nullable or provide a default value.
 
 ```csharp
 [AppNavRoute("/stores/{storeId}/search")]
@@ -1340,6 +1357,7 @@ Pipeline:
 
 ```text
 NavigateAsync(Uri|AppRoute|AppRouteRequest|RouterNavigationRequest)
+  -> request transformers
   -> route matching
   -> request policies
   -> app planning
@@ -1348,8 +1366,18 @@ NavigateAsync(Uri|AppRoute|AppRouteRequest|RouterNavigationRequest)
   -> state/history update
 ```
 
-Navigation operations are serialized. In-app navigation, back navigation, restore, and native reconciliation all run
-through the same internal queue so state, history, and presentation stay ordered.
+Navigation operations are serialized. URI and typed-route navigation, back navigation, direct reconciliation, and
+queued native reconciliation all run through the same internal queue so state, history, and presentation stay ordered.
+
+`IRouterNavigator` implements `IDisposable` and `IAsyncDisposable`. `Dispose()` stops admission and detaches presenter
+events without blocking; operations already admitted continue. `DisposeAsync()` performs the same shutdown and waits
+for admitted navigation, back, direct reconciliation, and queued presenter reconciliation to finish. New operations
+throw `ObjectDisposedException`, while `CurrentState` and `History` remain readable.
+
+Direct callers of `RouterNavigatorFactory.Create(...)` own the returned navigator and should prefer `await using` when
+shutdown must drain accepted work. The navigator does not own or dispose the injected route table, planner, presenter,
+back navigator, or diagnostics. `AddAppNav(...)` instead creates an `AppNavRuntime` that owns the factory navigator;
+the DI registration order disposes that runtime before the MAUI presenter.
 
 Public state:
 
@@ -1388,12 +1416,18 @@ Additional public operations:
 
 Policies let you keep app-specific navigation decisions outside route matching and presentation.
 
-#### Request Policies
+#### Request Transformation And Policies
 
-`INavigationRequestPolicy` can normalize or redirect a request before planning.
+`INavigationRequestTransformer` handles pre-match URL normalization and trust validation. It runs for every target,
+including unmatched URLs and targets produced by redirects. A target change restarts transformation from the first
+registered transformer.
+
+`INavigationRequestPolicy` handles post-match decisions before planning. Policies inspect the resolved semantic route
+through `context.Route`; URI-targeted requests remain URI-targeted unless a transformer or policy explicitly replaces
+the target.
 
 ```csharp
-public sealed class RequireStorePolicy : INavigationRequestPolicy
+public sealed class NormalizeStorePolicy : INavigationRequestPolicy
 {
     public ValueTask<RouterNavigationRequest> ApplyAsync(
         NavigationRequestPolicyContext context,
@@ -1401,9 +1435,9 @@ public sealed class RequireStorePolicy : INavigationRequestPolicy
     {
         var request = context.Request;
 
-        if (request.Route is null)
+        if (context.Route is ProductDetailRoute { StoreId: "legacy" } detail)
         {
-            return ValueTask.FromResult(request);
+            return ValueTask.FromResult(request.WithTarget(detail with { StoreId = "northwind" }));
         }
 
         return ValueTask.FromResult(request);
@@ -1417,6 +1451,9 @@ Use request policies for:
 - Tenant or store normalization.
 - Feature flags.
 - Source-specific request behavior.
+
+Use request transformers for URL-shape compatibility, host/scheme normalization, and boundary trust checks that must
+occur before matching or fallback selection.
 
 ### History
 
@@ -1454,6 +1491,18 @@ builder.Services.AddAppNavFileDeferredNavigationRequests(options =>
 Deferred request snapshots store canonical route URIs, request source, window scope, provenance, and explicitly
 restorable route metadata. They do not store MAUI pages, DI scopes, handlers, native stacks, or full navigation history.
 
+Replay uses `IDeferredNavigationRequestStore.AcquireReplayLeaseAsync()`. A lease is an immutable FIFO snapshot of the
+requests present at acquisition. Acquisition does not remove requests, and enqueues remain allowed after the snapshot.
+After successful navigation, `AcknowledgeAsync(index)` durably removes only that request. Failed, cancelled, and
+unattempted entries retain their positions when the lease is disposed.
+
+This is at-least-once delivery. A process crash after presentation but before durable acknowledgement can present the
+request once more after restart, but cannot lose the pending request.
+
+Persisted deferred requests use an exact-version contract. This release accepts schema `2` only; schema `1` is not
+migrated and future versions are rejected. During MAUI startup, unsupported preview data is treated as recoverable,
+cleared, and startup continues through the configured fallback path.
+
 Route-owned metadata is omitted unless it is registered as `RouteStateLifetime.Restorable` in the configured
 `RouteStateRegistry`. Custom metadata outside the route state registry can be serialized by implementing
 `INavigationRequestMetadataSerializer`.
@@ -1464,7 +1513,7 @@ are pending.
 
 ### Diagnostics
 
-`NavigationDiagnostics` emits events for route matching, policies, planning, presentation, MAUI startup, reconciliation,
+`NavigationDiagnostics` emits events for request transformation, route matching, policies, planning, presentation, MAUI startup, reconciliation,
 back navigation, app-link delivery, and failures.
 
 ```csharp
@@ -1479,7 +1528,7 @@ diagnostics.EventWritten += (_, e) =>
 Every event has:
 
 - `OperationId`: stable id for one navigation, back, reconciliation, or app-link operation.
-- `Phase`: route matching, request policy, planning, plan policy, presentation, persistence, reconciliation, back, app
+- `Phase`: request transformation, route matching, request policy, planning, plan policy, presentation, persistence, reconciliation, back, app
   link, or diagnostics.
 - `Severity`: trace, debug, information, warning, error, or critical.
 - `Data`: structured values with stable keys.
@@ -1570,6 +1619,9 @@ id, and failure metadata when applicable.
 Event kinds include:
 
 ```csharp
+RequestTransformStarted
+RequestTransformCompleted
+RequestTransformFailed
 RouteMatchingStarted
 RouteMatched
 RouteNotMatched
@@ -2009,12 +2061,12 @@ services.AddSingleton<INavigationRequestPolicy, ClosedStorePolicy>();
 ```
 
 When a request policy changes the navigation target, the navigator treats that as a redirect. A target change means
-`Uri`, `Route`, `Source`, or `WindowId` changed. Metadata and timestamp changes are preserved, but they do not count as
-redirects and do not restart the pipeline.
+the exclusive `Uri` or `Route` value changed. Source, window, metadata, timestamp, disposition, and provenance changes
+do not count as redirects and do not restart the pipeline.
 
-Redirects restart request-policy execution from the first policy, then continue through route matching, fallback,
-planning, presentation, diagnostics, and history as a normal navigation. This keeps authentication, tenant
-normalization, and canonical route policies deterministic.
+Redirects restart request transformation, route matching, and post-match policy evaluation from the beginning.
+Transformers and policies share one redirect budget and target-history set, so loops that cross stage boundaries are
+detected. Fallback routing runs only after transformation cannot produce a match.
 
 The blessed runtime allows up to `16` redirects by default. If a policy loop repeats a target or the redirect chain
 exceeds the limit, navigation throws `RouteRedirectLoopException` and does not mutate logical state or history.
@@ -2029,6 +2081,7 @@ NavigationDiagnosticDataKeys.RedirectCount
 NavigationDiagnosticDataKeys.RedirectFrom
 NavigationDiagnosticDataKeys.RedirectTo
 NavigationDiagnosticDataKeys.RedirectTrace
+NavigationDiagnosticDataKeys.RequestTransformerType
 ```
 
 ### Represent A Modal
@@ -2124,7 +2177,7 @@ var planner = new TestPlanner(context =>
         ],
         "main")));
 
-var navigator = RouterNavigatorFactory.Create(
+await using var navigator = RouterNavigatorFactory.Create(
     routeTable,
     planner,
     new NoOpNavigationPresenter());
@@ -2181,7 +2234,7 @@ var routeTable = RouteTable.Create(routes => routes.Map(
         .PathParam("storeId", route => route.StoreId)
         .PathParam("productId", route => route.ProductId)));
 
-var navigator = RouterNavigatorFactory.Create(
+await using var navigator = RouterNavigatorFactory.Create(
     routeTable,
     planner,
     new NoOpNavigationPresenter(),
@@ -2245,7 +2298,7 @@ var events = new List<NavigationDiagnosticEventKind>();
 
 diagnostics.EventWritten += (_, e) => events.Add(e.Kind);
 
-var navigator = RouterNavigatorFactory.Create(
+await using var navigator = RouterNavigatorFactory.Create(
     routeTable,
     planner,
     new NoOpNavigationPresenter(),

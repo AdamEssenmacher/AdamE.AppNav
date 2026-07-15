@@ -317,6 +317,10 @@ public sealed class NavigationDiagnostics
                 NavigationDiagnosticEventKind.PlanningCompleted or
                 NavigationDiagnosticEventKind.PlanningFailed =>
                 NavigationDiagnosticPhase.Planning,
+            NavigationDiagnosticEventKind.RequestTransformStarted or
+                NavigationDiagnosticEventKind.RequestTransformCompleted or
+                NavigationDiagnosticEventKind.RequestTransformFailed =>
+                NavigationDiagnosticPhase.RequestTransformation,
             NavigationDiagnosticEventKind.PresentationStarted or
                 NavigationDiagnosticEventKind.PresentationPageCreated or
                 NavigationDiagnosticEventKind.PresentationPageReleased or

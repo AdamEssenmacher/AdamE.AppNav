@@ -74,6 +74,16 @@ internal static class AppNavDiagnostics
         "Optional path constructor parameter is not missing-safe",
         "Optional path binding '{0}' on route '{1}' targets constructor parameter '{2}', but the path value may be absent; make the parameter nullable or provide a default value");
 
+    public static readonly DiagnosticDescriptor InvalidQueryCollection = Error(
+        "APPNAV015",
+        "Repeated query collection type is invalid",
+        "Route '{0}' uses invalid repeated-query collection type '{1}' for '{2}': {3}");
+
+    public static readonly DiagnosticDescriptor QueryConstructorTypeMismatch = Error(
+        "APPNAV016",
+        "Query property and constructor parameter types differ",
+        "Convention query binding '{0}' on route '{1}' uses property type '{2}', but constructor parameter '{3}' uses '{4}'; the types must match");
+
     public static readonly DiagnosticDescriptor InvalidPageRoute = Error(
         "APPNAV020",
         "MAUI page route mapping is invalid",

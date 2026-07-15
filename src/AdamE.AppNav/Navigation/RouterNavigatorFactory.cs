@@ -7,6 +7,10 @@ namespace AdamE.AppNav.Navigation;
 /// <summary>
 /// Creates router navigator instances for host adapters and advanced composition roots.
 /// </summary>
+/// <remarks>
+/// The caller owns each returned navigator. Disposing a navigator detaches it from the presenter but does not dispose
+/// the supplied route table, planner, presenter, or option dependencies.
+/// </remarks>
 public static class RouterNavigatorFactory
 {
     /// <summary>
@@ -17,7 +21,10 @@ public static class RouterNavigatorFactory
     /// <param name="planner">The application planner that creates navigation plans for accepted routes.</param>
     /// <param name="presenter">The host presenter that applies accepted navigation plans.</param>
     /// <param name="options">Optional navigator composition settings.</param>
-    /// <returns>A router navigator backed by the core AppNav implementation.</returns>
+    /// <returns>
+    /// A caller-owned router navigator backed by the core AppNav implementation. Prefer asynchronous disposal when
+    /// shutdown must wait for already admitted operations to complete.
+    /// </returns>
     /// <exception cref="ArgumentNullException">
     /// <paramref name="routes"/>, <paramref name="planner"/>, or <paramref name="presenter"/> is
     /// <see langword="null"/>.
@@ -40,6 +47,7 @@ public static class RouterNavigatorFactory
             new RouterNavigatorOptions
             {
                 InitialState = options.InitialState,
+                RequestTransformers = options.RequestTransformers,
                 RequestPolicies = options.RequestPolicies,
                 FallbackRouteFactory = options.FallbackRouteFactory,
                 Diagnostics = options.Diagnostics,

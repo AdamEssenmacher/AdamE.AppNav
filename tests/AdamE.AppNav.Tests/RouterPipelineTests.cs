@@ -52,6 +52,63 @@ public sealed class RouterPipelineTests
         Assert.Equal("mission-1", planner.Metadata[MissionIdMetadata.Name]);
     }
 
+    [Fact]
+    public async Task RequestTransformerNormalizesUnmatchedUriBeforeRouteMatching()
+    {
+        var planner = new RequestCapturingPlanner();
+        var navigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            planner,
+            NullNavigationPresenter.Instance,
+            new RouterNavigatorOptions
+            {
+                RequestTransformers = [new LegacyProductUriTransformer()]
+            });
+
+        await navigator.NavigateAsync(new Uri("/p/123", UriKind.Relative), NavigationRequestSource.AppLink);
+
+        Assert.Equal(new TestRoutes.ProductDetailRoute("northwind", 123), planner.Route);
+        Assert.Equal(new Uri("/stores/northwind/products/123", UriKind.Relative), planner.Request!.Uri);
+        Assert.Null(planner.Request.Route);
+    }
+
+    [Fact]
+    public async Task UriRedirectPolicyReplacesTargetWithoutRetainingMatchedRoute()
+    {
+        var planner = new RequestCapturingPlanner();
+        var navigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            planner,
+            NullNavigationPresenter.Instance,
+            new RouterNavigatorOptions
+            {
+                RequestPolicies = [new StoreToCatalogUriPolicy()]
+            });
+
+        await navigator.NavigateAsync(new Uri("/stores/northwind", UriKind.Relative));
+
+        Assert.Equal(new TestRoutes.CatalogRoute("northwind"), planner.Route);
+        Assert.Equal(new Uri("/stores/northwind/catalog", UriKind.Relative), planner.Request!.Uri);
+        Assert.Null(planner.Request.Route);
+    }
+
+    [Fact]
+    public async Task NonTargetPolicyChangesDoNotRestartRouteResolution()
+    {
+        var policy = new CountingDispositionPolicy();
+        var planner = new RequestCapturingPlanner();
+        var navigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            planner,
+            NullNavigationPresenter.Instance,
+            new RouterNavigatorOptions { RequestPolicies = [policy] });
+
+        await navigator.NavigateAsync(new Uri("/stores/northwind", UriKind.Relative));
+
+        Assert.Equal(1, policy.CallCount);
+        Assert.Equal(RouterNavigationDisposition.ReplaceCurrent, planner.Disposition);
+    }
+
     [Theory]
     [InlineData(RouterNavigationDisposition.Contextual)]
     [InlineData(RouterNavigationDisposition.Canonical)]
@@ -463,6 +520,8 @@ public sealed class RouterPipelineTests
 
     private sealed class RequestCapturingPlanner : IAppNavigationPlanner
     {
+        public RouterNavigationRequest? Request { get; private set; }
+
         public RouterNavigationDisposition Disposition { get; private set; }
 
         public NavigationRequestSource Source { get; private set; }
@@ -478,6 +537,7 @@ public sealed class RouterPipelineTests
             NavigationPlanningContext context,
             CancellationToken cancellationToken = default)
         {
+            Request = context.Request;
             Disposition = context.Request.Disposition;
             Source = context.Request.Source;
             Route = context.Route;
@@ -502,12 +562,8 @@ public sealed class RouterPipelineTests
             CancellationToken cancellationToken = default)
         {
             RouterNavigationRequest request = context.Request;
-            return request.Route is TestRoutes.StoreRoute storeRoute
-                ? ValueTask.FromResult(RouterNavigationRequest.FromRoute(
-                    new TestRoutes.CatalogRoute(storeRoute.StoreId),
-                    request.Source,
-                    request.WindowId,
-                    request.Metadata))
+            return context.Route is TestRoutes.StoreRoute storeRoute
+                ? ValueTask.FromResult(request.WithTarget(new TestRoutes.CatalogRoute(storeRoute.StoreId)))
                 : ValueTask.FromResult(request);
         }
     }
@@ -532,14 +588,52 @@ public sealed class RouterPipelineTests
             CancellationToken cancellationToken = default)
         {
             RouterNavigationRequest request = context.Request;
-            return request.Route is TestRoutes.StoreRoute storeRoute
-                ? ValueTask.FromResult(RouterNavigationRequest.FromRoute(
-                    new TestRoutes.CatalogRoute(storeRoute.StoreId),
-                    request.Source,
-                    request.WindowId,
-                    request.Metadata,
-                    provenance: provenance))
+            return context.Route is TestRoutes.StoreRoute storeRoute
+                ? ValueTask.FromResult(request
+                    .WithTarget(new TestRoutes.CatalogRoute(storeRoute.StoreId)) with { Provenance = provenance })
                 : ValueTask.FromResult(request);
+        }
+    }
+
+    private sealed class LegacyProductUriTransformer : INavigationRequestTransformer
+    {
+        public ValueTask<RouterNavigationRequest> TransformAsync(
+            NavigationRequestTransformContext context,
+            CancellationToken cancellationToken = default)
+        {
+            return context.Request.Uri?.OriginalString == "/p/123"
+                ? ValueTask.FromResult(context.Request.WithTarget(
+                    new Uri("/stores/northwind/products/123", UriKind.Relative)))
+                : ValueTask.FromResult(context.Request);
+        }
+    }
+
+    private sealed class StoreToCatalogUriPolicy : INavigationRequestPolicy
+    {
+        public ValueTask<RouterNavigationRequest> ApplyAsync(
+            NavigationRequestPolicyContext context,
+            CancellationToken cancellationToken = default)
+        {
+            return context.Route is TestRoutes.StoreRoute store
+                ? ValueTask.FromResult(context.Request.WithTarget(
+                    new Uri($"/stores/{store.StoreId}/catalog", UriKind.Relative)))
+                : ValueTask.FromResult(context.Request);
+        }
+    }
+
+    private sealed class CountingDispositionPolicy : INavigationRequestPolicy
+    {
+        public int CallCount { get; private set; }
+
+        public ValueTask<RouterNavigationRequest> ApplyAsync(
+            NavigationRequestPolicyContext context,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            return ValueTask.FromResult(context.Request with
+            {
+                Disposition = RouterNavigationDisposition.ReplaceCurrent
+            });
         }
     }
 

@@ -225,7 +225,9 @@ public sealed class AppNavFluentRegistrationAnalyzer : DiagnosticAnalyzer
             AppNavDiagnostics.UnsafeQueryConstructorParameter,
             AppNavDiagnostics.UnsupportedRouteValueType,
             AppNavDiagnostics.DuplicateRoutePropertyName,
-            AppNavDiagnostics.UnsafeOptionalPathConstructorParameter);
+            AppNavDiagnostics.UnsafeOptionalPathConstructorParameter,
+            AppNavDiagnostics.InvalidQueryCollection,
+            AppNavDiagnostics.QueryConstructorTypeMismatch);
 
     public override void Initialize(AnalysisContext context)
     {
@@ -725,9 +727,36 @@ internal static class RouteModelFactory
             }
 
             bool omitWhenNull = GetNamedBool(attribute, "OmitWhenNull", defaultValue: true);
-            ReportUnsupportedValueType(routeType, property.Type, queryName, location, reportDiagnostic,
-                allowQueryCollections: true);
-            bindings.Add(new QueryBinding(property, queryName, omitWhenNull));
+            RouteValueSourceEmitter.QueryCollectionKind collectionKind =
+                RouteValueSourceEmitter.ClassifyQueryCollection(
+                    property.Type,
+                    out ITypeSymbol? collectionElementType,
+                    out string? invalidReason);
+            if (invalidReason is not null)
+            {
+                reportDiagnostic(Diagnostic.Create(
+                    AppNavDiagnostics.InvalidQueryCollection,
+                    location,
+                    routeType.ToDisplayString(),
+                    property.Type.ToDisplayString(),
+                    queryName,
+                    invalidReason));
+                hasErrors = true;
+                continue;
+            }
+
+            ReportUnsupportedValueType(
+                routeType,
+                collectionElementType ?? property.Type,
+                queryName,
+                location,
+                reportDiagnostic);
+            bindings.Add(new QueryBinding(
+                property,
+                queryName,
+                omitWhenNull,
+                collectionElementType,
+                collectionKind));
         }
 
         return bindings;
@@ -954,8 +983,24 @@ internal static class RouteModelFactory
 
         foreach (IParameterSymbol parameter in constructor.Parameters)
         {
-            if (!queryByProperty.TryGetValue(parameter.Name, out QueryBinding? queryBinding) ||
-                IsMissingSafeQueryParameter(parameter))
+            if (!queryByProperty.TryGetValue(parameter.Name, out QueryBinding? queryBinding))
+                continue;
+
+            if (!SymbolEqualityComparer.Default.Equals(parameter.Type, queryBinding.Property.Type))
+            {
+                reportDiagnostic(Diagnostic.Create(
+                    AppNavDiagnostics.QueryConstructorTypeMismatch,
+                    location,
+                    queryBinding.QueryName,
+                    routeType.ToDisplayString(),
+                    queryBinding.Property.Type.ToDisplayString(),
+                    parameter.Name,
+                    parameter.Type.ToDisplayString()));
+                hasErrors = true;
+                continue;
+            }
+
+            if (IsMissingSafeQueryParameter(parameter))
                 continue;
 
             reportDiagnostic(Diagnostic.Create(
@@ -1044,11 +1089,9 @@ internal static class RouteModelFactory
         ITypeSymbol type,
         string name,
         Location? location,
-        Action<Diagnostic> reportDiagnostic,
-        bool allowQueryCollections = false)
+        Action<Diagnostic> reportDiagnostic)
     {
-        if (RouteValueSourceEmitter.IsDirectlySupported(type) ||
-            (allowQueryCollections && RouteValueSourceEmitter.IsDirectlySupportedQueryCollection(type)))
+        if (RouteValueSourceEmitter.IsDirectlySupported(type))
             return;
 
         reportDiagnostic(Diagnostic.Create(
@@ -1338,11 +1381,18 @@ internal sealed class PageModel
 
 internal sealed class QueryBinding
 {
-    public QueryBinding(IPropertySymbol property, string queryName, bool omitWhenNull)
+    public QueryBinding(
+        IPropertySymbol property,
+        string queryName,
+        bool omitWhenNull,
+        ITypeSymbol? collectionElementType,
+        RouteValueSourceEmitter.QueryCollectionKind collectionKind)
     {
         Property = property;
         QueryName = queryName;
         OmitWhenNull = omitWhenNull;
+        CollectionElementType = collectionElementType;
+        CollectionKind = collectionKind;
     }
 
     public IPropertySymbol Property { get; }
@@ -1350,6 +1400,10 @@ internal sealed class QueryBinding
     public string QueryName { get; }
 
     public bool OmitWhenNull { get; }
+
+    public ITypeSymbol? CollectionElementType { get; }
+
+    public RouteValueSourceEmitter.QueryCollectionKind CollectionKind { get; }
 }
 
 internal sealed class MetadataQueryBinding
@@ -1853,7 +1907,7 @@ internal static class RouteValueSourceEmitter
 {
     public static bool IsDirectlySupported(ITypeSymbol type)
     {
-        ITypeSymbol valueType = UnwrapNullable(type);
+        ITypeSymbol valueType = UnwrapNullableType(type);
         if (valueType.TypeKind == TypeKind.Enum)
             return true;
 
@@ -1878,14 +1932,7 @@ internal static class RouteValueSourceEmitter
         return valueType.ToDisplayString() == "System.Guid";
     }
 
-    public static bool IsDirectlySupportedQueryCollection(ITypeSymbol type)
-    {
-        return TryGetSupportedQueryCollection(type, out ITypeSymbol? elementType, out _) &&
-               elementType is not null &&
-               IsDirectlySupported(elementType);
-    }
-
-    public static bool TryGetSupportedQueryCollection(
+    private static bool TryGetSupportedQueryCollection(
         ITypeSymbol type,
         out ITypeSymbol? elementType,
         out QueryCollectionKind kind)
@@ -1931,9 +1978,43 @@ internal static class RouteValueSourceEmitter
         return false;
     }
 
+    public static QueryCollectionKind ClassifyQueryCollection(
+        ITypeSymbol type,
+        out ITypeSymbol? elementType,
+        out string? invalidReason)
+    {
+        if (TryGetSupportedQueryCollection(type, out elementType, out QueryCollectionKind kind))
+        {
+            if (elementType is not null && IsNullableValueType(elementType))
+            {
+                invalidReason = "nullable value-type elements are not supported";
+                return QueryCollectionKind.None;
+            }
+
+            if (elementType is not null && IsCollectionLike(elementType))
+            {
+                invalidReason = "nested collection elements are not supported";
+                return QueryCollectionKind.None;
+            }
+
+            invalidReason = null;
+            return kind;
+        }
+
+        if (IsCollectionLike(type))
+        {
+            invalidReason = "use a one-dimensional array, a supported generic collection interface, or List<T>";
+            return QueryCollectionKind.None;
+        }
+
+        elementType = null;
+        invalidReason = null;
+        return QueryCollectionKind.None;
+    }
+
     public static string EmitParse(ITypeSymbol type, string valueExpression, string? nameExpression = null)
     {
-        ITypeSymbol valueType = UnwrapNullable(type);
+        ITypeSymbol valueType = UnwrapNullableType(type);
         bool nullable = IsNullableValueType(type);
         string parsed = EmitNonNullableParse(
             valueType,
@@ -1946,14 +2027,11 @@ internal static class RouteValueSourceEmitter
     }
 
     public static string EmitQueryCollectionParse(
-        ITypeSymbol type,
+        ITypeSymbol elementType,
+        QueryCollectionKind kind,
         string valuesExpression,
         string nameExpression)
     {
-        if (!TryGetSupportedQueryCollection(type, out ITypeSymbol? elementType, out QueryCollectionKind kind) ||
-            elementType is null)
-            return EmitParse(type, valuesExpression, nameExpression);
-
         string select = "global::System.Linq.Enumerable.Select(" + valuesExpression +
                         ", appNavItem => " + EmitParse(elementType, "appNavItem", nameExpression) + ")";
         return kind switch
@@ -1978,17 +2056,7 @@ internal static class RouteValueSourceEmitter
                valueExpression + ", " + nameExpression + ")";
     }
 
-    public static ITypeSymbol GetCodecType(ITypeSymbol type, bool allowQueryCollections = false)
-    {
-        if (allowQueryCollections &&
-            TryGetSupportedQueryCollection(type, out ITypeSymbol? elementType, out _) &&
-            elementType is not null)
-            type = elementType;
-
-        return UnwrapNullable(type);
-    }
-
-    private static ITypeSymbol UnwrapNullable(ITypeSymbol type)
+    public static ITypeSymbol UnwrapNullableType(ITypeSymbol type)
     {
         if (type is INamedTypeSymbol named &&
             named.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T)
@@ -2001,6 +2069,24 @@ internal static class RouteValueSourceEmitter
     {
         return type is INamedTypeSymbol named &&
                named.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T;
+    }
+
+    private static bool IsCollectionLike(ITypeSymbol type)
+    {
+        if (type.SpecialType == SpecialType.System_String)
+            return false;
+
+        if (type is IArrayTypeSymbol)
+            return true;
+
+        if (type is not INamedTypeSymbol namedType)
+            return false;
+
+        return namedType.ToDisplayString() == "System.Collections.IEnumerable" ||
+               namedType.AllInterfaces.Any(static implemented =>
+                   implemented.ToDisplayString() == "System.Collections.IEnumerable" ||
+                   implemented.OriginalDefinition.ToDisplayString() ==
+                   "System.Collections.Generic.IEnumerable<T>");
     }
 
     public enum QueryCollectionKind
@@ -2200,10 +2286,8 @@ internal static class AppNavSourceEmitter
                         break;
                     }
                 case ConstructorArgumentKind.Query:
-                    if (RouteValueSourceEmitter.TryGetSupportedQueryCollection(
-                            argument.Parameter.Type,
-                            out _,
-                            out _))
+                    if (argument.QueryBinding!.CollectionKind !=
+                        RouteValueSourceEmitter.QueryCollectionKind.None)
                     {
                         builder.AppendLine("                    global::System.Collections.Generic.IReadOnlyList<string>? appNavValue" +
                                            i + " = match.QueryValueLists.ContainsKey(" +
@@ -2282,23 +2366,25 @@ internal static class AppNavSourceEmitter
         var types = new Dictionary<string, ITypeSymbol>(StringComparer.Ordinal);
 
         foreach (IPropertySymbol property in route.PathProperties.Values)
-            Add(property.Type, allowQueryCollections: false);
+            Add(property.Type);
 
         foreach (QueryBinding binding in route.QueryBindings)
-            Add(binding.Property.Type, allowQueryCollections: true);
+            Add(binding.CollectionElementType ?? binding.Property.Type);
 
         foreach (MetadataQueryBinding binding in route.MetadataQueryBindings)
-            Add(binding.ValueType, allowQueryCollections: false);
+            Add(binding.ValueType);
 
         foreach (ConstructorArgument argument in route.ConstructorArguments)
             if (argument.Kind is ConstructorArgumentKind.Path or ConstructorArgumentKind.Query)
-                Add(argument.Parameter.Type, argument.Kind == ConstructorArgumentKind.Query);
+                Add(argument.Kind == ConstructorArgumentKind.Query
+                    ? argument.QueryBinding!.CollectionElementType ?? argument.Parameter.Type
+                    : argument.Parameter.Type);
 
         return types.Values.ToArray();
 
-        void Add(ITypeSymbol type, bool allowQueryCollections)
+        void Add(ITypeSymbol type)
         {
-            ITypeSymbol codecType = RouteValueSourceEmitter.GetCodecType(type, allowQueryCollections);
+            ITypeSymbol codecType = RouteValueSourceEmitter.UnwrapNullableType(type);
             types[SymbolFacts.TypeName(codecType)] = codecType;
         }
     }
@@ -2320,11 +2406,12 @@ internal static class AppNavSourceEmitter
 
                     string defaultValue = RouteValueSourceEmitter.EmitDefault(argument.Parameter);
                     if (argument.Kind == ConstructorArgumentKind.Query &&
-                        RouteValueSourceEmitter.TryGetSupportedQueryCollection(argument.Parameter.Type, out _, out _))
+                        argument.QueryBinding!.CollectionElementType is { } elementType)
                     {
                         return variable + " is null ? " + defaultValue + " : " +
                                RouteValueSourceEmitter.EmitQueryCollectionParse(
-                                   argument.Parameter.Type,
+                                   elementType,
+                                   argument.QueryBinding.CollectionKind,
                                    variable,
                                    SymbolDisplay.FormatLiteral(argument.QueryBinding!.QueryName, quote: true));
                     }

@@ -111,7 +111,12 @@ public static class NavigationDiagnosticDataKeys
     public const string PolicyType = "policyType";
 
     /// <summary>
-    /// The number of redirects followed while applying request policies.
+    /// Fully qualified type name of a pre-match request transformer.
+    /// </summary>
+    public const string RequestTransformerType = "requestTransformerType";
+
+    /// <summary>
+    /// The number of request-target redirects followed by the router.
     /// </summary>
     public const string RedirectCount = "redirectCount";
 
@@ -126,7 +131,7 @@ public static class NavigationDiagnosticDataKeys
     public const string RedirectTo = "redirectTo";
 
     /// <summary>
-    /// Textual trace of redirects followed during request policy evaluation.
+    /// Textual trace of request-target redirects followed by the router.
     /// </summary>
     public const string RedirectTrace = "redirectTrace";
 

@@ -105,27 +105,25 @@ public static class AppNavServiceCollectionExtensions
     {
         services.AddAppNavBoundaryServices();
         services.AddAppNavPresentationServices();
-        services.TryAddSingleton(provider =>
+        services.TryAddSingleton<IAppNavRuntime>(provider =>
         {
             var options = new RouterNavigatorFactoryOptions
             {
                 Diagnostics = provider.GetRequiredService<NavigationDiagnostics>(),
                 BackNavigator = provider.GetRequiredService<IBackNavigator>(),
                 LoggerFactory = provider.GetService<ILoggerFactory>(),
+                RequestTransformers = provider.GetServices<INavigationRequestTransformer>().ToArray(),
                 RequestPolicies = provider.GetServices<INavigationRequestPolicy>().ToArray()
             };
 
-            return new CoreRouterNavigator(
-                RouterNavigatorFactory.Create(
-                    provider.GetRequiredService<RouteTable>(),
-                    provider.GetRequiredService<IAppNavigationPlanner>(),
-                    provider.GetRequiredService<MauiNavigationPresenter>(),
-                    options));
+            MauiNavigationPresenter presenter = provider.GetRequiredService<MauiNavigationPresenter>();
+            IRouterNavigator navigator = RouterNavigatorFactory.Create(
+                provider.GetRequiredService<RouteTable>(),
+                provider.GetRequiredService<IAppNavigationPlanner>(),
+                presenter,
+                options);
+            return new AppNavRuntime(navigator, presenter);
         });
-        services.TryAddSingleton<IAppNavRuntime>(provider =>
-            new AppNavRuntime(
-                provider.GetRequiredService<CoreRouterNavigator>().Navigator,
-                provider.GetRequiredService<MauiNavigationPresenter>()));
         services.TryAddSingleton<IRouterNavigator>(provider => provider.GetRequiredService<IAppNavRuntime>());
         services.TryAddSingleton<IMauiWindowAttachment>(provider =>
             (IMauiWindowAttachment)provider.GetRequiredService<IAppNavRuntime>());
@@ -169,11 +167,6 @@ public static class AppNavServiceCollectionExtensions
         }
 
         return options;
-    }
-
-    private sealed class CoreRouterNavigator(IRouterNavigator navigator)
-    {
-        public IRouterNavigator Navigator { get; } = navigator ?? throw new ArgumentNullException(nameof(navigator));
     }
 
     private interface IMauiRoutePageContributor

@@ -57,9 +57,11 @@ public sealed class PublicApiContractTests
                 "AdamE.AppNav.Policies.IAppNavigationPlanner",
                 "AdamE.AppNav.Policies.INavigationAccessEvaluator",
                 "AdamE.AppNav.Policies.INavigationRequestPolicy",
+                "AdamE.AppNav.Policies.INavigationRequestTransformer",
                 "AdamE.AppNav.Policies.NavigationAccessDecision",
                 "AdamE.AppNav.Policies.NavigationPlanningContext",
                 "AdamE.AppNav.Policies.NavigationRequestPolicyContext",
+                "AdamE.AppNav.Policies.NavigationRequestTransformContext",
                 "AdamE.AppNav.Policies.RoutePlannerNotFoundException",
                 "AdamE.AppNav.Presentation.INavigationPresenter",
                 "AdamE.AppNav.Presentation.NavigationPresentationContext",
@@ -71,6 +73,7 @@ public sealed class PublicApiContractTests
                 "AdamE.AppNav.Requests.DeferredNavigationRequestReplayer",
                 "AdamE.AppNav.Requests.DeferredNavigationRequestSerializer",
                 "AdamE.AppNav.Requests.DeferredNavigationRequestStoreSnapshot",
+                "AdamE.AppNav.Requests.IDeferredNavigationRequestLease",
                 "AdamE.AppNav.Requests.IDeferredNavigationRequestReplayer",
                 "AdamE.AppNav.Requests.IDeferredNavigationRequestStore",
                 "AdamE.AppNav.Requests.INavigationRequestMetadataSerializer",
@@ -253,6 +256,9 @@ public sealed class PublicApiContractTests
     [Fact]
     public void NavigationDiagnosticEventKindPreservesExistingNumericValues()
     {
+        Assert.Equal(13, (int)NavigationDiagnosticEventKind.RequestTransformStarted);
+        Assert.Equal(14, (int)NavigationDiagnosticEventKind.RequestTransformCompleted);
+        Assert.Equal(15, (int)NavigationDiagnosticEventKind.RequestTransformFailed);
         Assert.Equal(54, (int)NavigationDiagnosticEventKind.AppLinkReceived);
         Assert.Equal(55, (int)NavigationDiagnosticEventKind.AppLinkBuffered);
         Assert.Equal(56, (int)NavigationDiagnosticEventKind.AppLinkDispatched);

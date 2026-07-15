@@ -83,15 +83,25 @@ public sealed class DeferredNavigationRequestSerializer(
             !Uri.TryCreate(snapshot.Uri, UriKind.RelativeOrAbsolute, out requestUri))
             return false;
 
-        request = new RouterNavigationRequest(
-            requestUri,
-            route,
-            snapshot.Source,
-            snapshot.WindowId,
-            MergeMetadata(routeMetadata, persistedMetadata),
-            snapshot.Timestamp,
-            snapshot.Disposition,
-            NavigationRequestProvenanceSnapshotMapper.Restore(snapshot.Provenance));
+        IReadOnlyDictionary<string, object?>? metadata = MergeMetadata(routeMetadata, persistedMetadata);
+        NavigationRequestProvenance? provenance =
+            NavigationRequestProvenanceSnapshotMapper.Restore(snapshot.Provenance);
+        request = requestUri is null
+            ? RouterNavigationRequest.FromRoute(
+                route!,
+                snapshot.Source,
+                snapshot.WindowId,
+                metadata,
+                snapshot.Disposition,
+                provenance)
+            : RouterNavigationRequest.FromUri(
+                requestUri,
+                snapshot.Source,
+                snapshot.WindowId,
+                metadata,
+                snapshot.Disposition,
+                provenance);
+        request = request with { Timestamp = snapshot.Timestamp };
 
         return true;
     }

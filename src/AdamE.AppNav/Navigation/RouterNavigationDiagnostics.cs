@@ -19,9 +19,10 @@ internal sealed class RouterNavigationDiagnostics(
         NavigationDiagnosticEventKind kind,
         string operationId,
         string message,
-        IReadOnlyDictionary<string, object?>? data = null)
+        IReadOnlyDictionary<string, object?>? data = null,
+        NavigationDiagnosticPhase? phase = null)
     {
-        _diagnostics.Write(kind, operationId, message, data);
+        _diagnostics.Write(kind, operationId, message, data, phase: phase);
     }
 
     public Activity? StartActivity(string name, string operationId, RouterNavigationRequest request)
@@ -113,12 +114,14 @@ internal sealed class RouterNavigationDiagnostics(
 
     public void WriteRedirectLoopDetected(
         string operationId,
-        string? policyType,
+        string componentTypeKey,
+        string? componentType,
         RouterNavigationRequest redirectFrom,
         RouterNavigationRequest redirectTo,
         int redirectCount,
         string redirectTrace,
-        string message)
+        string message,
+        NavigationDiagnosticPhase phase)
     {
         Activity.Current?.SetTag("navigation.redirect_count", redirectCount);
         Activity.Current?.SetTag("navigation.redirect_from", DescribeRedirectTarget(redirectFrom));
@@ -129,11 +132,12 @@ internal sealed class RouterNavigationDiagnostics(
             operationId,
             message,
             Data(
-                (NavigationDiagnosticDataKeys.PolicyType, policyType),
+                (componentTypeKey, componentType),
                 (NavigationDiagnosticDataKeys.RedirectCount, redirectCount),
                 (NavigationDiagnosticDataKeys.RedirectFrom, DescribeRedirectTarget(redirectFrom)),
                 (NavigationDiagnosticDataKeys.RedirectTo, DescribeRedirectTarget(redirectTo)),
-                (NavigationDiagnosticDataKeys.RedirectTrace, redirectTrace)));
+                (NavigationDiagnosticDataKeys.RedirectTrace, redirectTrace)),
+            phase: phase);
     }
 
     public static string BuildRedirectTrace(

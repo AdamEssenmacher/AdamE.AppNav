@@ -231,6 +231,203 @@ public sealed class AppNavSourceGeneratorTests
     }
 
     [Fact]
+    public void GeneratedRouteTableSupportsAllRepeatedQueryCollectionShapes()
+    {
+        const string source = """
+            #nullable enable
+            using System.Collections.Generic;
+            using AdamE.AppNav;
+            using AdamE.AppNav.Routing;
+
+            namespace Commerce.Sample;
+
+            [AppNavRoute("/collections")]
+            [AppNavQuery(nameof(ArrayValues), Name = "array")]
+            [AppNavQuery(nameof(EnumerableValues), Name = "enumerable")]
+            [AppNavQuery(nameof(ReadOnlyCollectionValues), Name = "readOnlyCollection")]
+            [AppNavQuery(nameof(ReadOnlyListValues), Name = "readOnlyList")]
+            [AppNavQuery(nameof(CollectionValues), Name = "collection")]
+            [AppNavQuery(nameof(ListInterfaceValues), Name = "listInterface")]
+            [AppNavQuery(nameof(ListValues), Name = "list")]
+            public sealed record CollectionRoute(
+                int[]? ArrayValues = null,
+                IEnumerable<int>? EnumerableValues = null,
+                IReadOnlyCollection<int>? ReadOnlyCollectionValues = null,
+                IReadOnlyList<int>? ReadOnlyListValues = null,
+                ICollection<int>? CollectionValues = null,
+                IList<int>? ListInterfaceValues = null,
+                List<int>? ListValues = null) : AppRoute;
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+        Assert.Empty(result.GeneratorDiagnostics.Where(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assembly assembly = Emit(result.Compilation);
+        Type generatedType = assembly.GetRequiredType("Commerce.Sample.AppNavGenerated");
+        var table = Assert.IsType<RouteTable>(generatedType.GetMethod("CreateRouteTable", Type.EmptyTypes)!.Invoke(null, null));
+        var uri = new Uri(
+            "/collections?array=1&array=2&enumerable=3&enumerable=4" +
+            "&readOnlyCollection=5&readOnlyCollection=6&readOnlyList=7&readOnlyList=8" +
+            "&collection=9&collection=10&listInterface=11&listInterface=12&list=13&list=14",
+            UriKind.Relative);
+
+        AppRoute route = table.Match(uri).Route!;
+
+        Assert.Equal([1, 2], Values("ArrayValues"));
+        Assert.Equal([3, 4], Values("EnumerableValues"));
+        Assert.Equal([5, 6], Values("ReadOnlyCollectionValues"));
+        Assert.Equal([7, 8], Values("ReadOnlyListValues"));
+        Assert.Equal([9, 10], Values("CollectionValues"));
+        Assert.Equal([11, 12], Values("ListInterfaceValues"));
+        Assert.Equal([13, 14], Values("ListValues"));
+        Assert.Equal(uri.OriginalString, table.Format(route));
+        return;
+
+        int[] Values(string propertyName)
+        {
+            object? value = route.GetType().GetProperty(propertyName)!.GetValue(route);
+            return Assert.IsAssignableFrom<IEnumerable<int>>(value).ToArray();
+        }
+    }
+
+    [Fact]
+    public void GeneratedRepeatedQueryUsesElementCodec()
+    {
+        const string source = """
+            #nullable enable
+            using System.Collections.Generic;
+            using AdamE.AppNav;
+            using AdamE.AppNav.Routing;
+
+            namespace Commerce.Sample;
+
+            public readonly record struct Slug(string Value);
+
+            [AppNavRoute("/search")]
+            [AppNavQuery(nameof(Slugs), Name = "slug")]
+            public sealed record SearchRoute(IReadOnlyList<Slug>? Slugs = null) : AppRoute;
+
+            public static partial class AppNavGenerated
+            {
+                public static RouteTable CreateConfiguredRouteTable()
+                {
+                    return CreateRouteTable(routes => routes.AddValueCodec<Slug>(
+                        value => new Slug(value),
+                        value => value.Value));
+                }
+            }
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+        Assert.Empty(result.GeneratorDiagnostics.Where(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assert.Contains("routes.RequireValueCodec<global::Commerce.Sample.Slug>()", result.GeneratedSource);
+        Assembly assembly = Emit(result.Compilation);
+        Type generatedType = assembly.GetRequiredType("Commerce.Sample.AppNavGenerated");
+        var table = Assert.IsType<RouteTable>(
+            generatedType.GetMethod("CreateConfiguredRouteTable")!.Invoke(null, null));
+
+        RouteMatchResult match = table.Match(new Uri("/search?slug=one&slug=two", UriKind.Relative));
+
+        Assert.True(match.IsSuccess);
+        object? values = match.Route!.GetType().GetProperty("Slugs")!.GetValue(match.Route);
+        Assert.Equal(["one", "two"], Assert.IsAssignableFrom<System.Collections.IEnumerable>(values)
+            .Cast<object>()
+            .Select(static value => (string)value.GetType().GetProperty("Value")!.GetValue(value)!)
+            .ToArray());
+        Assert.Equal("/search?slug=one&slug=two", table.Format(match.Route));
+    }
+
+    [Fact]
+    public void GeneratedRouteTableRejectsNullableValueTypeCollectionElements()
+    {
+        const string source = """
+            #nullable enable
+            using System.Collections.Generic;
+            using AdamE.AppNav;
+            using AdamE.AppNav.Routing;
+
+            namespace Commerce.Sample;
+
+            [AppNavRoute("/search")]
+            [AppNavQuery(nameof(Values), Name = "value")]
+            public sealed record SearchRoute(IReadOnlyList<int?>? Values = null) : AppRoute;
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+
+        Assert.Contains(result.GeneratorDiagnostics, static diagnostic => diagnostic.Id == "APPNAV015");
+    }
+
+    [Fact]
+    public void GeneratedRouteTableRejectsUnsupportedAndNestedQueryCollections()
+    {
+        const string source = """
+            #nullable enable
+            using System.Collections;
+            using System.Collections.Generic;
+            using AdamE.AppNav;
+            using AdamE.AppNav.Routing;
+
+            namespace Commerce.Sample;
+
+            [AppNavRoute("/nested")]
+            [AppNavQuery(nameof(Values), Name = "value")]
+            public sealed record NestedRoute(IReadOnlyList<string[]>? Values = null) : AppRoute;
+
+            [AppNavRoute("/matrix")]
+            [AppNavQuery(nameof(Values), Name = "value")]
+            public sealed record MatrixRoute(int[,]? Values = null) : AppRoute;
+
+            [AppNavRoute("/set")]
+            [AppNavQuery(nameof(Values), Name = "value")]
+            public sealed record SetRoute(HashSet<string>? Values = null) : AppRoute;
+
+            [AppNavRoute("/legacy")]
+            [AppNavQuery(nameof(Values), Name = "value")]
+            public sealed record LegacyRoute(ArrayList? Values = null) : AppRoute;
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+
+        Assert.Equal(
+            4,
+            result.GeneratorDiagnostics
+                .Where(static diagnostic => diagnostic.Id == "APPNAV015")
+                .Select(static diagnostic => diagnostic.GetMessage())
+                .Distinct(StringComparer.Ordinal)
+                .Count());
+    }
+
+    [Fact]
+    public void GeneratedRouteTableRejectsMismatchedQueryPropertyAndConstructorTypes()
+    {
+        const string source = """
+            #nullable enable
+            using System.Collections.Generic;
+            using AdamE.AppNav;
+            using AdamE.AppNav.Routing;
+
+            namespace Commerce.Sample;
+
+            [AppNavRoute("/search")]
+            [AppNavQuery(nameof(Values), Name = "value")]
+            public sealed record SearchRoute : AppRoute
+            {
+                public IReadOnlyList<int>? Values { get; }
+
+                public SearchRoute(List<int>? values = null)
+                {
+                    Values = values;
+                }
+            }
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+
+        Diagnostic diagnostic = result.GeneratorDiagnostics.First(static item => item.Id == "APPNAV016");
+        Assert.Contains("types must match", diagnostic.GetMessage());
+    }
+
+    [Fact]
     public void AppNavRouteOnNonAppRouteReportsDiagnostic()
     {
         const string source = """

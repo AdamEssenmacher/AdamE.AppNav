@@ -122,6 +122,16 @@ internal sealed class AppNavRuntime(
         return navigator.ReconcileAsync(reconciliation, cancellationToken);
     }
 
+    public void Dispose()
+    {
+        navigator.Dispose();
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        return navigator.DisposeAsync();
+    }
+
     public void AttachWindow(Window window, string windowId)
     {
         presenter.AttachWindow(window, windowId);

@@ -22,7 +22,13 @@ public sealed class RouterNavigatorFactoryOptions
     public NavigationState? InitialState { get; init; }
 
     /// <summary>
-    /// Gets the request policies applied before route planning.
+    /// Gets the request transformers applied before route matching.
+    /// </summary>
+    public IReadOnlyList<INavigationRequestTransformer> RequestTransformers { get; init; } =
+        [];
+
+    /// <summary>
+    /// Gets the request policies applied after route matching and before route planning.
     /// </summary>
     public IReadOnlyList<INavigationRequestPolicy> RequestPolicies { get; init; } =
         [];
@@ -45,7 +51,7 @@ public sealed class RouterNavigatorFactoryOptions
     public IBackNavigator? BackNavigator { get; init; }
 
     /// <summary>
-    /// Gets the maximum number of request-policy redirects allowed during one navigation operation.
+    /// Gets the maximum number of request-target redirects allowed during one navigation operation.
     /// </summary>
     // ReSharper disable once AutoPropertyCanBeMadeGetOnly.Global
     public int MaxRedirects { get; init; } = 16;

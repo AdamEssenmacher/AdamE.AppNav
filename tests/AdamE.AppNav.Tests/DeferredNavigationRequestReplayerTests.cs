@@ -77,7 +77,7 @@ public sealed class DeferredNavigationRequestReplayerTests
         Assert.Equal(new[] { first, second }, navigator.Calls);
         Assert.Equal(new DeferredNavigationReplayResult(2, 1, 1), result);
         Assert.True(await store.HasDeferredRequestsAsync());
-        Assert.Equal([first], await store.DrainAsync());
+        Assert.Equal([first], await SnapshotAsync(store));
     }
 
     [Fact]
@@ -104,9 +104,8 @@ public sealed class DeferredNavigationRequestReplayerTests
         var firstPass = await replayer.ReplayAsync();
 
         Assert.Equal(new DeferredNavigationReplayResult(1, 0, 1), firstPass);
-        Assert.Equal([request], await store.DrainAsync());
+        Assert.Equal([request], await SnapshotAsync(store));
 
-        await store.EnqueueAsync(request);
         var secondPass = await replayer.ReplayAsync();
 
         Assert.Equal(new DeferredNavigationReplayResult(1, 1, 0), secondPass);
@@ -147,7 +146,14 @@ public sealed class DeferredNavigationRequestReplayerTests
             replayer.ReplayAsync(cancellationTokenSource.Token).AsTask());
 
         Assert.Equal([first, second], navigator.Calls);
-        Assert.Equal([first, second, third], await store.DrainAsync());
+        Assert.Equal([first, second, third], await SnapshotAsync(store));
+    }
+
+    private static async Task<IReadOnlyList<RouterNavigationRequest>> SnapshotAsync(
+        InMemoryDeferredNavigationRequestStore store)
+    {
+        await using IDeferredNavigationRequestLease lease = await store.AcquireReplayLeaseAsync();
+        return lease.Requests.ToArray();
     }
 
     private sealed class RecordingRouterNavigator(
@@ -187,5 +193,7 @@ public sealed class DeferredNavigationRequestReplayerTests
 
         public ValueTask<BackNavigationResult> BackAsync(string? windowId = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<NavigationResult> ReconcileAsync(NavigationReconciliation reconciliation, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public void Dispose() { }
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }

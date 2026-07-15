@@ -58,7 +58,8 @@ public sealed class AccessGateNavigationPolicyTests
         var result = await policy.ApplyAsync(Context(request));
 
         Assert.Equal("main", result.WindowId);
-        var buffered = Assert.Single(await store.DrainAsync());
+        await using IDeferredNavigationRequestLease lease = await store.AcquireReplayLeaseAsync();
+        var buffered = Assert.Single(lease.Requests);
         Assert.Same(request, buffered);
         Assert.Equal("one", buffered.Metadata["request-id"]);
     }
@@ -79,7 +80,8 @@ public sealed class AccessGateNavigationPolicyTests
         await policy.ApplyAsync(Context(request));
         await policy.ApplyAsync(Context(request));
 
-        Assert.Single(await store.DrainAsync());
+        await using IDeferredNavigationRequestLease lease = await store.AcquireReplayLeaseAsync();
+        Assert.Single(lease.Requests);
     }
 
     private static NavigationRequestPolicyContext Context(RouterNavigationRequest request)

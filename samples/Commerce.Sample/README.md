@@ -7,6 +7,7 @@ The sample keeps route identity and route-entry metadata intentionally separate:
 - Pages receive typed `AppRoute` constructor parameters.
 - In-app page code navigates with `AppRouteRequest` through `IRouterNavigator`.
 - Startup fallback remains a `RouterNavigationRequest.FromUri(...)` boundary.
+- `LegacyProductUrlTransformer` rewrites `/p/{productId}` before route matching, so legacy URLs need no fallback route.
 - Source-generated route and page modules provide the route table and standard page mappings.
 - The generated route table formats the canonical `campaign` metadata query from `AppRouteRequest` without pushing that value into page constructor route types.
 

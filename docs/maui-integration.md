@@ -14,7 +14,7 @@ This guide walks through one common MAUI integration shape for AppNav. It is a c
 App code / host code     Boundary / lifecycle        Router runtime
 ---------------------    ---------------------       --------------
 AppRoute / AppRouteRequest / Uri / RouterNavigationRequest
-                                              ->    policies -> planner -> presenter
+                                              ->    transformers -> match -> policies -> planner -> presenter
 ```
 
 ## App-Authored Navigation
@@ -61,10 +61,14 @@ Common runtime uses:
 - startup fallback
 - restore
 - request-policy pipelines
+- pre-match request transformation
 - deferred request replay
 - tests
 
 `RouterNavigationRequest` can carry `NavigationRequestProvenance`, which is runtime request context: provider, original URI, referrer URI, correlation id, cold-start flag when known, and string attributes. Keep provenance out of `AppRoute`, `AppRouteRequest`, route formatting, and `RouteStateRegistry`. AppNav sets transport provenance it owns; apps set provider/business provenance they own. For field ownership, see [provenance.md](provenance.md).
+
+A request always has exactly one target. Create it with `FromUri`, `FromRoute`, or `FromRouteRequest`, and use
+`WithTarget(Uri)` or `WithTarget(AppRoute)` when a transformer or policy replaces that target.
 
 Typical boundary code:
 
@@ -100,6 +104,16 @@ App-link lifecycle ingress targets one active AppNav MAUI host per process. The 
 platform callbacks. Disposing that host cancels its in-flight external navigation and drops its queued requests;
 callbacks arriving after disposal remain buffered until a replacement host is created. Disposing an older host does
 not unregister a newer one.
+
+`AddAppNav(...)` discovers `INavigationRequestTransformer` and `INavigationRequestPolicy` registrations in order.
+Transformers run before route matching, including for unmatched and redirected targets. Policies run after matching and
+use `NavigationRequestPolicyContext.Route` for the resolved route. The MAUI runtime owns the core navigator and DI
+disposes it before the presenter.
+
+Deferred replay is lease-based and at-least-once. Acquiring a lease does not remove persisted requests; successful
+navigation is removed only after durable acknowledgement. A crash between presentation and acknowledgement may replay
+once more but cannot lose the request. Persisted deferred data accepts schema 2 exactly. MAUI startup clears unsupported
+schema-1 or future preview data and continues through fallback startup.
 
 ## Other Public Runtime Seams
 

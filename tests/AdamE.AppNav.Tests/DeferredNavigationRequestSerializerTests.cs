@@ -79,8 +79,27 @@ public sealed class DeferredNavigationRequestSerializerTests
 
         var restored = Assert.Single(serializer.Restore(serializer.CreateSnapshot([request])));
 
-        Assert.IsType<TestRoutes.StoreRoute>(restored.Route);
+        Assert.Equal(request.Uri, restored.Uri);
+        Assert.Null(restored.Route);
         Assert.Equal("mission-1", restored.Metadata[missionId.Name]);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(3)]
+    public void Restore_RejectsUnsupportedSchemaVersions(int schemaVersion)
+    {
+        var serializer = new DeferredNavigationRequestSerializer(TestRoutes.CreateTable());
+        var snapshot = new DeferredNavigationRequestStoreSnapshot
+        {
+            SchemaVersion = schemaVersion,
+            Requests = []
+        };
+
+        var exception = Assert.Throws<InvalidOperationException>(() => serializer.Restore(snapshot));
+
+        Assert.Contains(schemaVersion.ToString(), exception.Message);
     }
 
     [Fact]

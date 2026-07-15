@@ -53,5 +53,10 @@ public enum NavigationDiagnosticPhase
     /// <summary>
     /// Diagnostics infrastructure, including observer failures.
     /// </summary>
-    Diagnostics
+    Diagnostics,
+
+    /// <summary>
+    /// Pre-match request normalization, validation, or redirection.
+    /// </summary>
+    RequestTransformation
 }

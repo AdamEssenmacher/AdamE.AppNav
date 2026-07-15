@@ -1,5 +1,6 @@
 using AdamE.AppNav.Requests;
 using AdamE.AppNav.Routing;
+using System.Reflection;
 
 namespace AdamE.AppNav.Tests;
 
@@ -89,6 +90,39 @@ public sealed class RouterNavigationRequestConversionTests
         Assert.Equal(provenance, routeOnlyRequest.Provenance);
         Assert.Equal(provenance, routeRequestRequest.Provenance);
         Assert.Empty(routeRequestRequest.Metadata);
+    }
+
+    [Fact]
+    public void RequestTargetsAreExclusiveAndCanOnlyBeReplacedAtomically()
+    {
+        Assert.Empty(typeof(RouterNavigationRequest).GetConstructors(BindingFlags.Public | BindingFlags.Instance));
+        Assert.Null(typeof(RouterNavigationRequest).GetProperty(nameof(RouterNavigationRequest.Uri))!
+            .GetSetMethod(nonPublic: false));
+        Assert.Null(typeof(RouterNavigationRequest).GetProperty(nameof(RouterNavigationRequest.Route))!
+            .GetSetMethod(nonPublic: false));
+
+        var provenance = new NavigationRequestProvenance(provider: "test", correlationId: "one");
+        var original = RouterNavigationRequest.FromRoute(
+            new TestRoutes.StoreRoute("northwind"),
+            NavigationRequestSource.Push,
+            windowId: "main",
+            metadata: new Dictionary<string, object?> { ["key"] = "value" },
+            disposition: RouterNavigationDisposition.ReplaceCurrent,
+            provenance: provenance);
+
+        RouterNavigationRequest uriTarget = original.WithTarget(new Uri("/stores/contoso", UriKind.Relative));
+        RouterNavigationRequest routeTarget = uriTarget.WithTarget(new TestRoutes.StoreRoute("adventure-works"));
+
+        Assert.Null(uriTarget.Route);
+        Assert.Equal(new Uri("/stores/contoso", UriKind.Relative), uriTarget.Uri);
+        Assert.Null(routeTarget.Uri);
+        Assert.Equal(new TestRoutes.StoreRoute("adventure-works"), routeTarget.Route);
+        Assert.Equal(original.Source, routeTarget.Source);
+        Assert.Equal(original.WindowId, routeTarget.WindowId);
+        Assert.Equal(original.Disposition, routeTarget.Disposition);
+        Assert.Equal(original.Timestamp, routeTarget.Timestamp);
+        Assert.Equal(original.Metadata, routeTarget.Metadata);
+        Assert.Equal(provenance, routeTarget.Provenance);
     }
 
     private static readonly RouteMetadataKey<string> MissionIdMetadata = new("missionId");

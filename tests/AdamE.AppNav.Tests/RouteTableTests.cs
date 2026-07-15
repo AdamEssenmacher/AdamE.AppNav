@@ -284,6 +284,98 @@ public sealed class RouteTableTests
     }
 
     [Fact]
+    public void ConventionRouteMapsAndFormatsEverySupportedRepeatedQueryCollection()
+    {
+        var table = RouteTable.Create(routes => routes.MapRoute<ConventionCollectionQueryRoute>(
+            "/collections",
+            route => route
+                .Query(value => value.ArrayValues, "array")
+                .Query(value => value.EnumerableValues, "enumerable")
+                .Query(value => value.ReadOnlyCollectionValues, "readOnlyCollection")
+                .Query(value => value.ReadOnlyListValues, "readOnlyList")
+                .Query(value => value.CollectionValues, "collection")
+                .Query(value => value.ListInterfaceValues, "listInterface")
+                .Query(value => value.ListValues, "list")));
+        var uri = new Uri(
+            "/collections?array=1&array=2&enumerable=3&enumerable=4" +
+            "&readOnlyCollection=5&readOnlyCollection=6&readOnlyList=7&readOnlyList=8" +
+            "&collection=9&collection=10&listInterface=11&listInterface=12&list=13&list=14",
+            UriKind.Relative);
+
+        var route = Assert.IsType<ConventionCollectionQueryRoute>(table.Match(uri).Route);
+
+        Assert.Equal([1, 2], Assert.IsType<int[]>(route.ArrayValues));
+        Assert.Equal([3, 4], route.EnumerableValues);
+        Assert.Equal([5, 6], route.ReadOnlyCollectionValues);
+        Assert.Equal([7, 8], route.ReadOnlyListValues);
+        Assert.Equal([9, 10], route.CollectionValues);
+        Assert.Equal([11, 12], route.ListInterfaceValues);
+        Assert.Equal([13, 14], route.ListValues);
+        Assert.IsType<int[]>(route.ReadOnlyListValues);
+        Assert.IsType<List<int>>(route.ListValues);
+        Assert.Equal(uri.OriginalString, table.Format(route));
+    }
+
+    [Fact]
+    public void ConventionRepeatedQueryUsesElementCodec()
+    {
+        var table = RouteTable.Create(routes => routes
+            .AddValueCodec<SlugValue>(static value => new SlugValue(value), static value => value.Value)
+            .MapRoute<ConventionCustomCollectionRoute>(
+                "/collections/custom",
+                route => route.Query(value => value.Values, "value")));
+
+        var route = Assert.IsType<ConventionCustomCollectionRoute>(table.Match(
+            new Uri("/collections/custom?value=one&value=two", UriKind.Relative)).Route);
+
+        Assert.Equal([new SlugValue("one"), new SlugValue("two")], route.Values);
+        Assert.Equal("/collections/custom?value=one&value=two", table.Format(route));
+    }
+
+    [Fact]
+    public void ConventionRepeatedQueryRejectsNullableValueTypeElements()
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() => RouteTable.Create(routes =>
+            routes.MapRoute<ConventionNullableCollectionRoute>(
+                "/collections/nullable",
+                route => route.Query(value => value.Values, "value"))));
+
+        Assert.Contains("nullable value-type element", exception.Message);
+    }
+
+    [Fact]
+    public void ConventionRepeatedQueryRejectsNestedCollections()
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() => RouteTable.Create(routes =>
+            routes.MapRoute<ConventionNestedCollectionRoute>(
+                "/collections/nested",
+                route => route.Query(value => value.Values, "value"))));
+
+        Assert.Contains("nested collection element", exception.Message);
+    }
+
+    [Fact]
+    public void ConventionRepeatedQueryRejectsUnsupportedCollectionShapes()
+    {
+        var matrixException = Assert.Throws<InvalidOperationException>(() => RouteTable.Create(routes =>
+            routes.MapRoute<ConventionMatrixCollectionRoute>(
+                "/collections/matrix",
+                route => route.Query(value => value.Values, "value"))));
+        var setException = Assert.Throws<InvalidOperationException>(() => RouteTable.Create(routes =>
+            routes.MapRoute<ConventionSetCollectionRoute>(
+                "/collections/set",
+                route => route.Query(value => value.Values, "value"))));
+        var legacyException = Assert.Throws<InvalidOperationException>(() => RouteTable.Create(routes =>
+            routes.MapRoute<ConventionLegacyCollectionRoute>(
+                "/collections/legacy",
+                route => route.Query(value => value.Values, "value"))));
+
+        Assert.Contains("unsupported query collection type", matrixException.Message);
+        Assert.Contains("unsupported query collection type", setException.Message);
+        Assert.Contains("unsupported query collection type", legacyException.Message);
+    }
+
+    [Fact]
     public void ConventionRouteInfersCamelCaseQueryNames()
     {
         var table = RouteTable.Create(routes => routes.MapRoute<ConventionQueryRoute>(
@@ -564,6 +656,17 @@ public sealed class RouteTableTests
 
         Assert.Contains("query values are always optional", exception.Message);
         Assert.Contains("nullable or provide a default value", exception.Message);
+    }
+
+    [Fact]
+    public void ConventionRouteRejectsMismatchedQueryPropertyAndConstructorTypesAtRegistration()
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() => RouteTable.Create(routes =>
+            routes.MapRoute<MismatchedCollectionQueryRoute>(
+                "/search",
+                route => route.Query(value => value.Values, "value"))));
+
+        Assert.Contains("types must match", exception.Message);
     }
 
     [Fact]
@@ -920,6 +1023,43 @@ public sealed class RouteTableTests
     private sealed record ConventionProductRoute(string StoreId, int ProductId, string? Variant = null) : AppRoute;
 
     private sealed record ConventionDefaultedQueryRoute(string StoreId, int Page = 1) : AppRoute;
+
+    private sealed record ConventionCollectionQueryRoute(
+        int[]? ArrayValues = null,
+        IEnumerable<int>? EnumerableValues = null,
+        IReadOnlyCollection<int>? ReadOnlyCollectionValues = null,
+        IReadOnlyList<int>? ReadOnlyListValues = null,
+        ICollection<int>? CollectionValues = null,
+        IList<int>? ListInterfaceValues = null,
+        List<int>? ListValues = null) : AppRoute;
+
+    private sealed record ConventionCustomCollectionRoute(
+        IReadOnlyList<SlugValue>? Values = null) : AppRoute;
+
+    private sealed record ConventionNullableCollectionRoute(
+        IReadOnlyList<int?>? Values = null) : AppRoute;
+
+    private sealed record ConventionNestedCollectionRoute(
+        IReadOnlyList<string[]>? Values = null) : AppRoute;
+
+    private sealed record ConventionMatrixCollectionRoute(
+        int[,]? Values = null) : AppRoute;
+
+    private sealed record ConventionSetCollectionRoute(
+        HashSet<string>? Values = null) : AppRoute;
+
+    private sealed record ConventionLegacyCollectionRoute(
+        System.Collections.ArrayList? Values = null) : AppRoute;
+
+    private sealed record MismatchedCollectionQueryRoute : AppRoute
+    {
+        public MismatchedCollectionQueryRoute(List<int>? values = null)
+        {
+            Values = values;
+        }
+
+        public IReadOnlyList<int>? Values { get; }
+    }
 
     private sealed record ConventionQueryRoute(
         string StoreId,

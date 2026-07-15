@@ -11,7 +11,8 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
     private readonly string _path;
     private readonly DeferredNavigationRequestSerializer _serializer;
     private readonly SemaphoreSlim _gate = new(1, 1);
-    private readonly Queue<RouterNavigationRequest> _requests = new();
+    private readonly SemaphoreSlim _replayGate = new(1, 1);
+    private readonly List<StoredRequest> _requests = [];
     private readonly HashSet<RouterNavigationRequest> _deduped = new(MauiNavigationRequestEquivalenceComparer.Instance);
     private bool _loaded;
 
@@ -56,13 +57,19 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
         try
         {
             await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false);
-            if (!_deduped.Add(request))
+            if (_deduped.Contains(request))
             {
                 return;
             }
 
-            _requests.Enqueue(request);
-            await PersistAsync(cancellationToken).ConfigureAwait(false);
+            var entry = new StoredRequest(Guid.NewGuid(), request);
+            RouterNavigationRequest[] projected = _requests
+                .Select(static stored => stored.Request)
+                .Append(request)
+                .ToArray();
+            await PersistAsync(projected, cancellationToken).ConfigureAwait(false);
+            _requests.Add(entry);
+            _deduped.Add(request);
         }
         finally
         {
@@ -70,69 +77,56 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
         }
     }
 
-    public async ValueTask<RouterNavigationRequest?> TryDequeueAsync(CancellationToken cancellationToken = default)
+    public async ValueTask<IDeferredNavigationRequestLease> AcquireReplayLeaseAsync(
+        CancellationToken cancellationToken = default)
     {
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await _replayGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false);
-            if (_requests.Count == 0)
+            await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
-                return null;
+                await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false);
+                return new ReplayLease(this, _requests.ToArray());
             }
-
-            var request = _requests.Dequeue();
-            _deduped.Remove(request);
-            await PersistAsync(cancellationToken).ConfigureAwait(false);
-            return request;
-        }
-        finally
-        {
-            _gate.Release();
-        }
-    }
-
-    public async ValueTask<IReadOnlyList<RouterNavigationRequest>> DrainAsync(CancellationToken cancellationToken = default)
-    {
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false);
-            if (_requests.Count == 0)
+            finally
             {
-                return [];
+                _gate.Release();
             }
-
-            var drained = _requests.ToArray();
-            _requests.Clear();
-            _deduped.Clear();
-            await PersistAsync(cancellationToken).ConfigureAwait(false);
-            return drained;
         }
-        finally
+        catch
         {
-            _gate.Release();
+            _replayGate.Release();
+            throw;
         }
     }
 
     public async ValueTask ClearAsync(CancellationToken cancellationToken = default)
     {
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await _replayGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            // ClearAsync is the recovery escape hatch for invalid persisted data and must
-            // not depend on successfully deserializing the current on-disk snapshot.
-            _requests.Clear();
-            _deduped.Clear();
-            _loaded = true;
-            if (File.Exists(_path))
+            await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
-                File.Delete(_path);
+                // ClearAsync is the recovery escape hatch for invalid persisted data and must
+                // not depend on successfully deserializing the current on-disk snapshot.
+                _requests.Clear();
+                _deduped.Clear();
+                _loaded = true;
+                if (File.Exists(_path))
+                {
+                    File.Delete(_path);
+                }
+            }
+            finally
+            {
+                _gate.Release();
             }
         }
         finally
         {
-            _gate.Release();
+            _replayGate.Release();
         }
     }
 
@@ -172,16 +166,18 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
         _deduped.Clear();
         foreach (var request in pendingRequests)
         {
-            _requests.Enqueue(request);
+            _requests.Add(new StoredRequest(Guid.NewGuid(), request));
             _deduped.Add(request);
         }
 
         _loaded = true;
     }
 
-    private async Task PersistAsync(CancellationToken cancellationToken)
+    private async Task PersistAsync(
+        IReadOnlyList<RouterNavigationRequest> requests,
+        CancellationToken cancellationToken)
     {
-        if (_requests.Count == 0)
+        if (requests.Count == 0)
         {
             if (File.Exists(_path))
             {
@@ -197,7 +193,7 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
             Directory.CreateDirectory(directory);
         }
 
-        var snapshot = _serializer.CreateSnapshot(_requests.ToArray());
+        var snapshot = _serializer.CreateSnapshot(requests);
         var tempPath = $"{_path}.{Guid.NewGuid():N}.tmp";
 
         try
@@ -225,6 +221,95 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
             if (File.Exists(tempPath))
             {
                 File.Delete(tempPath);
+            }
+        }
+    }
+
+    private async ValueTask AcknowledgeAsync(Guid id, CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false);
+            int index = _requests.FindIndex(entry => entry.Id == id);
+            if (index < 0)
+                throw new InvalidOperationException("The deferred request is no longer present in the store.");
+
+            RouterNavigationRequest request = _requests[index].Request;
+            RouterNavigationRequest[] projected = _requests
+                .Where(entry => entry.Id != id)
+                .Select(static entry => entry.Request)
+                .ToArray();
+            await PersistAsync(projected, cancellationToken).ConfigureAwait(false);
+            _requests.RemoveAt(index);
+            _deduped.Remove(request);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private void ReleaseReplayLease()
+    {
+        _replayGate.Release();
+    }
+
+    private sealed record StoredRequest(Guid Id, RouterNavigationRequest Request);
+
+    private sealed class ReplayLease : IDeferredNavigationRequestLease
+    {
+        private readonly MauiFileDeferredNavigationRequestStore _owner;
+        private readonly StoredRequest[] _entries;
+        private readonly SemaphoreSlim _operationGate = new(1, 1);
+        private readonly bool[] _acknowledged;
+        private int _disposeStarted;
+
+        public ReplayLease(MauiFileDeferredNavigationRequestStore owner, StoredRequest[] entries)
+        {
+            _owner = owner;
+            _entries = entries;
+            _acknowledged = new bool[entries.Length];
+            Requests = Array.AsReadOnly(entries.Select(static entry => entry.Request).ToArray());
+        }
+
+        public IReadOnlyList<RouterNavigationRequest> Requests { get; }
+
+        public async ValueTask AcknowledgeAsync(
+            int requestIndex,
+            CancellationToken cancellationToken = default)
+        {
+            await _operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposeStarted) != 0, this);
+                if ((uint)requestIndex >= (uint)_entries.Length)
+                    throw new ArgumentOutOfRangeException(nameof(requestIndex));
+                if (_acknowledged[requestIndex])
+                    throw new InvalidOperationException("The deferred request has already been acknowledged.");
+
+                await _owner.AcknowledgeAsync(_entries[requestIndex].Id, cancellationToken).ConfigureAwait(false);
+                _acknowledged[requestIndex] = true;
+            }
+            finally
+            {
+                _operationGate.Release();
+            }
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            if (Interlocked.Exchange(ref _disposeStarted, 1) != 0)
+                return;
+
+            await _operationGate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                _owner.ReleaseReplayLease();
+            }
+            finally
+            {
+                _operationGate.Release();
             }
         }
     }

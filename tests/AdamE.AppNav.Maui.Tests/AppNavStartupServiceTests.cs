@@ -253,6 +253,69 @@ public sealed class AppNavStartupServiceTests
     }
 
     [Fact]
+    public async Task StartAsync_SchemaOneDeferredRequestStore_ClearsStoreAndRunsFallback()
+    {
+        var diagnostics = new NavigationDiagnostics();
+        var navigator = new RecordingRouterNavigator();
+        var routes = RouteTable.Create(builder => builder.MapRoute<TestRoute>("/stores/{id}"));
+        var directory = CreateStoreDirectory();
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, MauiFileDeferredNavigationRequestStore.DefaultFileName);
+
+        try
+        {
+            var serializer = new DeferredNavigationRequestSerializer(
+                routes,
+                new DeferredNavigationRequestPersistenceOptions { BaseUri = BaseUri });
+            DeferredNavigationRequestStoreSnapshot schemaOneSnapshot = serializer.CreateSnapshot(
+                [RouterNavigationRequest.FromRoute(new TestRoute("legacy"), NavigationRequestSource.AppLink)]) with
+            {
+                SchemaVersion = 1
+            };
+            await File.WriteAllTextAsync(path, JsonSerializer.Serialize(schemaOneSnapshot));
+            var deferredStore = new MauiFileDeferredNavigationRequestStore(
+                routes,
+                new MauiFileDeferredNavigationRequestStoreOptions
+                {
+                    Path = path,
+                    BaseUri = BaseUri
+                });
+            using var services = new ServiceCollection()
+                .AddSingleton<IRouterNavigator>(navigator)
+                .AddSingleton(diagnostics)
+                .AddSingleton<IDeferredNavigationRequestStore>(deferredStore)
+                .BuildServiceProvider();
+            using var dispatcher = new MauiExternalNavigationDispatcher(services, diagnostics);
+            var startup = new AppNavStartupService(
+                navigator,
+                new RecordingWindowAttachment(),
+                dispatcher,
+                new AppNavStartupOptions
+                {
+                    AppLinkGracePeriod = TimeSpan.Zero,
+                    FallbackRequestFactory = static (_, _) => ValueTask.FromResult<RouterNavigationRequest?>(
+                        RouterNavigationRequest.FromRoute(
+                            new TestRoute("fallback"),
+                            NavigationRequestSource.InAppCommand))
+                },
+                services,
+                diagnostics);
+
+            AppNavStartupResult result = await StartOnMainThreadAsync(startup, new Window(new ContentPage()));
+
+            Assert.Equal(AppNavStartupOutcome.FallbackNavigated, result.Outcome);
+            Assert.Null(result.Exception);
+            Assert.Equal("fallback", Assert.IsType<TestRoute>(Assert.Single(navigator.NavigateCalls).Route).Id);
+            Assert.False(File.Exists(path));
+            Assert.False(await deferredStore.HasDeferredRequestsAsync());
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task StartAsync_InvalidDeferredRequestStoreClearFailure_ReturnsFailed()
     {
         var navigator = new RecordingRouterNavigator();
@@ -401,12 +464,8 @@ public sealed class AppNavStartupServiceTests
             throw new NotSupportedException();
         }
 
-        public ValueTask<RouterNavigationRequest?> TryDequeueAsync(CancellationToken cancellationToken = default)
-        {
-            throw new NotSupportedException();
-        }
-
-        public ValueTask<IReadOnlyList<RouterNavigationRequest>> DrainAsync(CancellationToken cancellationToken = default)
+        public ValueTask<IDeferredNavigationRequestLease> AcquireReplayLeaseAsync(
+            CancellationToken cancellationToken = default)
         {
             throw new NotSupportedException();
         }
@@ -455,6 +514,8 @@ public sealed class AppNavStartupServiceTests
 
         public ValueTask<BackNavigationResult> BackAsync(string? windowId = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<NavigationResult> ReconcileAsync(NavigationReconciliation reconciliation, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public void Dispose() { }
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     private static string CreateStoreDirectory()

@@ -13,6 +13,8 @@ internal sealed class RouterNavigatorOptions
 
     public NavigationHistory? InitialHistory { get; init; }
 
+    public IReadOnlyList<INavigationRequestTransformer> RequestTransformers { get; init; } = [];
+
     public IReadOnlyList<INavigationRequestPolicy> RequestPolicies { get; init; } = [];
 
     public Func<NavigationFallbackContext, AppRoute?>? FallbackRouteFactory { get; init; }

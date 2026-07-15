@@ -13,6 +13,7 @@ TRoute>
     private readonly IReadOnlyList<ConstructorArgument> _arguments;
     private readonly IReadOnlyDictionary<string, PropertyInfo> _pathProperties;
     private readonly IReadOnlyList<ConventionQueryBinding> _queryBindings;
+    private readonly IReadOnlyDictionary<string, ConventionQueryCollectionShape?> _queryCollections;
     private readonly IReadOnlyList<ConventionMetadataQueryBinding> _metadataQueryBindings;
 
     private ConventionRouteBinder(
@@ -21,6 +22,7 @@ TRoute>
         IReadOnlyList<ConstructorArgument> arguments,
         IReadOnlyDictionary<string, PropertyInfo> pathProperties,
         IReadOnlyList<ConventionQueryBinding> queryBindings,
+        IReadOnlyDictionary<string, ConventionQueryCollectionShape?> queryCollections,
         IReadOnlyList<ConventionMetadataQueryBinding> metadataQueryBindings)
     {
         _template = template;
@@ -28,6 +30,7 @@ TRoute>
         _arguments = arguments;
         _pathProperties = pathProperties;
         _queryBindings = queryBindings;
+        _queryCollections = queryCollections;
         _metadataQueryBindings = metadataQueryBindings;
     }
 
@@ -44,8 +47,10 @@ TRoute>
         ConstructorInfo constructor = SelectConstructor(template, builder.QueryBindings);
         ValidateQueryBoundConstructorParameters(constructor, builder.QueryBindings);
         ValidateOptionalPathConstructorParameters(constructor, template);
+        IReadOnlyDictionary<string, ConventionQueryCollectionShape?> queryCollections =
+            ClassifyQueryCollections(builder.QueryBindings);
         IReadOnlyList<ConstructorArgument> arguments =
-            BindConstructorArguments(constructor, template, builder.QueryBindings);
+            BindConstructorArguments(constructor, template, builder.QueryBindings, queryCollections);
 
         return new ConventionRouteBinder<TRoute>(
             template,
@@ -53,6 +58,7 @@ TRoute>
             arguments,
             pathProperties,
             builder.QueryBindings.ToArray(),
+            queryCollections,
             builder.MetadataQueryBindings.ToArray());
     }
 
@@ -62,17 +68,19 @@ TRoute>
         {
             var types = new HashSet<Type>();
             foreach (ConstructorArgument argument in _arguments)
-                if (argument.Kind is ConstructorArgumentKind.Path or ConstructorArgumentKind.Query)
+                if (argument.Kind == ConstructorArgumentKind.Path)
                     types.Add(RouteValueCodecRegistry.Normalize(argument.ParameterType));
+                else if (argument.Kind == ConstructorArgumentKind.Query)
+                    AddValueType(types, argument.ParameterType, argument.QueryCollection);
 
             foreach (PropertyInfo property in _pathProperties.Values)
-                AddFormattedValueType(types, property.PropertyType);
+                types.Add(RouteValueCodecRegistry.Normalize(property.PropertyType));
 
             foreach (ConventionQueryBinding binding in _queryBindings)
-                AddFormattedValueType(types, binding.Property.PropertyType);
+                AddValueType(types, binding.Property.PropertyType, _queryCollections[binding.Property.Name]);
 
             foreach (ConventionMetadataQueryBinding binding in _metadataQueryBindings)
-                AddFormattedValueType(types, binding.ValueType);
+                types.Add(RouteValueCodecRegistry.Normalize(binding.ValueType));
 
             return types;
         }
@@ -123,7 +131,10 @@ TRoute>
         var query = new List<string>();
         foreach (ConventionQueryBinding binding in _queryBindings)
             query.AddRange(from value in RouteValueFormatting.FormatMany(
-                    binding.Property.GetValue(route), binding.QueryName, codecs)
+                    binding.Property.GetValue(route),
+                    binding.QueryName,
+                    codecs,
+                    _queryCollections[binding.Property.Name]?.ElementType)
                            where value is not null || !binding.OmitWhenNull
                            select $"{Uri.EscapeDataString(binding.QueryName)}={Uri.EscapeDataString(value ?? string.Empty)}");
 
@@ -232,8 +243,16 @@ TRoute>
 
         foreach (ParameterInfo parameter in constructor.GetParameters())
         {
-            if (!queryBindingsByPropertyName.TryGetValue(parameter.Name!, out ConventionQueryBinding? queryBinding) ||
-                IsMissingSafeQueryParameter(parameter))
+            if (!queryBindingsByPropertyName.TryGetValue(parameter.Name!, out ConventionQueryBinding? queryBinding))
+                continue;
+
+            if (parameter.ParameterType != queryBinding.Property.PropertyType)
+                throw new InvalidOperationException(
+                    $"Convention query binding '{queryBinding.QueryName}' on route type '{typeof(TRoute).FullName}' " +
+                    $"uses property type '{queryBinding.Property.PropertyType.FullName}', but constructor parameter " +
+                    $"'{parameter.Name}' uses '{parameter.ParameterType.FullName}'. The types must match.");
+
+            if (IsMissingSafeQueryParameter(parameter))
                 continue;
 
             throw new InvalidOperationException(
@@ -313,7 +332,8 @@ TRoute>
     private static ConstructorArgument[] BindConstructorArguments(
         ConstructorInfo constructor,
         RouteTemplate template,
-        IReadOnlyList<ConventionQueryBinding> queryBindings)
+        IReadOnlyList<ConventionQueryBinding> queryBindings,
+        IReadOnlyDictionary<string, ConventionQueryCollectionShape?> queryCollections)
     {
         var pathNames = new HashSet<string>(template.ParameterNames, StringComparer.OrdinalIgnoreCase);
         Dictionary<string, ConventionQueryBinding> queryByProperty = queryBindings.ToDictionary(
@@ -332,7 +352,8 @@ TRoute>
                         query.QueryName,
                         parameter.ParameterType,
                         parameter.DefaultValue,
-                        parameter.HasDefaultValue || parameter.IsOptional);
+                        parameter.HasDefaultValue || parameter.IsOptional,
+                        queryCollections[query.Property.Name]);
 
                 return ConstructorArgument.Default(parameter.ParameterType, parameter.DefaultValue,
                     parameter.HasDefaultValue || parameter.IsOptional);
@@ -340,24 +361,23 @@ TRoute>
             .ToArray();
     }
 
-    private static void AddFormattedValueType(ISet<Type> types, Type type)
+    private static IReadOnlyDictionary<string, ConventionQueryCollectionShape?> ClassifyQueryCollections(
+        IReadOnlyList<ConventionQueryBinding> queryBindings)
     {
-        Type valueType = RouteValueCodecRegistry.Normalize(type);
-        if (valueType != typeof(string) && valueType.IsArray)
-            valueType = valueType.GetElementType()!;
-        else if (valueType != typeof(string) && valueType.IsGenericType)
-        {
-            Type definition = valueType.GetGenericTypeDefinition();
-            if (definition == typeof(IEnumerable<>) ||
-                definition == typeof(IReadOnlyCollection<>) ||
-                definition == typeof(IReadOnlyList<>) ||
-                definition == typeof(ICollection<>) ||
-                definition == typeof(IList<>) ||
-                definition == typeof(List<>))
-                valueType = valueType.GetGenericArguments()[0];
-        }
+        return queryBindings.ToDictionary(
+            static binding => binding.Property.Name,
+            binding => ConventionQueryCollectionShape.TryCreate(
+                binding.Property.PropertyType,
+                $"Convention query binding '{binding.QueryName}' on route type '{typeof(TRoute).FullName}'"),
+            StringComparer.OrdinalIgnoreCase);
+    }
 
-        types.Add(RouteValueCodecRegistry.Normalize(valueType));
+    private static void AddValueType(
+        ISet<Type> types,
+        Type type,
+        ConventionQueryCollectionShape? collection)
+    {
+        types.Add(RouteValueCodecRegistry.Normalize(collection?.ElementType ?? type));
     }
 
     private sealed record ConstructorArgument(
@@ -365,26 +385,31 @@ TRoute>
         ConstructorArgumentKind Kind,
         Type ParameterType,
         object? DefaultValue,
-        bool HasDefaultValue)
+        bool HasDefaultValue,
+        ConventionQueryCollectionShape? QueryCollection)
     {
         public static ConstructorArgument Path(string name, Type parameterType, object? defaultValue,
             bool hasDefaultValue)
         {
             return new ConstructorArgument(name, ConstructorArgumentKind.Path, parameterType, defaultValue,
-                hasDefaultValue);
+                hasDefaultValue, null);
         }
 
-        public static ConstructorArgument Query(string name, Type parameterType, object? defaultValue,
-            bool hasDefaultValue)
+        public static ConstructorArgument Query(
+            string name,
+            Type parameterType,
+            object? defaultValue,
+            bool hasDefaultValue,
+            ConventionQueryCollectionShape? queryCollection)
         {
             return new ConstructorArgument(name, ConstructorArgumentKind.Query, parameterType, defaultValue,
-                hasDefaultValue);
+                hasDefaultValue, queryCollection);
         }
 
         public static ConstructorArgument Default(Type parameterType, object? defaultValue, bool hasDefaultValue)
         {
             return new ConstructorArgument(null, ConstructorArgumentKind.Default, parameterType, defaultValue,
-                hasDefaultValue);
+                hasDefaultValue, null);
         }
 
         public object? Resolve(RouteMatchContext context)
@@ -406,6 +431,18 @@ TRoute>
 
         private object? ResolveQuery(RouteMatchContext context)
         {
+            if (QueryCollection is { } collection)
+            {
+                IReadOnlyList<string> values = context.QueryAll(Name!);
+                return values.Count == 0
+                    ? GetDefault()
+                    : context.ConvertValues(
+                        values,
+                        collection.ElementType,
+                        collection.Materialization,
+                        Name!);
+            }
+
             return context.QueryValues.TryGetValue(Name!, out string? value)
                 ? context.ConvertValue(value, ParameterType, Name!)
                 : GetDefault();
@@ -422,6 +459,78 @@ TRoute>
         Path,
         Query,
         Default
+    }
+}
+
+internal sealed record ConventionQueryCollectionShape(
+    Type ElementType,
+    RouteQueryCollectionMaterialization Materialization)
+{
+    public static ConventionQueryCollectionShape? TryCreate(Type type, string description)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+
+        if (type == typeof(string))
+            return null;
+
+        if (type.IsArray)
+        {
+            if (type.GetArrayRank() != 1)
+                throw Unsupported(description, type);
+
+            return Create(type.GetElementType()!, RouteQueryCollectionMaterialization.Array, description);
+        }
+
+        if (type.IsGenericType)
+        {
+            Type definition = type.GetGenericTypeDefinition();
+            if (definition == typeof(IEnumerable<>) ||
+                definition == typeof(IReadOnlyCollection<>) ||
+                definition == typeof(IReadOnlyList<>) ||
+                definition == typeof(ICollection<>) ||
+                definition == typeof(IList<>))
+                return Create(
+                    type.GetGenericArguments()[0],
+                    RouteQueryCollectionMaterialization.Array,
+                    description);
+
+            if (definition == typeof(List<>))
+                return Create(
+                    type.GetGenericArguments()[0],
+                    RouteQueryCollectionMaterialization.List,
+                    description);
+        }
+
+        if (typeof(System.Collections.IEnumerable).IsAssignableFrom(type))
+            throw Unsupported(description, type);
+
+        return null;
+    }
+
+    private static ConventionQueryCollectionShape Create(
+        Type elementType,
+        RouteQueryCollectionMaterialization materialization,
+        string description)
+    {
+        if (Nullable.GetUnderlyingType(elementType) is not null)
+            throw new InvalidOperationException(
+                $"{description} uses collection type with nullable value-type element '{elementType.FullName}', " +
+                "which repeated query binding does not support.");
+
+        if (elementType != typeof(string) &&
+            typeof(System.Collections.IEnumerable).IsAssignableFrom(elementType))
+            throw new InvalidOperationException(
+                $"{description} uses nested collection element type '{elementType.FullName}', " +
+                "which repeated query binding does not support.");
+
+        return new ConventionQueryCollectionShape(elementType, materialization);
+    }
+
+    private static InvalidOperationException Unsupported(string description, Type type)
+    {
+        return new InvalidOperationException(
+            $"{description} uses unsupported query collection type '{type.FullName}'. " +
+            "Use a one-dimensional array, a supported generic collection interface, or List<T>.");
     }
 }
 

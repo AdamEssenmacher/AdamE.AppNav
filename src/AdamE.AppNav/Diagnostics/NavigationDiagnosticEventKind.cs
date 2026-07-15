@@ -36,12 +36,12 @@ public enum NavigationDiagnosticEventKind
     RequestPolicyStarted,
 
     /// <summary>
-    /// A request policy redirected the navigation request.
+    /// A request transformer or policy redirected the navigation request.
     /// </summary>
     RequestRedirected,
 
     /// <summary>
-    /// Request policy redirects exceeded the allowed redirect limit or formed a redirect loop.
+    /// Request redirects exceeded the allowed redirect limit or formed a redirect loop.
     /// </summary>
     RequestRedirectLoopDetected,
 
@@ -69,6 +69,21 @@ public enum NavigationDiagnosticEventKind
     /// Planning failed before a navigation plan could be produced.
     /// </summary>
     PlanningFailed,
+
+    /// <summary>
+    /// Pre-match request transformation has started.
+    /// </summary>
+    RequestTransformStarted,
+
+    /// <summary>
+    /// Pre-match request transformation completed without failure.
+    /// </summary>
+    RequestTransformCompleted,
+
+    /// <summary>
+    /// Pre-match request transformation failed.
+    /// </summary>
+    RequestTransformFailed,
 
     /// <summary>
     /// Presentation of a navigation plan has started.

@@ -40,6 +40,29 @@ internal sealed class RouteValueCodecRegistry
         }
     }
 
+    public object ConvertMany(
+        IReadOnlyList<string> values,
+        Type elementType,
+        RouteQueryCollectionMaterialization materialization,
+        string name)
+    {
+        Type conversionType = Normalize(elementType);
+        if (!_codecs.TryGetValue(conversionType, out IRouteValueCodec? codec))
+            throw new NotSupportedException(
+                $"Route value type '{conversionType.FullName}' has no registered codec.");
+
+        try
+        {
+            return codec.ParseMany(values, materialization);
+        }
+        catch (Exception ex) when (ex is FormatException or OverflowException or ArgumentException)
+        {
+            throw new FormatException(
+                $"Route value '{name}' could not be converted to {conversionType.Name}.",
+                ex);
+        }
+    }
+
     public string Format(object value, string name)
     {
         ArgumentNullException.ThrowIfNull(value);
@@ -167,6 +190,10 @@ internal interface IRouteValueCodec
 {
     object? Parse(string value);
 
+    object ParseMany(
+        IReadOnlyList<string> values,
+        RouteQueryCollectionMaterialization materialization);
+
     string Format(object value);
 }
 
@@ -179,10 +206,29 @@ internal sealed class RouteValueCodec<TValue>(
         return parse(value);
     }
 
+    public object ParseMany(
+        IReadOnlyList<string> values,
+        RouteQueryCollectionMaterialization materialization)
+    {
+        var parsed = new TValue[values.Count];
+        for (var index = 0; index < values.Count; index++)
+            parsed[index] = parse(values[index]);
+
+        return materialization == RouteQueryCollectionMaterialization.List
+            ? new List<TValue>(parsed)
+            : parsed;
+    }
+
     public string Format(object value)
     {
         return format((TValue)value);
     }
+}
+
+internal enum RouteQueryCollectionMaterialization
+{
+    Array,
+    List
 }
 
 internal static class RouteValueFormatting
@@ -192,8 +238,30 @@ internal static class RouteValueFormatting
         return value is null ? null : codecs.Format(value, name);
     }
 
-    public static IEnumerable<string?> FormatMany(object? value, string name, RouteValueCodecRegistry codecs)
+    public static IEnumerable<string?> FormatMany(
+        object? value,
+        string name,
+        RouteValueCodecRegistry codecs,
+        Type? collectionElementType = null)
     {
+        if (collectionElementType is not null)
+        {
+            if (value is null)
+            {
+                yield return null;
+                yield break;
+            }
+
+            if (value is not System.Collections.IEnumerable collection)
+                throw new InvalidOperationException(
+                    $"Route query value '{name}' must be a supported collection.");
+
+            foreach (object? item in collection)
+                yield return item is null ? null : codecs.Format(item, collectionElementType, name);
+
+            yield break;
+        }
+
         switch (value)
         {
             case null or string:

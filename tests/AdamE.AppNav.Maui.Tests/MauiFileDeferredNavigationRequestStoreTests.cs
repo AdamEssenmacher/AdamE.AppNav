@@ -66,13 +66,14 @@ public sealed class MauiFileDeferredNavigationRequestStoreTests
                     MetadataSerializer = new PassThroughMetadataSerializer(),
                     RouteStateRegistry = registry
                 });
-            var restored = await reloaded.TryDequeueAsync();
+            await using var lease = await reloaded.AcquireReplayLeaseAsync();
+            var restored = Assert.Single(lease.Requests);
 
-            Assert.NotNull(restored);
             Assert.Equal("mission-1", restored.Metadata[missionId.Name]);
             Assert.Equal("draft-1", restored.Metadata[draftId.Name]);
             Assert.False(restored.Metadata.ContainsKey(replyId.Name));
             Assert.Equal("abc-123", restored.Metadata["request-id"]);
+            await lease.AcknowledgeAsync(0);
         }
         finally
         {
@@ -143,14 +144,15 @@ public sealed class MauiFileDeferredNavigationRequestStoreTests
             await store.EnqueueAsync(request);
 
             Assert.True(File.Exists(path));
-            var restored = await store.TryDequeueAsync();
-            Assert.NotNull(restored);
+            await using var lease = await store.AcquireReplayLeaseAsync();
+            var restored = Assert.Single(lease.Requests);
             Assert.Equal(request.Route, restored.Route);
             Assert.Equal(request.Source, restored.Source);
             Assert.Equal(request.WindowId, restored.WindowId);
             Assert.Equal(request.Disposition, restored.Disposition);
             Assert.Equal(request.Uri, restored.Uri);
             Assert.Empty(restored.Metadata);
+            await lease.AcknowledgeAsync(0);
             Assert.False(await store.HasDeferredRequestsAsync());
         }
         finally
@@ -195,14 +197,76 @@ public sealed class MauiFileDeferredNavigationRequestStoreTests
             await File.WriteAllTextAsync(path, JsonSerializer.Serialize(snapshot));
 
             Assert.True(await store.HasDeferredRequestsAsync());
-            var restored = await store.TryDequeueAsync();
-            Assert.NotNull(restored);
+            await using var lease = await store.AcquireReplayLeaseAsync();
+            var restored = Assert.Single(lease.Requests);
             Assert.Equal(request.Route, restored.Route);
             Assert.Equal(request.Source, restored.Source);
             Assert.Equal(request.WindowId, restored.WindowId);
             Assert.Equal(request.Disposition, restored.Disposition);
             Assert.Equal(request.Uri, restored.Uri);
             Assert.Empty(restored.Metadata);
+            await lease.AcknowledgeAsync(0);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+#if IOS
+    [Fact(Skip = IosSkipReason)]
+#else
+    [Fact]
+#endif
+    public async Task ReplayLeaseIsCrashDurableAndExcludesConcurrentEnqueuesFromItsSnapshot()
+    {
+        var routes = RouteTable.Create(builder => builder.MapRoute<TestRoute>("/stores/{id}"));
+        var directory = CreateStoreDirectory();
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "deferred-requests.json");
+        var options = new MauiFileDeferredNavigationRequestStoreOptions
+        {
+            Path = path,
+            BaseUri = BaseUri
+        };
+        var first = RouterNavigationRequest.FromRoute(new TestRoute("first"), NavigationRequestSource.AppLink);
+        var second = RouterNavigationRequest.FromRoute(new TestRoute("second"), NavigationRequestSource.AppLink);
+        var third = RouterNavigationRequest.FromRoute(new TestRoute("third"), NavigationRequestSource.AppLink);
+
+        try
+        {
+            var store = new MauiFileDeferredNavigationRequestStore(routes, options);
+            await store.EnqueueAsync(first);
+            await store.EnqueueAsync(second);
+            await using (IDeferredNavigationRequestLease lease = await store.AcquireReplayLeaseAsync())
+            {
+                await store.EnqueueAsync(third);
+
+                Assert.Equal(
+                    ["first", "second"],
+                    lease.Requests.Select(static request => Assert.IsType<TestRoute>(request.Route).Id).ToArray());
+            }
+
+            var reopenedBeforeAcknowledgement = new MauiFileDeferredNavigationRequestStore(routes, options);
+            await using (IDeferredNavigationRequestLease reopenedLease =
+                         await reopenedBeforeAcknowledgement.AcquireReplayLeaseAsync())
+            {
+                Assert.Equal(
+                    ["first", "second", "third"],
+                    reopenedLease.Requests
+                        .Select(static request => Assert.IsType<TestRoute>(request.Route).Id)
+                        .ToArray());
+                await reopenedLease.AcknowledgeAsync(1);
+            }
+
+            var reopenedAfterAcknowledgement = new MauiFileDeferredNavigationRequestStore(routes, options);
+            await using IDeferredNavigationRequestLease durableLease =
+                await reopenedAfterAcknowledgement.AcquireReplayLeaseAsync();
+            Assert.Equal(
+                ["first", "third"],
+                durableLease.Requests
+                    .Select(static request => Assert.IsType<TestRoute>(request.Route).Id)
+                    .ToArray());
         }
         finally
         {

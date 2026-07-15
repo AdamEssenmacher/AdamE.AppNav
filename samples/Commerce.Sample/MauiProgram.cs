@@ -2,6 +2,7 @@
 using AdamE.AppNav.Maui.DependencyInjection;
 using AdamE.AppNav.Maui.AppLinks;
 using AdamE.AppNav.Requests;
+using AdamE.AppNav.Policies;
 using Commerce.Sample.Navigation;
 using Commerce.Sample.Pages;
 using Commerce.Sample.Routes;
@@ -28,6 +29,7 @@ public static class MauiProgram
 #endif
 
 		builder.Services.AddSingleton<NavigationDiagnostics>();
+		builder.Services.AddSingleton<INavigationRequestTransformer, LegacyProductUrlTransformer>();
 		builder.Services.AddAppNavFileDeferredNavigationRequests(options =>
 		{
 			options.BaseUri = new Uri("https://example.com/");

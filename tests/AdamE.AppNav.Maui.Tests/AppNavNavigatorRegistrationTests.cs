@@ -61,11 +61,13 @@ public sealed class AppNavNavigatorRegistrationTests
     }
 
     [Fact]
-    public async Task AddAppNavDiscoversRequestPoliciesAndBackNavigatorFromDi()
+    public async Task AddAppNavDiscoversTransformersPoliciesAndBackNavigatorFromDi()
     {
         var services = new ServiceCollection();
+        var requestTransformer = new RecordingRequestTransformer();
         var requestPolicy = new RecordingRequestPolicy();
         var backNavigator = new RecordingBackNavigator();
+        services.AddSingleton<INavigationRequestTransformer>(requestTransformer);
         services.AddSingleton<INavigationRequestPolicy>(requestPolicy);
         services.AddSingleton<IBackNavigator>(backNavigator);
 
@@ -81,8 +83,26 @@ public sealed class AppNavNavigatorRegistrationTests
         await navigator.BackAsync();
 
         Assert.Equal(RecordingRequestPolicy.ExceptionMessage, exception.Message);
+        Assert.Equal(1, requestTransformer.TransformCount);
         Assert.Equal(1, requestPolicy.ApplyCount);
         Assert.Equal(1, backNavigator.CreateCount);
+    }
+
+    [Fact]
+    public async Task ServiceProviderDisposalShutsDownFactoryCreatedNavigator()
+    {
+        var services = new ServiceCollection();
+        services.AddAppNav<RecordingPlanner>(
+            Routes(),
+            pages => pages.MapPage<TestRoute>((_, _) => new TestPage()));
+        ServiceProvider provider = services.BuildServiceProvider();
+        var navigator = provider.GetRequiredService<IRouterNavigator>();
+
+        provider.Dispose();
+
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => navigator
+            .NavigateAsync(new TestRoute("disposed"), NavigationRequestSource.Test)
+            .AsTask());
     }
 
     [Fact]
@@ -189,6 +209,19 @@ public sealed class AppNavNavigatorRegistrationTests
         }
     }
 
+    private sealed class RecordingRequestTransformer : INavigationRequestTransformer
+    {
+        public int TransformCount { get; private set; }
+
+        public ValueTask<RouterNavigationRequest> TransformAsync(
+            NavigationRequestTransformContext context,
+            CancellationToken cancellationToken = default)
+        {
+            TransformCount++;
+            return ValueTask.FromResult(context.Request);
+        }
+    }
+
     private sealed class RecordingBackNavigator : IBackNavigator
     {
         public int CreateCount { get; private set; }
@@ -218,5 +251,7 @@ public sealed class AppNavNavigatorRegistrationTests
         public ValueTask<NavigationResult> NavigateAsync(RouterNavigationRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<BackNavigationResult> BackAsync(string? windowId = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<NavigationResult> ReconcileAsync(NavigationReconciliation reconciliation, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public void Dispose() { }
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }

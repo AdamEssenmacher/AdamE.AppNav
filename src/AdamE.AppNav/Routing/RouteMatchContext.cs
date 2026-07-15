@@ -109,6 +109,15 @@ public sealed class RouteMatchContext
         return _valueCodecs.Convert(value, targetType, name);
     }
 
+    internal object ConvertValues(
+        IReadOnlyList<string> values,
+        Type elementType,
+        RouteQueryCollectionMaterialization materialization,
+        string name)
+    {
+        return _valueCodecs.ConvertMany(values, elementType, materialization, name);
+    }
+
     // ReSharper disable once UnusedMethodReturnValue.Global
     public T? QueryMetadata<T>(RouteMetadataKey<T> key, bool omitWhenNull = true)
     {

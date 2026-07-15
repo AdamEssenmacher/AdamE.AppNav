@@ -5,73 +5,99 @@ namespace AdamE.AppNav.Tests;
 public sealed class DeferredNavigationRequestStoreTests
 {
     [Fact]
-    public async Task EnqueueAsync_MultipleRequests_DequeueReturnsFifoOrder()
+    public async Task ReplayLease_AcknowledgesRequestsInFifoSnapshot()
     {
         var store = new InMemoryDeferredNavigationRequestStore();
-        var first = RouterNavigationRequest.FromRoute(new TestRoutes.StoreRoute("first"), NavigationRequestSource.AppLink);
-        var second = RouterNavigationRequest.FromRoute(new TestRoutes.StoreRoute("second"), NavigationRequestSource.Push);
-
+        var first = Request("first", NavigationRequestSource.AppLink);
+        var second = Request("second", NavigationRequestSource.Push);
         await store.EnqueueAsync(first);
         await store.EnqueueAsync(second);
 
-        Assert.True(await store.HasDeferredRequestsAsync());
-        Assert.Same(first, await store.TryDequeueAsync());
-        Assert.Same(second, await store.TryDequeueAsync());
+        await using (IDeferredNavigationRequestLease lease = await store.AcquireReplayLeaseAsync())
+        {
+            Assert.Equal([first, second], lease.Requests);
+            Assert.True(await store.HasDeferredRequestsAsync());
+            await lease.AcknowledgeAsync(0);
+            await lease.AcknowledgeAsync(1);
+        }
+
         Assert.False(await store.HasDeferredRequestsAsync());
     }
 
     [Fact]
-    public async Task TryDequeueAsync_EmptyStore_ReturnsNull()
+    public async Task ReplayLease_EmptyStoreReturnsEmptySnapshot()
     {
         var store = new InMemoryDeferredNavigationRequestStore();
 
-        var request = await store.TryDequeueAsync();
+        await using IDeferredNavigationRequestLease lease = await store.AcquireReplayLeaseAsync();
 
-        Assert.Null(request);
+        Assert.Empty(lease.Requests);
         Assert.False(await store.HasDeferredRequestsAsync());
     }
 
     [Fact]
-    public async Task DrainAsync_ReturnsFifoRequestsAndEmptiesStore()
+    public async Task ReplayLease_DoesNotRemoveUnacknowledgedRequestsAndExcludesLaterEnqueue()
     {
         var store = new InMemoryDeferredNavigationRequestStore();
-        var first = RouterNavigationRequest.FromRoute(new TestRoutes.StoreRoute("first"), NavigationRequestSource.AppLink);
-        var second = RouterNavigationRequest.FromRoute(new TestRoutes.StoreRoute("second"), NavigationRequestSource.Push);
+        var first = Request("first", NavigationRequestSource.AppLink);
+        var second = Request("second", NavigationRequestSource.Push);
         await store.EnqueueAsync(first);
-        await store.EnqueueAsync(second);
 
-        var drained = await store.DrainAsync();
+        await using (IDeferredNavigationRequestLease lease = await store.AcquireReplayLeaseAsync())
+        {
+            await store.EnqueueAsync(second);
+            Assert.Equal([first], lease.Requests);
+        }
 
-        Assert.Equal([first, second], drained);
-        Assert.False(await store.HasDeferredRequestsAsync());
-        Assert.Null(await store.TryDequeueAsync());
+        await using IDeferredNavigationRequestLease nextLease = await store.AcquireReplayLeaseAsync();
+        Assert.Equal([first, second], nextLease.Requests);
     }
 
     [Fact]
-    public async Task DrainAsync_ReturnsSnapshotThatIsNotAffectedByLaterEnqueue()
+    public async Task ReplayLease_AcknowledgedLaterRequestLeavesFailedOlderRequestBeforeNewEnqueue()
     {
         var store = new InMemoryDeferredNavigationRequestStore();
-        var first = RouterNavigationRequest.FromRoute(new TestRoutes.StoreRoute("first"), NavigationRequestSource.AppLink);
-        var second = RouterNavigationRequest.FromRoute(new TestRoutes.StoreRoute("second"), NavigationRequestSource.Push);
+        var first = Request("first", NavigationRequestSource.AppLink);
+        var second = Request("second", NavigationRequestSource.Push);
+        var third = Request("third", NavigationRequestSource.Push);
         await store.EnqueueAsync(first);
-
-        var drained = await store.DrainAsync();
         await store.EnqueueAsync(second);
 
-        Assert.Equal([first], drained);
-        Assert.Same(second, await store.TryDequeueAsync());
+        await using (IDeferredNavigationRequestLease lease = await store.AcquireReplayLeaseAsync())
+        {
+            await store.EnqueueAsync(third);
+            await lease.AcknowledgeAsync(1);
+        }
+
+        await using IDeferredNavigationRequestLease nextLease = await store.AcquireReplayLeaseAsync();
+        Assert.Equal([first, third], nextLease.Requests);
+    }
+
+    [Fact]
+    public async Task AcquireReplayLeaseAsync_WaitsForExistingLease()
+    {
+        var store = new InMemoryDeferredNavigationRequestStore();
+        IDeferredNavigationRequestLease firstLease = await store.AcquireReplayLeaseAsync();
+
+        Task<IDeferredNavigationRequestLease> pending = store.AcquireReplayLeaseAsync().AsTask();
+        Assert.False(pending.IsCompleted);
+
+        await firstLease.DisposeAsync();
+        await using IDeferredNavigationRequestLease secondLease = await pending;
+        Assert.Empty(secondLease.Requests);
     }
 
     [Fact]
     public async Task ClearAsync_EmptiesStore()
     {
         var store = new InMemoryDeferredNavigationRequestStore();
-        await store.EnqueueAsync(RouterNavigationRequest.FromRoute(new TestRoutes.StoreRoute("first"), NavigationRequestSource.AppLink));
+        await store.EnqueueAsync(Request("first", NavigationRequestSource.AppLink));
 
         await store.ClearAsync();
 
         Assert.False(await store.HasDeferredRequestsAsync());
-        Assert.Null(await store.TryDequeueAsync());
+        await using IDeferredNavigationRequestLease lease = await store.AcquireReplayLeaseAsync();
+        Assert.Empty(lease.Requests);
     }
 
     [Fact]
@@ -82,15 +108,13 @@ public sealed class DeferredNavigationRequestStoreTests
             new TestRoutes.StoreRoute("first"),
             NavigationRequestSource.AppLink,
             metadata: new Dictionary<string, object?> { ["request-id"] = "one" });
-        var duplicate = first with
-        {
-            Timestamp = first.Timestamp.AddMinutes(5)
-        };
+        var duplicate = first with { Timestamp = first.Timestamp.AddMinutes(5) };
 
         await store.EnqueueAsync(first);
         await store.EnqueueAsync(duplicate);
 
-        Assert.Equal([first], await store.DrainAsync());
+        await using IDeferredNavigationRequestLease lease = await store.AcquireReplayLeaseAsync();
+        Assert.Equal([first], lease.Requests);
     }
 
     [Fact]
@@ -113,7 +137,21 @@ public sealed class DeferredNavigationRequestStoreTests
         await store.EnqueueAsync(first);
         await store.EnqueueAsync(second);
 
-        Assert.Equal([first, second], await store.DrainAsync());
+        await using IDeferredNavigationRequestLease lease = await store.AcquireReplayLeaseAsync();
+        Assert.Equal([first, second], lease.Requests);
+    }
+
+    [Fact]
+    public async Task ReplayLease_RejectsDuplicateAndOutOfRangeAcknowledgements()
+    {
+        var store = new InMemoryDeferredNavigationRequestStore();
+        await store.EnqueueAsync(Request("first", NavigationRequestSource.AppLink));
+        await using IDeferredNavigationRequestLease lease = await store.AcquireReplayLeaseAsync();
+
+        await lease.AcknowledgeAsync(0);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => lease.AcknowledgeAsync(0).AsTask());
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => lease.AcknowledgeAsync(1).AsTask());
     }
 
     [Fact]
@@ -122,5 +160,10 @@ public sealed class DeferredNavigationRequestStoreTests
         var store = new InMemoryDeferredNavigationRequestStore();
 
         await Assert.ThrowsAsync<ArgumentNullException>(() => store.EnqueueAsync(null!).AsTask());
+    }
+
+    private static RouterNavigationRequest Request(string id, NavigationRequestSource source)
+    {
+        return RouterNavigationRequest.FromRoute(new TestRoutes.StoreRoute(id), source);
     }
 }

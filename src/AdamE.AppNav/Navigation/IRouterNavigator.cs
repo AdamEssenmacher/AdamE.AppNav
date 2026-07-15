@@ -18,8 +18,13 @@ namespace AdamE.AppNav.Navigation;
 /// Await them directly, or call <see cref="ValueTask{TResult}.AsTask"/> before storing, caching,
 /// or composing an operation with multiple awaits.
 /// </para>
+/// <para>
+/// Synchronous disposal stops new operations and detaches presenter events without waiting for accepted work.
+/// Asynchronous disposal also waits for accepted and queued work to complete. State and history remain readable after
+/// disposal.
+/// </para>
 /// </remarks>
-public interface IRouterNavigator
+public interface IRouterNavigator : IDisposable, IAsyncDisposable
 {
     /// <summary>
     /// Gets the router's latest accepted navigation state.

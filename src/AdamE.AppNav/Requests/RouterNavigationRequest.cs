@@ -2,9 +2,12 @@ using AdamE.AppNav.Internal;
 
 namespace AdamE.AppNav.Requests;
 
+/// <summary>
+/// Describes one navigation intent with exactly one URI or application-route target.
+/// </summary>
 public sealed record RouterNavigationRequest
 {
-    public RouterNavigationRequest(
+    private RouterNavigationRequest(
         Uri? uri,
         AppRoute? route,
         NavigationRequestSource source,
@@ -14,6 +17,10 @@ public sealed record RouterNavigationRequest
         RouterNavigationDisposition disposition = RouterNavigationDisposition.Auto,
         NavigationRequestProvenance? provenance = null)
     {
+        if ((uri is null) == (route is null))
+            throw new ArgumentException(
+                "A navigation request must contain exactly one URI or application-route target.");
+
         Uri = uri;
         Route = route;
         Source = source;
@@ -24,10 +31,15 @@ public sealed record RouterNavigationRequest
         Provenance = provenance;
     }
 
-    // ReSharper disable once AutoPropertyCanBeMadeGetOnly.Global
-    public Uri? Uri { get; init; }
+    /// <summary>
+    /// Gets the URI target, or <see langword="null"/> when <see cref="Route"/> is the target.
+    /// </summary>
+    public Uri? Uri { get; private init; }
 
-    public AppRoute? Route { get; init; }
+    /// <summary>
+    /// Gets the application-route target, or <see langword="null"/> when <see cref="Uri"/> is the target.
+    /// </summary>
+    public AppRoute? Route { get; private init; }
 
     public NavigationRequestSource Source { get; }
 
@@ -115,6 +127,30 @@ public sealed record RouterNavigationRequest
             MergeMetadata(routeRequest.Metadata, extraMetadata),
             disposition: disposition,
             provenance: provenance);
+    }
+
+    /// <summary>
+    /// Returns a copy of this request that targets the specified URI.
+    /// </summary>
+    /// <remarks>
+    /// All request-envelope values are preserved and any route target is removed.
+    /// </remarks>
+    public RouterNavigationRequest WithTarget(Uri uri)
+    {
+        ArgumentNullException.ThrowIfNull(uri);
+        return this with { Uri = uri, Route = null };
+    }
+
+    /// <summary>
+    /// Returns a copy of this request that targets the specified application route.
+    /// </summary>
+    /// <remarks>
+    /// All request-envelope values are preserved and any URI target is removed.
+    /// </remarks>
+    public RouterNavigationRequest WithTarget(AppRoute route)
+    {
+        ArgumentNullException.ThrowIfNull(route);
+        return this with { Uri = null, Route = route };
     }
 
     private static IReadOnlyDictionary<string, object?> MergeMetadata(
