@@ -51,7 +51,7 @@ public sealed class FallbackRoutingTests
             diagnosticEvent.Kind == NavigationDiagnosticEventKind.RouteFallbackSelected);
         Assert.Equal(NavigationDiagnosticPhase.RouteMatching, fallbackSelected.Phase);
         Assert.Equal(LogLevel.Information, fallbackSelected.Severity);
-        Assert.Equal(uri.ToString(), fallbackSelected.Data[NavigationDiagnosticDataKeys.Uri]);
+        Assert.Equal("https://example.com", fallbackSelected.Data[NavigationDiagnosticDataKeys.Uri]);
         Assert.Equal("route.not_matched", fallbackSelected.Data[NavigationDiagnosticDataKeys.RouteDiagnosticCode]);
         Assert.Equal(typeof(NotFoundRoute).FullName, fallbackSelected.Data[NavigationDiagnosticDataKeys.RouteType]);
         Assert.Contains(events, diagnosticEvent => diagnosticEvent.Kind == NavigationDiagnosticEventKind.RouteNotMatched);

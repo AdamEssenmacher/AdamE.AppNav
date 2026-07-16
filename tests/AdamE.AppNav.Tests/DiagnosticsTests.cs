@@ -86,8 +86,8 @@ public sealed class DiagnosticsTests
         Assert.Equal(LogLevel.Information, routeMatched.Severity);
         Assert.Equal("/stores/{storeId}/products/{productId:int}", routeMatched.Data[NavigationDiagnosticDataKeys.RouteTemplate]);
         Assert.Equal("branch", routeMatched.Data[NavigationDiagnosticDataKeys.ProvenanceProvider]);
-        Assert.Equal("https://example.com/stores/northwind/products/123", routeMatched.Data[NavigationDiagnosticDataKeys.ProvenanceOriginalUri]);
-        Assert.Equal("https://referrer.example/invite", routeMatched.Data[NavigationDiagnosticDataKeys.ProvenanceReferrerUri]);
+        Assert.Equal("https://example.com", routeMatched.Data[NavigationDiagnosticDataKeys.ProvenanceOriginalUri]);
+        Assert.Equal("https://referrer.example", routeMatched.Data[NavigationDiagnosticDataKeys.ProvenanceReferrerUri]);
         Assert.False(routeMatched.Data.ContainsKey(NavigationDiagnosticDataKeys.ProvenanceCorrelationId));
         Assert.True((bool)routeMatched.Data[NavigationDiagnosticDataKeys.ProvenanceIsColdStart]!);
         var provenanceAttributes = Assert.IsAssignableFrom<IReadOnlyDictionary<string, string?>>(
@@ -104,6 +104,8 @@ public sealed class DiagnosticsTests
         var diagnostics = new NavigationDiagnostics(logger);
         NavigationDiagnosticEvent? observed = null;
         diagnostics.EventWritten += (_, diagnosticEvent) => observed = diagnosticEvent;
+        var observer = new CapturingObserver();
+        diagnostics.AddObserver(observer);
         using var activity = new Activity("safe-diagnostics").Start();
 
         diagnostics.Write(
@@ -112,32 +114,86 @@ public sealed class DiagnosticsTests
             "secret-message",
             new Dictionary<string, object?>
             {
-                [NavigationDiagnosticDataKeys.Uri] = "https://user:password@example.com/path?token=query-secret#fragment-secret",
+                [NavigationDiagnosticDataKeys.Uri] = "https://user:password@example.com/path-secret?token=query-secret#fragment-secret",
+                [NavigationDiagnosticDataKeys.Path] = "/path-secret",
                 [NavigationDiagnosticDataKeys.ExceptionType] = typeof(InvalidOperationException).FullName,
                 [NavigationDiagnosticDataKeys.ExceptionMessage] = "exception-secret",
                 [NavigationDiagnosticDataKeys.RouteDiagnosticMessage] = "route-secret",
                 [NavigationDiagnosticDataKeys.ProvenanceCorrelationId] = "correlation-secret",
+                [NavigationDiagnosticDataKeys.ProvenanceOriginalUri] = "myapp:original-secret",
+                [NavigationDiagnosticDataKeys.ProvenanceReferrerUri] = "https://referrer.example/referrer-secret",
                 [NavigationDiagnosticDataKeys.ProvenanceAttributes] = new Dictionary<string, string?>
                 {
                     ["campaign"] = "attribute-secret"
-                }
+                },
+                [NavigationDiagnosticDataKeys.RedirectFrom] =
+                    "uri=https://example.com/redirect-secret?token=redirect-query-secret [Test, disposition=Auto, window=window-secret]",
+                [NavigationDiagnosticDataKeys.RedirectTo] =
+                    "route=SecretRoute:route-value-secret [Test, disposition=Replace, window=window-secret]",
+                [NavigationDiagnosticDataKeys.RedirectTrace] =
+                    "uri=/relative-secret [Test, disposition=Auto] -> route=SecretRoute:trace-secret [Test, disposition=Replace]",
+                [NavigationDiagnosticDataKeys.WindowId] = "window-secret",
+                [NavigationDiagnosticDataKeys.HostId] = "host-secret",
+                [NavigationDiagnosticDataKeys.BranchId] = "branch-secret",
+                [NavigationDiagnosticDataKeys.RouteEntryId] = "entry-secret",
+                [NavigationDiagnosticDataKeys.PresentationOwnerRouteEntryId] = "owner-secret",
+                [NavigationDiagnosticDataKeys.PresentationPageKey] = "page-key-secret",
+                [NavigationDiagnosticDataKeys.ModalId] = "modal-secret",
+                [NavigationDiagnosticDataKeys.PresentationPath] = "presentation-path-secret",
+                [NavigationDiagnosticDataKeys.PresentationExpected] = "expected-secret",
+                [NavigationDiagnosticDataKeys.PresentationActual] = "actual-secret"
             });
 
         Assert.NotNull(observed);
-        Assert.Equal("https://example.com/path", observed!.Data[NavigationDiagnosticDataKeys.Uri]);
+        Assert.Same(observed, observer.Event);
+        Assert.Equal("https://example.com", observed!.Data[NavigationDiagnosticDataKeys.Uri]);
+        Assert.Equal("myapp:<absolute-uri>", observed.Data[NavigationDiagnosticDataKeys.ProvenanceOriginalUri]);
+        Assert.Equal("https://referrer.example", observed.Data[NavigationDiagnosticDataKeys.ProvenanceReferrerUri]);
+        Assert.Equal(
+            "uri=https://example.com [Test, disposition=Auto]",
+            observed.Data[NavigationDiagnosticDataKeys.RedirectFrom]);
+        Assert.Equal(
+            "route=SecretRoute [Test, disposition=Replace]",
+            observed.Data[NavigationDiagnosticDataKeys.RedirectTo]);
+        Assert.Equal(
+            "uri=<relative-uri> [Test, disposition=Auto] -> route=SecretRoute [Test, disposition=Replace]",
+            observed.Data[NavigationDiagnosticDataKeys.RedirectTrace]);
         Assert.False(observed.Data.ContainsKey(NavigationDiagnosticDataKeys.ExceptionMessage));
         Assert.False(observed.Data.ContainsKey(NavigationDiagnosticDataKeys.RouteDiagnosticMessage));
         Assert.False(observed.Data.ContainsKey(NavigationDiagnosticDataKeys.ProvenanceCorrelationId));
+        foreach (string omittedKey in new[]
+                 {
+                     NavigationDiagnosticDataKeys.Path,
+                     NavigationDiagnosticDataKeys.WindowId,
+                     NavigationDiagnosticDataKeys.HostId,
+                     NavigationDiagnosticDataKeys.BranchId,
+                     NavigationDiagnosticDataKeys.RouteEntryId,
+                     NavigationDiagnosticDataKeys.PresentationOwnerRouteEntryId,
+                     NavigationDiagnosticDataKeys.PresentationPageKey,
+                     NavigationDiagnosticDataKeys.ModalId,
+                     NavigationDiagnosticDataKeys.PresentationPath,
+                     NavigationDiagnosticDataKeys.PresentationExpected,
+                     NavigationDiagnosticDataKeys.PresentationActual
+                 })
+        {
+            Assert.False(observed.Data.ContainsKey(omittedKey));
+        }
+
         var attributes = Assert.IsAssignableFrom<IReadOnlyDictionary<string, string?>>(
             observed.Data[NavigationDiagnosticDataKeys.ProvenanceAttributes]);
         Assert.Null(attributes["campaign"]);
 
         string emitted = string.Join("|", logger.Entries.Select(static entry => entry.Message)) +
-                         string.Join("|", activity.TagObjects.Select(static tag => tag.Value?.ToString()));
+                         string.Join("|", activity.TagObjects.Select(static tag => tag.Value?.ToString())) +
+                         observed + observer.Event;
         foreach (string secret in new[]
                  {
-                     "password", "query-secret", "fragment-secret", "exception-secret",
-                     "route-secret", "correlation-secret", "attribute-secret", "secret-message"
+                     "password", "path-secret", "query-secret", "fragment-secret", "exception-secret",
+                     "route-secret", "correlation-secret", "attribute-secret", "secret-message",
+                     "original-secret", "referrer-secret", "redirect-secret", "redirect-query-secret",
+                     "route-value-secret", "relative-secret", "trace-secret", "window-secret", "host-secret",
+                     "branch-secret", "entry-secret", "owner-secret", "page-key-secret", "modal-secret",
+                     "presentation-path-secret", "expected-secret", "actual-secret"
                  })
         {
             Assert.DoesNotContain(secret, emitted, StringComparison.Ordinal);
@@ -179,7 +235,7 @@ public sealed class DiagnosticsTests
             });
 
         Assert.NotNull(fallback);
-        Assert.Equal("https://example.com/path", fallback!.Data[NavigationDiagnosticDataKeys.Uri]);
+        Assert.Equal("https://example.com", fallback!.Data[NavigationDiagnosticDataKeys.Uri]);
         Assert.DoesNotContain("raw-secret", fallback.ToString(), StringComparison.Ordinal);
     }
 
@@ -200,7 +256,7 @@ public sealed class DiagnosticsTests
             });
 
         Assert.NotNull(redactor.Input);
-        Assert.Equal("https://example.com/path", redactor.Input!.Data[NavigationDiagnosticDataKeys.Uri]);
+        Assert.Equal("https://example.com", redactor.Input!.Data[NavigationDiagnosticDataKeys.Uri]);
         Assert.False(redactor.Input.Data.ContainsKey(NavigationDiagnosticDataKeys.ExceptionMessage));
         Assert.DoesNotContain("secret", redactor.Input.ToString(), StringComparison.Ordinal);
     }
@@ -392,7 +448,7 @@ public sealed class DiagnosticsTests
     [Fact]
     public void PresenterLifecycleDiagnosticsUsePresentationPhaseAndStableKeys()
     {
-        var diagnostics = new NavigationDiagnostics();
+        var diagnostics = FullDiagnostics();
         var events = new List<NavigationDiagnosticEvent>();
         diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
 
@@ -435,7 +491,7 @@ public sealed class DiagnosticsTests
     [Fact]
     public void StartupDiagnosticsUseStartupPhaseAndStableKeys()
     {
-        var diagnostics = new NavigationDiagnostics();
+        var diagnostics = FullDiagnostics();
         var events = new List<NavigationDiagnosticEvent>();
         diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
 
@@ -474,6 +530,9 @@ public sealed class DiagnosticsTests
     }
 
     private sealed record InvalidProductRoute(int ProductId) : AppRoute;
+
+    private static NavigationDiagnostics FullDiagnostics() => new(
+        options: new NavigationDiagnosticsOptions { DataMode = NavigationDiagnosticDataMode.Full });
 
     private sealed class TestPlanner : IAppNavigationPlanner
     {
@@ -541,6 +600,16 @@ public sealed class DiagnosticsTests
         {
             Input = diagnosticEvent;
             return diagnosticEvent;
+        }
+    }
+
+    private sealed class CapturingObserver : INavigationDiagnosticObserver
+    {
+        public NavigationDiagnosticEvent? Event { get; private set; }
+
+        public void OnNavigationDiagnosticEvent(NavigationDiagnosticEvent diagnosticEvent)
+        {
+            Event = diagnosticEvent;
         }
     }
 

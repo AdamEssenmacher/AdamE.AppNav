@@ -1602,9 +1602,10 @@ diagnostics.AddObserver(new LoggingNavigationObserver());
 ```
 
 Observer failures are isolated from navigation. Completion and failure events include diagnostic data such as duration
-and exception types where applicable. Safe mode uses stable messages, removes URI user-info/query/fragment, represents
-routes by type, omits exception and route-diagnostic messages, omits provenance correlation ids, and retains only
-provenance attribute keys. Raw values require an explicit Full-mode opt-in.
+and exception types where applicable. Safe mode is structural-only: absolute URIs retain only their origin, relative
+and invalid URIs use stable markers, routes are represented by type and template, and provenance attributes retain only
+their keys. Request paths, application-defined navigation ids, presentation mismatch values, exception and route-
+diagnostic messages, provenance correlation ids, and other raw values require an explicit Full-mode opt-in.
 
 Diagnostics can mirror directly to `ILogger`:
 
@@ -1647,8 +1648,8 @@ using var listener = new ActivityListener
 ActivitySource.AddActivityListener(listener);
 ```
 
-Activity tags include operation id, request source, route type, route template, plan kind, reconciliation source, window
-id, and failure metadata when applicable.
+Safe-mode activity tags include operation id, request source, route type, route template, plan kind, reconciliation
+source, and structural failure metadata when applicable. Full mode additionally exposes raw diagnostic values.
 
 Event kinds include:
 

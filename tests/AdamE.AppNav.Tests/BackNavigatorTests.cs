@@ -399,7 +399,8 @@ public sealed class BackNavigatorTests
     [Fact]
     public async Task RouterBackAsyncPassesOperationContextToCustomBackNavigator()
     {
-        var diagnostics = new NavigationDiagnostics();
+        var diagnostics = new NavigationDiagnostics(
+            options: new NavigationDiagnosticsOptions { DataMode = NavigationDiagnosticDataMode.Full });
         var events = new List<NavigationDiagnosticEvent>();
         diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
         var backNavigator = new RecordingBackNavigator();
