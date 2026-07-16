@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.ComponentModel;
+using AdamE.AppNav.Policies;
 
 namespace AdamE.AppNav.Routing;
 
@@ -134,6 +135,25 @@ public sealed class RouteTableBuilder
         if (duplicateTemplate is not null)
             throw new InvalidOperationException(
                 $"Route template '{duplicateTemplate.Key}' is registered more than once.");
+
+        IGrouping<Type, RouteDefinition>? duplicateRouteType = _definitions
+            .GroupBy(definition => definition.RouteType)
+            .Where(group => group.Count() > 1)
+            .OrderBy(group => group.Key.FullName, StringComparer.Ordinal)
+            .FirstOrDefault();
+
+        if (duplicateRouteType is not null)
+        {
+            string routeTypeName = duplicateRouteType.Key.FullName ?? duplicateRouteType.Key.Name;
+            string templates = string.Join(
+                "', '",
+                duplicateRouteType
+                    .Select(definition => definition.Template.Value)
+                    .OrderBy(template => template, StringComparer.Ordinal));
+            throw new InvalidOperationException(
+                $"Route type '{routeTypeName}' is registered with multiple canonical templates: '{templates}'. " +
+                $"Register one template per exact route type and normalize aliases with {nameof(INavigationRequestTransformer)}.");
+        }
 
         for (var i = 0; i < _definitions.Count; i++)
             for (int j = i + 1; j < _definitions.Count; j++)

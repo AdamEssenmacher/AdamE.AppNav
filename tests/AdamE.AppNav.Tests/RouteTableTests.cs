@@ -779,7 +779,7 @@ public sealed class RouteTableTests
     [Fact]
     public void DuplicateTemplatesAreRejected()
     {
-        Assert.Throws<InvalidOperationException>(() => RouteTable.Create(routes => routes
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => RouteTable.Create(routes => routes
             .Map(
                 "/stores/{storeId}",
                 match => new TestRoutes.StoreRoute(match.Path("storeId")),
@@ -788,6 +788,86 @@ public sealed class RouteTableTests
                 "/stores/{storeId}",
                 match => new TestRoutes.CatalogRoute(match.Path("storeId")),
                 format => format.PathParam("storeId", route => route.StoreId))));
+
+        Assert.Equal("Route template '/stores/{storeId}' is registered more than once.", exception.Message);
+    }
+
+    [Fact]
+    public void MultipleFluentTemplatesForSameExactRouteTypeAreRejected()
+    {
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => RouteTable.Create(routes => routes
+            .Map(
+                "/stores/{storeId}",
+                match => new TestRoutes.StoreRoute(match.Path("storeId")),
+                format => format.PathParam("storeId", route => route.StoreId))
+            .Map(
+                "/legacy-stores/{storeId}",
+                match => new TestRoutes.StoreRoute(match.Path("storeId")),
+                format => format.PathParam("storeId", route => route.StoreId))));
+
+        Assert.Equal(
+            $"Route type '{typeof(TestRoutes.StoreRoute).FullName}' is registered with multiple canonical templates: " +
+            "'/legacy-stores/{storeId}', '/stores/{storeId}'. Register one template per exact route type and normalize " +
+            "aliases with INavigationRequestTransformer.",
+            exception.Message);
+    }
+
+    [Fact]
+    public void FluentAndConventionTemplatesForSameExactRouteTypeAreRejected()
+    {
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => RouteTable.Create(routes => routes
+            .Map(
+                "/aliases/{value}",
+                match => new ValueRoute(match.Path("value")),
+                format => format.PathParam("value", route => route.Value))
+            .MapRoute<ValueRoute>("/values/{value}")));
+
+        Assert.Contains($"Route type '{typeof(ValueRoute).FullName}'", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("'/aliases/{value}', '/values/{value}'", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ModuleCompositionRejectsMultipleTemplatesForSameExactRouteType()
+    {
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => RouteTable.Create(routes => routes
+            .AddModule(new ModuleRoutes())
+            .MapRoute<ModuleRoute>("/legacy-modules/{value}")));
+
+        Assert.Contains($"Route type '{typeof(ModuleRoute).FullName}'", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("'/legacy-modules/{value}', '/modules/{value}'", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void DuplicateRouteTypeMessageIsIndependentOfRegistrationOrder(bool reverse)
+    {
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => RouteTable.Create(routes =>
+        {
+            if (reverse)
+            {
+                routes.MapRoute<ValueRoute>("/z/{value}");
+                routes.MapRoute<ValueRoute>("/a/{value}");
+            }
+            else
+            {
+                routes.MapRoute<ValueRoute>("/a/{value}");
+                routes.MapRoute<ValueRoute>("/z/{value}");
+            }
+        }));
+
+        Assert.Contains("'/a/{value}', '/z/{value}'", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DistinctBaseAndDerivedRouteTypesMayUseDifferentTemplates()
+    {
+        RouteTable table = RouteTable.Create(routes => routes
+            .Map("/base", _ => new BasePolymorphicRoute())
+            .Map("/derived", _ => new DerivedPolymorphicRoute()));
+
+        Assert.IsType<BasePolymorphicRoute>(table.Match(new Uri("/base", UriKind.Relative)).Route);
+        Assert.IsType<DerivedPolymorphicRoute>(table.Match(new Uri("/derived", UriKind.Relative)).Route);
     }
 
     [Fact]
