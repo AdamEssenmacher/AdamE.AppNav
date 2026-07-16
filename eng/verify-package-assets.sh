@@ -27,7 +27,7 @@ require_asset() {
   local pattern="$2"
   local description="$3"
 
-  if ! rg --quiet "${pattern}" <<<"${entries}"; then
+  if ! grep -Eq "${pattern}" <<<"${entries}"; then
     echo "Package is missing ${description}." >&2
     exit 1
   fi
@@ -50,7 +50,7 @@ require_asset "${maui_nuspec}" '<dependency id="Microsoft\.Maui\.Controls" versi
 require_asset "${maui_nuspec}" '<group targetFramework="net10\.0">' 'the MAUI net10.0 dependency group'
 require_asset "${maui_nuspec}" '<dependency id="Microsoft\.Maui\.Controls" version="10\.[^"]+"' 'a MAUI 10 dependency for net10.0 assets'
 
-if rg --quiet '^lib/(net8|netstandard)' <<<"${core_entries}"$'\n'"${maui_entries}"; then
+if grep -Eq '^lib/(net8|netstandard)' <<<"${core_entries}"$'\n'"${maui_entries}"; then
   echo 'Packages contain an unsupported net8 or netstandard library asset.' >&2
   exit 1
 fi

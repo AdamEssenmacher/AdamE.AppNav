@@ -82,7 +82,9 @@ The runner fails if XHarness launches the app but does not produce test results.
 The release-confidence workflow exposes independent required jobs for unit/API/allocation contracts, supported-target
 and analyzer/package checks, Mac Catalyst NativeAOT, Android full trimming, and Mac Catalyst XHarness tests. A failure
 in one gate does not suppress the others. iOS simulator and Android emulator platform jobs remain manual
-`workflow_dispatch` gates for runners with stable simulator/emulator support.
+`workflow_dispatch` gates for runners with stable simulator/emulator support. Hosted jobs pin `macos-26`, .NET SDKs
+`9.0.316` and `10.0.302`, and Xcode 26.6 for .NET 10 Apple lanes; update those pins together when advancing the
+validated release toolchain.
 
 ## Manual Smoke Checks
 

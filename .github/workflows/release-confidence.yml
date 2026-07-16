@@ -26,15 +26,15 @@ permissions:
 jobs:
   unit-api-allocation:
     name: Unit, API, and allocation contracts
-    runs-on: macos-latest
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: |
-            9.0.x
-            10.0.x
+            9.0.316
+            10.0.302
 
       - name: Install .NET 9 MAUI workload
         working-directory: eng/sdk/net9
@@ -54,15 +54,15 @@ jobs:
 
   analyzer-pack:
     name: Supported targets, analyzers, and packages
-    runs-on: macos-latest
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: |
-            9.0.x
-            10.0.x
+            9.0.316
+            10.0.302
 
       - name: Install .NET 9 MAUI workload
         working-directory: eng/sdk/net9
@@ -80,6 +80,8 @@ jobs:
           dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net9.0-maccatalyst -p:WarningsNotAsErrors=NU1900 -warnaserror
 
       - name: Build .NET 10 target assets
+        env:
+          DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
         run: |
           dotnet build src/AdamE.AppNav/AdamE.AppNav.csproj -c Release -f net10.0 -warnaserror
           dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net10.0 -p:WarningsNotAsErrors=NU1900 -warnaserror
@@ -125,12 +127,14 @@ jobs:
 
   maccatalyst-nativeaot:
     name: Mac Catalyst NativeAOT
-    runs-on: macos-latest
+    runs-on: macos-26
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 10.0.x
+          dotnet-version: 10.0.302
       - run: dotnet workload install maui
       - run: dotnet build samples/Commerce.Sample/Commerce.Sample.csproj -c Release -f net10.0-maccatalyst -warnaserror
       - run: >-
@@ -152,12 +156,12 @@ jobs:
 
   android-full-trim:
     name: Android full trim
-    runs-on: macos-latest
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 10.0.x
+          dotnet-version: 10.0.302
       - run: dotnet workload install maui
       - run: >-
           dotnet publish samples/Commerce.Sample/Commerce.Sample.csproj
@@ -176,12 +180,14 @@ jobs:
 
   maccatalyst-platform-tests:
     name: Mac Catalyst platform tests
-    runs-on: macos-latest
+    runs-on: macos-26
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 10.0.x
+          dotnet-version: 10.0.302
       - run: dotnet workload install maui
       - run: |
           dotnet tool install Microsoft.DotNet.XHarness.CLI --global \
@@ -196,13 +202,15 @@ jobs:
 
   ios-platform-tests:
     name: iOS simulator platform tests
-    runs-on: macos-latest
+    runs-on: macos-26
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     if: github.event_name == 'workflow_dispatch' && inputs.run-ios-platform-tests
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 10.0.x
+          dotnet-version: 10.0.302
       - run: dotnet workload install maui
       - run: |
           dotnet tool install Microsoft.DotNet.XHarness.CLI --global \
@@ -217,13 +225,13 @@ jobs:
 
   android-platform-tests:
     name: Android emulator platform tests
-    runs-on: macos-latest
+    runs-on: macos-26
     if: github.event_name == 'workflow_dispatch' && inputs.run-android-platform-tests
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 10.0.x
+          dotnet-version: 10.0.302
       - run: dotnet workload install maui
       - run: |
           dotnet tool install Microsoft.DotNet.XHarness.CLI --global \

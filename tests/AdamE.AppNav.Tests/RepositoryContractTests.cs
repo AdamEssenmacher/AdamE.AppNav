@@ -337,6 +337,7 @@ public sealed class RepositoryContractTests
         var readme = File.ReadAllText(Path.Combine(root, "README.md"));
         var checklist = File.ReadAllText(Path.Combine(root, "docs", "release-checklist.md"));
         var runner = File.ReadAllText(Path.Combine(root, "eng", "run-maui-platform-tests.sh"));
+        var packageVerifier = File.ReadAllText(Path.Combine(root, "eng", "verify-package-assets.sh"));
         var mauiTestsProject = File.ReadAllText(Path.Combine(root, "tests", "AdamE.AppNav.Maui.Tests", "AdamE.AppNav.Maui.Tests.csproj"));
 
         Assert.Contains("docs/release-checklist.md", readme, StringComparison.Ordinal);
@@ -348,6 +349,8 @@ public sealed class RepositoryContractTests
         Assert.Contains("--instrumentation", runner, StringComparison.Ordinal);
         Assert.Contains("require_test_results", runner, StringComparison.Ordinal);
         Assert.Contains("fail_on_unhandled_exceptions", runner, StringComparison.Ordinal);
+        Assert.Contains("grep -Eq", packageVerifier, StringComparison.Ordinal);
+        Assert.DoesNotContain("rg --quiet", packageVerifier, StringComparison.Ordinal);
         Assert.Contains("net10.0-android", mauiTestsProject, StringComparison.Ordinal);
         Assert.Contains("net10.0-ios", mauiTestsProject, StringComparison.Ordinal);
         Assert.Contains("net10.0-maccatalyst", mauiTestsProject, StringComparison.Ordinal);
@@ -376,6 +379,17 @@ public sealed class RepositoryContractTests
         Assert.Contains("run-ios-platform-tests", workflow, StringComparison.Ordinal);
         Assert.Contains("run-android-platform-tests", workflow, StringComparison.Ordinal);
         Assert.Contains("reactivecircus/android-emulator-runner", workflow, StringComparison.Ordinal);
+        Assert.Contains("runs-on: macos-26", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("runs-on: macos-latest", workflow, StringComparison.Ordinal);
+        Assert.Contains("9.0.316", workflow, StringComparison.Ordinal);
+        Assert.Contains("10.0.302", workflow, StringComparison.Ordinal);
+        Assert.Contains(
+            "DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer",
+            workflow,
+            StringComparison.Ordinal);
+        Assert.Contains("actions/checkout@v7", workflow, StringComparison.Ordinal);
+        Assert.Contains("actions/setup-dotnet@v5", workflow, StringComparison.Ordinal);
+        Assert.Contains("actions/upload-artifact@v7", workflow, StringComparison.Ordinal);
     }
 
     [Fact]
