@@ -83,6 +83,145 @@ public sealed class MauiPresentationTransactionTests
     }
 
     [Fact]
+    public async Task DirectPushFailureAfterMutationRestoresStackAndReleasesCreatedPageOnce()
+    {
+        var nativeOperations = new FaultingNativeOperations();
+        var factory = new InstrumentedRoutePageFactory();
+        var presenter = new MauiNavigationPresenter(factory, nativeOperations: nativeOperations);
+        await presenter.ApplyAsync(
+            new NavigationPlan(StackState("home", "detail")),
+            Context("detail", NavigationState.Empty));
+        var navigationPage = Assert.IsType<NavigationPage>(presenter.CurrentPage);
+        Page[] previousStack = navigationPage.Navigation.NavigationStack.ToArray();
+        NavigationReconciliation? reconciliation = null;
+        presenter.ReconciliationRequested += (_, args) => reconciliation = args.Reconciliation;
+        nativeOperations.FaultAfterMutation = NativeMutation.PushStack;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => presenter
+            .PushAsync<TestPresentationPage>(
+                "settings",
+                new MauiRoutePresentationPageOptions { Animated = false })
+            .AsTask());
+
+        Page createdPage = Assert.Single(factory.CreatedPresentationPages);
+        Assert.Equal(previousStack, navigationPage.Navigation.NavigationStack.ToArray());
+        Assert.Equal(1, factory.ReleaseCountFor(createdPage));
+        Assert.Null(reconciliation);
+        await presenter.DisposeAsync();
+        Assert.Equal(1, factory.ReleaseCountFor(createdPage));
+    }
+
+    [Fact]
+    public async Task DirectPopFailureAfterMutationRestoresPresentationPageWithoutReleasingIt()
+    {
+        var nativeOperations = new FaultingNativeOperations();
+        var factory = new InstrumentedRoutePageFactory();
+        var presenter = new MauiNavigationPresenter(factory, nativeOperations: nativeOperations);
+        await presenter.ApplyAsync(
+            new NavigationPlan(StackState("home", "detail")),
+            Context("detail", NavigationState.Empty));
+        await presenter.PushAsync<TestPresentationPage>(
+            "settings",
+            new MauiRoutePresentationPageOptions { Animated = false });
+        var navigationPage = Assert.IsType<NavigationPage>(presenter.CurrentPage);
+        Page[] previousStack = navigationPage.Navigation.NavigationStack.ToArray();
+        Page presentationPage = previousStack[^1];
+        nativeOperations.FaultAfterMutation = NativeMutation.PopStack;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => presenter.PopAsync(animated: false).AsTask());
+
+        Assert.Equal(previousStack, navigationPage.Navigation.NavigationStack.ToArray());
+        Assert.Equal(0, factory.ReleaseCountFor(presentationPage));
+        Assert.True(await presenter.PopAsync(animated: false));
+        Assert.Equal(1, factory.ReleaseCountFor(presentationPage));
+        await presenter.DisposeAsync();
+        Assert.Equal(1, factory.ReleaseCountFor(presentationPage));
+    }
+
+    [Fact]
+    public async Task DirectPushCancellationAfterMutationRestoresPreviousStack()
+    {
+        var nativeOperations = new FaultingNativeOperations();
+        var factory = new InstrumentedRoutePageFactory();
+        var presenter = new MauiNavigationPresenter(factory, nativeOperations: nativeOperations);
+        await presenter.ApplyAsync(
+            new NavigationPlan(StackState("home", "detail")),
+            Context("detail", NavigationState.Empty));
+        nativeOperations.BlockNextPush = true;
+        var navigationPage = Assert.IsType<NavigationPage>(presenter.CurrentPage);
+        Page[] previousStack = navigationPage.Navigation.NavigationStack.ToArray();
+        using var cancellation = new CancellationTokenSource();
+        Task push = presenter.PushAsync<TestPresentationPage>(
+            "settings",
+            new MauiRoutePresentationPageOptions { Animated = false },
+            cancellation.Token).AsTask();
+        await nativeOperations.BlockedPushStarted;
+
+        cancellation.Cancel();
+        nativeOperations.ReleaseBlockedPush();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => push);
+        Page createdPage = Assert.Single(factory.CreatedPresentationPages);
+        Assert.Equal(previousStack, navigationPage.Navigation.NavigationStack.ToArray());
+        Assert.Equal(1, factory.ReleaseCountFor(createdPage));
+        await presenter.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task DirectPushRollbackFailureRebuildsPreviousLogicalState()
+    {
+        var nativeOperations = new FaultingNativeOperations();
+        var factory = new InstrumentedRoutePageFactory();
+        var presenter = new MauiNavigationPresenter(factory, nativeOperations: nativeOperations);
+        NavigationState previousState = StackState("home", "detail");
+        await presenter.ApplyAsync(new NavigationPlan(previousState), Context("detail", NavigationState.Empty));
+        var previousRoot = Assert.IsType<NavigationPage>(presenter.CurrentPage);
+        nativeOperations.FaultAfterMutation = NativeMutation.PushStack;
+        nativeOperations.PopFailuresRemaining = 1;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => presenter
+            .PushAsync<TestPresentationPage>(
+                "settings",
+                new MauiRoutePresentationPageOptions { Animated = false })
+            .AsTask());
+
+        var recoveredRoot = Assert.IsType<NavigationPage>(presenter.CurrentPage);
+        Assert.NotSame(previousRoot, recoveredRoot);
+        Assert.Equal(
+            ["home", "detail"],
+            recoveredRoot.Navigation.NavigationStack
+                .Select(page => Assert.IsType<string>(MauiPresentationMetadata.GetRouteEntryId(page)))
+                .ToArray());
+        Assert.Equal(1, factory.ReleaseCountFor(Assert.Single(factory.CreatedPresentationPages)));
+        await presenter.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task AsyncShutdownCancelsBlockedDirectPushAfterRollbackCompletes()
+    {
+        var nativeOperations = new FaultingNativeOperations();
+        var factory = new InstrumentedRoutePageFactory();
+        var presenter = new MauiNavigationPresenter(factory, nativeOperations: nativeOperations);
+        await presenter.ApplyAsync(
+            new NavigationPlan(StackState("home", "detail")),
+            Context("detail", NavigationState.Empty));
+        nativeOperations.BlockNextPush = true;
+        Task push = presenter.PushAsync<TestPresentationPage>(
+            "settings",
+            new MauiRoutePresentationPageOptions { Animated = false }).AsTask();
+        await nativeOperations.BlockedPushStarted;
+
+        Task shutdown = presenter.DisposeAsync().AsTask();
+        Assert.False(shutdown.IsCompleted);
+        nativeOperations.ReleaseBlockedPush();
+
+        Exception cancellation = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => push);
+        Assert.IsNotType<ObjectDisposedException>(cancellation);
+        await shutdown;
+        Assert.Equal(1, factory.ReleaseCountFor(Assert.Single(factory.CreatedPresentationPages)));
+    }
+
+    [Fact]
     public async Task RollbackFailureRebuildsAndVerifiesPreviousStateBeforeAllowingMoreNavigation()
     {
         var nativeOperations = new FaultingNativeOperations();
@@ -463,6 +602,8 @@ public sealed class MauiPresentationTransactionTests
 
         public int PushFailuresRemaining { get; set; }
 
+        public int PopFailuresRemaining { get; set; }
+
         public bool AlwaysFailPush { get; set; }
 
         public bool BlockNextPush { get; set; }
@@ -493,6 +634,12 @@ public sealed class MauiPresentationTransactionTests
 
         public async Task<Page?> PopAsync(NavigationPage navigationPage, bool animated)
         {
+            if (PopFailuresRemaining > 0)
+            {
+                PopFailuresRemaining--;
+                throw new InvalidOperationException("Injected native pop failure.");
+            }
+
             Page? page = await MauiNativeNavigationOperations.Instance.PopAsync(navigationPage, animated);
             ThrowAfterMutation(NativeMutation.PopStack);
             return page;
@@ -546,4 +693,6 @@ public sealed class MauiPresentationTransactionTests
             throw new InvalidOperationException($"Injected {mutation} failure after mutation.");
         }
     }
+
+    private sealed class TestPresentationPage : ContentPage;
 }

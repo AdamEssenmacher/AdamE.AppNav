@@ -473,59 +473,7 @@ internal sealed class MauiNavigationPresenter :
         catch (Exception presentationException)
         {
             _activeTransaction = null;
-            _diagnostics.Write(
-                NavigationDiagnosticEventKind.PresentationRollbackStarted,
-                context.OperationId,
-                "Presentation rollback started.");
-
-            try
-            {
-                await transaction.RollbackAsync();
-                _diagnostics.Write(
-                    NavigationDiagnosticEventKind.PresentationRollbackCompleted,
-                    context.OperationId,
-                    "Presentation rollback completed.");
-            }
-            catch (Exception rollbackException)
-            {
-                _diagnostics.Write(
-                    NavigationDiagnosticEventKind.PresentationRollbackFailed,
-                    context.OperationId,
-                    "Presentation rollback failed.",
-                    new Dictionary<string, object?>
-                    {
-                        [NavigationDiagnosticDataKeys.ExceptionType] = rollbackException.GetType().FullName,
-                        [NavigationDiagnosticDataKeys.ExceptionMessage] = rollbackException.Message
-                    });
-
-                if (!_disposed)
-                {
-                    try
-                    {
-                        await RebuildStateFromScratchAsync(
-                            transaction.PreviousState,
-                            context.OperationId);
-                        await transaction.ReleaseAllNonLivePagesAsync();
-                    }
-                    catch (Exception recoveryException)
-                    {
-                        var aggregate = new AggregateException(
-                            "Presentation, rollback, and full-state recovery all failed.",
-                            presentationException,
-                            rollbackException,
-                            recoveryException);
-                        var consistencyException = new MauiPresentationConsistencyException(
-                            "The MAUI presenter could not restore a consistent navigation state.",
-                            aggregate);
-                        lock (_lifetimeGate)
-                        {
-                            _consistencyFailure = consistencyException;
-                        }
-
-                        throw consistencyException;
-                    }
-                }
-            }
+            await RollbackOrRecoverAsync(transaction, context.OperationId, presentationException);
 
             throw;
         }
@@ -533,6 +481,64 @@ internal sealed class MauiNavigationPresenter :
         {
             _activeOperationId = null;
             _suppressReconciliation = false;
+        }
+    }
+
+    private async Task RollbackOrRecoverAsync(
+        MauiPresentationTransaction transaction,
+        string operationId,
+        Exception presentationException)
+    {
+        _diagnostics.Write(
+            NavigationDiagnosticEventKind.PresentationRollbackStarted,
+            operationId,
+            "Presentation rollback started.");
+
+        try
+        {
+            await transaction.RollbackAsync();
+            _diagnostics.Write(
+                NavigationDiagnosticEventKind.PresentationRollbackCompleted,
+                operationId,
+                "Presentation rollback completed.");
+        }
+        catch (Exception rollbackException)
+        {
+            _diagnostics.Write(
+                NavigationDiagnosticEventKind.PresentationRollbackFailed,
+                operationId,
+                "Presentation rollback failed.",
+                new Dictionary<string, object?>
+                {
+                    [NavigationDiagnosticDataKeys.ExceptionType] = rollbackException.GetType().FullName,
+                    [NavigationDiagnosticDataKeys.ExceptionMessage] = rollbackException.Message
+                });
+
+            if (_disposed)
+                return;
+
+            try
+            {
+                await RebuildStateFromScratchAsync(transaction.PreviousState, operationId);
+                await transaction.ReleaseAllNonLivePagesAsync();
+            }
+            catch (Exception recoveryException)
+            {
+                var aggregate = new AggregateException(
+                    "Presentation, rollback, and full-state recovery all failed.",
+                    presentationException,
+                    rollbackException,
+                    recoveryException);
+                var consistencyException = new MauiPresentationConsistencyException(
+                    "The MAUI presenter could not restore a consistent navigation state.",
+                    aggregate);
+                lock (_lifetimeGate)
+                {
+                    _consistencyFailure = consistencyException;
+                }
+
+                throw consistencyException;
+            }
         }
     }
 
@@ -572,29 +578,38 @@ internal sealed class MauiNavigationPresenter :
                 $"Presentation key '{key}' already exists below the top of route entry '{owner.RouteEntryId}'.");
         }
 
-        var page = await _pageFactory.CreatePresentationPageAsync(
-            pageType,
-            owner.RoutePage,
-            options.InheritBindingContext,
-            cancellationToken);
-        var isPresenterOwned = false;
+        Page[] previousStack = navigationPage.Navigation.NavigationStack.ToArray();
+        var transaction = new MauiPresentationTransaction(this);
+        string operationId = CreateOperationId();
+        bool previousSuppressReconciliation = _suppressReconciliation;
+        string? previousOperationId = _activeOperationId;
+        _suppressReconciliation = true;
+        _activeOperationId = operationId;
+        _activeTransaction = transaction;
         try
         {
+            var page = await _pageFactory.CreatePresentationPageAsync(
+                pageType,
+                owner.RoutePage,
+                options.InheritBindingContext,
+                cancellationToken);
             if (page is NavigationPage or TabbedPage)
             {
+                await _pageFactory.ReleasePresentationPageAsync(page);
                 throw new InvalidOperationException(
                     $"Route-owned presentation page '{page.GetType().FullName}' cannot be a navigation container.");
             }
 
             if (page.Parent is not null)
             {
+                await _pageFactory.ReleasePresentationPageAsync(page);
                 throw new InvalidOperationException(
                     $"Route-owned presentation page '{page.GetType().FullName}' is already attached to a visual tree.");
             }
 
             SetPresentationOwnerRouteEntryId(page, owner.RouteEntryId);
             SetPresentationPageKey(page, key);
-            isPresenterOwned = true;
+            transaction.TrackCreated(page);
             WritePageLifecycle(
                 NavigationDiagnosticEventKind.PresentationPageCreated,
                 page,
@@ -602,22 +617,23 @@ internal sealed class MauiNavigationPresenter :
 
             cancellationToken.ThrowIfCancellationRequested();
             await _nativeOperations.PushAsync(navigationPage, page, options.Animated);
+            cancellationToken.ThrowIfCancellationRequested();
+            VerifyPresentationPush(navigationPage, previousStack, page);
             UpdateKnownNavigationPages(navigationPage);
+            _activeTransaction = null;
+            await transaction.CommitAsync();
         }
-        catch
+        catch (Exception presentationException)
         {
-            if (isPresenterOwned)
-            {
-                await DetachPageTreeAsync(page);
-            }
-            else
-            {
-                await _pageFactory.ReleasePresentationPageAsync(page);
-            }
-
-            SetPresentationOwnerRouteEntryId(page, null);
-            SetPresentationPageKey(page, null);
+            _activeTransaction = null;
+            await RollbackOrRecoverAsync(transaction, operationId, presentationException);
             throw;
+        }
+        finally
+        {
+            _activeTransaction = null;
+            _activeOperationId = previousOperationId;
+            _suppressReconciliation = previousSuppressReconciliation;
         }
     }
 
@@ -639,13 +655,88 @@ internal sealed class MauiNavigationPresenter :
             return false;
         }
 
-        var removed = await _nativeOperations.PopAsync(navigationPage, animated);
-        if (removed is null)
+        Page[] previousStack = navigationPage.Navigation.NavigationStack.ToArray();
+        Page expectedPage = projection.Segments[^1].PresentationPages[^1];
+        var transaction = new MauiPresentationTransaction(this);
+        string operationId = CreateOperationId();
+        bool previousSuppressReconciliation = _suppressReconciliation;
+        string? previousOperationId = _activeOperationId;
+        _suppressReconciliation = true;
+        _activeOperationId = operationId;
+        _activeTransaction = transaction;
+        transaction.Retire(expectedPage);
+        try
         {
-            return false;
+            Page? removed = await _nativeOperations.PopAsync(navigationPage, animated);
+            cancellationToken.ThrowIfCancellationRequested();
+            VerifyPresentationPop(navigationPage, previousStack, expectedPage, removed);
+            UpdateKnownNavigationPages(navigationPage);
+            _activeTransaction = null;
+            await transaction.CommitAsync();
+            return true;
+        }
+        catch (Exception presentationException)
+        {
+            _activeTransaction = null;
+            await RollbackOrRecoverAsync(transaction, operationId, presentationException);
+            throw;
+        }
+        finally
+        {
+            _activeTransaction = null;
+            _activeOperationId = previousOperationId;
+            _suppressReconciliation = previousSuppressReconciliation;
+        }
+    }
+
+    private static void VerifyPresentationPush(
+        NavigationPage navigationPage,
+        IReadOnlyList<Page> previousStack,
+        Page expectedPage)
+    {
+        IReadOnlyList<Page> currentStack = navigationPage.Navigation.NavigationStack;
+        if (currentStack.Count != previousStack.Count + 1 ||
+            !StackPrefixMatches(currentStack, previousStack) ||
+            !ReferenceEquals(currentStack[^1], expectedPage))
+        {
+            throw new InvalidOperationException("Native presentation push did not produce the expected stack.");
         }
 
-        await ReleaseNavigationPagesRemovedFromNativeStackAsync(navigationPage);
+        MauiNavigationStackProjection projection = RequireValidProjection(currentStack);
+        if (projection.Segments.Count == 0 ||
+            projection.Segments[^1].PresentationPages.Count == 0 ||
+            !ReferenceEquals(projection.Segments[^1].PresentationPages[^1], expectedPage))
+        {
+            throw new InvalidOperationException("Native presentation push did not produce the expected projection.");
+        }
+    }
+
+    private static void VerifyPresentationPop(
+        NavigationPage navigationPage,
+        IReadOnlyList<Page> previousStack,
+        Page expectedPage,
+        Page? removedPage)
+    {
+        IReadOnlyList<Page> currentStack = navigationPage.Navigation.NavigationStack;
+        if (!ReferenceEquals(removedPage, expectedPage) ||
+            currentStack.Count != previousStack.Count - 1 ||
+            !StackPrefixMatches(previousStack, currentStack))
+        {
+            throw new InvalidOperationException("Native presentation pop did not produce the expected stack.");
+        }
+
+        RequireValidProjection(currentStack);
+    }
+
+    private static bool StackPrefixMatches(IReadOnlyList<Page> longer, IReadOnlyList<Page> prefix)
+    {
+        if (longer.Count < prefix.Count)
+            return false;
+
+        for (var index = 0; index < prefix.Count; index++)
+            if (!ReferenceEquals(longer[index], prefix[index]))
+                return false;
+
         return true;
     }
 

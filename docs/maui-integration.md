@@ -170,6 +170,8 @@ both recovery paths faults the presenter closed with `MauiPresentationConsistenc
 
 Native back automatically pops the presentation page without reconciling away the logical route. For an explicit presentation-only back command, call `IMauiRoutePresentationNavigator.PopAsync()`. `IRouterNavigator.BackAsync()` remains deliberately logical and can remove the owning route.
 
+Direct presentation pushes and pops are transactional. AppNav commits them only after the native operation completes and the resulting stack and route projection match exactly. A failure or cancellation before that point restores the previous native stack and leaves the operation failed; if both rollback and full-state recovery fail, the presenter faults with `MauiPresentationConsistencyException`.
+
 The active route must be hosted by a router-owned `NavigationPage`. Route-only modals without a navigation stack cannot push route-owned pages.
 
 ## Notes
