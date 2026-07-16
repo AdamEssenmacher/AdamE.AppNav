@@ -89,6 +89,7 @@ public sealed class AccessGateNavigationPolicyTests
         return new NavigationRequestPolicyContext(
             request,
             request.Route ?? new TestRoutes.StoreRoute("fallback"),
+            routeMetadata: null,
             NavigationState.Empty,
             "operation");
     }

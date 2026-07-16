@@ -18,27 +18,40 @@ public sealed class NavigationDiagnostics
     /// <summary>
     /// Gets a disabled diagnostics instance that ignores subscribers, observers, and write calls.
     /// </summary>
-    public static NavigationDiagnostics None { get; } = new(false, null);
+    public static NavigationDiagnostics None { get; } = new(false, null, null, null);
 
     private readonly Lock _gate = new();
     private readonly List<INavigationDiagnosticObserver> _observers = [];
     private readonly bool _enabled;
     private readonly ILogger? _logger;
+    private readonly NavigationDiagnosticDataMode _dataMode;
+    private readonly INavigationDiagnosticRedactor? _redactor;
     private EventHandler<NavigationDiagnosticEvent>? _eventWritten;
 
     /// <summary>
     /// Initializes a diagnostics instance that emits events and optionally mirrors them to a logger.
     /// </summary>
     /// <param name="logger">The logger that should receive diagnostic events, or <see langword="null"/> to skip logging.</param>
-    public NavigationDiagnostics(ILogger? logger = null)
-        : this(true, logger)
+    /// <param name="options">Options controlling how diagnostic data is exposed.</param>
+    /// <param name="redactor">An optional application-specific redactor.</param>
+    public NavigationDiagnostics(
+        ILogger? logger = null,
+        NavigationDiagnosticsOptions? options = null,
+        INavigationDiagnosticRedactor? redactor = null)
+        : this(true, logger, options, redactor)
     {
     }
 
-    private NavigationDiagnostics(bool enabled, ILogger? logger)
+    private NavigationDiagnostics(
+        bool enabled,
+        ILogger? logger,
+        NavigationDiagnosticsOptions? options,
+        INavigationDiagnosticRedactor? redactor)
     {
         _enabled = enabled;
         _logger = logger;
+        _dataMode = options?.DataMode ?? NavigationDiagnosticDataMode.Safe;
+        _redactor = redactor;
     }
 
     /// <summary>
@@ -115,7 +128,29 @@ public sealed class NavigationDiagnostics
 
         LogLevel effectiveSeverity = severity ?? InferSeverity(kind);
         NavigationDiagnosticPhase effectivePhase = phase ?? InferPhase(kind);
-        var diagnosticEvent = new NavigationDiagnosticEvent(
+        bool hasLogger;
+        try
+        {
+            hasLogger = _logger?.IsEnabled(effectiveSeverity) == true;
+        }
+        catch
+        {
+            hasLogger = false;
+        }
+
+        bool hasActivity = Activity.Current is not null;
+        EventHandler<NavigationDiagnosticEvent>? eventWritten;
+        INavigationDiagnosticObserver[] observers;
+        lock (_gate)
+        {
+            eventWritten = _eventWritten;
+            observers = _observers.Count == 0 ? [] : _observers.ToArray();
+        }
+
+        if (_redactor is null && !hasLogger && !hasActivity && eventWritten is null && observers.Length == 0)
+            return;
+
+        var rawEvent = new NavigationDiagnosticEvent(
             kind,
             operationId,
             message,
@@ -123,17 +158,10 @@ public sealed class NavigationDiagnostics
             data ?? EmptyData.Value,
             effectiveSeverity,
             effectivePhase);
+        NavigationDiagnosticEvent diagnosticEvent = PrepareEvent(rawEvent);
 
-        MirrorToLogger(diagnosticEvent);
-        MirrorToActivity(diagnosticEvent);
-
-        EventHandler<NavigationDiagnosticEvent>? eventWritten;
-        INavigationDiagnosticObserver[] observers;
-        lock (_gate)
-        {
-            eventWritten = _eventWritten;
-            observers = _observers.ToArray();
-        }
+        TryMirrorToLogger(diagnosticEvent);
+        TryMirrorToActivity(diagnosticEvent);
 
         // Observer callbacks must never become part of the navigation control flow.
         if (eventWritten is not null)
@@ -170,7 +198,7 @@ public sealed class NavigationDiagnostics
         string operationId,
         Exception exception)
     {
-        var failureEvent = new NavigationDiagnosticEvent(
+        var rawFailureEvent = new NavigationDiagnosticEvent(
             NavigationDiagnosticEventKind.DiagnosticObserverFailed,
             operationId,
             $"A navigation diagnostic observer failed while handling '{originalKind}'.",
@@ -183,9 +211,10 @@ public sealed class NavigationDiagnostics
             },
             LogLevel.Error,
             NavigationDiagnosticPhase.Diagnostics);
+        NavigationDiagnosticEvent failureEvent = PrepareEvent(rawFailureEvent);
 
-        MirrorToLogger(failureEvent);
-        MirrorToActivity(failureEvent);
+        TryMirrorToLogger(failureEvent);
+        TryMirrorToActivity(failureEvent);
 
         EventHandler<NavigationDiagnosticEvent>? eventWritten;
         lock (_gate)
@@ -209,6 +238,69 @@ public sealed class NavigationDiagnostics
             {
                 // Diagnostic observers are intentionally isolated from navigation.
             }
+        }
+    }
+
+    private NavigationDiagnosticEvent PrepareEvent(NavigationDiagnosticEvent rawEvent)
+    {
+        if (_dataMode == NavigationDiagnosticDataMode.Full && _redactor is null)
+            return rawEvent;
+
+        NavigationDiagnosticEvent builtInSafe;
+        try
+        {
+            builtInSafe = NavigationDiagnosticSanitizer.Sanitize(rawEvent);
+        }
+        catch
+        {
+            builtInSafe = rawEvent with
+            {
+                Message = $"Navigation diagnostic: {rawEvent.Kind}.",
+                Data = EmptyData.Value
+            };
+        }
+
+        NavigationDiagnosticEvent redactorInput = _dataMode == NavigationDiagnosticDataMode.Full
+            ? rawEvent
+            : builtInSafe;
+
+        if (_redactor is null)
+            return redactorInput;
+
+        try
+        {
+            NavigationDiagnosticEvent? redacted = _redactor.Redact(redactorInput);
+            return redacted is null || redacted.OperationId is null || redacted.Message is null || redacted.Data is null
+                ? builtInSafe
+                : redacted;
+        }
+        catch
+        {
+            return builtInSafe;
+        }
+    }
+
+    private void TryMirrorToLogger(NavigationDiagnosticEvent diagnosticEvent)
+    {
+        try
+        {
+            MirrorToLogger(diagnosticEvent);
+        }
+        catch
+        {
+            // Logging providers are external observers and cannot participate in navigation control flow.
+        }
+    }
+
+    private static void TryMirrorToActivity(NavigationDiagnosticEvent diagnosticEvent)
+    {
+        try
+        {
+            MirrorToActivity(diagnosticEvent);
+        }
+        catch
+        {
+            // Tracing providers are external observers and cannot participate in navigation control flow.
         }
     }
 
@@ -285,7 +377,9 @@ public sealed class NavigationDiagnostics
                    NavigationDiagnosticEventKind.RequestRedirectLoopDetected or
                    NavigationDiagnosticEventKind.DiagnosticObserverFailed
             ? LogLevel.Error
-            : kind is NavigationDiagnosticEventKind.RouteNotMatched or NavigationDiagnosticEventKind.BackUnhandled
+            : kind is NavigationDiagnosticEventKind.RouteNotMatched or
+                    NavigationDiagnosticEventKind.BackUnhandled or
+                    NavigationDiagnosticEventKind.DeferredRequestStoreQuarantined
                 ? LogLevel.Warning
                 : kind is NavigationDiagnosticEventKind.PresentationPageCreated or
                     NavigationDiagnosticEventKind.PresentationPageReleased or
@@ -328,9 +422,15 @@ public sealed class NavigationDiagnostics
                 NavigationDiagnosticEventKind.PresentationHandlerDetached or
                 NavigationDiagnosticEventKind.PresentationPresenterDisposed or
                 NavigationDiagnosticEventKind.PresentationVerificationFailed or
+                NavigationDiagnosticEventKind.PresentationRollbackStarted or
+                NavigationDiagnosticEventKind.PresentationRollbackCompleted or
+                NavigationDiagnosticEventKind.PresentationRollbackFailed or
+                NavigationDiagnosticEventKind.PresentationPageReleaseFailed or
                 NavigationDiagnosticEventKind.PresentationCompleted or
                 NavigationDiagnosticEventKind.PresentationFailed =>
                 NavigationDiagnosticPhase.Presentation,
+            NavigationDiagnosticEventKind.DeferredRequestStoreQuarantined =>
+                NavigationDiagnosticPhase.Persistence,
             NavigationDiagnosticEventKind.StartupStarted or
                 NavigationDiagnosticEventKind.StartupAppLinkPending or
                 NavigationDiagnosticEventKind.StartupDeferredRequestPending or

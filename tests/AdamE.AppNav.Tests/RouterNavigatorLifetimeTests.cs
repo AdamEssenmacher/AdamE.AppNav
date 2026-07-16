@@ -10,7 +10,7 @@ namespace AdamE.AppNav.Tests;
 public sealed class RouterNavigatorLifetimeTests
 {
     [Fact]
-    public async Task DisposeDuringPresentationDoesNotFailAfterNavigationCommits()
+    public async Task DisposeCancelsAcceptedNavigationBeforePresentationCommits()
     {
         var presenter = new BlockingFirstPresenter();
         var navigator = new RouterNavigator(
@@ -25,13 +25,34 @@ public sealed class RouterNavigatorLifetimeTests
         navigator.Dispose();
         presenter.ReleaseFirstApply();
 
-        NavigationResult result = await navigation;
-        Assert.True(result.Presented);
-        Assert.Equal(new TestRoutes.StoreRoute("northwind"), result.Route);
-        Assert.Same(result.State, navigator.CurrentState);
-        Assert.NotNull(navigator.History.Current);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => navigation);
+        Assert.Same(NavigationState.Empty, navigator.CurrentState);
+        Assert.Null(navigator.History.Current);
         await Assert.ThrowsAsync<ObjectDisposedException>(() =>
             navigator.NavigateAsync(new TestRoutes.StoreRoute("contoso")).AsTask());
+        await navigator.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task WorkThatReturnsAfterPresentationCommitStillCompletesDuringShutdown()
+    {
+        var presenter = new BlockingFirstPresenter(throwWhenCancellationObserved: false);
+        var navigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            TestNavigationPlanner.EchoStack(),
+            presenter);
+        Task<NavigationResult> navigation = navigator
+            .NavigateAsync(new TestRoutes.StoreRoute("northwind"))
+            .AsTask();
+        await presenter.FirstApplyStarted;
+
+        navigator.Dispose();
+        presenter.ReleaseFirstApply();
+
+        NavigationResult result = await navigation;
+        Assert.True(result.Presented);
+        Assert.Same(result.State, navigator.CurrentState);
+        Assert.NotNull(navigator.History.Current);
         await navigator.DisposeAsync();
     }
 
@@ -64,12 +85,12 @@ public sealed class RouterNavigatorLifetimeTests
         Assert.Equal(0, presenter.HandlerCount);
 
         presenter.ReleaseFirstApply();
-        await navigation;
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => navigation);
         await shutdown;
 
-        Assert.Equal(2, presenter.ApplyCount);
-        Assert.Same(reconciledState, navigator.CurrentState);
-        Assert.Equal(NavigationRequestSource.NativeReconciliation, navigator.History.Current!.Request.Source);
+        Assert.Equal(1, presenter.ApplyCount);
+        Assert.Same(NavigationState.Empty, navigator.CurrentState);
+        Assert.Null(navigator.History.Current);
     }
 
     [Fact]
@@ -91,7 +112,38 @@ public sealed class RouterNavigatorLifetimeTests
         Assert.False(planner.Disposed);
     }
 
-    private sealed class BlockingFirstPresenter : INavigationPresenter, IDisposable
+    [Fact]
+    public async Task DisposeDoesNotWaitForCancellationCallbacksButDisposeAsyncDoes()
+    {
+        var planner = new BlockingCancellationPlanner();
+        var navigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            planner,
+            NullNavigationPresenter.Instance);
+        Task<NavigationResult> navigation = navigator
+            .NavigateAsync(new TestRoutes.StoreRoute("northwind"))
+            .AsTask();
+        await planner.Started;
+
+        Task dispose = Task.Run(navigator.Dispose);
+        Task shutdown = Task.CompletedTask;
+        try
+        {
+            await dispose.WaitAsync(TimeSpan.FromSeconds(5));
+            await planner.CancellationCallbackStarted.WaitAsync(TimeSpan.FromSeconds(5));
+            shutdown = navigator.DisposeAsync().AsTask();
+            Assert.False(shutdown.IsCompleted);
+        }
+        finally
+        {
+            planner.ReleaseCancellationCallback();
+        }
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => navigation);
+        await shutdown;
+    }
+
+    private sealed class BlockingFirstPresenter(bool throwWhenCancellationObserved = true) : INavigationPresenter, IDisposable
     {
         private readonly TaskCompletionSource<bool> _firstApplyStarted =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -123,7 +175,9 @@ public sealed class RouterNavigatorLifetimeTests
                 return;
 
             _firstApplyStarted.TrySetResult(true);
-            await _releaseFirstApply.Task.WaitAsync(cancellationToken);
+            await _releaseFirstApply.Task;
+            if (throwWhenCancellationObserved)
+                cancellationToken.ThrowIfCancellationRequested();
         }
 
         public void RequestReconciliation(NavigationReconciliation reconciliation)
@@ -158,6 +212,41 @@ public sealed class RouterNavigatorLifetimeTests
         public void Dispose()
         {
             Disposed = true;
+        }
+    }
+
+    private sealed class BlockingCancellationPlanner : IAppNavigationPlanner
+    {
+        private readonly TaskCompletionSource<bool> _started =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> _cancellationCallbackStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> _releaseCancellationCallback =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private CancellationTokenRegistration _registration;
+
+        public Task Started => _started.Task;
+
+        public Task CancellationCallbackStarted => _cancellationCallbackStarted.Task;
+
+        public async ValueTask<NavigationPlan> CreatePlanAsync(
+            NavigationPlanningContext context,
+            CancellationToken cancellationToken = default)
+        {
+            _registration = cancellationToken.Register(() =>
+            {
+                _cancellationCallbackStarted.TrySetResult(true);
+                _releaseCancellationCallback.Task.GetAwaiter().GetResult();
+            });
+            _started.TrySetResult(true);
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            throw new InvalidOperationException("The cancellation wait completed unexpectedly.");
+        }
+
+        public void ReleaseCancellationCallback()
+        {
+            _releaseCancellationCallback.TrySetResult(true);
+            _registration.Dispose();
         }
     }
 }

@@ -25,10 +25,13 @@ internal sealed class RouterNavigator : IRouterNavigator
     private readonly Lock _reconciliationGate = new();
     private readonly TaskCompletionSource<bool> _shutdownCompletion =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly CancellationTokenSource _shutdownCancellation = new();
     private readonly int _maxHistoryEntries;
     private Task _reconciliationQueue = Task.CompletedTask;
     private int _activeOperations;
     private bool _shutdownStarted;
+    private bool _shutdownSignalIssued;
+    private bool _shutdownCancellationCompleted;
     private bool _operationLockDisposed;
 
     public RouterNavigator(
@@ -166,17 +169,22 @@ internal sealed class RouterNavigator : IRouterNavigator
         BeginOperation();
 
         var lockTaken = false;
+        CancellationTokenSource? linkedCancellation = null;
         try
         {
-            await _operationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+            CancellationToken operationCancellation = CreateOperationCancellation(
+                cancellationToken,
+                out linkedCancellation);
+            await _operationLock.WaitAsync(operationCancellation).ConfigureAwait(false);
             lockTaken = true;
-            return await NavigateCoreAsync(request, cancellationToken).ConfigureAwait(false);
+            return await NavigateCoreAsync(request, operationCancellation).ConfigureAwait(false);
         }
         finally
         {
             if (lockTaken)
                 _operationLock.Release();
 
+            linkedCancellation?.Dispose();
             EndOperation();
         }
     }
@@ -188,17 +196,22 @@ internal sealed class RouterNavigator : IRouterNavigator
         BeginOperation();
 
         var lockTaken = false;
+        CancellationTokenSource? linkedCancellation = null;
         try
         {
-            await _operationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+            CancellationToken operationCancellation = CreateOperationCancellation(
+                cancellationToken,
+                out linkedCancellation);
+            await _operationLock.WaitAsync(operationCancellation).ConfigureAwait(false);
             lockTaken = true;
-            return await BackCoreAsync(windowId, cancellationToken).ConfigureAwait(false);
+            return await BackCoreAsync(windowId, operationCancellation).ConfigureAwait(false);
         }
         finally
         {
             if (lockTaken)
                 _operationLock.Release();
 
+            linkedCancellation?.Dispose();
             EndOperation();
         }
     }
@@ -211,17 +224,22 @@ internal sealed class RouterNavigator : IRouterNavigator
         BeginOperation();
 
         var lockTaken = false;
+        CancellationTokenSource? linkedCancellation = null;
         try
         {
-            await _operationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+            CancellationToken operationCancellation = CreateOperationCancellation(
+                cancellationToken,
+                out linkedCancellation);
+            await _operationLock.WaitAsync(operationCancellation).ConfigureAwait(false);
             lockTaken = true;
-            return await ReconcileAdmittedAsync(reconciliation, cancellationToken).ConfigureAwait(false);
+            return await ReconcileAdmittedAsync(reconciliation, operationCancellation).ConfigureAwait(false);
         }
         finally
         {
             if (lockTaken)
                 _operationLock.Release();
 
+            linkedCancellation?.Dispose();
             EndOperation();
         }
     }
@@ -357,7 +375,7 @@ internal sealed class RouterNavigator : IRouterNavigator
         }
         catch (Exception ex)
         {
-            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            activity?.SetStatus(ActivityStatusCode.Error);
             _diagnostics.WriteFailure(
                 NavigationDiagnosticEventKind.NavigationFailed,
                 operationId,
@@ -455,7 +473,7 @@ internal sealed class RouterNavigator : IRouterNavigator
         }
         catch (Exception ex)
         {
-            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            activity?.SetStatus(ActivityStatusCode.Error);
             _diagnostics.WriteFailure(
                 NavigationDiagnosticEventKind.BackFailed,
                 operationId,
@@ -538,7 +556,7 @@ internal sealed class RouterNavigator : IRouterNavigator
         }
         catch (Exception ex)
         {
-            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            activity?.SetStatus(ActivityStatusCode.Error);
             _diagnostics.WriteFailure(NavigationDiagnosticEventKind.ReconciliationFailed, operationId,
                 reconciliation.Source.ToString(), ex, timer);
             throw;
@@ -565,11 +583,12 @@ internal sealed class RouterNavigator : IRouterNavigator
                             var lockTaken = false;
                             try
                             {
-                                await navigator._operationLock.WaitAsync().ConfigureAwait(false);
+                                await navigator._operationLock.WaitAsync(
+                                    navigator._shutdownCancellation.Token).ConfigureAwait(false);
                                 lockTaken = true;
                                 await navigator.ReconcileAdmittedAsync(
                                     nextReconciliation,
-                                    CancellationToken.None).ConfigureAwait(false);
+                                    navigator._shutdownCancellation.Token).ConfigureAwait(false);
                             }
                             finally
                             {
@@ -661,7 +680,8 @@ internal sealed class RouterNavigator : IRouterNavigator
             if (_activeOperations < 0)
                 throw new InvalidOperationException("Router operation admission count became negative.");
 
-            if (_shutdownStarted && _activeOperations == 0 && !_operationLockDisposed)
+            if (_shutdownStarted && _shutdownSignalIssued && _shutdownCancellationCompleted &&
+                _activeOperations == 0 && !_operationLockDisposed)
             {
                 _operationLockDisposed = true;
                 completeShutdown = true;
@@ -675,19 +695,14 @@ internal sealed class RouterNavigator : IRouterNavigator
     private Task StartShutdown()
     {
         var unsubscribe = false;
-        var completeShutdown = false;
+        var signalShutdown = false;
         lock (_lifetimeGate)
         {
             if (!_shutdownStarted)
             {
                 _shutdownStarted = true;
                 unsubscribe = true;
-            }
-
-            if (_activeOperations == 0 && !_operationLockDisposed)
-            {
-                _operationLockDisposed = true;
-                completeShutdown = true;
+                signalShutdown = true;
             }
         }
 
@@ -695,9 +710,35 @@ internal sealed class RouterNavigator : IRouterNavigator
         {
             if (unsubscribe)
                 _presenter.ReconciliationRequested -= OnPresenterReconciliationRequested;
+
+            if (signalShutdown)
+            {
+                try
+                {
+                    _ = ObserveShutdownCancellationAsync(_shutdownCancellation.CancelAsync());
+                }
+                catch (Exception)
+                {
+                    _ = ObserveShutdownCancellationAsync(Task.CompletedTask);
+                }
+            }
         }
         finally
         {
+            var completeShutdown = false;
+            lock (_lifetimeGate)
+            {
+                if (signalShutdown)
+                    _shutdownSignalIssued = true;
+
+                if (_shutdownStarted && _shutdownSignalIssued && _shutdownCancellationCompleted &&
+                    _activeOperations == 0 && !_operationLockDisposed)
+                {
+                    _operationLockDisposed = true;
+                    completeShutdown = true;
+                }
+            }
+
             if (completeShutdown)
                 CompleteShutdown();
         }
@@ -705,16 +746,59 @@ internal sealed class RouterNavigator : IRouterNavigator
         return _shutdownCompletion.Task;
     }
 
+    private async Task ObserveShutdownCancellationAsync(Task cancellation)
+    {
+        try
+        {
+            await cancellation.ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // Cancellation callback ownership remains with the callback registrant.
+        }
+
+        var completeShutdown = false;
+        lock (_lifetimeGate)
+        {
+            _shutdownCancellationCompleted = true;
+            if (_shutdownStarted && _shutdownSignalIssued && _activeOperations == 0 && !_operationLockDisposed)
+            {
+                _operationLockDisposed = true;
+                completeShutdown = true;
+            }
+        }
+
+        if (completeShutdown)
+            CompleteShutdown();
+    }
+
     private void CompleteShutdown()
     {
         try
         {
             _operationLock.Dispose();
+            _shutdownCancellation.Dispose();
         }
         finally
         {
             _shutdownCompletion.TrySetResult(true);
         }
+    }
+
+    private CancellationToken CreateOperationCancellation(
+        CancellationToken callerCancellation,
+        out CancellationTokenSource? linkedCancellation)
+    {
+        if (!callerCancellation.CanBeCanceled)
+        {
+            linkedCancellation = null;
+            return _shutdownCancellation.Token;
+        }
+
+        linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            callerCancellation,
+            _shutdownCancellation.Token);
+        return linkedCancellation.Token;
     }
 
     private sealed record ReconciledRoute : AppRoute;

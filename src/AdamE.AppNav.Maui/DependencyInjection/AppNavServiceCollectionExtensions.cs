@@ -16,6 +16,22 @@ namespace AdamE.AppNav.Maui.DependencyInjection;
 
 public static class AppNavServiceCollectionExtensions
 {
+    /// <summary>
+    /// Configures AppNav diagnostic data handling. Safe mode remains the default when this method is not called.
+    /// </summary>
+    public static IServiceCollection AddAppNavDiagnostics(
+        this IServiceCollection services,
+        Action<NavigationDiagnosticsOptions>? configure = null)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        if (configure is not null)
+            services.AddSingleton<INavigationDiagnosticsOptionsContributor>(
+                new DelegateNavigationDiagnosticsOptionsContributor(configure));
+
+        return services.AddAppNavDiagnosticsServices();
+    }
+
     public static IServiceCollection AddAppNav<
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
     TPlanner>(
@@ -92,8 +108,7 @@ public static class AppNavServiceCollectionExtensions
         this IServiceCollection services,
         RouteTable routes)
     {
-        services.TryAddSingleton(provider =>
-            new NavigationDiagnostics(provider.GetService<ILoggerFactory>()?.CreateLogger("AdamE.AppNav.Diagnostics")));
+        services.AddAppNavDiagnosticsServices();
         services.TryAddSingleton<IBackNavigator>(provider =>
             new DefaultBackNavigator(diagnostics: provider.GetRequiredService<NavigationDiagnostics>()));
         services.AddSingleton(routes);
@@ -133,12 +148,30 @@ public static class AppNavServiceCollectionExtensions
 
     private static IServiceCollection AddAppNavBoundaryServices(this IServiceCollection services)
     {
-        services.TryAddSingleton(provider =>
-            new NavigationDiagnostics(provider.GetService<ILoggerFactory>()?.CreateLogger("AdamE.AppNav.Diagnostics")));
+        services.AddAppNavDiagnosticsServices();
         services.TryAddSingleton<MauiExternalNavigationDispatcher>();
         services.TryAddSingleton<IMauiExternalNavigationDispatcher>(provider =>
             provider.GetRequiredService<MauiExternalNavigationDispatcher>());
 
+        return services;
+    }
+
+    private static IServiceCollection AddAppNavDiagnosticsServices(this IServiceCollection services)
+    {
+        services.TryAddSingleton(provider =>
+        {
+            var options = new NavigationDiagnosticsOptions();
+            foreach (INavigationDiagnosticsOptionsContributor contributor in
+                     provider.GetServices<INavigationDiagnosticsOptionsContributor>())
+            {
+                contributor.Contribute(options);
+            }
+
+            return new NavigationDiagnostics(
+                provider.GetService<ILoggerFactory>()?.CreateLogger("AdamE.AppNav.Diagnostics"),
+                options,
+                provider.GetService<INavigationDiagnosticRedactor>());
+        });
         return services;
     }
 
@@ -151,9 +184,16 @@ public static class AppNavServiceCollectionExtensions
             provider.GetService<MauiExternalNavigationDispatcher>(),
             provider.GetService<NavigationDiagnostics>(),
             provider.GetRequiredService<MauiRoutePresentationOptions>()));
-        services.AddSingleton<IMauiPresentationState>(provider => provider.GetRequiredService<MauiNavigationPresenter>());
+        services.AddSingleton<IMauiPresentationState>(provider =>
+        {
+            _ = provider.GetRequiredService<IAppNavRuntime>();
+            return provider.GetRequiredService<MauiNavigationPresenter>();
+        });
         services.AddSingleton<IMauiRoutePresentationNavigator>(provider =>
-            provider.GetRequiredService<MauiNavigationPresenter>());
+        {
+            _ = provider.GetRequiredService<IAppNavRuntime>();
+            return provider.GetRequiredService<MauiNavigationPresenter>();
+        });
 
         return services;
     }
@@ -172,6 +212,18 @@ public static class AppNavServiceCollectionExtensions
     private interface IMauiRoutePageContributor
     {
         void Contribute(MauiRoutePageRegistry registry);
+    }
+
+    private interface INavigationDiagnosticsOptionsContributor
+    {
+        void Contribute(NavigationDiagnosticsOptions options);
+    }
+
+    private sealed class DelegateNavigationDiagnosticsOptionsContributor(
+        Action<NavigationDiagnosticsOptions> configure)
+        : INavigationDiagnosticsOptionsContributor
+    {
+        public void Contribute(NavigationDiagnosticsOptions options) => configure(options);
     }
 
     private sealed class DelegateMauiRoutePageContributor(Action<MauiRoutePageRegistry> configure)

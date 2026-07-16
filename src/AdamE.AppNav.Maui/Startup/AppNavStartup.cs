@@ -1,4 +1,3 @@
-using System.Text.Json;
 using AdamE.AppNav.Diagnostics;
 using AdamE.AppNav.Maui.AppLinks;
 using AdamE.AppNav.Navigation;
@@ -226,7 +225,7 @@ internal sealed class AppNavStartupService : IAppNavStartupService
         {
             return await store.HasDeferredRequestsAsync(cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (IsRecoverableDeferredRequestStoreException(ex))
+        catch (UnsupportedDeferredNavigationRequestSchemaException ex)
         {
             try
             {
@@ -251,11 +250,6 @@ internal sealed class AppNavStartupService : IAppNavStartupService
 
             return false;
         }
-    }
-
-    private static bool IsRecoverableDeferredRequestStoreException(Exception exception)
-    {
-        return exception is JsonException or InvalidOperationException or NotSupportedException or FormatException;
     }
 
     private AppNavStartupResult Complete(

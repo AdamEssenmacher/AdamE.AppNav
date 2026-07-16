@@ -20,9 +20,12 @@ on:
         type: boolean
         default: false
 
+permissions:
+  contents: read
+
 jobs:
-  release-confidence:
-    name: Build, pack, and Mac Catalyst platform tests
+  unit-api-allocation:
+    name: Unit, API, and allocation contracts
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,40 +36,105 @@ jobs:
             9.0.x
             10.0.x
 
-      - name: Install MAUI workload
+      - name: Install .NET 9 MAUI workload
+        working-directory: eng/sdk/net9
         run: dotnet workload install maui
 
-      - name: Install XHarness
-        run: |
-          dotnet tool install Microsoft.DotNet.XHarness.CLI --global \
-            --add-source https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet-eng/nuget/v3/index.json \
-            --version "11.0.0-prerelease*"
+      - name: Install .NET 10 MAUI workload
+        run: dotnet workload install maui
 
-      - name: Core tests
-        run: dotnet test tests/AdamE.AppNav.Tests/AdamE.AppNav.Tests.csproj
+      - name: Core and public API tests
+        run: dotnet test tests/AdamE.AppNav.Tests/AdamE.AppNav.Tests.csproj -c Release -p:TreatWarningsAsErrors=true -p:CheckEolTargetFramework=false
 
       - name: Generator tests
-        run: dotnet test tests/AdamE.AppNav.Generators.Tests/AdamE.AppNav.Generators.Tests.csproj
+        run: dotnet test tests/AdamE.AppNav.Generators.Tests/AdamE.AppNav.Generators.Tests.csproj -c Release -p:TreatWarningsAsErrors=true -p:CheckEolTargetFramework=false
 
-      - name: MAUI adapter build
-        run: dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj
+      - name: Allocation budgets
+        run: dotnet run -c Release --project benchmarks/AdamE.AppNav.Benchmarks -- --check-budgets
 
-      - name: AOT analyzer build
+  analyzer-pack:
+    name: Supported targets, analyzers, and packages
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            9.0.x
+            10.0.x
+
+      - name: Install .NET 9 MAUI workload
+        working-directory: eng/sdk/net9
+        run: dotnet workload install maui
+
+      - name: Install .NET 10 MAUI workload
+        run: dotnet workload install maui
+
+      - name: Build .NET 9 target assets
+        run: |
+          dotnet build src/AdamE.AppNav/AdamE.AppNav.csproj -c Release -f net9.0 -p:CheckEolTargetFramework=false -warnaserror
+          dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net9.0 -p:CheckEolTargetFramework=false -p:WarningsNotAsErrors=NU1900 -warnaserror
+          dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net9.0-android -p:CheckEolTargetFramework=false -p:WarningsNotAsErrors=NU1900 -warnaserror
+          dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net9.0-ios -p:CheckEolTargetFramework=false -p:WarningsNotAsErrors=NU1900 -warnaserror
+          dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net9.0-maccatalyst -p:CheckEolTargetFramework=false -p:WarningsNotAsErrors=NU1900 -warnaserror
+
+      - name: Build .NET 10 target assets
+        run: |
+          dotnet build src/AdamE.AppNav/AdamE.AppNav.csproj -c Release -f net10.0 -warnaserror
+          dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net10.0 -p:WarningsNotAsErrors=NU1900 -warnaserror
+          dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net10.0-android -p:WarningsNotAsErrors=NU1900 -warnaserror
+          dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net10.0-ios -p:WarningsNotAsErrors=NU1900 -warnaserror
+          dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net10.0-maccatalyst -p:WarningsNotAsErrors=NU1900 -warnaserror
+
+      - name: .NET 9 trim and AOT analyzer build
         run: >-
           dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj
           -c Release
           -f net9.0
+          -p:CheckEolTargetFramework=false
           -p:EnableTrimAnalyzer=true
           -p:EnableAotAnalyzer=true
           -p:SuppressTrimAnalysisWarnings=false
           -p:WarningsNotAsErrors=NU1900
           -warnaserror
 
-      - name: Commerce sample build
-        run: dotnet build samples/Commerce.Sample/Commerce.Sample.csproj -f net10.0-maccatalyst
-
-      - name: Commerce Mac Catalyst NativeAOT publish
+      - name: .NET 10 trim and AOT analyzer build
         run: >-
+          dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj
+          -c Release
+          -f net10.0
+          -p:EnableTrimAnalyzer=true
+          -p:EnableAotAnalyzer=true
+          -p:SuppressTrimAnalysisWarnings=false
+          -p:WarningsNotAsErrors=NU1900
+          -warnaserror
+
+      - name: Pack packages
+        run: |
+          dotnet pack src/AdamE.AppNav/AdamE.AppNav.csproj -c Release --no-build -p:CheckEolTargetFramework=false -o artifacts/packages
+          dotnet pack src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release --no-build -p:CheckEolTargetFramework=false -p:WarningsNotAsErrors=NU1900 -o artifacts/packages
+
+      - name: Inspect package assets
+        run: eng/verify-package-assets.sh artifacts/packages
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: packages
+          path: artifacts/packages
+
+  maccatalyst-nativeaot:
+    name: Mac Catalyst NativeAOT
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet workload install maui
+      - run: dotnet build samples/Commerce.Sample/Commerce.Sample.csproj -c Release -f net10.0-maccatalyst -warnaserror
+      - run: >-
           dotnet publish samples/Commerce.Sample/Commerce.Sample.csproj
           -c Release
           -f net10.0-maccatalyst
@@ -75,10 +143,24 @@ jobs:
           -p:EnableCodeSigning=false
           -p:CodesignKey=-
           -p:CodesignProvision=
+          -warnaserror
           -o artifacts/aot/maccatalyst
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: maccatalyst-nativeaot
+          path: artifacts/aot/maccatalyst
 
-      - name: Commerce Android full-trim publish
-        run: >-
+  android-full-trim:
+    name: Android full trim
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet workload install maui
+      - run: >-
           dotnet publish samples/Commerce.Sample/Commerce.Sample.csproj
           -c Release
           -f net10.0-android
@@ -87,23 +169,31 @@ jobs:
           -p:TrimMode=full
           -p:AndroidLinkMode=Full
           -o artifacts/aot/android-arm64
-
-      - name: Pack packages
-        run: |
-          dotnet pack src/AdamE.AppNav/AdamE.AppNav.csproj -o artifacts/packages
-          dotnet pack src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -o artifacts/packages
-
-      - name: Mac Catalyst platform tests
-        run: eng/run-maui-platform-tests.sh maccatalyst
-
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: release-confidence-artifacts
-          path: |
-            artifacts/packages
-            artifacts/aot
-            artifacts/xharness
+          name: android-full-trim
+          path: artifacts/aot/android-arm64
+
+  maccatalyst-platform-tests:
+    name: Mac Catalyst platform tests
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet workload install maui
+      - run: |
+          dotnet tool install Microsoft.DotNet.XHarness.CLI --global \
+            --add-source https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet-eng/nuget/v3/index.json \
+            --version "11.0.0-prerelease*"
+      - run: eng/run-maui-platform-tests.sh maccatalyst
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: maccatalyst-xharness
+          path: artifacts/xharness
 
   ios-platform-tests:
     name: iOS simulator platform tests
@@ -113,9 +203,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: |
-            9.0.x
-            10.0.x
+          dotnet-version: 10.0.x
       - run: dotnet workload install maui
       - run: |
           dotnet tool install Microsoft.DotNet.XHarness.CLI --global \
@@ -136,9 +224,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: |
-            9.0.x
-            10.0.x
+          dotnet-version: 10.0.x
       - run: dotnet workload install maui
       - run: |
           dotnet tool install Microsoft.DotNet.XHarness.CLI --global \

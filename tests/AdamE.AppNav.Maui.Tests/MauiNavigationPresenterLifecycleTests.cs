@@ -30,6 +30,8 @@ public sealed class MauiNavigationPresenterLifecycleTests
 
         fixture.Presenter.Dispose();
         fixture.Presenter.Dispose();
+        Assert.Throws<ObjectDisposedException>(() => fixture.Presenter.AttachWindow(new Window()));
+        await fixture.Presenter.DisposeAsync();
 
         Assert.All(routePages, page => Assert.Equal(1, fixture.Factory.ReleaseCountFor(page)));
         Assert.Equal(2, fixture.Factory.ReleasedPages.Count);
@@ -93,6 +95,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.Null(presentationState.AttachedWindowId);
 
         fixture.Presenter.Dispose();
+        await fixture.Presenter.DisposeAsync();
 
         Assert.Null(presentationState.RootPage);
         Assert.Null(presentationState.AttachedWindow);
@@ -872,7 +875,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         using var provider = services.BuildServiceProvider();
         var options = new MauiRoutePresentationOptions { UseScopedPages = true };
         options.Pages.MapPage<TestPageRoute>((_, _) => new ContentPage());
-        using var presenter = new MauiNavigationPresenter(
+        var presenter = new MauiNavigationPresenter(
             new MauiRoutePageFactory(provider, options),
             presentationOptions: options);
 
@@ -914,7 +917,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         using var provider = services.BuildServiceProvider();
         var options = new MauiRoutePresentationOptions { UseScopedPages = true };
         options.Pages.MapPage<TestPageRoute>((_, _) => new ContentPage());
-        using var presenter = new MauiNavigationPresenter(
+        var presenter = new MauiNavigationPresenter(
             new MauiRoutePageFactory(provider, options),
             presentationOptions: options);
 

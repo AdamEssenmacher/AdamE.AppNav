@@ -30,7 +30,7 @@ internal static class MauiPresentationMetadata
             typeof(MauiPresentationMetadata),
             null);
 
-    public static void SetHostId(BindableObject bindableObject, string id)
+    public static void SetHostId(BindableObject bindableObject, string? id)
     {
         bindableObject.SetValue(HostIdProperty, id);
     }
@@ -40,7 +40,7 @@ internal static class MauiPresentationMetadata
         return bindableObject?.GetValue(HostIdProperty) as string;
     }
 
-    public static void SetBranchId(BindableObject bindableObject, string id)
+    public static void SetBranchId(BindableObject bindableObject, string? id)
     {
         bindableObject.SetValue(BranchIdProperty, id);
     }
@@ -50,7 +50,7 @@ internal static class MauiPresentationMetadata
         return bindableObject?.GetValue(BranchIdProperty) as string;
     }
 
-    public static void SetRouteEntryId(BindableObject bindableObject, string id)
+    public static void SetRouteEntryId(BindableObject bindableObject, string? id)
     {
         bindableObject.SetValue(RouteEntryIdProperty, id);
     }
@@ -60,7 +60,7 @@ internal static class MauiPresentationMetadata
         return bindableObject?.GetValue(RouteEntryIdProperty) as string;
     }
 
-    public static void SetModalId(BindableObject bindableObject, string id)
+    public static void SetModalId(BindableObject bindableObject, string? id)
     {
         bindableObject.SetValue(ModalIdProperty, id);
     }

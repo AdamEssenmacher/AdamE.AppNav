@@ -97,9 +97,11 @@ public sealed class DeferredNavigationRequestSerializerTests
             Requests = []
         };
 
-        var exception = Assert.Throws<InvalidOperationException>(() => serializer.Restore(snapshot));
+        var exception = Assert.Throws<UnsupportedDeferredNavigationRequestSchemaException>(
+            () => serializer.Restore(snapshot));
 
-        Assert.Contains(schemaVersion.ToString(), exception.Message);
+        Assert.Equal(schemaVersion, exception.ActualVersion);
+        Assert.Equal(DeferredNavigationRequestStoreSnapshot.CurrentSchemaVersion, exception.SupportedVersion);
     }
 
     [Fact]
@@ -153,6 +155,47 @@ public sealed class DeferredNavigationRequestSerializerTests
         Assert.Equal("int32", persisted.Type);
         Assert.Equal("3", persisted.Value);
         Assert.Equal(3, restored.Metadata["attempt"]);
+    }
+
+    [Theory]
+    [InlineData(true, "int32", "3")]
+    [InlineData(false, "int32", null)]
+    public void RestoreRejectsContradictoryCustomMetadataValues(
+        bool isNull,
+        string? type,
+        string? value)
+    {
+        var serializer = new DeferredNavigationRequestSerializer(TestRoutes.CreateTable(),
+            new DeferredNavigationRequestPersistenceOptions
+            {
+                BaseUri = BaseUri,
+                MetadataSerializer = new PassThroughMetadataSerializer()
+            });
+        DeferredNavigationRequestStoreSnapshot snapshot = serializer.CreateSnapshot(
+            [RouterNavigationRequest.FromRoute(
+                new TestRoutes.StoreRoute("northwind"),
+                NavigationRequestSource.InAppCommand,
+                metadata: new Dictionary<string, object?> { ["attempt"] = 3 })]);
+        NavigationRequestSnapshot request = snapshot.Requests[0];
+        snapshot = snapshot with
+        {
+            Requests =
+            [
+                request with
+                {
+                    Metadata = new Dictionary<string, NavigationMetadataValueSnapshot>
+                    {
+                        ["attempt"] = new NavigationMetadataValueSnapshot(type, value, isNull)
+                    }
+                }
+            ]
+        };
+
+        InvalidDeferredNavigationRequestDataException exception =
+            Assert.Throws<InvalidDeferredNavigationRequestDataException>(() => serializer.Restore(snapshot));
+
+        Assert.Equal(0, exception.RequestIndex);
+        Assert.IsType<InvalidOperationException>(exception.InnerException);
     }
 
     [Fact]
@@ -209,7 +252,7 @@ public sealed class DeferredNavigationRequestSerializerTests
     }
 
     [Fact]
-    public void Restore_IgnoresMalformedProvenanceUrisWithoutDroppingRequest()
+    public void Restore_RejectsMalformedProvenanceWithoutPartiallyRestoringRequest()
     {
         var routes = TestRoutes.CreateTable();
         var serializer = new DeferredNavigationRequestSerializer(routes, new DeferredNavigationRequestPersistenceOptions
@@ -240,11 +283,42 @@ public sealed class DeferredNavigationRequestSerializerTests
             }
         };
 
-        var restored = Assert.Single(serializer.Restore(malformed));
+        var exception = Assert.Throws<InvalidDeferredNavigationRequestDataException>(
+            () => serializer.Restore(malformed));
 
-        Assert.Equal("push", restored.Provenance!.Provider);
-        Assert.Null(restored.Provenance.OriginalUri);
-        Assert.Equal(new Uri("https://notifications.example/message/1"), restored.Provenance.ReferrerUri);
+        Assert.Equal(0, exception.RequestIndex);
+        Assert.IsType<FormatException>(exception.InnerException);
+    }
+
+    [Fact]
+    public void Restore_ReportsExactIndexForInvalidSchemaTwoRecord()
+    {
+        var serializer = new DeferredNavigationRequestSerializer(
+            TestRoutes.CreateTable(),
+            new DeferredNavigationRequestPersistenceOptions { BaseUri = BaseUri });
+        DeferredNavigationRequestStoreSnapshot snapshot = serializer.CreateSnapshot(
+            [
+                RouterNavigationRequest.FromRoute(
+                    new TestRoutes.StoreRoute("first"),
+                    NavigationRequestSource.AppLink),
+                RouterNavigationRequest.FromRoute(
+                    new TestRoutes.StoreRoute("second"),
+                    NavigationRequestSource.AppLink)
+            ]);
+        snapshot = snapshot with
+        {
+            Requests =
+            [
+                snapshot.Requests[0],
+                snapshot.Requests[1] with { Source = (NavigationRequestSource)999 }
+            ]
+        };
+
+        var exception = Assert.Throws<InvalidDeferredNavigationRequestDataException>(
+            () => serializer.Restore(snapshot));
+
+        Assert.Equal(1, exception.RequestIndex);
+        Assert.IsType<InvalidOperationException>(exception.InnerException);
     }
 
     private sealed class PassThroughMetadataSerializer : INavigationRequestMetadataSerializer

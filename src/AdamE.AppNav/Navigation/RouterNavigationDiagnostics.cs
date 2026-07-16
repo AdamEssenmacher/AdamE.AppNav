@@ -27,9 +27,7 @@ internal sealed class RouterNavigationDiagnostics(
 
     public Activity? StartActivity(string name, string operationId, RouterNavigationRequest request)
     {
-        Activity? activity = StartActivity(name, operationId, request.Source.ToString(), request.Disposition);
-        AddProvenanceActivityTags(activity, request.Provenance);
-        return activity;
+        return StartActivity(name, operationId, request.Source.ToString(), request.Disposition);
     }
 
     public Activity? StartActivity(
@@ -54,7 +52,6 @@ internal sealed class RouterNavigationDiagnostics(
         params (string Key, object? Value)[] data)
     {
         Activity.Current?.SetTag("navigation.failure.type", exception.GetType().FullName);
-        Activity.Current?.SetTag("navigation.failure.message", exception.Message);
         _diagnostics.Write(kind, operationId, message, FailureData(exception, timer, data));
     }
 
@@ -124,9 +121,6 @@ internal sealed class RouterNavigationDiagnostics(
         NavigationDiagnosticPhase phase)
     {
         Activity.Current?.SetTag("navigation.redirect_count", redirectCount);
-        Activity.Current?.SetTag("navigation.redirect_from", DescribeRedirectTarget(redirectFrom));
-        Activity.Current?.SetTag("navigation.redirect_to", DescribeRedirectTarget(redirectTo));
-        Activity.Current?.SetTag("navigation.redirect_trace", redirectTrace);
         _diagnostics.Write(
             NavigationDiagnosticEventKind.RequestRedirectLoopDetected,
             operationId,
@@ -218,25 +212,6 @@ internal sealed class RouterNavigationDiagnostics(
         if (provenance.Attributes.Count > 0)
             data[NavigationDiagnosticDataKeys.ProvenanceAttributes] =
                 new Dictionary<string, string?>(provenance.Attributes, StringComparer.Ordinal);
-    }
-
-    private static void AddProvenanceActivityTags(
-        Activity? activity,
-        NavigationRequestProvenance? provenance)
-    {
-        if (activity is null || provenance is null) return;
-
-        activity.SetTag("navigation.provenance.provider", provenance.Provider);
-        activity.SetTag("navigation.provenance.original_uri", provenance.OriginalUri?.ToString());
-        activity.SetTag("navigation.provenance.referrer_uri", provenance.ReferrerUri?.ToString());
-        activity.SetTag("navigation.provenance.correlation_id", provenance.CorrelationId);
-        if (provenance.IsColdStart.HasValue)
-            activity.SetTag("navigation.provenance.is_cold_start", provenance.IsColdStart.Value);
-
-        foreach (KeyValuePair<string, string?> pair in provenance.Attributes.OrderBy(static pair => pair.Key,
-                     StringComparer.Ordinal))
-            if (!string.IsNullOrWhiteSpace(pair.Key) && pair.Value is not null)
-                activity.SetTag($"navigation.provenance.attribute.{pair.Key}", pair.Value);
     }
 
     private static void AddIfPresent(

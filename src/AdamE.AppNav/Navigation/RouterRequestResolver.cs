@@ -68,8 +68,6 @@ internal sealed class RouterRequestResolver(
                         throw new InvalidOperationException(
                             $"Request transformer '{transformer.GetType().FullName}' returned a null navigation request.");
 
-                    candidateRequest = PreserveProvenance(previousRequest, candidateRequest);
-                    candidateRequest = InheritDisposition(previousRequest, candidateRequest);
                     ValidateTarget(candidateRequest);
                     RequestTargetKey candidateTarget = RequestTargetKey.From(candidateRequest);
                     effectiveRequest = candidateRequest;
@@ -117,10 +115,6 @@ internal sealed class RouterRequestResolver(
 
             ResolvedRoute resolvedRoute = ResolveRoute(effectiveRequest, currentState, operationId);
             AppRoute route = resolvedRoute.Route;
-            effectiveRequest = effectiveRequest with
-            {
-                Metadata = MergeMetadata(resolvedRoute.Metadata, effectiveRequest.Metadata)
-            };
 
             Activity.Current?.SetTag("navigation.route_type", route.GetType().FullName);
             Activity.Current?.SetTag("navigation.route_template", resolvedRoute.Definition?.Template.Value);
@@ -143,15 +137,18 @@ internal sealed class RouterRequestResolver(
                     RouterNavigationRequest previousRequest = effectiveRequest;
                     RequestTargetKey previousTarget = RequestTargetKey.From(previousRequest);
                     RouterNavigationRequest? candidateRequest = await policy.ApplyAsync(
-                        new NavigationRequestPolicyContext(effectiveRequest, route, currentState, operationId),
+                        new NavigationRequestPolicyContext(
+                            effectiveRequest,
+                            route,
+                            resolvedRoute.Metadata,
+                            currentState,
+                            operationId),
                         cancellationToken).ConfigureAwait(false);
 
                     if (candidateRequest is null)
                         throw new InvalidOperationException(
                             $"Request policy '{policy.GetType().FullName}' returned a null navigation request.");
 
-                    candidateRequest = PreserveProvenance(previousRequest, candidateRequest);
-                    candidateRequest = InheritDisposition(previousRequest, candidateRequest);
                     ValidateTarget(candidateRequest);
                     RequestTargetKey candidateTarget = RequestTargetKey.From(candidateRequest);
                     effectiveRequest = candidateRequest;
@@ -195,7 +192,13 @@ internal sealed class RouterRequestResolver(
             }
 
             if (!restarted)
-                return new ResolvedNavigationRequest(effectiveRequest, route, resolvedRoute.Definition);
+            {
+                RouterNavigationRequest finalizedRequest = effectiveRequest with
+                {
+                    Metadata = MergeMetadata(resolvedRoute.Metadata, effectiveRequest.Metadata)
+                };
+                return new ResolvedNavigationRequest(finalizedRequest, route, resolvedRoute.Definition);
+            }
         }
     }
 
@@ -250,10 +253,6 @@ internal sealed class RouterRequestResolver(
         }
 
         Activity.Current?.SetTag("navigation.redirect_count", redirectCount);
-        Activity.Current?.SetTag("navigation.redirect_from",
-            RouterNavigationDiagnostics.DescribeRedirectTarget(previousRequest));
-        Activity.Current?.SetTag("navigation.redirect_to",
-            RouterNavigationDiagnostics.DescribeRedirectTarget(candidateRequest));
         _diagnostics.Write(
             NavigationDiagnosticEventKind.RequestRedirected,
             operationId,
@@ -376,25 +375,6 @@ internal sealed class RouterRequestResolver(
             merged[pair.Key] = pair.Value;
 
         return merged;
-    }
-
-    private static RouterNavigationRequest PreserveProvenance(
-        RouterNavigationRequest originalRequest,
-        RouterNavigationRequest candidateRequest)
-    {
-        return candidateRequest.Provenance is null && originalRequest.Provenance is not null
-            ? candidateRequest with { Provenance = originalRequest.Provenance }
-            : candidateRequest;
-    }
-
-    private static RouterNavigationRequest InheritDisposition(
-        RouterNavigationRequest originalRequest,
-        RouterNavigationRequest candidateRequest)
-    {
-        return candidateRequest.Disposition == RouterNavigationDisposition.Auto &&
-               originalRequest.Disposition != RouterNavigationDisposition.Auto
-            ? candidateRequest with { Disposition = originalRequest.Disposition }
-            : candidateRequest;
     }
 
     private static void ValidateTarget(RouterNavigationRequest request)

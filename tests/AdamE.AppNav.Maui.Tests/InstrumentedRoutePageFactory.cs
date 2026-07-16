@@ -34,7 +34,9 @@ internal sealed class InstrumentedRoutePageFactory : IMauiRoutePageFactory
         _updatePage = updatePage;
     }
 
-    public Page CreatePage(RouteEntry entry)
+    public ValueTask<Page> CreatePageAsync(
+        RouteEntry entry,
+        CancellationToken cancellationToken = default)
     {
         var page = _createPage?.Invoke(entry) ??
                    new ContentPage
@@ -44,10 +46,14 @@ internal sealed class InstrumentedRoutePageFactory : IMauiRoutePageFactory
                    };
 
         _createdPages.Add(page);
-        return page;
+        return ValueTask.FromResult(page);
     }
 
-    public Page CreatePresentationPage(Type pageType, Page ownerRoutePage, bool inheritBindingContext)
+    public ValueTask<Page> CreatePresentationPageAsync(
+        Type pageType,
+        Page ownerRoutePage,
+        bool inheritBindingContext,
+        CancellationToken cancellationToken = default)
     {
         var page = Assert.IsAssignableFrom<Page>(Activator.CreateInstance(pageType));
         if (inheritBindingContext)
@@ -56,31 +62,39 @@ internal sealed class InstrumentedRoutePageFactory : IMauiRoutePageFactory
         }
 
         _createdPresentationPages.Add(page);
-        return page;
+        return ValueTask.FromResult(page);
     }
 
-    public void UpdatePage(Page page, RouteEntry entry, MauiRoutePageUpdateContext context)
+    public ValueTask UpdatePageAsync(
+        Page page,
+        RouteEntry entry,
+        MauiRoutePageUpdateContext context,
+        CancellationToken cancellationToken = default)
     {
         _updateCounts.TryGetValue(page, out var count);
         _updateCounts[page] = count + 1;
         _lastUpdatedEntries[page] = entry;
         _lastUpdateContexts[page] = context;
         _updatePage?.Invoke(page, entry, context);
+        return ValueTask.CompletedTask;
     }
 
-    public void ReleasePage(Page page)
+    public ValueTask ReleasePageAsync(Page page)
     {
         _releasedPages.Add(page);
         _releaseCounts.TryGetValue(page, out var count);
         _releaseCounts[page] = count + 1;
+        page.BindingContext = null;
+        return ValueTask.CompletedTask;
     }
 
-    public void ReleasePresentationPage(Page page)
+    public ValueTask ReleasePresentationPageAsync(Page page)
     {
         page.BindingContext = null;
         _releasedPresentationPages.Add(page);
         _releaseCounts.TryGetValue(page, out var count);
         _releaseCounts[page] = count + 1;
+        return ValueTask.CompletedTask;
     }
 
     public int ReleaseCountFor(Page page)

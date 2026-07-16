@@ -14,7 +14,7 @@ public sealed class RedirectLoopProtectionTests
     [Fact]
     public async Task TransformerTargetChangesRestartInRegistrationOrderAndEmitDiagnostics()
     {
-        var diagnostics = new NavigationDiagnostics();
+        var diagnostics = FullDiagnostics();
         var events = new List<NavigationDiagnosticEvent>();
         diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
         var firstTransformer = new DelegateRequestTransformer(context =>
@@ -97,7 +97,7 @@ public sealed class RedirectLoopProtectionTests
     [Fact]
     public async Task PolicyRedirectRestartsRequestPolicyPipeline()
     {
-        var diagnostics = new NavigationDiagnostics();
+        var diagnostics = FullDiagnostics();
         var events = new List<NavigationDiagnosticEvent>();
         diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
         var firstPolicy = new DelegateRequestPolicy(context =>
@@ -143,7 +143,7 @@ public sealed class RedirectLoopProtectionTests
     [Fact]
     public async Task TwoPolicyRedirectLoopThrowsAndDoesNotMutateStateOrHistory()
     {
-        var diagnostics = new NavigationDiagnostics();
+        var diagnostics = FullDiagnostics();
         var events = new List<NavigationDiagnosticEvent>();
         diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
         var firstPolicy = new DelegateRequestPolicy(context =>
@@ -259,7 +259,7 @@ public sealed class RedirectLoopProtectionTests
     [Fact]
     public async Task MetadataOnlyPolicyChangesDoNotCountAsRedirectsOrRestartPipeline()
     {
-        var diagnostics = new NavigationDiagnostics();
+        var diagnostics = FullDiagnostics();
         var events = new List<NavigationDiagnosticEventKind>();
         diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent.Kind);
         var planner = new RecordingPlanner();
@@ -300,7 +300,7 @@ public sealed class RedirectLoopProtectionTests
     [Fact]
     public async Task FallbackSelectedRouteCanBeRedirectedThroughRequestPolicy()
     {
-        var diagnostics = new NavigationDiagnostics();
+        var diagnostics = FullDiagnostics();
         var events = new List<NavigationDiagnosticEventKind>();
         diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent.Kind);
         var policy = new DelegateRequestPolicy(context =>
@@ -348,6 +348,12 @@ public sealed class RedirectLoopProtectionTests
     private sealed record CountRoute(int Value) : AppRoute;
 
     private sealed record MissingRoute(Uri Uri) : AppRoute;
+
+    private static NavigationDiagnostics FullDiagnostics() => new(
+        options: new NavigationDiagnosticsOptions
+        {
+            DataMode = NavigationDiagnosticDataMode.Full
+        });
 
     private sealed class DelegateRequestPolicy : INavigationRequestPolicy
     {

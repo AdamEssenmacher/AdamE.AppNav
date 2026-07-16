@@ -200,6 +200,7 @@ Until packages are published, consume the library with project references.
 | Area                                     | v1 Support                                                                  |
 |------------------------------------------|-----------------------------------------------------------------------------|
 | Core target frameworks                   | `net9.0`, `net10.0`                                                         |
+| MAUI adapter target frameworks           | `net9.0`, `net10.0`, plus Android, iOS, and Mac Catalyst platform TFMs      |
 | MAUI adapter targets                     | Android, iOS, Mac Catalyst                                                  |
 | MAUI containers                          | `NavigationPage`, `TabbedPage`, modal navigation                            |
 | Page creation                            | DI-backed page factories                                                    |
@@ -220,8 +221,11 @@ Until packages are published, consume the library with project references.
 ## Trimming And NativeAOT
 
 `AdamE.AppNav` and `AdamE.AppNav.Maui` declare `IsAotCompatible` and are built with the trim and AOT analyzers enabled.
-Release confidence publishes the Commerce sample with Mac Catalyst NativeAOT and with Android full trimming plus
-release AOT compilation.
+Release confidence runs trim/AOT analyzers against both platform-neutral `net9.0` and `net10.0` adapter builds,
+publishes the Commerce sample with Mac Catalyst NativeAOT and Android full trimming, and inspects package assets for
+every supported .NET 9 and .NET 10 TFM. .NET 9 remains an explicit compatibility target even after its platform EOL;
+its build lane disables only the SDK EOL warning while keeping all compiler, trim, and AOT warnings as errors. The
+.NET 10 compiler produces both target lines, while CI installs the matching .NET 9 and .NET 10 MAUI workload packs.
 
 Deferred request persistence uses source-generated `System.Text.Json` metadata. Registered restorable state uses the
 same route value codecs as URL matching and formatting. A custom `INavigationRequestMetadataSerializer` must return
@@ -546,7 +550,6 @@ Register the route table, planner, diagnostics, deferred request persistence, pa
 startup, and navigator.
 
 ```csharp
-using AdamE.AppNav.Diagnostics;
 using AdamE.AppNav.Maui.AppLinks;
 using AdamE.AppNav.Maui.DependencyInjection;
 using AdamE.AppNav.Requests;
@@ -561,7 +564,7 @@ public static class MauiProgram
             .UseMauiApp<App>()
             .UseAppNavAppLinks();
 
-        builder.Services.AddSingleton<NavigationDiagnostics>();
+        builder.Services.AddAppNavDiagnostics();
         builder.Services.AddAppNavFileDeferredNavigationRequests(options =>
         {
             options.BaseUri = new Uri("https://example.com/");
@@ -780,7 +783,9 @@ persistence, policies, and planning when the app chooses.
 ### Policies Centralize Compatibility And Auth
 
 Register request transformers and policies as services. `AddAppNav` discovers each collection in DI registration order.
-Transformers run before matching; policies run after matching and before planning and presentation.
+Transformers run before matching; policies run after matching and before planning and presentation. Policies receive
+matched values through `NavigationRequestPolicyContext.RouteMetadata`; request-envelope metadata remains separately
+available through `NavigationRequestPolicyContext.Request.Metadata`.
 
 ```csharp
 builder.Services.AddAppNavFileDeferredNavigationRequests();
@@ -1369,15 +1374,17 @@ NavigateAsync(Uri|AppRoute|AppRouteRequest|RouterNavigationRequest)
 Navigation operations are serialized. URI and typed-route navigation, back navigation, direct reconciliation, and
 queued native reconciliation all run through the same internal queue so state, history, and presentation stay ordered.
 
-`IRouterNavigator` implements `IDisposable` and `IAsyncDisposable`. `Dispose()` stops admission and detaches presenter
-events without blocking; operations already admitted continue. `DisposeAsync()` performs the same shutdown and waits
-for admitted navigation, back, direct reconciliation, and queued presenter reconciliation to finish. New operations
+`IRouterNavigator` implements `IDisposable` and `IAsyncDisposable`. Both forms stop admission, detach presenter events,
+and cancel accepted navigation, back, direct reconciliation, and queued reconciliation work. `Dispose()` initiates
+that shutdown without blocking. `DisposeAsync()` additionally waits for cancellation, rollback, queued work, and final
+cleanup. Presentation work that has already crossed its commit point still completes successfully. New operations
 throw `ObjectDisposedException`, while `CurrentState` and `History` remain readable.
 
 Direct callers of `RouterNavigatorFactory.Create(...)` own the returned navigator and should prefer `await using` when
-shutdown must drain accepted work. The navigator does not own or dispose the injected route table, planner, presenter,
-back navigator, or diagnostics. `AddAppNav(...)` instead creates an `AppNavRuntime` that owns the factory navigator;
-the DI registration order disposes that runtime before the MAUI presenter.
+shutdown must wait for accepted work to unwind. The navigator does not own or dispose the injected route table,
+planner, presenter, back navigator, or diagnostics. `AddAppNav(...)` instead creates an `AppNavRuntime` that is the sole
+shutdown owner for both its factory-created navigator and MAUI presenter. Public presentation surfaces force that
+runtime to exist, so DI cannot dispose presenter dependencies out of order.
 
 Public state:
 
@@ -1423,8 +1430,10 @@ including unmatched URLs and targets produced by redirects. A target change rest
 registered transformer.
 
 `INavigationRequestPolicy` handles post-match decisions before planning. Policies inspect the resolved semantic route
-through `context.Route`; URI-targeted requests remain URI-targeted unless a transformer or policy explicitly replaces
-the target.
+through `context.Route` and its matched route metadata through `context.RouteMetadata`. `context.Request.Metadata`
+contains only explicit request-envelope metadata. URI-targeted requests remain URI-targeted unless a transformer or
+policy explicitly replaces the target. On successful resolution, AppNav merges current-route metadata once, with
+explicit request metadata taking precedence.
 
 ```csharp
 public sealed class NormalizeStorePolicy : INavigationRequestPolicy
@@ -1444,6 +1453,11 @@ public sealed class NormalizeStorePolicy : INavigationRequestPolicy
     }
 }
 ```
+
+Transformer and policy return values are authoritative. `request.WithTarget(...)` preserves the complete envelope
+while atomically replacing the target. Constructing a new request intentionally chooses new source, window, metadata,
+timestamp, disposition, and provenance values; AppNav does not silently inherit provenance or disposition. When a
+target changes, route metadata from the old match is discarded before the pipeline restarts.
 
 Use request policies for:
 
@@ -1501,7 +1515,11 @@ request once more after restart, but cannot lose the pending request.
 
 Persisted deferred requests use an exact-version contract. This release accepts schema `2` only; schema `1` is not
 migrated and future versions are rejected. During MAUI startup, unsupported preview data is treated as recoverable,
-cleared, and startup continues through the configured fallback path.
+cleared, and startup continues through the configured fallback path. Malformed JSON or invalid schema-2 records are
+never partially restored. The file store atomically renames the original bytes beside the store as
+`*.invalid-{utc}-{guid}`, emits `DeferredRequestStoreQuarantined`, and continues with an empty queue. If quarantine
+itself fails, startup fails without deleting or rewriting the original file. Unexpected failures from custom stores do
+not trigger destructive recovery.
 
 Route-owned metadata is omitted unless it is registered as `RouteStateLifetime.Restorable` in the configured
 `RouteStateRegistry`. Custom metadata outside the route state registry can be serialized by implementing
@@ -1513,8 +1531,9 @@ are pending.
 
 ### Diagnostics
 
-`NavigationDiagnostics` emits events for request transformation, route matching, policies, planning, presentation, MAUI startup, reconciliation,
-back navigation, app-link delivery, and failures.
+`NavigationDiagnostics` emits events for request transformation, route matching, policies, planning, presentation,
+persistence, MAUI startup, reconciliation, back navigation, app-link delivery, and failures. Safe mode is the default
+for observers, `ILogger`, and `Activity` output.
 
 ```csharp
 var diagnostics = new NavigationDiagnostics();
@@ -1581,7 +1600,9 @@ diagnostics.AddObserver(new LoggingNavigationObserver());
 ```
 
 Observer failures are isolated from navigation. Completion and failure events include diagnostic data such as duration
-and exception details where applicable.
+and exception types where applicable. Safe mode uses stable messages, removes URI user-info/query/fragment, represents
+routes by type, omits exception and route-diagnostic messages, omits provenance correlation ids, and retains only
+provenance attribute keys. Raw values require an explicit Full-mode opt-in.
 
 Diagnostics can mirror directly to `ILogger`:
 
@@ -1590,8 +1611,19 @@ ILogger logger = loggerFactory.CreateLogger("Navigation");
 var diagnostics = new NavigationDiagnostics(logger);
 ```
 
-`AddAppNav` registers diagnostics with an `ILoggerFactory` when logging is available. The blessed MAUI runtime
-creates enabled diagnostics by default; use `NavigationDiagnostics.None` only in tests or custom internal composition.
+Configure MAUI diagnostics centrally:
+
+```csharp
+builder.Services.AddAppNavDiagnostics(options =>
+    options.DataMode = NavigationDiagnosticDataMode.Full);
+builder.Services.AddSingleton<INavigationDiagnosticRedactor, AppDiagnosticRedactor>();
+```
+
+`AddAppNav` registers diagnostics with an `ILoggerFactory` when logging is available. The blessed MAUI runtime creates
+enabled Safe-mode diagnostics by default; calling `AddAppNavDiagnostics()` explicitly is useful to make that choice
+visible in composition. A custom `INavigationDiagnosticRedactor` receives already-safe events in Safe mode and raw
+events in Full mode. If it throws or returns `null`, AppNav falls back to built-in Safe output and navigation continues.
+Use `NavigationDiagnostics.None` only in tests or custom internal composition.
 
 Diagnostics also mirror events into the current `Activity`. Navigation activities are emitted from
 `NavigationActivitySources.Default`.
@@ -1641,8 +1673,14 @@ PresentationPageReleased
 PresentationHandlerAttached
 PresentationHandlerDetached
 PresentationPresenterDisposed
+PresentationVerificationFailed
+PresentationRollbackStarted
+PresentationRollbackCompleted
+PresentationRollbackFailed
+PresentationPageReleaseFailed
 PresentationCompleted
 PresentationFailed
+DeferredRequestStoreQuarantined
 StartupStarted
 StartupAppLinkPending
 StartupDeferredRequestPending
@@ -1774,9 +1812,36 @@ Use the factory overload when you need custom construction.
 ```
 
 Pages are created in a per-page DI scope by default. When the presenter removes a page from native navigation, it
-releases that scope.
+releases that scope asynchronously. The page factory caches scoped lifecycle hooks with the page and clears the
+released page's binding context; page scopes and hooks are released exactly once.
 Page constructors receive the typed `AppRoute`, not route-entry metadata. If a page needs route-entry metadata, prefer
 `IMauiRoutePageLifecycleHook` or app-specific page wiring.
+
+```csharp
+public sealed class ProductPageLifecycle(ProductPageState state) : IMauiRoutePageLifecycleHook
+{
+    public ValueTask OnPageCreatedAsync(
+        Page page,
+        RouteEntry entry,
+        CancellationToken cancellationToken = default) =>
+        state.LoadAsync(page, entry, cancellationToken);
+
+    public ValueTask OnPageUpdatedAsync(
+        Page page,
+        RouteEntry entry,
+        MauiRoutePageUpdateContext context,
+        CancellationToken cancellationToken = default) =>
+        state.RefreshAsync(page, entry, context, cancellationToken);
+
+    public ValueTask OnPageReleasedAsync(
+        Page page,
+        CancellationToken cancellationToken = default) =>
+        state.ReleaseAsync(page, cancellationToken);
+}
+```
+
+Lifecycle dependencies are constructor-injected; hooks do not receive an `IServiceProvider`. Update hooks must support
+compensating calls with the prior `RouteEntry` when a presentation transaction rolls back.
 
 ### Startup And Window Attachment
 
@@ -1836,6 +1901,14 @@ modal presentation.
 
 The presenter tries to reuse existing host containers when host ids and route entry ids still line up. It preserves
 branch pages by branch id, diffs navigation stacks by common route-entry prefix, and releases removed page scopes.
+
+Each `ApplyAsync` is transactional. Replacement pages are staged before destructive mutations, retired pages remain
+owned until commit, and root-change/reconciliation events are suppressed until verification succeeds. A pre-commit
+failure or cancellation restores the previous root, stacks, modals, tabs, metadata, and lifecycle state with a
+non-cancellable rollback. If rollback fails outside shutdown, the presenter rebuilds and verifies the previous logical
+state from scratch. If both paths fail, it faults closed and later presentation throws
+`MauiPresentationConsistencyException`. Cleanup failures after commit are diagnosed but do not turn a committed
+navigation into failure.
 
 For example, if a catalog stack changes from:
 
@@ -2042,11 +2115,7 @@ public sealed class ClosedStorePolicy : INavigationRequestPolicy
         if (context.Route is ProductDetailRoute { StoreId: "closed" })
         {
             return ValueTask.FromResult(
-                RouterNavigationRequest.FromRoute(
-                    new StoreHomeRoute("northwind"),
-                    request.Source,
-                    request.WindowId,
-                    request.Metadata));
+                request.WithTarget(new StoreHomeRoute("northwind")));
         }
 
         return ValueTask.FromResult(request);
@@ -2063,6 +2132,9 @@ services.AddSingleton<INavigationRequestPolicy, ClosedStorePolicy>();
 When a request policy changes the navigation target, the navigator treats that as a redirect. A target change means
 the exclusive `Uri` or `Route` value changed. Source, window, metadata, timestamp, disposition, and provenance changes
 do not count as redirects and do not restart the pipeline.
+
+`WithTarget` preserves those envelope values. Returning a newly constructed request is an explicit replacement and
+does not inherit provenance, disposition, or metadata from `context.Request`.
 
 Redirects restart request transformation, route matching, and post-match policy evaluation from the beginning.
 Transformers and policies share one redirect budget and target-history set, so loops that cross stage boundaries are
@@ -2378,11 +2450,11 @@ From the repository root:
 
 ```bash
 dotnet test tests/AdamE.AppNav.Tests/AdamE.AppNav.Tests.csproj
+dotnet test tests/AdamE.AppNav.Generators.Tests/AdamE.AppNav.Generators.Tests.csproj
 dotnet build tests/AdamE.AppNav.Maui.Tests/AdamE.AppNav.Maui.Tests.csproj -f net10.0-maccatalyst
-dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj
+dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -f net9.0 -p:CheckEolTargetFramework=false
+dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -f net10.0
 dotnet build samples/Commerce.Sample/Commerce.Sample.csproj -f net10.0-maccatalyst
-dotnet pack src/AdamE.AppNav/AdamE.AppNav.csproj
-dotnet pack src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj
 ```
 
 For platform execution with XHarness and manual release checks,
@@ -2406,8 +2478,6 @@ These are intentional v1 boundaries:
 - No Prism integration.
 - No Windows MAUI adapter target.
 - No broad `netstandard` target.
-- No source generators.
-- No attribute routing.
 - No full deferred deep-link or attribution SDK replacement.
 - No complete multi-window orchestration beyond core state seams.
 - No virtual-host-only renderer as the default MAUI experience.

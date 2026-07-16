@@ -91,9 +91,16 @@ public sealed class RepositoryContractTests
         var root = RepositoryRoot();
         var coreProject = File.ReadAllText(Path.Combine(root, "src", "AdamE.AppNav", "AdamE.AppNav.csproj"));
         var mauiProject = File.ReadAllText(Path.Combine(root, "src", "AdamE.AppNav.Maui", "AdamE.AppNav.Maui.csproj"));
+        var coreTestsProject = File.ReadAllText(
+            Path.Combine(root, "tests", "AdamE.AppNav.Tests", "AdamE.AppNav.Tests.csproj"));
+        var generatorTestsProject = File.ReadAllText(
+            Path.Combine(root, "tests", "AdamE.AppNav.Generators.Tests", "AdamE.AppNav.Generators.Tests.csproj"));
         var solution = File.ReadAllText(Path.Combine(root, "AdamE.AppNav.slnx"));
 
         Assert.Contains("<TargetFrameworks>net9.0;net10.0</TargetFrameworks>", coreProject, StringComparison.Ordinal);
+        Assert.Contains("<TargetFrameworks>net9.0;net10.0;", mauiProject, StringComparison.Ordinal);
+        Assert.Contains("<TargetFrameworks>net9.0;net10.0</TargetFrameworks>", coreTestsProject, StringComparison.Ordinal);
+        Assert.Contains("<TargetFrameworks>net9.0;net10.0</TargetFrameworks>", generatorTestsProject, StringComparison.Ordinal);
         Assert.Contains("net9.0-android", mauiProject, StringComparison.Ordinal);
         Assert.Contains("net9.0-ios", mauiProject, StringComparison.Ordinal);
         Assert.Contains("net9.0-maccatalyst", mauiProject, StringComparison.Ordinal);
@@ -330,10 +337,18 @@ public sealed class RepositoryContractTests
         var root = RepositoryRoot();
         var workflow = File.ReadAllText(Path.Combine(root, ".github", "workflows", "release-confidence.yml"));
 
+        Assert.Contains("unit-api-allocation:", workflow, StringComparison.Ordinal);
+        Assert.Contains("analyzer-pack:", workflow, StringComparison.Ordinal);
+        Assert.Contains("maccatalyst-nativeaot:", workflow, StringComparison.Ordinal);
+        Assert.Contains("android-full-trim:", workflow, StringComparison.Ordinal);
+        Assert.Contains("maccatalyst-platform-tests:", workflow, StringComparison.Ordinal);
         Assert.Contains("dotnet test tests/AdamE.AppNav.Tests/AdamE.AppNav.Tests.csproj", workflow, StringComparison.Ordinal);
         Assert.Contains("dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj", workflow, StringComparison.Ordinal);
-        Assert.Contains("dotnet build samples/Commerce.Sample/Commerce.Sample.csproj -f net10.0-maccatalyst", workflow, StringComparison.Ordinal);
+        Assert.Contains("dotnet build samples/Commerce.Sample/Commerce.Sample.csproj -c Release -f net10.0-maccatalyst", workflow, StringComparison.Ordinal);
         Assert.Contains("dotnet pack src/AdamE.AppNav/AdamE.AppNav.csproj", workflow, StringComparison.Ordinal);
+        Assert.Contains("eng/verify-package-assets.sh artifacts/packages", workflow, StringComparison.Ordinal);
+        Assert.Contains("-f net9.0-android", workflow, StringComparison.Ordinal);
+        Assert.Contains("-f net10.0-android", workflow, StringComparison.Ordinal);
         Assert.Contains("eng/run-maui-platform-tests.sh maccatalyst", workflow, StringComparison.Ordinal);
         Assert.Contains("run-ios-platform-tests", workflow, StringComparison.Ordinal);
         Assert.Contains("run-android-platform-tests", workflow, StringComparison.Ordinal);

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using AdamE.AppNav.Diagnostics;
 using AdamE.AppNav.Maui.Requests;
 using AdamE.AppNav.Requests;
 using AdamE.AppNav.Routing;
@@ -86,7 +87,7 @@ public sealed class MauiFileDeferredNavigationRequestStoreTests
 #else
     [Fact]
 #endif
-    public async Task HasDeferredRequestsAsync_MalformedJson_ThrowsJsonException()
+    public async Task HasDeferredRequestsAsync_MalformedJson_QuarantinesOriginalBytesAndContinuesEmpty()
     {
         var routes = RouteTable.Create(builder => builder.MapRoute<TestRoute>("/stores/{id}"));
         var directory = CreateStoreDirectory();
@@ -95,7 +96,54 @@ public sealed class MauiFileDeferredNavigationRequestStoreTests
 
         try
         {
-            await File.WriteAllTextAsync(path, "{not-json");
+            byte[] originalBytes = "{not-json"u8.ToArray();
+            await File.WriteAllBytesAsync(path, originalBytes);
+            var diagnostics = new NavigationDiagnostics();
+            var events = new List<NavigationDiagnosticEvent>();
+            diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+            var store = new MauiFileDeferredNavigationRequestStore(
+                routes,
+                new MauiFileDeferredNavigationRequestStoreOptions
+                {
+                    Path = path,
+                    BaseUri = BaseUri
+                },
+                diagnostics);
+
+            Assert.False(await store.HasDeferredRequestsAsync());
+            Assert.False(File.Exists(path));
+            string quarantinePath = Assert.Single(Directory.GetFiles(
+                directory,
+                "deferred-requests.json.invalid-*"));
+            Assert.Equal(originalBytes, await File.ReadAllBytesAsync(quarantinePath));
+            NavigationDiagnosticEvent quarantined = Assert.Single(events, diagnosticEvent =>
+                diagnosticEvent.Kind == NavigationDiagnosticEventKind.DeferredRequestStoreQuarantined);
+            Assert.Equal(NavigationDiagnosticPhase.Persistence, quarantined.Phase);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+#if IOS
+    [Theory(Skip = IosSkipReason)]
+#else
+    [Theory]
+#endif
+    [InlineData(1)]
+    [InlineData(3)]
+    public async Task UnsupportedSchemaVersionIsRejectedWithoutQuarantiningOtherSchemaShapes(int schemaVersion)
+    {
+        var routes = RouteTable.Create(builder => builder.MapRoute<TestRoute>("/stores/{id}"));
+        var directory = CreateStoreDirectory();
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "deferred-requests.json");
+
+        try
+        {
+            byte[] originalBytes = JsonSerializer.SerializeToUtf8Bytes(new { schemaVersion });
+            await File.WriteAllBytesAsync(path, originalBytes);
             var store = new MauiFileDeferredNavigationRequestStore(
                 routes,
                 new MauiFileDeferredNavigationRequestStoreOptions
@@ -104,7 +152,146 @@ public sealed class MauiFileDeferredNavigationRequestStoreTests
                     BaseUri = BaseUri
                 });
 
-            await Assert.ThrowsAsync<JsonException>(() => store.HasDeferredRequestsAsync().AsTask());
+            UnsupportedDeferredNavigationRequestSchemaException exception =
+                await Assert.ThrowsAsync<UnsupportedDeferredNavigationRequestSchemaException>(
+                    () => store.HasDeferredRequestsAsync().AsTask());
+
+            Assert.Equal(schemaVersion, exception.ActualVersion);
+            Assert.Equal(DeferredNavigationRequestStoreSnapshot.CurrentSchemaVersion, exception.SupportedVersion);
+            Assert.Equal(originalBytes, await File.ReadAllBytesAsync(path));
+            Assert.Empty(Directory.GetFiles(directory, "deferred-requests.json.invalid-*"));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+#if IOS
+    [Fact(Skip = IosSkipReason)]
+#else
+    [Fact]
+#endif
+    public async Task SchemaTwoWithMissingRequiredFieldsIsQuarantined()
+    {
+        var routes = RouteTable.Create(builder => builder.MapRoute<TestRoute>("/stores/{id}"));
+        var directory = CreateStoreDirectory();
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "deferred-requests.json");
+
+        try
+        {
+            byte[] originalBytes = JsonSerializer.SerializeToUtf8Bytes(new
+            {
+                schemaVersion = DeferredNavigationRequestStoreSnapshot.CurrentSchemaVersion,
+                createdAt = DateTimeOffset.UtcNow
+            });
+            await File.WriteAllBytesAsync(path, originalBytes);
+            var store = new MauiFileDeferredNavigationRequestStore(
+                routes,
+                new MauiFileDeferredNavigationRequestStoreOptions
+                {
+                    Path = path,
+                    BaseUri = BaseUri
+                });
+
+            Assert.False(await store.HasDeferredRequestsAsync());
+            Assert.False(File.Exists(path));
+            string quarantinePath = Assert.Single(Directory.GetFiles(
+                directory,
+                "deferred-requests.json.invalid-*"));
+            Assert.Equal(originalBytes, await File.ReadAllBytesAsync(quarantinePath));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+#if IOS
+    [Fact(Skip = IosSkipReason)]
+#else
+    [Fact]
+#endif
+    public async Task InvalidSchemaTwoRecordQuarantinesWholeSnapshotWithoutPartialReplay()
+    {
+        var routes = RouteTable.Create(builder => builder.MapRoute<TestRoute>("/stores/{id}"));
+        var directory = CreateStoreDirectory();
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "deferred-requests.json");
+
+        try
+        {
+            var serializer = new DeferredNavigationRequestSerializer(
+                routes,
+                new DeferredNavigationRequestPersistenceOptions { BaseUri = BaseUri });
+            DeferredNavigationRequestStoreSnapshot snapshot = serializer.CreateSnapshot(
+                [
+                    RouterNavigationRequest.FromRoute(new TestRoute("first"), NavigationRequestSource.AppLink),
+                    RouterNavigationRequest.FromRoute(new TestRoute("second"), NavigationRequestSource.AppLink)
+                ]);
+            snapshot = snapshot with
+            {
+                Requests =
+                [
+                    snapshot.Requests[0],
+                    snapshot.Requests[1] with { RouteUri = "http://[::1" }
+                ]
+            };
+            byte[] originalBytes = JsonSerializer.SerializeToUtf8Bytes(snapshot);
+            await File.WriteAllBytesAsync(path, originalBytes);
+            var store = new MauiFileDeferredNavigationRequestStore(
+                routes,
+                new MauiFileDeferredNavigationRequestStoreOptions
+                {
+                    Path = path,
+                    BaseUri = BaseUri
+                });
+
+            Assert.False(await store.HasDeferredRequestsAsync());
+            await using IDeferredNavigationRequestLease lease = await store.AcquireReplayLeaseAsync();
+            Assert.Empty(lease.Requests);
+            string quarantinePath = Assert.Single(Directory.GetFiles(
+                directory,
+                "deferred-requests.json.invalid-*"));
+            Assert.Equal(originalBytes, await File.ReadAllBytesAsync(quarantinePath));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+#if IOS
+    [Fact(Skip = IosSkipReason)]
+#else
+    [Fact]
+#endif
+    public async Task QuarantineFailurePreservesOriginalAndFailsLoad()
+    {
+        var routes = RouteTable.Create(builder => builder.MapRoute<TestRoute>("/stores/{id}"));
+        var directory = CreateStoreDirectory();
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "deferred-requests.json");
+        byte[] originalBytes = "{not-json"u8.ToArray();
+
+        try
+        {
+            await File.WriteAllBytesAsync(path, originalBytes);
+            var store = new MauiFileDeferredNavigationRequestStore(
+                routes,
+                new MauiFileDeferredNavigationRequestStoreOptions
+                {
+                    Path = path,
+                    BaseUri = BaseUri
+                },
+                fileOperations: new ThrowingMoveOperations());
+
+            await Assert.ThrowsAsync<IOException>(() => store.HasDeferredRequestsAsync().AsTask());
+
+            Assert.True(File.Exists(path));
+            Assert.Equal(originalBytes, await File.ReadAllBytesAsync(path));
+            Assert.Empty(Directory.GetFiles(directory, "deferred-requests.json.invalid-*"));
         }
         finally
         {
@@ -166,7 +353,7 @@ public sealed class MauiFileDeferredNavigationRequestStoreTests
 #else
     [Fact]
 #endif
-    public async Task HasDeferredRequestsAsync_RetriesLoadAfterMalformedJsonIsCorrectedOnSameInstance()
+    public async Task QuarantinedStoreCanPersistAndReplayNewRequestsOnSameInstance()
     {
         var routes = RouteTable.Create(builder => builder.MapRoute<TestRoute>("/stores/{id}"));
         var directory = CreateStoreDirectory();
@@ -184,17 +371,9 @@ public sealed class MauiFileDeferredNavigationRequestStoreTests
                     BaseUri = BaseUri
                 });
 
-            await Assert.ThrowsAsync<JsonException>(() => store.HasDeferredRequestsAsync().AsTask());
-
-            var serializer = new DeferredNavigationRequestSerializer(
-                routes,
-                new DeferredNavigationRequestPersistenceOptions
-                {
-                    BaseUri = BaseUri
-                });
+            Assert.False(await store.HasDeferredRequestsAsync());
             var request = RouterNavigationRequest.FromRoute(new TestRoute("northwind"), NavigationRequestSource.AppLink);
-            var snapshot = serializer.CreateSnapshot([request]);
-            await File.WriteAllTextAsync(path, JsonSerializer.Serialize(snapshot));
+            await store.EnqueueAsync(request);
 
             Assert.True(await store.HasDeferredRequestsAsync());
             await using var lease = await store.AcquireReplayLeaseAsync();
@@ -291,5 +470,11 @@ public sealed class MauiFileDeferredNavigationRequestStoreTests
         public IReadOnlyDictionary<string, object?>? Serialize(IReadOnlyDictionary<string, object?> metadata) => metadata;
 
         public IReadOnlyDictionary<string, object?>? Deserialize(IReadOnlyDictionary<string, object?> metadata) => metadata;
+    }
+
+    private sealed class ThrowingMoveOperations : IMauiDeferredNavigationFileOperations
+    {
+        public void Move(string sourcePath, string destinationPath) =>
+            throw new IOException("Injected quarantine failure.");
     }
 }

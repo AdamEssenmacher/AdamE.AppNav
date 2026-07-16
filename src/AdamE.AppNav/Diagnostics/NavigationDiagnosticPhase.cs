@@ -58,5 +58,10 @@ public enum NavigationDiagnosticPhase
     /// <summary>
     /// Pre-match request normalization, validation, or redirection.
     /// </summary>
-    RequestTransformation
+    RequestTransformation,
+
+    /// <summary>
+    /// Durable deferred-navigation storage and recovery.
+    /// </summary>
+    Persistence
 }

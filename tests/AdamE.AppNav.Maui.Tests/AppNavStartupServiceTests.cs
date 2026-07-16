@@ -133,7 +133,7 @@ public sealed class AppNavStartupServiceTests
     }
 
     [Fact]
-    public async Task StartAsync_InvalidDeferredRequestStore_ClearsStoreAndRunsFallback()
+    public async Task StartAsync_UnexpectedCustomStoreFailureIsNonDestructiveAndFailsStartup()
     {
         var diagnostics = new NavigationDiagnostics();
         var events = new List<NavigationDiagnosticEvent>();
@@ -169,22 +169,21 @@ public sealed class AppNavStartupServiceTests
 
         var result = await StartOnMainThreadAsync(startup, new Window(new ContentPage()));
 
-        Assert.Equal(AppNavStartupOutcome.FallbackNavigated, result.Outcome);
-        Assert.Null(result.Exception);
+        Assert.Equal(AppNavStartupOutcome.Failed, result.Outcome);
+        Assert.IsType<JsonException>(result.Exception);
         Assert.Equal(1, deferredStore.HasDeferredRequestsCalls);
-        Assert.Equal(1, deferredStore.ClearCalls);
-        Assert.Single(navigator.NavigateCalls);
+        Assert.Equal(0, deferredStore.ClearCalls);
+        Assert.Empty(navigator.NavigateCalls);
         Assert.DoesNotContain(events, diagnosticEvent =>
             diagnosticEvent.Kind == NavigationDiagnosticEventKind.StartupDeferredRequestPending);
         Assert.Contains(events, diagnosticEvent =>
-            diagnosticEvent.Data.TryGetValue(NavigationDiagnosticDataKeys.StartupDeferredRequestPending, out var pending) &&
-            Equals(pending, false) &&
+            diagnosticEvent.Kind == NavigationDiagnosticEventKind.StartupFailed &&
             diagnosticEvent.Data.TryGetValue(NavigationDiagnosticDataKeys.ExceptionType, out var exceptionType) &&
             Equals(exceptionType, typeof(JsonException).FullName));
     }
 
     [Fact]
-    public async Task StartAsync_InvalidFileDeferredRequestStore_ClearsStoreAndRunsFallback()
+    public async Task StartAsync_InvalidFileDeferredRequestStore_QuarantinesAndRunsFallback()
     {
         var diagnostics = new NavigationDiagnostics();
         var events = new List<NavigationDiagnosticEvent>();
@@ -204,7 +203,8 @@ public sealed class AppNavStartupServiceTests
                 {
                     Path = path,
                     BaseUri = BaseUri
-                });
+                },
+                diagnostics);
             using var services = new ServiceCollection()
                 .AddSingleton<IRouterNavigator>(navigator)
                 .AddSingleton(diagnostics)
@@ -238,13 +238,14 @@ public sealed class AppNavStartupServiceTests
             Assert.Equal(1, windowAttachment.AttachCalls);
             Assert.False(await deferredStore.HasDeferredRequestsAsync());
             Assert.False(File.Exists(path));
+            Assert.Single(Directory.GetFiles(
+                directory,
+                $"{MauiFileDeferredNavigationRequestStore.DefaultFileName}.invalid-*"));
             Assert.DoesNotContain(events, diagnosticEvent =>
                 diagnosticEvent.Kind == NavigationDiagnosticEventKind.StartupDeferredRequestPending);
             Assert.Contains(events, diagnosticEvent =>
-                diagnosticEvent.Data.TryGetValue(NavigationDiagnosticDataKeys.StartupDeferredRequestPending, out var pending) &&
-                Equals(pending, false) &&
-                diagnosticEvent.Data.TryGetValue(NavigationDiagnosticDataKeys.ExceptionType, out var exceptionType) &&
-                Equals(exceptionType, typeof(JsonException).FullName));
+                diagnosticEvent.Kind == NavigationDiagnosticEventKind.DeferredRequestStoreQuarantined &&
+                diagnosticEvent.Phase == NavigationDiagnosticPhase.Persistence);
         }
         finally
         {
@@ -252,8 +253,10 @@ public sealed class AppNavStartupServiceTests
         }
     }
 
-    [Fact]
-    public async Task StartAsync_SchemaOneDeferredRequestStore_ClearsStoreAndRunsFallback()
+    [Theory]
+    [InlineData(1)]
+    [InlineData(3)]
+    public async Task StartAsync_UnsupportedDeferredRequestSchema_ClearsStoreAndRunsFallback(int schemaVersion)
     {
         var diagnostics = new NavigationDiagnostics();
         var navigator = new RecordingRouterNavigator();
@@ -267,12 +270,12 @@ public sealed class AppNavStartupServiceTests
             var serializer = new DeferredNavigationRequestSerializer(
                 routes,
                 new DeferredNavigationRequestPersistenceOptions { BaseUri = BaseUri });
-            DeferredNavigationRequestStoreSnapshot schemaOneSnapshot = serializer.CreateSnapshot(
+            DeferredNavigationRequestStoreSnapshot unsupportedSnapshot = serializer.CreateSnapshot(
                 [RouterNavigationRequest.FromRoute(new TestRoute("legacy"), NavigationRequestSource.AppLink)]) with
             {
-                SchemaVersion = 1
+                SchemaVersion = schemaVersion
             };
-            await File.WriteAllTextAsync(path, JsonSerializer.Serialize(schemaOneSnapshot));
+            await File.WriteAllTextAsync(path, JsonSerializer.Serialize(unsupportedSnapshot));
             var deferredStore = new MauiFileDeferredNavigationRequestStore(
                 routes,
                 new MauiFileDeferredNavigationRequestStoreOptions
@@ -316,13 +319,13 @@ public sealed class AppNavStartupServiceTests
     }
 
     [Fact]
-    public async Task StartAsync_InvalidDeferredRequestStoreClearFailure_ReturnsFailed()
+    public async Task StartAsync_UnsupportedSchemaClearFailure_ReturnsFailed()
     {
         var navigator = new RecordingRouterNavigator();
         var clearException = new IOException("Clear failed.");
         var deferredStore = new RecordingDeferredRequestStore
         {
-            HasDeferredRequestsException = new JsonException("Deferred request JSON was corrupt."),
+            HasDeferredRequestsException = new UnsupportedDeferredNavigationRequestSchemaException(1, 2),
             ClearException = clearException
         };
         using var services = new ServiceCollection()

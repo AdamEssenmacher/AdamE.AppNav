@@ -19,44 +19,49 @@ public readonly record struct MauiRoutePageUpdateContext(MauiRoutePageReuseKind 
 
 internal interface IMauiRoutePageFactory
 {
-    Page CreatePage(RouteEntry entry);
+    ValueTask<Page> CreatePageAsync(RouteEntry entry, CancellationToken cancellationToken = default);
 
-    Page CreatePresentationPage(Type pageType, Page ownerRoutePage, bool inheritBindingContext);
+    ValueTask<Page> CreatePresentationPageAsync(
+        Type pageType,
+        Page ownerRoutePage,
+        bool inheritBindingContext,
+        CancellationToken cancellationToken = default);
 
-    void UpdatePage(Page page, RouteEntry entry, MauiRoutePageUpdateContext context);
+    ValueTask UpdatePageAsync(
+        Page page,
+        RouteEntry entry,
+        MauiRoutePageUpdateContext context,
+        CancellationToken cancellationToken = default);
 
-    void ReleasePage(Page page);
+    ValueTask ReleasePageAsync(Page page);
 
-    void ReleasePresentationPage(Page page);
+    ValueTask ReleasePresentationPageAsync(Page page);
 }
 
 public interface IMauiRoutePageLifecycleHook
 {
-    void OnPageCreated(Page page, RouteEntry entry, IServiceProvider pageServices);
+    ValueTask OnPageCreatedAsync(
+        Page page,
+        RouteEntry entry,
+        CancellationToken cancellationToken = default);
 
-    void OnPageUpdated(Page page, RouteEntry entry, MauiRoutePageUpdateContext context, IServiceProvider pageServices);
+    ValueTask OnPageUpdatedAsync(
+        Page page,
+        RouteEntry entry,
+        MauiRoutePageUpdateContext context,
+        CancellationToken cancellationToken = default);
 
-    void OnPageReleased(Page page, IServiceProvider pageServices);
+    ValueTask OnPageReleasedAsync(Page page, CancellationToken cancellationToken = default);
 }
 
 internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
 {
-    private static readonly BindableProperty PageServiceScopeProperty =
-        BindableProperty.CreateAttached("RouterPageServiceScope", typeof(IServiceScope), typeof(MauiRoutePageFactory), null);
-
-    private static readonly BindableProperty PresentationPageServiceScopeProperty =
+    private static readonly BindableProperty PageHandleProperty =
         BindableProperty.CreateAttached(
-            "RouterPresentationPageServiceScope",
-            typeof(IServiceScope),
+            "RouterPageHandle",
+            typeof(PageHandle),
             typeof(MauiRoutePageFactory),
             null);
-
-    private static readonly BindableProperty InheritedBindingContextProperty =
-        BindableProperty.CreateAttached(
-            "RouterInheritedBindingContext",
-            typeof(bool),
-            typeof(MauiRoutePageFactory),
-            false);
 
     private readonly IServiceProvider _serviceProvider;
     private readonly MauiRoutePresentationOptions _options;
@@ -67,43 +72,60 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
         _options = options ?? throw new ArgumentNullException(nameof(options));
     }
 
-    public Page CreatePage(RouteEntry entry)
+    public async ValueTask<Page> CreatePageAsync(
+        RouteEntry entry,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(entry);
 
-        IServiceScope? scope = null;
-        var services = _serviceProvider;
-
+        IAsyncDisposable? scope = null;
+        IServiceProvider services = _serviceProvider;
         if (_options.UseScopedPages)
         {
-            scope = _serviceProvider.CreateScope();
-            services = scope.ServiceProvider;
+            AsyncServiceScope asyncScope = _serviceProvider.CreateAsyncScope();
+            scope = asyncScope;
+            services = asyncScope.ServiceProvider;
         }
 
+        Page? page = null;
         try
         {
-            if (_options.Pages.TryCreatePage(services, entry, out var page))
+            if (_options.Pages.TryCreatePage(services, entry, out page))
             {
-                if (scope is not null)
-                {
-                    SetPageServiceScope(page, scope);
-                }
+                var handle = new PageHandle(
+                    scope,
+                    services.GetServices<IMauiRoutePageLifecycleHook>().ToArray());
+                SetPageHandle(page, handle);
+                scope = null;
+                foreach (IMauiRoutePageLifecycleHook hook in handle.Hooks)
+                    await hook.OnPageCreatedAsync(page, entry, cancellationToken).ConfigureAwait(false);
 
-                InvokePageCreated(page, entry, services);
                 return page;
             }
 
             throw new InvalidOperationException(
                 $"No MAUI page factory is registered for route type '{entry.Route.GetType().FullName}'.");
         }
-        catch
+        catch (Exception creationException)
         {
-            scope?.Dispose();
+            try
+            {
+                await CleanupFailedCreationAsync(page, scope).ConfigureAwait(false);
+            }
+            catch (Exception cleanupException)
+            {
+                throw new AggregateException(creationException, cleanupException);
+            }
+
             throw;
         }
     }
 
-    public Page CreatePresentationPage(Type pageType, Page ownerRoutePage, bool inheritBindingContext)
+    public async ValueTask<Page> CreatePresentationPageAsync(
+        Type pageType,
+        Page ownerRoutePage,
+        bool inheritBindingContext,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(pageType);
         ArgumentNullException.ThrowIfNull(ownerRoutePage);
@@ -115,144 +137,184 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
                 nameof(pageType));
         }
 
-        IServiceScope? scope = null;
-        var services = _serviceProvider;
-
+        IAsyncDisposable? scope = null;
+        IServiceProvider services = _serviceProvider;
         if (_options.UseScopedPages)
         {
-            scope = _serviceProvider.CreateScope();
-            services = scope.ServiceProvider;
+            AsyncServiceScope asyncScope = _serviceProvider.CreateAsyncScope();
+            scope = asyncScope;
+            services = asyncScope.ServiceProvider;
         }
 
+        Page? page = null;
         try
         {
-            if (services.GetRequiredService(pageType) is not Page page)
+            cancellationToken.ThrowIfCancellationRequested();
+            if (services.GetRequiredService(pageType) is not Page resolvedPage)
             {
                 throw new InvalidOperationException(
                     $"Registered presentation page service '{pageType.FullName}' did not resolve to a MAUI Page.");
             }
 
-            if (scope is not null)
-            {
-                SetPresentationPageServiceScope(page, scope);
-            }
+            page = resolvedPage;
+            SetPageHandle(page, new PageHandle(scope, []));
+            scope = null;
 
             if (inheritBindingContext)
-            {
                 page.BindingContext = ownerRoutePage.BindingContext;
-                SetInheritedBindingContext(page, true);
-            }
 
             return page;
         }
-        catch
+        catch (Exception creationException)
         {
-            scope?.Dispose();
+            try
+            {
+                await CleanupFailedCreationAsync(page, scope).ConfigureAwait(false);
+            }
+            catch (Exception cleanupException)
+            {
+                throw new AggregateException(creationException, cleanupException);
+            }
+
             throw;
         }
     }
 
-    public void UpdatePage(Page page, RouteEntry entry, MauiRoutePageUpdateContext context)
+    public async ValueTask UpdatePageAsync(
+        Page page,
+        RouteEntry entry,
+        MauiRoutePageUpdateContext context,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(page);
         ArgumentNullException.ThrowIfNull(entry);
 
-        var services = GetPageServices(page);
-        foreach (var hook in services.GetServices<IMauiRoutePageLifecycleHook>())
-        {
-            hook.OnPageUpdated(page, entry, context, services);
-        }
+        PageHandle handle = GetPageHandle(page) ??
+            throw new InvalidOperationException("The route page is not owned by this page factory.");
+        foreach (IMauiRoutePageLifecycleHook hook in handle.Hooks)
+            await hook.OnPageUpdatedAsync(page, entry, context, cancellationToken).ConfigureAwait(false);
     }
 
-    public void ReleasePage(Page page)
+    public ValueTask ReleasePageAsync(Page page)
     {
         ArgumentNullException.ThrowIfNull(page);
+        return ReleaseCoreAsync(page);
+    }
 
-        if (GetPageServiceScope(page) is { } scope)
+    public ValueTask ReleasePresentationPageAsync(Page page)
+    {
+        ArgumentNullException.ThrowIfNull(page);
+        return ReleaseCoreAsync(page);
+    }
+
+    private static async ValueTask CleanupFailedCreationAsync(Page? page, IAsyncDisposable? unattachedScope)
+    {
+        var failures = new List<Exception>();
+        if (page is not null)
         {
             try
             {
-                InvokePageReleased(page, scope.ServiceProvider);
+                await ReleaseCoreAsync(page).ConfigureAwait(false);
             }
-            finally
+            catch (Exception ex)
             {
-                SetPageServiceScope(page, null);
-                scope.Dispose();
+                failures.Add(ex);
             }
-
-            return;
         }
 
-        InvokePageReleased(page, _serviceProvider);
+        if (unattachedScope is not null)
+        {
+            try
+            {
+                await unattachedScope.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                failures.Add(ex);
+            }
+        }
+
+        if (failures.Count > 0)
+            throw new AggregateException("Page creation cleanup failed.", failures);
     }
 
-    public void ReleasePresentationPage(Page page)
+    private static async ValueTask ReleaseCoreAsync(Page page)
     {
-        ArgumentNullException.ThrowIfNull(page);
-
-        if (GetInheritedBindingContext(page))
+        PageHandle? handle = GetPageHandle(page);
+        if (handle is null)
         {
             page.BindingContext = null;
-            SetInheritedBindingContext(page, false);
-        }
-
-        if (GetPresentationPageServiceScope(page) is not { } scope)
-        {
             return;
         }
 
-        SetPresentationPageServiceScope(page, null);
-        scope.Dispose();
-    }
+        if (Interlocked.Exchange(ref handle.ReleaseStarted, 1) != 0)
+            return;
 
-    private void InvokePageCreated(Page page, RouteEntry entry, IServiceProvider services)
-    {
-        foreach (var hook in services.GetServices<IMauiRoutePageLifecycleHook>())
+        var failures = new List<Exception>();
+        try
         {
-            hook.OnPageCreated(page, entry, services);
+            SetPageHandle(page, null);
         }
-    }
-
-    private static void InvokePageReleased(Page page, IServiceProvider services)
-    {
-        foreach (var hook in services.GetServices<IMauiRoutePageLifecycleHook>())
+        catch (Exception ex)
         {
-            hook.OnPageReleased(page, services);
+            failures.Add(ex);
         }
+
+        foreach (IMauiRoutePageLifecycleHook hook in handle.Hooks)
+        {
+            try
+            {
+                await hook.OnPageReleasedAsync(page, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                failures.Add(ex);
+            }
+        }
+
+        try
+        {
+            page.BindingContext = null;
+        }
+        catch (Exception ex)
+        {
+            failures.Add(ex);
+        }
+
+        if (handle.Scope is not null)
+        {
+            try
+            {
+                await handle.Scope.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                failures.Add(ex);
+            }
+        }
+
+        if (failures.Count > 0)
+            throw new AggregateException("One or more page cleanup operations failed.", failures);
     }
 
-    private IServiceProvider GetPageServices(BindableObject page)
+    private static void SetPageHandle(BindableObject page, PageHandle? handle)
     {
-        return GetPageServiceScope(page)?.ServiceProvider ?? _serviceProvider;
+        page.SetValue(PageHandleProperty, handle);
     }
 
-    private static void SetPageServiceScope(BindableObject bindableObject, IServiceScope? scope)
+    private static PageHandle? GetPageHandle(BindableObject page)
     {
-        bindableObject.SetValue(PageServiceScopeProperty, scope);
+        return page.GetValue(PageHandleProperty) as PageHandle;
     }
 
-    private static IServiceScope? GetPageServiceScope(BindableObject bindableObject)
+    private sealed class PageHandle(
+        IAsyncDisposable? scope,
+        IReadOnlyList<IMauiRoutePageLifecycleHook> hooks)
     {
-        return bindableObject.GetValue(PageServiceScopeProperty) as IServiceScope;
-    }
+        public IAsyncDisposable? Scope { get; } = scope;
 
-    private static void SetPresentationPageServiceScope(BindableObject bindableObject, IServiceScope? scope)
-    {
-        bindableObject.SetValue(PresentationPageServiceScopeProperty, scope);
-    }
+        public IReadOnlyList<IMauiRoutePageLifecycleHook> Hooks { get; } = hooks;
 
-    private static IServiceScope? GetPresentationPageServiceScope(BindableObject bindableObject)
-    {
-        return bindableObject.GetValue(PresentationPageServiceScopeProperty) as IServiceScope;
-    }
-
-    private static void SetInheritedBindingContext(BindableObject bindableObject, bool value)
-    {
-        bindableObject.SetValue(InheritedBindingContextProperty, value);
-    }
-
-    private static bool GetInheritedBindingContext(BindableObject bindableObject)
-    {
-        return bindableObject.GetValue(InheritedBindingContextProperty) is true;
+        public int ReleaseStarted;
     }
 }

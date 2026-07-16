@@ -4,6 +4,7 @@ using AdamE.AppNav.Presentation;
 using AdamE.AppNav.Requests;
 using AdamE.AppNav.State;
 using Microsoft.Maui.Controls;
+using System.Runtime.ExceptionServices;
 
 namespace AdamE.AppNav.Maui;
 
@@ -124,12 +125,41 @@ internal sealed class AppNavRuntime(
 
     public void Dispose()
     {
-        navigator.Dispose();
+        try
+        {
+            navigator.Dispose();
+        }
+        finally
+        {
+            _ = presenter.StartShutdown();
+        }
     }
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
-        return navigator.DisposeAsync();
+        ValueTask navigatorShutdown = navigator.DisposeAsync();
+        Task presenterShutdown = presenter.StartShutdown();
+        Exception? navigatorFailure = null;
+        try
+        {
+            await navigatorShutdown.ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            navigatorFailure = ex;
+        }
+
+        try
+        {
+            await presenterShutdown.ConfigureAwait(false);
+        }
+        catch (Exception presenterFailure) when (navigatorFailure is not null)
+        {
+            throw new AggregateException(navigatorFailure, presenterFailure);
+        }
+
+        if (navigatorFailure is not null)
+            ExceptionDispatchInfo.Capture(navigatorFailure).Throw();
     }
 
     public void AttachWindow(Window window, string windowId)

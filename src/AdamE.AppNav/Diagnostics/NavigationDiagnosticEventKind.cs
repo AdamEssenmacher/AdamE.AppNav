@@ -228,5 +228,30 @@ public enum NavigationDiagnosticEventKind
     /// <summary>
     /// A diagnostic observer or event handler threw while handling another diagnostic event.
     /// </summary>
-    DiagnosticObserverFailed
+    DiagnosticObserverFailed,
+
+    /// <summary>
+    /// Presentation rollback started after an uncommitted mutation failed or was cancelled.
+    /// </summary>
+    PresentationRollbackStarted = 61,
+
+    /// <summary>
+    /// Presentation rollback restored the previous native and logical state.
+    /// </summary>
+    PresentationRollbackCompleted,
+
+    /// <summary>
+    /// Presentation rollback could not restore the previous state.
+    /// </summary>
+    PresentationRollbackFailed,
+
+    /// <summary>
+    /// A retired page could not be fully released after presentation committed.
+    /// </summary>
+    PresentationPageReleaseFailed,
+
+    /// <summary>
+    /// Invalid deferred-navigation data was quarantined instead of replayed.
+    /// </summary>
+    DeferredRequestStoreQuarantined
 }

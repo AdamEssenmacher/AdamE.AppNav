@@ -12,12 +12,12 @@ namespace AdamE.AppNav.Maui;
 internal sealed class MauiNavigationPresenter :
     INavigationPresenter,
     IMauiPresentationState,
-    IMauiRoutePresentationNavigator,
-    IDisposable
+    IMauiRoutePresentationNavigator
 {
     private readonly IMauiRoutePageFactory _pageFactory;
     private readonly MauiRoutePresentationOptions _presentationOptions;
     private readonly IMauiPresentationVerifier _presentationVerifier;
+    private readonly IMauiNativeNavigationOperations _nativeOperations;
     private readonly MauiExternalNavigationDispatcher? _externalNavigationDispatcher;
     private readonly NavigationDiagnostics _diagnostics;
     private readonly Dictionary<NavigationPage, string> _navigationPageStackIds = new(PageReferenceComparer<NavigationPage>.Instance);
@@ -25,8 +25,13 @@ internal sealed class MauiNavigationPresenter :
         new(PageReferenceComparer<NavigationPage>.Instance);
     private readonly HashSet<TabbedPage> _trackedTabbedPages = new(PageReferenceComparer<TabbedPage>.Instance);
     private readonly HashSet<Page> _trackedModalPages = new(PageReferenceComparer<Page>.Instance);
-    private readonly HashSet<Page> _releasedPages = new(PageReferenceComparer<Page>.Instance);
+    private readonly ConditionalWeakTable<Page, ReleasedPageMarker> _releasedPages = new();
+    private readonly Lock _releaseGate = new();
     private readonly SemaphoreSlim _presentationOperationLock = new(1, 1);
+    private readonly Lock _lifetimeGate = new();
+    private readonly CancellationTokenSource _shutdownCancellation = new();
+    private readonly TaskCompletionSource<bool> _shutdownCompletion =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
     private NavigationState _lastState = NavigationState.Empty;
     private Window? _attachedWindow;
     private string? _attachedWindowId;
@@ -34,17 +39,25 @@ internal sealed class MauiNavigationPresenter :
     private string? _activeOperationId;
     private bool _suppressReconciliation;
     private bool _disposed;
+    private bool _shutdownSignalIssued;
+    private bool _shutdownCancellationCompleted;
+    private bool _finalCleanupStarted;
+    private int _activeOperations;
+    private MauiPresentationConsistencyException? _consistencyFailure;
+    private MauiPresentationTransaction? _activeTransaction;
 
     public MauiNavigationPresenter(
         IMauiRoutePageFactory pageFactory,
         MauiExternalNavigationDispatcher? externalNavigationDispatcher = null,
         NavigationDiagnostics? diagnostics = null,
         MauiRoutePresentationOptions? presentationOptions = null,
-        IMauiPresentationVerifier? presentationVerifier = null)
+        IMauiPresentationVerifier? presentationVerifier = null,
+        IMauiNativeNavigationOperations? nativeOperations = null)
     {
         _pageFactory = pageFactory ?? throw new ArgumentNullException(nameof(pageFactory));
         _presentationOptions = presentationOptions ?? new MauiRoutePresentationOptions();
         _presentationVerifier = presentationVerifier ?? MauiPresentationVerifier.Instance;
+        _nativeOperations = nativeOperations ?? MauiNativeNavigationOperations.Instance;
         _externalNavigationDispatcher = externalNavigationDispatcher;
         _diagnostics = diagnostics ?? NavigationDiagnostics.None;
     }
@@ -80,25 +93,35 @@ internal sealed class MauiNavigationPresenter :
         CancellationToken cancellationToken = default)
         where TPage : Page
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
+        BeginOperation();
 
         options ??= new MauiRoutePresentationPageOptions();
-        await _presentationOperationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        var lockTaken = false;
+        CancellationTokenSource? linkedCancellation = null;
         try
         {
+            CancellationToken operationCancellation = CreateOperationCancellation(
+                cancellationToken,
+                out linkedCancellation);
+            await _presentationOperationLock.WaitAsync(operationCancellation).ConfigureAwait(false);
+            lockTaken = true;
             if (MainThread.IsMainThread)
             {
-                await PushPresentationPageOnMainThreadAsync(typeof(TPage), key, options, cancellationToken);
+                await PushPresentationPageOnMainThreadAsync(typeof(TPage), key, options, operationCancellation);
                 return;
             }
 
             await MainThread.InvokeOnMainThreadAsync(
-                () => PushPresentationPageOnMainThreadAsync(typeof(TPage), key, options, cancellationToken));
+                () => PushPresentationPageOnMainThreadAsync(typeof(TPage), key, options, operationCancellation));
         }
         finally
         {
-            _presentationOperationLock.Release();
+            if (lockTaken)
+                _presentationOperationLock.Release();
+
+            linkedCancellation?.Dispose();
+            EndOperation();
         }
     }
 
@@ -106,60 +129,177 @@ internal sealed class MauiNavigationPresenter :
         bool animated = true,
         CancellationToken cancellationToken = default)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-
-        await _presentationOperationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        BeginOperation();
+        var lockTaken = false;
+        CancellationTokenSource? linkedCancellation = null;
         try
         {
+            CancellationToken operationCancellation = CreateOperationCancellation(
+                cancellationToken,
+                out linkedCancellation);
+            await _presentationOperationLock.WaitAsync(operationCancellation).ConfigureAwait(false);
+            lockTaken = true;
             if (MainThread.IsMainThread)
             {
-                return await PopPresentationPageOnMainThreadAsync(animated, cancellationToken);
+                return await PopPresentationPageOnMainThreadAsync(animated, operationCancellation);
             }
 
             return await MainThread.InvokeOnMainThreadAsync(
-                () => PopPresentationPageOnMainThreadAsync(animated, cancellationToken));
+                () => PopPresentationPageOnMainThreadAsync(animated, operationCancellation));
         }
         finally
         {
-            _presentationOperationLock.Release();
+            if (lockTaken)
+                _presentationOperationLock.Release();
+
+            linkedCancellation?.Dispose();
+            EndOperation();
         }
+    }
+
+    internal Task StartShutdown()
+    {
+        var signalShutdown = false;
+        lock (_lifetimeGate)
+        {
+            if (!_disposed)
+            {
+                _disposed = true;
+                signalShutdown = true;
+            }
+        }
+
+        if (signalShutdown)
+        {
+            try
+            {
+                _ = ObserveShutdownCancellationAsync(_shutdownCancellation.CancelAsync());
+            }
+            catch (Exception)
+            {
+                _ = ObserveShutdownCancellationAsync(Task.CompletedTask);
+            }
+        }
+
+        var startCleanup = false;
+        lock (_lifetimeGate)
+        {
+            if (signalShutdown)
+                _shutdownSignalIssued = true;
+
+            if (_disposed && _shutdownSignalIssued && _shutdownCancellationCompleted &&
+                _activeOperations == 0 && !_finalCleanupStarted)
+            {
+                _finalCleanupStarted = true;
+                startCleanup = true;
+            }
+        }
+
+        if (startCleanup)
+            QueueFinalCleanup();
+
+        return _shutdownCompletion.Task;
+    }
+
+    private async Task ObserveShutdownCancellationAsync(Task cancellation)
+    {
+        try
+        {
+            await cancellation.ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // Cancellation callback ownership remains with the callback registrant.
+        }
+
+        var startCleanup = false;
+        lock (_lifetimeGate)
+        {
+            _shutdownCancellationCompleted = true;
+            if (_disposed && _shutdownSignalIssued && _activeOperations == 0 && !_finalCleanupStarted)
+            {
+                _finalCleanupStarted = true;
+                startCleanup = true;
+            }
+        }
+
+        if (startCleanup)
+            QueueFinalCleanup();
+    }
+
+    private void QueueFinalCleanup()
+    {
+        _ = Task.Run(FinalizeShutdownAsync);
     }
 
     public void Dispose()
     {
-        if (_disposed)
-        {
-            return;
-        }
+        _ = StartShutdown();
+    }
 
-        _disposed = true;
+    public ValueTask DisposeAsync()
+    {
+        Task shutdown = StartShutdown();
+        return shutdown.IsCompletedSuccessfully ? ValueTask.CompletedTask : new ValueTask(shutdown);
+    }
+
+    private async Task FinalizeShutdownAsync()
+    {
+        try
+        {
+            if (MainThread.IsMainThread)
+                await FinalizeShutdownOnMainThreadAsync();
+            else
+                await MainThread.InvokeOnMainThreadAsync(FinalizeShutdownOnMainThreadAsync);
+        }
+        catch (Exception ex)
+        {
+            WritePageReleaseFailure(null, ex);
+        }
+        finally
+        {
+            _presentationOperationLock.Dispose();
+            _shutdownCancellation.Dispose();
+            _diagnostics.Write(
+                NavigationDiagnosticEventKind.PresentationPresenterDisposed,
+                LifecycleOperationId(),
+                "MAUI navigation presenter was disposed.");
+            _shutdownCompletion.TrySetResult(true);
+        }
+    }
+
+    private async Task FinalizeShutdownOnMainThreadAsync()
+    {
         _suppressReconciliation = true;
         _activeOperationId = null;
 
-        var currentPage = CurrentPage;
+        Page? currentPage = CurrentPage;
+        var detachedCandidates = new HashSet<Page>(PageReferenceComparer<Page>.Instance);
+        detachedCandidates.UnionWith(_trackedModalPages);
+        foreach (IReadOnlyList<Page> knownPages in _navigationPageKnownPages.Values)
+            detachedCandidates.UnionWith(knownPages);
         CurrentPage = null;
-        SetAttachedWindowPage(null);
-        RootPageChanged?.Invoke(this, null);
+        try
+        {
+            SetAttachedWindowPage(null);
+        }
+        catch (Exception ex)
+        {
+            WritePageReleaseFailure(null, ex);
+        }
 
+        InvokeRootPageChanged(null);
         if (currentPage is not null)
-        {
-            DetachPageTree(currentPage);
-        }
+            await ReleaseAndDiagnoseAsync(currentPage);
+        foreach (Page detachedPage in detachedCandidates)
+            await ReleaseAndDiagnoseAsync(detachedPage);
 
-        foreach (var navigationPage in _navigationPageStackIds.Keys.ToArray())
-        {
+        foreach (NavigationPage navigationPage in _navigationPageStackIds.Keys.ToArray())
             UntrackNavigationPage(navigationPage);
-        }
-
-        foreach (var tabbedPage in _trackedTabbedPages.ToArray())
-        {
+        foreach (TabbedPage tabbedPage in _trackedTabbedPages.ToArray())
             UntrackTabbedPage(tabbedPage);
-        }
-
-        foreach (var modalPage in _trackedModalPages.ToArray())
-        {
+        foreach (Page modalPage in _trackedModalPages.ToArray())
             UntrackModalPage(modalPage);
-        }
 
         if (_attachedWindow is not null)
         {
@@ -173,15 +313,7 @@ internal sealed class MauiNavigationPresenter :
         _navigationPageKnownPages.Clear();
         _trackedTabbedPages.Clear();
         _trackedModalPages.Clear();
-        _releasedPages.Clear();
         _lastState = NavigationState.Empty;
-
-        _presentationOperationLock.Dispose();
-
-        _diagnostics.Write(
-            NavigationDiagnosticEventKind.PresentationPresenterDisposed,
-            LifecycleOperationId(),
-            "MAUI navigation presenter was disposed.");
     }
 
     public void AttachWindow(Window window, string windowId = "main")
@@ -200,7 +332,7 @@ internal sealed class MauiNavigationPresenter :
 
         if (CurrentPage is not null)
         {
-            window.Page = CurrentPage;
+            _nativeOperations.SetWindowPage(window, CurrentPage);
         }
 
         _externalNavigationDispatcher?.SetForegrounded(true);
@@ -269,24 +401,34 @@ internal sealed class MauiNavigationPresenter :
         NavigationPresentationContext context,
         CancellationToken cancellationToken = default)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(context);
+        BeginOperation();
 
-        await _presentationOperationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        var lockTaken = false;
+        CancellationTokenSource? linkedCancellation = null;
         try
         {
+            CancellationToken operationCancellation = CreateOperationCancellation(
+                cancellationToken,
+                out linkedCancellation);
+            await _presentationOperationLock.WaitAsync(operationCancellation).ConfigureAwait(false);
+            lockTaken = true;
             if (MainThread.IsMainThread)
             {
-                await ApplyOnMainThreadAsync(plan, context, cancellationToken);
+                await ApplyOnMainThreadAsync(plan, context, operationCancellation);
                 return;
             }
 
-            await MainThread.InvokeOnMainThreadAsync(() => ApplyOnMainThreadAsync(plan, context, cancellationToken));
+            await MainThread.InvokeOnMainThreadAsync(() => ApplyOnMainThreadAsync(plan, context, operationCancellation));
         }
         finally
         {
-            _presentationOperationLock.Release();
+            if (lockTaken)
+                _presentationOperationLock.Release();
+
+            linkedCancellation?.Dispose();
+            EndOperation();
         }
     }
 
@@ -296,44 +438,96 @@ internal sealed class MauiNavigationPresenter :
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-
-        var window = plan.TargetState.ActiveWindow;
-        if (window is null || (window.Root is null && window.Modals.Count == 0))
-        {
-            _suppressReconciliation = true;
-            _activeOperationId = context.OperationId;
-            try
-            {
-                SetCurrentPage(null);
-                VerifyPresentation(plan.TargetState, context.OperationId);
-                _lastState = plan.TargetState;
-            }
-            finally
-            {
-                _activeOperationId = null;
-                _suppressReconciliation = false;
-            }
-
-            return;
-        }
-
         _suppressReconciliation = true;
         _activeOperationId = context.OperationId;
+        var transaction = new MauiPresentationTransaction(this);
+        _activeTransaction = transaction;
         try
         {
-            var nextRoot = window.Root is null
-                ? CreateOrReuseEmptyRootHost(CurrentPage)
-                : await MaterializeNodeAsync(
-                    window.Root,
-                    CurrentPage,
-                    context.OperationId,
-                    isNavigationTarget: window.Modals.Count == 0,
-                    cancellationToken);
+            WindowNode? window = plan.TargetState.ActiveWindow;
+            if (window is null || (window.Root is null && window.Modals.Count == 0))
+            {
+                await SetCurrentPageAsync(null);
+            }
+            else
+            {
+                Page nextRoot = window.Root is null
+                    ? CreateOrReuseEmptyRootHost(CurrentPage)
+                    : await MaterializeNodeAsync(
+                        window.Root,
+                        CurrentPage,
+                        context.OperationId,
+                        isNavigationTarget: window.Modals.Count == 0,
+                        cancellationToken);
 
-            SetCurrentPage(nextRoot);
-            await ApplyModalsAsync(nextRoot, window.Modals, context.OperationId, cancellationToken);
+                await SetCurrentPageAsync(nextRoot);
+                await ApplyModalsAsync(nextRoot, window.Modals, context.OperationId, cancellationToken);
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
             VerifyPresentation(plan.TargetState, context.OperationId);
             _lastState = plan.TargetState;
+            _activeTransaction = null;
+            await transaction.CommitAsync();
+        }
+        catch (Exception presentationException)
+        {
+            _activeTransaction = null;
+            _diagnostics.Write(
+                NavigationDiagnosticEventKind.PresentationRollbackStarted,
+                context.OperationId,
+                "Presentation rollback started.");
+
+            try
+            {
+                await transaction.RollbackAsync();
+                _diagnostics.Write(
+                    NavigationDiagnosticEventKind.PresentationRollbackCompleted,
+                    context.OperationId,
+                    "Presentation rollback completed.");
+            }
+            catch (Exception rollbackException)
+            {
+                _diagnostics.Write(
+                    NavigationDiagnosticEventKind.PresentationRollbackFailed,
+                    context.OperationId,
+                    "Presentation rollback failed.",
+                    new Dictionary<string, object?>
+                    {
+                        [NavigationDiagnosticDataKeys.ExceptionType] = rollbackException.GetType().FullName,
+                        [NavigationDiagnosticDataKeys.ExceptionMessage] = rollbackException.Message
+                    });
+
+                if (!_disposed)
+                {
+                    try
+                    {
+                        await RebuildStateFromScratchAsync(
+                            transaction.PreviousState,
+                            context.OperationId);
+                        await transaction.ReleaseAllNonLivePagesAsync();
+                    }
+                    catch (Exception recoveryException)
+                    {
+                        var aggregate = new AggregateException(
+                            "Presentation, rollback, and full-state recovery all failed.",
+                            presentationException,
+                            rollbackException,
+                            recoveryException);
+                        var consistencyException = new MauiPresentationConsistencyException(
+                            "The MAUI presenter could not restore a consistent navigation state.",
+                            aggregate);
+                        lock (_lifetimeGate)
+                        {
+                            _consistencyFailure = consistencyException;
+                        }
+
+                        throw consistencyException;
+                    }
+                }
+            }
+
+            throw;
         }
         finally
         {
@@ -378,10 +572,11 @@ internal sealed class MauiNavigationPresenter :
                 $"Presentation key '{key}' already exists below the top of route entry '{owner.RouteEntryId}'.");
         }
 
-        var page = _pageFactory.CreatePresentationPage(
+        var page = await _pageFactory.CreatePresentationPageAsync(
             pageType,
             owner.RoutePage,
-            options.InheritBindingContext);
+            options.InheritBindingContext,
+            cancellationToken);
         var isPresenterOwned = false;
         try
         {
@@ -406,18 +601,18 @@ internal sealed class MauiNavigationPresenter :
                 "Route-owned presentation page was created.");
 
             cancellationToken.ThrowIfCancellationRequested();
-            await navigationPage.Navigation.PushAsync(page, options.Animated);
+            await _nativeOperations.PushAsync(navigationPage, page, options.Animated);
             UpdateKnownNavigationPages(navigationPage);
         }
         catch
         {
             if (isPresenterOwned)
             {
-                DetachPageTree(page);
+                await DetachPageTreeAsync(page);
             }
             else
             {
-                _pageFactory.ReleasePresentationPage(page);
+                await _pageFactory.ReleasePresentationPageAsync(page);
             }
 
             SetPresentationOwnerRouteEntryId(page, null);
@@ -444,13 +639,13 @@ internal sealed class MauiNavigationPresenter :
             return false;
         }
 
-        var removed = await navigationPage.Navigation.PopAsync(animated);
+        var removed = await _nativeOperations.PopAsync(navigationPage, animated);
         if (removed is null)
         {
             return false;
         }
 
-        ReleaseNavigationPagesRemovedFromNativeStack(navigationPage);
+        await ReleaseNavigationPagesRemovedFromNativeStackAsync(navigationPage);
         return true;
     }
 
@@ -512,7 +707,7 @@ internal sealed class MauiNavigationPresenter :
                 isNavigationTarget,
                 cancellationToken),
             ModalNode modal => modal.Content is null
-                ? CreateRoutePage(modal.RouteEntry)
+                ? await CreateRoutePageAsync(modal.RouteEntry, cancellationToken)
                 : await MaterializeNodeAsync(
                     modal.Content,
                     existingPage,
@@ -549,8 +744,9 @@ internal sealed class MauiNavigationPresenter :
             return existingPage;
         }
 
-        var root = CreateRoutePage(stack.Entries[0]);
+        var root = await CreateRoutePageAsync(stack.Entries[0], cancellationToken);
         var navigationPage = new NavigationPage(root);
+        _activeTransaction?.TrackCreated(navigationPage);
         SetHostId(navigationPage, stack.Id);
         SetRouteEntryId(root, stack.Entries[0].Id);
         WritePageLifecycle(NavigationDiagnosticEventKind.PresentationPageCreated, navigationPage, "NavigationPage was created.");
@@ -559,8 +755,8 @@ internal sealed class MauiNavigationPresenter :
         for (var i = 1; i < stack.Entries.Count; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var page = CreateRoutePage(stack.Entries[i]);
-            await navigationPage.Navigation.PushAsync(page, animated: false);
+            var page = await CreateRoutePageAsync(stack.Entries[i], cancellationToken);
+            await _nativeOperations.PushAsync(navigationPage, page, animated: false);
         }
 
         UpdateKnownNavigationPages(navigationPage);
@@ -578,31 +774,37 @@ internal sealed class MauiNavigationPresenter :
         var previousStackCount = currentProjection.Segments.Count;
         var commonCount = CommonRoutePrefix(currentProjection.Segments, stack.Entries);
         var retainedNativePageCount = currentProjection.NativePageCountForSegmentPrefix(commonCount);
+        var replacementPages = new List<Page>(Math.Max(0, stack.Entries.Count - commonCount));
+        for (var i = commonCount; i < stack.Entries.Count; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            replacementPages.Add(await CreateRoutePageAsync(stack.Entries[i], cancellationToken));
+        }
 
         while (navigationPage.Navigation.NavigationStack.Count > retainedNativePageCount)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var removed = await navigationPage.Navigation.PopAsync(animated: false);
+            var removed = await _nativeOperations.PopAsync(navigationPage, animated: false);
             if (removed is not null)
             {
-                DetachPageTree(removed);
+                await DetachPageTreeAsync(removed);
             }
         }
 
-        for (var i = commonCount; i < stack.Entries.Count; i++)
+        foreach (Page page in replacementPages)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var page = CreateRoutePage(stack.Entries[i]);
-            await navigationPage.Navigation.PushAsync(page, animated: false);
+            await _nativeOperations.PushAsync(navigationPage, page, animated: false);
         }
 
         var updatedProjection = RequireValidProjection(navigationPage.Navigation.NavigationStack);
-        UpdateReusedStackPages(
+        await UpdateReusedStackPagesAsync(
             updatedProjection.Segments,
             stack.Entries,
             commonCount,
             isNavigationTarget,
-            previousStackCount);
+            previousStackCount,
+            cancellationToken);
         UpdateKnownNavigationPages(navigationPage);
     }
 
@@ -650,24 +852,14 @@ internal sealed class MauiNavigationPresenter :
 
         if (createdTabbedPage)
         {
+            _activeTransaction?.TrackCreated(tabbedPage);
             WritePageLifecycle(NavigationDiagnosticEventKind.PresentationPageCreated, tabbedPage, "TabbedPage was created.");
         }
 
         TrackTabbedPage(tabbedPage);
 
-        var desiredBranchIds = branchHost.Branches
-            .Select(branch => branch.Id)
-            .ToHashSet(StringComparer.Ordinal);
-
-        foreach (var stalePage in tabbedPage.Children
-                     .Where(child => GetBranchId(child) is not { } branchId || !desiredBranchIds.Contains(branchId))
-                     .ToArray())
-        {
-            tabbedPage.Children.Remove(stalePage);
-            DetachPageTree(stalePage);
-        }
-
-        Page? selectedPage = null;
+        var stagedBranches = new List<(NavigationBranch Branch, Page? ExistingPage, Page Page)>(
+            branchHost.Branches.Count);
         for (var i = 0; i < branchHost.Branches.Count; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -681,25 +873,42 @@ internal sealed class MauiNavigationPresenter :
                 operationId,
                 isNavigationTarget && StringComparer.Ordinal.Equals(branch.Id, branchHost.SelectedBranchId),
                 cancellationToken);
+            stagedBranches.Add((branch, existingBranchPage, page));
+        }
+
+        var desiredBranchIds = branchHost.Branches
+            .Select(branch => branch.Id)
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (Page stalePage in tabbedPage.Children
+                     .Where(child => GetBranchId(child) is not { } branchId || !desiredBranchIds.Contains(branchId))
+                     .ToArray())
+        {
+            _nativeOperations.RemoveTab(tabbedPage, stalePage);
+            await DetachPageTreeAsync(stalePage);
+        }
+
+        Page? selectedPage = null;
+        for (var i = 0; i < stagedBranches.Count; i++)
+        {
+            (NavigationBranch branch, Page? existingBranchPage, Page page) = stagedBranches[i];
             ApplyBranchChrome(page, branch);
             SetBranchId(page, branch.Id);
 
             if (existingBranchPage is not null && !ReferenceEquals(existingBranchPage, page))
             {
-                var existingIndex = tabbedPage.Children.IndexOf(existingBranchPage);
-                tabbedPage.Children.RemoveAt(existingIndex);
-                DetachPageTree(existingBranchPage);
+                _nativeOperations.RemoveTab(tabbedPage, existingBranchPage);
+                await DetachPageTreeAsync(existingBranchPage);
             }
 
             var currentIndex = tabbedPage.Children.IndexOf(page);
             if (currentIndex < 0)
             {
-                tabbedPage.Children.Insert(Math.Min(i, tabbedPage.Children.Count), page);
+                _nativeOperations.InsertTab(tabbedPage, Math.Min(i, tabbedPage.Children.Count), page);
             }
             else if (currentIndex != i)
             {
-                tabbedPage.Children.RemoveAt(currentIndex);
-                tabbedPage.Children.Insert(Math.Min(i, tabbedPage.Children.Count), page);
+                _nativeOperations.RemoveTab(tabbedPage, page);
+                _nativeOperations.InsertTab(tabbedPage, Math.Min(i, tabbedPage.Children.Count), page);
             }
 
             if (StringComparer.Ordinal.Equals(branch.Id, branchHost.SelectedBranchId))
@@ -708,7 +917,7 @@ internal sealed class MauiNavigationPresenter :
             }
         }
 
-        tabbedPage.CurrentPage = selectedPage ?? tabbedPage.Children.FirstOrDefault();
+        _nativeOperations.SetCurrentTab(tabbedPage, selectedPage ?? tabbedPage.Children.FirstOrDefault());
         return tabbedPage;
     }
 
@@ -732,22 +941,12 @@ internal sealed class MauiNavigationPresenter :
         var modalStack = root.Navigation.ModalStack;
         var previousModalCount = modalStack.Count;
         var commonCount = CommonModalPrefix(modalStack, modals);
-
-        while (root.Navigation.ModalStack.Count > commonCount)
+        var replacementModals = new List<Page>(Math.Max(0, modals.Count - commonCount));
+        for (var i = commonCount; i < modals.Count; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var removed = await root.Navigation.PopModalAsync(animated: false);
-            if (removed is not null)
-            {
-                DetachPageTree(removed);
-            }
-        }
-
-        for (var i = root.Navigation.ModalStack.Count; i < modals.Count; i++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var modalPage = modals[i].Content is null
-                ? CreateRoutePage(modals[i].RouteEntry)
+            Page modalPage = modals[i].Content is null
+                ? await CreateRoutePageAsync(modals[i].RouteEntry, cancellationToken)
                 : await MaterializeNodeAsync(
                     modals[i].Content!,
                     null,
@@ -756,7 +955,23 @@ internal sealed class MauiNavigationPresenter :
                     cancellationToken);
             SetModalId(modalPage, modals[i].Id);
             TrackModalPage(modalPage);
-            await root.Navigation.PushModalAsync(modalPage, animated: false);
+            replacementModals.Add(modalPage);
+        }
+
+        while (root.Navigation.ModalStack.Count > commonCount)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var removed = await _nativeOperations.PopModalAsync(root, animated: false);
+            if (removed is not null)
+            {
+                await DetachPageTreeAsync(removed);
+            }
+        }
+
+        foreach (Page modalPage in replacementModals)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await _nativeOperations.PushModalAsync(root, modalPage, animated: false);
         }
 
         await UpdateReusedModalPagesAsync(
@@ -814,31 +1029,36 @@ internal sealed class MauiNavigationPresenter :
         };
     }
 
-    private Page CreateRoutePage(RouteEntry entry)
+    private async ValueTask<Page> CreateRoutePageAsync(
+        RouteEntry entry,
+        CancellationToken cancellationToken)
     {
-        var page = _pageFactory.CreatePage(entry);
+        var page = await _pageFactory.CreatePageAsync(entry, cancellationToken);
+        _activeTransaction?.TrackCreated(page);
         SetRouteEntryId(page, entry.Id);
         WritePageLifecycle(NavigationDiagnosticEventKind.PresentationPageCreated, page, "Route page was created.");
         return page;
     }
 
-    private void UpdateReusedStackPages(
+    private async ValueTask UpdateReusedStackPagesAsync(
         IReadOnlyList<MauiNavigationStackSegment> segments,
         IReadOnlyList<RouteEntry> entries,
         int commonCount,
         bool isNavigationTarget,
-        int previousStackCount)
+        int previousStackCount,
+        CancellationToken cancellationToken)
     {
         var count = Math.Min(commonCount, Math.Min(segments.Count, entries.Count));
         for (var i = 0; i < count; i++)
         {
-            UpdateRoutePage(
+            await UpdateRoutePageAsync(
                 segments[i].RoutePage,
                 entries[i],
                 new MauiRoutePageUpdateContext(
                     ClassifyReuseKind(
                         isNavigationTarget && i == entries.Count - 1,
-                        previousStackCount > entries.Count)));
+                        previousStackCount > entries.Count)),
+                cancellationToken);
         }
     }
 
@@ -855,13 +1075,14 @@ internal sealed class MauiNavigationPresenter :
         {
             if (modals[i].Content is null)
             {
-                UpdateRoutePage(
+                await UpdateRoutePageAsync(
                     pages[i],
                     modals[i].RouteEntry,
                     new MauiRoutePageUpdateContext(
                         ClassifyReuseKind(
                             i == modals.Count - 1,
-                            previousModalCount > modals.Count)));
+                            previousModalCount > modals.Count)),
+                    cancellationToken);
                 continue;
             }
 
@@ -886,10 +1107,15 @@ internal sealed class MauiNavigationPresenter :
             : MauiRoutePageReuseKind.ExplicitTarget;
     }
 
-    private void UpdateRoutePage(Page page, RouteEntry entry, MauiRoutePageUpdateContext context)
+    private async ValueTask UpdateRoutePageAsync(
+        Page page,
+        RouteEntry entry,
+        MauiRoutePageUpdateContext context,
+        CancellationToken cancellationToken)
     {
+        _activeTransaction?.RecordUpdate(page);
         SetRouteEntryId(page, entry.Id);
-        _pageFactory.UpdatePage(page, entry, context);
+        await _pageFactory.UpdatePageAsync(page, entry, context, cancellationToken);
     }
 
     private Page CreateOrReuseEmptyRootHost(Page? existingPage)
@@ -908,11 +1134,12 @@ internal sealed class MauiNavigationPresenter :
             Title = "Empty",
             Content = new Grid()
         };
+        _activeTransaction?.TrackCreated(page);
         WritePageLifecycle(NavigationDiagnosticEventKind.PresentationPageCreated, page, "Empty page was created.");
         return page;
     }
 
-    private void SetCurrentPage(Page? page)
+    private async ValueTask SetCurrentPageAsync(Page? page)
     {
         if (ReferenceEquals(CurrentPage, page))
         {
@@ -925,12 +1152,16 @@ internal sealed class MauiNavigationPresenter :
         CurrentPage = page;
 
         SetAttachedWindowPage(page);
-
-        RootPageChanged?.Invoke(this, page);
+        _activeTransaction?.RecordRootChange();
+        if (_activeTransaction is null)
+            InvokeRootPageChanged(page);
 
         if (previous is not null && !ReferenceEquals(previous, page))
         {
-            DetachPageTree(previous);
+            if (_activeTransaction is not null)
+                _activeTransaction.Retire(previous);
+            else
+                await DetachPageTreeAsync(previous);
         }
     }
 
@@ -941,7 +1172,38 @@ internal sealed class MauiNavigationPresenter :
             return;
         }
 
-        _attachedWindow.Page = page;
+        _nativeOperations.SetWindowPage(_attachedWindow, page);
+    }
+
+    private void InvokeRootPageChanged(Page? page)
+    {
+        EventHandler<Page?>? handlers = RootPageChanged;
+        if (handlers is null)
+            return;
+
+        foreach (Delegate handler in handlers.GetInvocationList())
+        {
+            if (handler is not EventHandler<Page?> typedHandler)
+                continue;
+
+            try
+            {
+                typedHandler(this, page);
+            }
+            catch (Exception ex)
+            {
+                _diagnostics.Write(
+                    NavigationDiagnosticEventKind.DiagnosticObserverFailed,
+                    LifecycleOperationId(),
+                    "A root-page observer failed.",
+                    new Dictionary<string, object?>
+                    {
+                        [NavigationDiagnosticDataKeys.ExceptionType] = ex.GetType().FullName,
+                        [NavigationDiagnosticDataKeys.ExceptionMessage] = ex.Message
+                    },
+                    phase: NavigationDiagnosticPhase.Diagnostics);
+            }
+        }
     }
 
     private static Page? ResolveTopPresentedPage(Page? page)
@@ -981,7 +1243,7 @@ internal sealed class MauiNavigationPresenter :
             .ToArray();
     }
 
-    private void ReleaseNavigationPagesRemovedFromNativeStack(NavigationPage navigationPage)
+    private async ValueTask ReleaseNavigationPagesRemovedFromNativeStackAsync(NavigationPage navigationPage)
     {
         var currentPages = navigationPage.Navigation.NavigationStack
             .ToHashSet(PageReferenceComparer<Page>.Instance);
@@ -993,7 +1255,7 @@ internal sealed class MauiNavigationPresenter :
                          .Reverse()
                          .ToArray())
             {
-                DetachPageTree(removedPage);
+                await DetachPageTreeAsync(removedPage);
             }
         }
 
@@ -1097,12 +1359,32 @@ internal sealed class MauiNavigationPresenter :
         }
     }
 
-    private void DetachPageTree(Page page)
+    private ValueTask DetachPageTreeAsync(Page page)
     {
-        DetachPageTree(page, new HashSet<Page>(PageReferenceComparer<Page>.Instance));
+        if (_activeTransaction is not null)
+        {
+            _activeTransaction.Retire(page);
+            return ValueTask.CompletedTask;
+        }
+
+        return DetachPageTreeWithFailuresAsync(page);
     }
 
-    private void DetachPageTree(Page page, HashSet<Page> visited)
+    private async ValueTask DetachPageTreeWithFailuresAsync(Page page)
+    {
+        var failures = new List<Exception>();
+        await DetachPageTreeAsync(
+            page,
+            new HashSet<Page>(PageReferenceComparer<Page>.Instance),
+            failures);
+        if (failures.Count > 0)
+            throw new AggregateException("One or more pages could not be fully released.", failures);
+    }
+
+    private async ValueTask DetachPageTreeAsync(
+        Page page,
+        HashSet<Page> visited,
+        List<Exception> failures)
     {
         if (!visited.Add(page))
         {
@@ -1110,13 +1392,25 @@ internal sealed class MauiNavigationPresenter :
         }
 
         var shouldRelease = MarkPageReleased(page);
+        if (shouldRelease)
+        {
+            try
+            {
+                page.BindingContext = null;
+            }
+            catch (Exception ex)
+            {
+                failures.Add(ex);
+            }
+        }
+
         UntrackModalPage(page);
 
         foreach (var modalPage in page.Navigation.ModalStack.ToArray())
         {
             if (!ReferenceEquals(modalPage, page))
             {
-                DetachPageTree(modalPage, visited);
+                await DetachPageTreeAsync(modalPage, visited, failures);
             }
         }
 
@@ -1126,7 +1420,7 @@ internal sealed class MauiNavigationPresenter :
                 UntrackNavigationPage(navigationPage);
                 foreach (var child in navigationPage.Navigation.NavigationStack.Reverse().ToArray())
                 {
-                    DetachPageTree(child, visited);
+                    await DetachPageTreeAsync(child, visited, failures);
                 }
 
                 break;
@@ -1134,20 +1428,23 @@ internal sealed class MauiNavigationPresenter :
                 UntrackTabbedPage(tabbedPage);
                 foreach (var child in tabbedPage.Children.ToArray())
                 {
-                    DetachPageTree(child, visited);
+                    await DetachPageTreeAsync(child, visited, failures);
                 }
 
                 break;
             default:
                 if (shouldRelease)
                 {
-                    if (IsPresentationPage(page))
+                    try
                     {
-                        _pageFactory.ReleasePresentationPage(page);
+                        if (IsPresentationPage(page))
+                            await _pageFactory.ReleasePresentationPageAsync(page);
+                        else
+                            await _pageFactory.ReleasePageAsync(page);
                     }
-                    else
+                    catch (Exception ex)
                     {
-                        _pageFactory.ReleasePage(page);
+                        failures.Add(ex);
                     }
                 }
 
@@ -1157,9 +1454,12 @@ internal sealed class MauiNavigationPresenter :
 
     private bool MarkPageReleased(Page page)
     {
-        if (!_releasedPages.Add(page))
+        lock (_releaseGate)
         {
-            return false;
+            if (_releasedPages.TryGetValue(page, out _))
+                return false;
+
+            _releasedPages.Add(page, new ReleasedPageMarker());
         }
 
         WritePageLifecycle(NavigationDiagnosticEventKind.PresentationPageReleased, page, "Page was released.");
@@ -1178,8 +1478,11 @@ internal sealed class MauiNavigationPresenter :
             return;
         }
 
-        ReleaseNavigationPagesRemovedFromNativeStack(navigationPage);
-        ReconcileStackFromNative(stackId, navigationPage);
+        QueueNativeCleanup(async () =>
+        {
+            await ReleaseNavigationPagesRemovedFromNativeStackAsync(navigationPage);
+            ReconcileStackFromNative(stackId, navigationPage);
+        });
     }
 
     private void OnNavigationPagePoppedToRoot(object? sender, NavigationEventArgs e)
@@ -1193,6 +1496,18 @@ internal sealed class MauiNavigationPresenter :
         {
             return;
         }
+
+        QueueNativeCleanup(() =>
+        {
+            ReconcileTabSelection(tabbedPage);
+            return Task.CompletedTask;
+        });
+    }
+
+    private void ReconcileTabSelection(TabbedPage tabbedPage)
+    {
+        if (_suppressReconciliation || tabbedPage.CurrentPage is null)
+            return;
 
         var selectedBranchId = GetBranchId(tabbedPage.CurrentPage);
         var branchHostId = GetHostId(tabbedPage);
@@ -1220,10 +1535,11 @@ internal sealed class MauiNavigationPresenter :
             return;
         }
 
-        MainThread.BeginInvokeOnMainThread(() => ReconcileModalDismissalIfRemoved(page));
+        MainThread.BeginInvokeOnMainThread(() => QueueNativeCleanup(
+            () => ReconcileModalDismissalIfRemovedAsync(page)));
     }
 
-    private void ReconcileModalDismissalIfRemoved(Page page)
+    private async Task ReconcileModalDismissalIfRemovedAsync(Page page)
     {
         if (_suppressReconciliation || _disposed || IsModalPresented(page))
         {
@@ -1246,9 +1562,85 @@ internal sealed class MauiNavigationPresenter :
             return;
         }
 
-        DetachPageTree(page);
+        await ReleaseAndDiagnoseAsync(page);
         var updatedState = _lastState.ReplaceWindow(window with { Modals = remainingModals });
         RequestReconciliation(updatedState, NavigationReconciliationSource.ModalDismissed, "Native modal dismissal changed.");
+    }
+
+    private void QueueNativeCleanup(Func<Task> cleanup)
+    {
+        if (!TryBeginOperation())
+            return;
+
+        _ = RunQueuedNativeCleanupAsync(cleanup);
+    }
+
+    private async Task RunQueuedNativeCleanupAsync(Func<Task> cleanup)
+    {
+        var lockTaken = false;
+        try
+        {
+            await _presentationOperationLock.WaitAsync(_shutdownCancellation.Token).ConfigureAwait(false);
+            lockTaken = true;
+            _shutdownCancellation.Token.ThrowIfCancellationRequested();
+            if (MainThread.IsMainThread)
+                await cleanup();
+            else
+                await MainThread.InvokeOnMainThreadAsync(cleanup);
+        }
+        catch (OperationCanceledException) when (_disposed)
+        {
+            // Shutdown cancels cleanup that has not started mutating native state.
+        }
+        catch (Exception ex)
+        {
+            _diagnostics.Write(
+                NavigationDiagnosticEventKind.ReconciliationFailed,
+                LifecycleOperationId(),
+                "Queued native presentation cleanup failed.",
+                new Dictionary<string, object?>
+                {
+                    [NavigationDiagnosticDataKeys.ExceptionType] = ex.GetType().FullName,
+                    [NavigationDiagnosticDataKeys.ExceptionMessage] = ex.Message
+                },
+                phase: NavigationDiagnosticPhase.Reconciliation);
+        }
+        finally
+        {
+            if (lockTaken)
+                _presentationOperationLock.Release();
+
+            EndOperation();
+        }
+    }
+
+    private async ValueTask ReleaseAndDiagnoseAsync(Page page)
+    {
+        try
+        {
+            await DetachPageTreeAsync(page);
+        }
+        catch (Exception ex)
+        {
+            WritePageReleaseFailure(page, ex);
+        }
+    }
+
+    private void WritePageReleaseFailure(Page? page, Exception exception)
+    {
+        var data = new Dictionary<string, object?>
+        {
+            [NavigationDiagnosticDataKeys.ExceptionType] = exception.GetType().FullName,
+            [NavigationDiagnosticDataKeys.ExceptionMessage] = exception.Message
+        };
+        if (page is not null)
+            data[NavigationDiagnosticDataKeys.PageType] = page.GetType().FullName;
+
+        _diagnostics.Write(
+            NavigationDiagnosticEventKind.PresentationPageReleaseFailed,
+            LifecycleOperationId(),
+            "A page could not be fully released.",
+            data);
     }
 
     private void ReconcileStackFromNative(string stackId, NavigationPage navigationPage)
@@ -1543,6 +1935,159 @@ internal sealed class MauiNavigationPresenter :
         };
     }
 
+    private async Task RebuildStateFromScratchAsync(NavigationState state, string operationId)
+    {
+        Page? failedRoot = CurrentPage;
+        Page? rebuiltRoot = null;
+        var recoveryTransaction = new MauiPresentationTransaction(this);
+        _activeTransaction = recoveryTransaction;
+        try
+        {
+            WindowNode? window = state.ActiveWindow;
+            if (window is not null && (window.Root is not null || window.Modals.Count > 0))
+            {
+                rebuiltRoot = window.Root is null
+                    ? CreateEmptyPage()
+                    : await MaterializeNodeAsync(
+                        window.Root,
+                        null,
+                        operationId,
+                        isNavigationTarget: window.Modals.Count == 0,
+                        CancellationToken.None);
+                await ApplyModalsAsync(
+                    rebuiltRoot,
+                    window.Modals,
+                    operationId,
+                    CancellationToken.None);
+            }
+
+            _activeTransaction = null;
+            CurrentPage = rebuiltRoot;
+            SetAttachedWindowPage(rebuiltRoot);
+            VerifyPresentation(state, operationId);
+            _lastState = state;
+            RebuildTrackingFromCurrentPage();
+
+            if (!ReferenceEquals(failedRoot, rebuiltRoot) && failedRoot is not null)
+                await ReleaseAndDiagnoseAsync(failedRoot);
+
+            InvokeRootPageChanged(rebuiltRoot);
+        }
+        catch
+        {
+            _activeTransaction = null;
+            await recoveryTransaction.ReleaseCreatedPagesAsync();
+
+            throw;
+        }
+    }
+
+    private HashSet<Page> CollectLivePages(Page? root)
+    {
+        var pages = new HashSet<Page>(PageReferenceComparer<Page>.Instance);
+        if (root is null)
+            return pages;
+
+        CollectStructuralPages(root, pages);
+        foreach (Page modal in root.Navigation.ModalStack)
+            CollectStructuralPages(modal, pages);
+        return pages;
+    }
+
+    private static void CollectStructuralPages(Page page, HashSet<Page> pages)
+    {
+        if (!pages.Add(page))
+            return;
+
+        switch (page)
+        {
+            case NavigationPage navigationPage:
+                foreach (Page child in navigationPage.Navigation.NavigationStack)
+                    CollectStructuralPages(child, pages);
+                break;
+            case TabbedPage tabbedPage:
+                foreach (Page child in tabbedPage.Children)
+                    CollectStructuralPages(child, pages);
+                break;
+        }
+    }
+
+    private void RebuildTrackingFromCurrentPage()
+    {
+        foreach (NavigationPage navigationPage in _navigationPageStackIds.Keys.ToArray())
+            UntrackNavigationPage(navigationPage);
+        foreach (TabbedPage tabbedPage in _trackedTabbedPages.ToArray())
+            UntrackTabbedPage(tabbedPage);
+        foreach (Page modalPage in _trackedModalPages.ToArray())
+            UntrackModalPage(modalPage);
+
+        var visited = new HashSet<Page>(PageReferenceComparer<Page>.Instance);
+        if (CurrentPage is null)
+            return;
+
+        TrackStructuralPage(CurrentPage, visited);
+        foreach (Page modalPage in CurrentPage.Navigation.ModalStack)
+        {
+            TrackModalPage(modalPage);
+            TrackStructuralPage(modalPage, visited);
+        }
+    }
+
+    private void TrackStructuralPage(Page page, HashSet<Page> visited)
+    {
+        if (!visited.Add(page))
+            return;
+
+        switch (page)
+        {
+            case NavigationPage navigationPage:
+                if (GetHostId(navigationPage) is { } stackId)
+                    TrackNavigationPage(navigationPage, stackId);
+                foreach (Page child in navigationPage.Navigation.NavigationStack)
+                    TrackStructuralPage(child, visited);
+                break;
+            case TabbedPage tabbedPage:
+                TrackTabbedPage(tabbedPage);
+                foreach (Page child in tabbedPage.Children)
+                    TrackStructuralPage(child, visited);
+                break;
+        }
+    }
+
+    private static Dictionary<string, RouteEntry> CreateRouteEntryMap(NavigationState state)
+    {
+        var result = new Dictionary<string, RouteEntry>(StringComparer.Ordinal);
+        foreach (WindowNode window in state.Windows)
+        {
+            if (window.Root is not null)
+                AddRouteEntries(window.Root, result);
+            foreach (ModalNode modal in window.Modals)
+                AddRouteEntries(modal, result);
+        }
+
+        return result;
+    }
+
+    private static void AddRouteEntries(NavigationNode node, Dictionary<string, RouteEntry> result)
+    {
+        switch (node)
+        {
+            case StackNode stack:
+                foreach (RouteEntry entry in stack.Entries)
+                    result[entry.Id] = entry;
+                break;
+            case BranchHostNode branchHost:
+                foreach (NavigationBranch branch in branchHost.Branches)
+                    AddRouteEntries(branch.Content, result);
+                break;
+            case ModalNode modal:
+                result[modal.RouteEntry.Id] = modal.RouteEntry;
+                if (modal.Content is not null)
+                    AddRouteEntries(modal.Content, result);
+                break;
+        }
+    }
+
     private void VerifyPresentation(NavigationState targetState, string operationId)
     {
         var mismatch = _presentationVerifier.Verify(new MauiPresentationVerificationContext(
@@ -1712,6 +2257,299 @@ internal sealed class MauiNavigationPresenter :
     {
         return !string.IsNullOrWhiteSpace(GetPresentationOwnerRouteEntryId(bindableObject)) ||
                !string.IsNullOrWhiteSpace(GetPresentationPageKey(bindableObject));
+    }
+
+    private void BeginOperation()
+    {
+        lock (_lifetimeGate)
+        {
+            if (_disposed)
+                throw new ObjectDisposedException(nameof(MauiNavigationPresenter));
+            if (_consistencyFailure is not null)
+                throw _consistencyFailure;
+
+            _activeOperations++;
+        }
+    }
+
+    private bool TryBeginOperation()
+    {
+        lock (_lifetimeGate)
+        {
+            if (_disposed || _consistencyFailure is not null)
+                return false;
+
+            _activeOperations++;
+            return true;
+        }
+    }
+
+    private void EndOperation()
+    {
+        var startCleanup = false;
+        lock (_lifetimeGate)
+        {
+            _activeOperations--;
+            if (_activeOperations < 0)
+                throw new InvalidOperationException("MAUI presenter operation admission count became negative.");
+
+            if (_disposed && _shutdownSignalIssued && _shutdownCancellationCompleted &&
+                _activeOperations == 0 && !_finalCleanupStarted)
+            {
+                _finalCleanupStarted = true;
+                startCleanup = true;
+            }
+        }
+
+        if (startCleanup)
+            QueueFinalCleanup();
+    }
+
+    private CancellationToken CreateOperationCancellation(
+        CancellationToken callerCancellation,
+        out CancellationTokenSource? linkedCancellation)
+    {
+        if (!callerCancellation.CanBeCanceled)
+        {
+            linkedCancellation = null;
+            return _shutdownCancellation.Token;
+        }
+
+        linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            callerCancellation,
+            _shutdownCancellation.Token);
+        return linkedCancellation.Token;
+    }
+
+    private sealed class MauiPresentationTransaction
+    {
+        private readonly MauiNavigationPresenter _presenter;
+        private readonly Page? _previousCurrentPage;
+        private readonly Page? _previousWindowPage;
+        private readonly Page[] _previousModals;
+        private readonly Dictionary<NavigationPage, Page[]> _navigationStacks =
+            new(PageReferenceComparer<NavigationPage>.Instance);
+        private readonly Dictionary<TabbedPage, TabSnapshot> _tabs =
+            new(PageReferenceComparer<TabbedPage>.Instance);
+        private readonly Dictionary<Page, PageSnapshot> _pageSnapshots =
+            new(PageReferenceComparer<Page>.Instance);
+        private readonly Dictionary<Page, RouteEntry> _updatedPages =
+            new(PageReferenceComparer<Page>.Instance);
+        private readonly Dictionary<string, RouteEntry> _previousEntries;
+        private readonly HashSet<Page> _createdPages = new(PageReferenceComparer<Page>.Instance);
+        private readonly HashSet<Page> _retiredPages = new(PageReferenceComparer<Page>.Instance);
+        private bool _rootChanged;
+
+        public MauiPresentationTransaction(MauiNavigationPresenter presenter)
+        {
+            _presenter = presenter;
+            PreviousState = presenter._lastState;
+            _previousCurrentPage = presenter.CurrentPage;
+            _previousWindowPage = presenter._attachedWindow?.Page;
+            _previousModals = _previousCurrentPage?.Navigation.ModalStack.ToArray() ?? [];
+            _previousEntries = CreateRouteEntryMap(PreviousState);
+
+            var visited = new HashSet<Page>(PageReferenceComparer<Page>.Instance);
+            if (_previousCurrentPage is not null)
+                CapturePage(_previousCurrentPage, visited);
+            foreach (Page modal in _previousModals)
+                CapturePage(modal, visited);
+        }
+
+        public NavigationState PreviousState { get; }
+
+        public void TrackCreated(Page page) => _createdPages.Add(page);
+
+        public void Retire(Page page) => _retiredPages.Add(page);
+
+        public void RecordRootChange() => _rootChanged = true;
+
+        public void RecordUpdate(Page page)
+        {
+            if (_updatedPages.ContainsKey(page))
+                return;
+
+            string? entryId = GetRouteEntryId(page);
+            if (entryId is not null && _previousEntries.TryGetValue(entryId, out RouteEntry? entry))
+                _updatedPages.Add(page, entry);
+        }
+
+        public async ValueTask CommitAsync()
+        {
+            HashSet<Page> livePages = _presenter.CollectLivePages(_presenter.CurrentPage);
+            var releaseCandidates = new HashSet<Page>(_retiredPages, PageReferenceComparer<Page>.Instance);
+            foreach (Page createdPage in _createdPages)
+                if (!livePages.Contains(createdPage))
+                    releaseCandidates.Add(createdPage);
+
+            foreach (Page page in releaseCandidates)
+                if (!livePages.Contains(page))
+                    await _presenter.ReleaseAndDiagnoseAsync(page);
+
+            if (_rootChanged)
+                _presenter.InvokeRootPageChanged(_presenter.CurrentPage);
+        }
+
+        public async ValueTask RollbackAsync()
+        {
+            _presenter.CurrentPage = _previousCurrentPage;
+            if (_presenter._attachedWindow is not null)
+                _presenter._nativeOperations.SetWindowPage(
+                    _presenter._attachedWindow,
+                    _previousWindowPage);
+
+            foreach ((TabbedPage tabbedPage, TabSnapshot snapshot) in _tabs)
+            {
+                foreach (Page currentPage in tabbedPage.Children.ToArray())
+                    _presenter._nativeOperations.RemoveTab(tabbedPage, currentPage);
+                for (var index = 0; index < snapshot.Children.Length; index++)
+                    _presenter._nativeOperations.InsertTab(tabbedPage, index, snapshot.Children[index]);
+                _presenter._nativeOperations.SetCurrentTab(tabbedPage, snapshot.CurrentPage);
+            }
+
+            foreach ((NavigationPage navigationPage, Page[] pages) in _navigationStacks)
+            {
+                while (navigationPage.Navigation.NavigationStack.Count > 1)
+                {
+                    int previousCount = navigationPage.Navigation.NavigationStack.Count;
+                    await _presenter._nativeOperations.PopAsync(navigationPage, animated: false);
+                    if (navigationPage.Navigation.NavigationStack.Count >= previousCount)
+                        throw new InvalidOperationException("Native stack rollback did not remove a page.");
+                }
+
+                if (pages.Length == 0)
+                    continue;
+                if (navigationPage.Navigation.NavigationStack.Count != 1 ||
+                    !ReferenceEquals(navigationPage.Navigation.NavigationStack[0], pages[0]))
+                {
+                    throw new InvalidOperationException("Native stack rollback could not restore its original root page.");
+                }
+
+                for (var index = 1; index < pages.Length; index++)
+                    await _presenter._nativeOperations.PushAsync(navigationPage, pages[index], animated: false);
+            }
+
+            if (_previousCurrentPage is not null)
+            {
+                while (_previousCurrentPage.Navigation.ModalStack.Count > 0)
+                {
+                    int previousCount = _previousCurrentPage.Navigation.ModalStack.Count;
+                    await _presenter._nativeOperations.PopModalAsync(_previousCurrentPage, animated: false);
+                    if (_previousCurrentPage.Navigation.ModalStack.Count >= previousCount)
+                        throw new InvalidOperationException("Modal rollback did not remove a page.");
+                }
+
+                foreach (Page modal in _previousModals)
+                    await _presenter._nativeOperations.PushModalAsync(
+                        _previousCurrentPage,
+                        modal,
+                        animated: false);
+            }
+
+            foreach ((Page page, RouteEntry entry) in _updatedPages)
+            {
+                SetRouteEntryId(page, entry.Id);
+                await _presenter._pageFactory.UpdatePageAsync(
+                    page,
+                    entry,
+                    new MauiRoutePageUpdateContext(MauiRoutePageReuseKind.NonTargetReuse),
+                    CancellationToken.None);
+            }
+
+            foreach ((Page page, PageSnapshot snapshot) in _pageSnapshots)
+                snapshot.Restore(page);
+
+            _presenter._lastState = PreviousState;
+            _presenter.RebuildTrackingFromCurrentPage();
+            _presenter.VerifyPresentation(PreviousState, _presenter.LifecycleOperationId());
+
+            HashSet<Page> livePages = _presenter.CollectLivePages(_presenter.CurrentPage);
+            foreach (Page page in _createdPages)
+                if (!livePages.Contains(page))
+                    await _presenter.ReleaseAndDiagnoseAsync(page);
+        }
+
+        public async ValueTask ReleaseCreatedPagesAsync()
+        {
+            foreach (Page page in _createdPages)
+                await _presenter.ReleaseAndDiagnoseAsync(page);
+        }
+
+        public async ValueTask ReleaseAllNonLivePagesAsync()
+        {
+            HashSet<Page> livePages = _presenter.CollectLivePages(_presenter.CurrentPage);
+            var candidates = new HashSet<Page>(_pageSnapshots.Keys, PageReferenceComparer<Page>.Instance);
+            candidates.UnionWith(_retiredPages);
+            candidates.UnionWith(_createdPages);
+            foreach (Page page in candidates)
+                if (!livePages.Contains(page))
+                    await _presenter.ReleaseAndDiagnoseAsync(page);
+        }
+
+        private void CapturePage(Page page, HashSet<Page> visited)
+        {
+            if (!visited.Add(page))
+                return;
+
+            _pageSnapshots[page] = PageSnapshot.Capture(page);
+            switch (page)
+            {
+                case NavigationPage navigationPage:
+                    Page[] stack = navigationPage.Navigation.NavigationStack.ToArray();
+                    _navigationStacks[navigationPage] = stack;
+                    foreach (Page child in stack)
+                        CapturePage(child, visited);
+                    break;
+                case TabbedPage tabbedPage:
+                    Page[] children = tabbedPage.Children.ToArray();
+                    _tabs[tabbedPage] = new TabSnapshot(children, tabbedPage.CurrentPage);
+                    foreach (Page child in children)
+                        CapturePage(child, visited);
+                    break;
+            }
+        }
+
+        private sealed record TabSnapshot(Page[] Children, Page? CurrentPage);
+
+        private sealed record PageSnapshot(
+            string? HostId,
+            string? BranchId,
+            string? RouteEntryId,
+            string? ModalId,
+            string? PresentationOwnerRouteEntryId,
+            string? PresentationPageKey,
+            string? Title,
+            ImageSource? IconImageSource,
+            object? BindingContext)
+        {
+            public static PageSnapshot Capture(Page page) => new(
+                GetHostId(page),
+                GetBranchId(page),
+                GetRouteEntryId(page),
+                GetModalId(page),
+                GetPresentationOwnerRouteEntryId(page),
+                GetPresentationPageKey(page),
+                page.Title,
+                page.IconImageSource,
+                page.BindingContext);
+
+            public void Restore(Page page)
+            {
+                MauiPresentationMetadata.SetHostId(page, HostId);
+                MauiPresentationMetadata.SetBranchId(page, BranchId);
+                MauiPresentationMetadata.SetRouteEntryId(page, RouteEntryId);
+                MauiPresentationMetadata.SetModalId(page, ModalId);
+                MauiPresentationMetadata.SetPresentationOwnerRouteEntryId(page, PresentationOwnerRouteEntryId);
+                MauiPresentationMetadata.SetPresentationPageKey(page, PresentationPageKey);
+                page.Title = Title;
+                page.IconImageSource = IconImageSource;
+                page.BindingContext = BindingContext;
+            }
+        }
+    }
+
+    private sealed class ReleasedPageMarker
+    {
     }
 
     private sealed class PageReferenceComparer<TPage> : IEqualityComparer<TPage>

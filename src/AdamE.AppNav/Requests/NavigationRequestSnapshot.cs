@@ -10,8 +10,8 @@ public sealed record NavigationRequestSnapshot(
     string? WindowId,
     IReadOnlyDictionary<string, NavigationMetadataValueSnapshot>? Metadata,
     DateTimeOffset Timestamp,
-    RouterNavigationDisposition Disposition = RouterNavigationDisposition.Auto,
-    NavigationRequestProvenanceSnapshot? Provenance = null);
+    RouterNavigationDisposition Disposition,
+    NavigationRequestProvenanceSnapshot? Provenance);
 
 /// <summary>
 /// Represents serialized provenance metadata for a deferred navigation request.
@@ -33,7 +33,7 @@ public sealed record NavigationRequestProvenanceSnapshot(
 public sealed record NavigationMetadataValueSnapshot(
     string? Type,
     string? Value,
-    bool IsNull = false);
+    bool IsNull);
 
 /// <summary>
 /// Serializes custom request metadata not handled by a route state registry.
@@ -80,8 +80,8 @@ internal static class NavigationRequestProvenanceSnapshotMapper
 
         return new NavigationRequestProvenance(
             snapshot.Provider,
-            RestoreUri(snapshot.OriginalUri),
-            RestoreUri(snapshot.ReferrerUri),
+            RestoreUri(snapshot.OriginalUri, nameof(snapshot.OriginalUri)),
+            RestoreUri(snapshot.ReferrerUri, nameof(snapshot.ReferrerUri)),
             snapshot.CorrelationId,
             snapshot.IsColdStart,
             snapshot.Attributes is { Count: > 0 }
@@ -89,13 +89,15 @@ internal static class NavigationRequestProvenanceSnapshotMapper
                 : null);
     }
 
-    private static Uri? RestoreUri(string? value)
+    private static Uri? RestoreUri(string? value, string fieldName)
     {
-        if (string.IsNullOrWhiteSpace(value))
+        if (value is null)
             return null;
 
-        return Uri.TryCreate(value, UriKind.RelativeOrAbsolute, out Uri? uri)
-            ? uri
-            : null;
+        if (string.IsNullOrWhiteSpace(value) ||
+            !Uri.TryCreate(value, UriKind.RelativeOrAbsolute, out Uri? uri))
+            throw new FormatException($"Persisted provenance field '{fieldName}' is not a valid URI.");
+
+        return uri;
     }
 }

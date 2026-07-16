@@ -29,16 +29,27 @@ public sealed class DeferredNavigationRequestSerializer(
         ArgumentNullException.ThrowIfNull(snapshot);
 
         if (snapshot.SchemaVersion != DeferredNavigationRequestStoreSnapshot.CurrentSchemaVersion)
-            throw new InvalidOperationException(
-                $"Deferred navigation request snapshot schema version {snapshot.SchemaVersion} is not supported.");
+            throw new UnsupportedDeferredNavigationRequestSchemaException(
+                snapshot.SchemaVersion,
+                DeferredNavigationRequestStoreSnapshot.CurrentSchemaVersion);
 
         if (snapshot.Requests.Count == 0)
             return [];
 
         var restored = new List<RouterNavigationRequest>(snapshot.Requests.Count);
-        foreach (NavigationRequestSnapshot requestSnapshot in snapshot.Requests)
-            if (TryRestoreRequest(requestSnapshot, out RouterNavigationRequest? request))
-                restored.Add(request!);
+        for (var index = 0; index < snapshot.Requests.Count; index++)
+        {
+            try
+            {
+                NavigationRequestSnapshot requestSnapshot = snapshot.Requests[index] ??
+                    throw new InvalidOperationException("The persisted request is null.");
+                restored.Add(RestoreRequest(requestSnapshot));
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidDeferredNavigationRequestDataException(index, ex);
+            }
+        }
 
         return restored;
     }
@@ -58,37 +69,34 @@ public sealed class DeferredNavigationRequestSerializer(
             NavigationRequestProvenanceSnapshotMapper.Create(request.Provenance));
     }
 
-    private bool TryRestoreRequest(
-        NavigationRequestSnapshot snapshot,
-        out RouterNavigationRequest? request)
+    private RouterNavigationRequest RestoreRequest(NavigationRequestSnapshot snapshot)
     {
-        request = null;
+        (AppRoute route, IReadOnlyDictionary<string, object?>? routeMetadata) = RestoreRoute(snapshot.RouteUri);
+        IReadOnlyDictionary<string, object?>? persistedMetadata = DeserializeMetadata(snapshot.Metadata);
 
-        if (!TryRestoreRoute(snapshot.RouteUri, out AppRoute? route,
-                out IReadOnlyDictionary<string, object?>? routeMetadata))
-            return false;
+        if (!Enum.IsDefined(snapshot.Source))
+            throw new InvalidOperationException($"Navigation request source '{(int)snapshot.Source}' is invalid.");
 
-        IReadOnlyDictionary<string, object?>? persistedMetadata;
-        try
-        {
-            persistedMetadata = DeserializeMetadata(snapshot.Metadata);
-        }
-        catch
-        {
-            return false;
-        }
+        if (!Enum.IsDefined(snapshot.Disposition))
+            throw new InvalidOperationException(
+                $"Navigation request disposition '{(int)snapshot.Disposition}' is invalid.");
 
         Uri? requestUri = null;
-        if (!string.IsNullOrWhiteSpace(snapshot.Uri) &&
-            !Uri.TryCreate(snapshot.Uri, UriKind.RelativeOrAbsolute, out requestUri))
-            return false;
+        if (snapshot.Uri is not null)
+        {
+            if (string.IsNullOrWhiteSpace(snapshot.Uri) ||
+                !Uri.TryCreate(snapshot.Uri, UriKind.RelativeOrAbsolute, out requestUri))
+            {
+                throw new FormatException("The persisted request target URI is invalid.");
+            }
+        }
 
         IReadOnlyDictionary<string, object?>? metadata = MergeMetadata(routeMetadata, persistedMetadata);
         NavigationRequestProvenance? provenance =
             NavigationRequestProvenanceSnapshotMapper.Restore(snapshot.Provenance);
-        request = requestUri is null
+        RouterNavigationRequest request = requestUri is null
             ? RouterNavigationRequest.FromRoute(
-                route!,
+                route,
                 snapshot.Source,
                 snapshot.WindowId,
                 metadata,
@@ -103,7 +111,7 @@ public sealed class DeferredNavigationRequestSerializer(
                 provenance);
         request = request with { Timestamp = snapshot.Timestamp };
 
-        return true;
+        return request;
     }
 
     private (AppRoute Route, IReadOnlyDictionary<string, object?>? Metadata) ResolveRequestRoute(
@@ -123,30 +131,17 @@ public sealed class DeferredNavigationRequestSerializer(
         return (match.Route, match.Metadata);
     }
 
-    private bool TryRestoreRoute(
-        string routeUri,
-        out AppRoute? route,
-        out IReadOnlyDictionary<string, object?>? metadata)
+    private (AppRoute Route, IReadOnlyDictionary<string, object?>? Metadata) RestoreRoute(string routeUri)
     {
-        metadata = null;
-
-        if (!Uri.TryCreate(routeUri, UriKind.RelativeOrAbsolute, out Uri? uri))
-        {
-            route = null;
-            return false;
-        }
+        if (string.IsNullOrWhiteSpace(routeUri) ||
+            !Uri.TryCreate(routeUri, UriKind.RelativeOrAbsolute, out Uri? uri))
+            throw new FormatException("The persisted canonical route URI is invalid.");
 
         RouteMatchResult match = _routes.Match(uri);
         if (!match.IsSuccess || match.Route is null)
-        {
-            route = null;
-            return false;
-        }
+            throw new InvalidOperationException("The persisted canonical route URI does not match a registered route.");
 
-        route = match.Route;
-        metadata = match.Metadata;
-
-        return true;
+        return (match.Route, match.Metadata);
     }
 
     private Dictionary<string, NavigationMetadataValueSnapshot>? SerializeMetadata(
@@ -214,7 +209,9 @@ public sealed class DeferredNavigationRequestSerializer(
             if (_options.RouteStateRegistry is { } routeStateRegistry &&
                 routeStateRegistry.TryGetRegistration(pair.Key, out RouteStateRegistration registration))
             {
-                if (registration.Lifetime != RouteStateLifetime.Restorable) continue;
+                if (registration.Lifetime != RouteStateLifetime.Restorable)
+                    throw new InvalidOperationException(
+                        $"Persisted navigation metadata '{pair.Key}' is not registered as restorable state.");
 
                 restored ??= new Dictionary<string, object?>(StringComparer.Ordinal);
                 restored[pair.Key] = DeserializeRegisteredValueSnapshot(
@@ -225,7 +222,8 @@ public sealed class DeferredNavigationRequestSerializer(
             }
 
             if (_options.MetadataSerializer is null)
-                continue;
+                throw new InvalidOperationException(
+                    $"Persisted navigation metadata '{pair.Key}' has no registered deserializer.");
 
             customMetadata ??= new Dictionary<string, object?>(StringComparer.Ordinal);
             customMetadata[pair.Key] = DeserializeCustomValueSnapshot(pair.Key, pair.Value);
@@ -237,7 +235,7 @@ public sealed class DeferredNavigationRequestSerializer(
         IReadOnlyDictionary<string, object?>? deserializedCustomMetadata =
             _options.MetadataSerializer.Deserialize(customMetadata);
         if (deserializedCustomMetadata is not { Count: > 0 })
-            return restored;
+            throw new InvalidOperationException("The custom metadata serializer did not restore persisted metadata.");
 
         restored ??= new Dictionary<string, object?>(StringComparer.Ordinal);
         foreach (KeyValuePair<string, object?> pair in deserializedCustomMetadata)
@@ -273,7 +271,8 @@ public sealed class DeferredNavigationRequestSerializer(
 
         return new NavigationMetadataValueSnapshot(
             null,
-            _routes.ValueCodecs.Format(value, declaredType, key));
+            _routes.ValueCodecs.Format(value, declaredType, key),
+            false);
     }
 
     private object? DeserializeRegisteredValueSnapshot(
@@ -281,7 +280,21 @@ public sealed class DeferredNavigationRequestSerializer(
         NavigationMetadataValueSnapshot snapshot,
         Type declaredType)
     {
-        if (snapshot.IsNull || snapshot.Value is null) return null;
+        if (snapshot.IsNull)
+        {
+            if (snapshot.Type is not null || snapshot.Value is not null)
+                throw new InvalidOperationException(
+                    $"Navigation metadata '{key}' has values despite being marked null.");
+
+            return null;
+        }
+
+        if (snapshot.Type is not null)
+            throw new InvalidOperationException(
+                $"Registered navigation metadata '{key}' has an unexpected scalar type discriminator.");
+        if (snapshot.Value is null)
+            throw new InvalidOperationException($"Navigation metadata '{key}' has no persisted value.");
+
         return _routes.ValueCodecs.Convert(snapshot.Value, declaredType, key);
     }
 
@@ -296,7 +309,15 @@ public sealed class DeferredNavigationRequestSerializer(
         string key,
         NavigationMetadataValueSnapshot snapshot)
     {
-        if (snapshot.IsNull) return null;
+        if (snapshot.IsNull)
+        {
+            if (snapshot.Type is not null || snapshot.Value is not null)
+                throw new InvalidOperationException(
+                    $"Navigation metadata '{key}' has values despite being marked null.");
+
+            return null;
+        }
+
         if (snapshot.Value is null)
             throw new InvalidOperationException($"Navigation metadata '{key}' has no persisted value.");
         if (string.IsNullOrWhiteSpace(snapshot.Type))
@@ -365,7 +386,7 @@ public sealed class DeferredNavigationRequestSerializer(
 
         private static NavigationMetadataValueSnapshot Snapshot(string type, string value)
         {
-            return new NavigationMetadataValueSnapshot(type, value);
+            return new NavigationMetadataValueSnapshot(type, value, false);
         }
     }
 

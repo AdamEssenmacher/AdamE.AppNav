@@ -1,4 +1,5 @@
 using AdamE.AppNav.Back;
+using AdamE.AppNav.Diagnostics;
 using AdamE.AppNav.History;
 using AdamE.AppNav.Maui.AppLinks;
 using AdamE.AppNav.Maui.DependencyInjection;
@@ -17,6 +18,35 @@ namespace AdamE.AppNav.Maui.Tests;
 [Collection(ExternalNavigationBridgeTestCollection.Name)]
 public sealed class AppNavNavigatorRegistrationTests
 {
+    [Fact]
+    public void AddAppNavDiagnosticsConfiguresResolvedSingletonRegardlessOfRegistrationOrder()
+    {
+        var services = new ServiceCollection();
+        services.AddAppNav<ThrowingPlanner>(
+            Routes(),
+            pages => pages.MapPage<TestRoute>((_, _) => new TestPage()));
+        services.AddAppNavDiagnostics(options =>
+            options.DataMode = NavigationDiagnosticDataMode.Full);
+        using ServiceProvider provider = services.BuildServiceProvider();
+        NavigationDiagnosticEvent? observed = null;
+        NavigationDiagnostics diagnostics = provider.GetRequiredService<NavigationDiagnostics>();
+        diagnostics.EventWritten += (_, diagnosticEvent) => observed = diagnosticEvent;
+
+        diagnostics.Write(
+            NavigationDiagnosticEventKind.AppLinkReceived,
+            "operation",
+            "full-message",
+            new Dictionary<string, object?>
+            {
+                [NavigationDiagnosticDataKeys.Uri] = "https://example.com/path?token=visible"
+            });
+
+        Assert.NotNull(observed);
+        Assert.Equal("full-message", observed!.Message);
+        Assert.Contains("token=visible", observed.Data[NavigationDiagnosticDataKeys.Uri]!.ToString());
+        Assert.False(typeof(IDisposable).IsAssignableFrom(typeof(MauiNavigationPresenter)));
+    }
+
     [Fact]
     public void AddAppNavRegistersBlessedRuntimeAbstractions()
     {
@@ -106,7 +136,50 @@ public sealed class AppNavNavigatorRegistrationTests
     }
 
     [Fact]
-    public void AddAppNavPagesComposesContributorMappingsWithInlineMappings()
+    public async Task AsyncServiceProviderDisposalWaitsForPresenterPageScopeCleanup()
+    {
+        var services = new ServiceCollection();
+        services.AddScoped<AsyncDisposeMarker>();
+        services.AddTransient<AsyncDisposePage>();
+        services.AddAppNav<PagePlanner>(
+            Routes(),
+            pages => pages.MapPageFromServices<TestRoute, AsyncDisposePage>());
+        ServiceProvider provider = services.BuildServiceProvider();
+        var navigator = provider.GetRequiredService<IRouterNavigator>();
+        var presenter = provider.GetRequiredService<MauiNavigationPresenter>();
+        await navigator.NavigateAsync(new TestRoute("owned"), NavigationRequestSource.Test);
+        AsyncDisposeMarker marker = Assert.IsType<AsyncDisposePage>(
+            Assert.IsType<NavigationPage>(presenter.CurrentPage).CurrentPage).Marker;
+
+        await provider.DisposeAsync();
+
+        Assert.Equal(1, marker.DisposeCount);
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => navigator
+            .NavigateAsync(new TestRoute("disposed"), NavigationRequestSource.Test)
+            .AsTask());
+    }
+
+    [Fact]
+    public async Task ResolvingPresentationSurfaceCreatesRuntimeThatOwnsPresenterShutdown()
+    {
+        var services = new ServiceCollection();
+        services.AddAppNav<RecordingPlanner>(
+            Routes(),
+            pages => pages.MapPage<TestRoute>((_, _) => new TestPage()));
+        ServiceProvider provider = services.BuildServiceProvider();
+
+        _ = provider.GetRequiredService<IMauiPresentationState>();
+        IAppNavRuntime runtime = provider.GetRequiredService<IAppNavRuntime>();
+
+        await provider.DisposeAsync();
+
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => runtime
+            .NavigateAsync(new TestRoute("disposed"), NavigationRequestSource.Test)
+            .AsTask());
+    }
+
+    [Fact]
+    public async Task AddAppNavPagesComposesContributorMappingsWithInlineMappings()
     {
         var services = new ServiceCollection();
         services.AddAppNavPages(pages => pages.MapPage<ContributorRoute>((_, _) => new ContributorPage()));
@@ -117,8 +190,8 @@ public sealed class AppNavNavigatorRegistrationTests
         using var provider = services.BuildServiceProvider();
         var pageFactory = provider.GetRequiredService<IMauiRoutePageFactory>();
 
-        Assert.IsType<InlinePage>(pageFactory.CreatePage(new RouteEntry("inline", new InlineRoute("inline"))));
-        Assert.IsType<ContributorPage>(pageFactory.CreatePage(new RouteEntry("contributor", new ContributorRoute("contributor"))));
+        Assert.IsType<InlinePage>(await pageFactory.CreatePageAsync(new RouteEntry("inline", new InlineRoute("inline"))));
+        Assert.IsType<ContributorPage>(await pageFactory.CreatePageAsync(new RouteEntry("contributor", new ContributorRoute("contributor"))));
     }
 
     [Fact]
@@ -170,6 +243,11 @@ public sealed class AppNavNavigatorRegistrationTests
 
     private sealed class TestPage : ContentPage;
 
+    private sealed class AsyncDisposePage(AsyncDisposeMarker marker) : ContentPage
+    {
+        public AsyncDisposeMarker Marker { get; } = marker;
+    }
+
     private sealed class InlinePage : ContentPage;
 
     private sealed class ContributorPage : ContentPage;
@@ -191,6 +269,33 @@ public sealed class AppNavNavigatorRegistrationTests
             CancellationToken cancellationToken = default)
         {
             return ValueTask.FromResult(new NavigationPlan(NavigationState.Empty));
+        }
+    }
+
+    private sealed class PagePlanner : IAppNavigationPlanner
+    {
+        public ValueTask<NavigationPlan> CreatePlanAsync(
+            NavigationPlanningContext context,
+            CancellationToken cancellationToken = default)
+        {
+            return ValueTask.FromResult(new NavigationPlan(new NavigationState(
+                [
+                    new WindowNode(
+                        "main",
+                        new StackNode("main-stack", [new RouteEntry("page", context.Route)]))
+                ],
+                "main")));
+        }
+    }
+
+    private sealed class AsyncDisposeMarker : IAsyncDisposable
+    {
+        public int DisposeCount { get; private set; }
+
+        public ValueTask DisposeAsync()
+        {
+            DisposeCount++;
+            return ValueTask.CompletedTask;
         }
     }
 

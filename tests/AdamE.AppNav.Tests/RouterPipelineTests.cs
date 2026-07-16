@@ -170,6 +170,73 @@ public sealed class RouterPipelineTests
     }
 
     [Fact]
+    public async Task RouteMetadataRemainsSeparateAcrossPolicyRedirectsAndExplicitMetadataWins()
+    {
+        var routeOnly = new RouteMetadataKey<string>("routeOnly");
+        var collision = new RouteMetadataKey<string>("collision");
+        var routes = RouteTable.Create(builder => builder
+            .MapRoute<TestRoutes.StoreRoute>(
+                "/stores/{storeId}",
+                route => route.QueryMetadata(routeOnly).QueryMetadata(collision))
+            .MapRoute<TestRoutes.CatalogRoute>("/stores/{storeId}/catalog"));
+        var policy = new MetadataRedirectPolicy();
+        var planner = new RequestCapturingPlanner();
+        var navigator = new RouterNavigator(
+            routes,
+            planner,
+            NullNavigationPresenter.Instance,
+            new RouterNavigatorOptions { RequestPolicies = [policy] });
+        var request = RouterNavigationRequest.FromUri(
+            new Uri("/stores/northwind?routeOnly=old-route&collision=route", UriKind.Relative),
+            NavigationRequestSource.AppLink,
+            metadata: new Dictionary<string, object?>
+            {
+                [collision.Name] = "explicit",
+                ["envelope"] = "preserved"
+            });
+
+        await navigator.NavigateAsync(request);
+
+        NavigationRequestPolicyContext first = policy.Contexts[0];
+        Assert.Equal("old-route", first.RouteMetadata[routeOnly.Name]);
+        Assert.Equal("route", first.RouteMetadata[collision.Name]);
+        Assert.False(first.Request.Metadata.ContainsKey(routeOnly.Name));
+        Assert.Equal("explicit", first.Request.Metadata[collision.Name]);
+
+        NavigationRequestPolicyContext redirected = policy.Contexts[^1];
+        Assert.IsType<TestRoutes.CatalogRoute>(redirected.Route);
+        Assert.Empty(redirected.RouteMetadata);
+        Assert.False(planner.Metadata.ContainsKey(routeOnly.Name));
+        Assert.Equal("explicit", planner.Metadata[collision.Name]);
+        Assert.Equal("preserved", planner.Metadata["envelope"]);
+    }
+
+    [Fact]
+    public async Task NewlyConstructedPolicyResultAuthoritativelyReplacesEnvelope()
+    {
+        var incomingProvenance = new NavigationRequestProvenance(provider: "branch");
+        var planner = new RequestCapturingPlanner();
+        var navigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            planner,
+            NullNavigationPresenter.Instance,
+            new RouterNavigatorOptions { RequestPolicies = [new ReplacingEnvelopePolicy()] });
+
+        await navigator.NavigateAsync(RouterNavigationRequest.FromRoute(
+            new TestRoutes.StoreRoute("northwind"),
+            NavigationRequestSource.AppLink,
+            metadata: new Dictionary<string, object?> { ["old"] = "metadata" },
+            disposition: RouterNavigationDisposition.ReplaceCurrent,
+            provenance: incomingProvenance));
+
+        Assert.Equal(NavigationRequestSource.Test, planner.Source);
+        Assert.Equal(RouterNavigationDisposition.Auto, planner.Disposition);
+        Assert.Null(planner.Provenance);
+        Assert.Empty(planner.Metadata);
+        Assert.IsType<TestRoutes.CatalogRoute>(planner.Route);
+    }
+
+    [Fact]
     public async Task RedirectedRequestPreservesIncomingDispositionWhenPolicyDoesNotOverrideIt()
     {
         var planner = new DispositionCapturingPlanner();
@@ -581,6 +648,36 @@ public sealed class RouterPipelineTests
         }
     }
 
+    private sealed class MetadataRedirectPolicy : INavigationRequestPolicy
+    {
+        public List<NavigationRequestPolicyContext> Contexts { get; } = [];
+
+        public ValueTask<RouterNavigationRequest> ApplyAsync(
+            NavigationRequestPolicyContext context,
+            CancellationToken cancellationToken = default)
+        {
+            Contexts.Add(context);
+            return context.Route is TestRoutes.StoreRoute store
+                ? ValueTask.FromResult(context.Request.WithTarget(
+                    new Uri($"/stores/{store.StoreId}/catalog", UriKind.Relative)))
+                : ValueTask.FromResult(context.Request);
+        }
+    }
+
+    private sealed class ReplacingEnvelopePolicy : INavigationRequestPolicy
+    {
+        public ValueTask<RouterNavigationRequest> ApplyAsync(
+            NavigationRequestPolicyContext context,
+            CancellationToken cancellationToken = default)
+        {
+            return context.Route is TestRoutes.StoreRoute store
+                ? ValueTask.FromResult(RouterNavigationRequest.FromRoute(
+                    new TestRoutes.CatalogRoute(store.StoreId),
+                    NavigationRequestSource.Test))
+                : ValueTask.FromResult(context.Request);
+        }
+    }
+
     private sealed class ProvenanceReplacingRedirectPolicy(NavigationRequestProvenance provenance) : INavigationRequestPolicy
     {
         public ValueTask<RouterNavigationRequest> ApplyAsync(
@@ -590,7 +687,8 @@ public sealed class RouterPipelineTests
             RouterNavigationRequest request = context.Request;
             return context.Route is TestRoutes.StoreRoute storeRoute
                 ? ValueTask.FromResult(request
-                    .WithTarget(new TestRoutes.CatalogRoute(storeRoute.StoreId)) with { Provenance = provenance })
+                    .WithTarget(new TestRoutes.CatalogRoute(storeRoute.StoreId)) with
+                { Provenance = provenance })
                 : ValueTask.FromResult(request);
         }
     }

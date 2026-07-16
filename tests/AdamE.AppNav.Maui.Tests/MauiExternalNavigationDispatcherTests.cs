@@ -117,12 +117,11 @@ public sealed class MauiExternalNavigationDispatcherTests
         Assert.Contains(events, diagnosticEvent =>
             diagnosticEvent.Data.TryGetValue(NavigationDiagnosticDataKeys.ProvenanceProvider, out var providerValue) &&
             Equals(providerValue, "firebase-push") &&
-            diagnosticEvent.Data.TryGetValue(NavigationDiagnosticDataKeys.ProvenanceCorrelationId, out var correlationId) &&
-            Equals(correlationId, "notification-123") &&
+            !diagnosticEvent.Data.ContainsKey(NavigationDiagnosticDataKeys.ProvenanceCorrelationId) &&
             diagnosticEvent.Data.TryGetValue(NavigationDiagnosticDataKeys.ProvenanceAttributes, out var attributesValue) &&
             attributesValue is IReadOnlyDictionary<string, string?> attributes &&
             attributes.TryGetValue("messageId", out var messageId) &&
-            messageId == "message-456");
+            messageId is null);
         Assert.Contains(events, diagnosticEvent =>
             diagnosticEvent.Data.TryGetValue(NavigationDiagnosticDataKeys.ProvenanceProvider, out var providerValue) &&
             Equals(providerValue, "qr-scanner") &&

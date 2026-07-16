@@ -26,12 +26,15 @@ public sealed class PublicApiContractTests
                 "AdamE.AppNav.Back.DefaultBackNavigator",
                 "AdamE.AppNav.Back.IBackNavigator",
                 "AdamE.AppNav.Diagnostics.INavigationDiagnosticObserver",
+                "AdamE.AppNav.Diagnostics.INavigationDiagnosticRedactor",
                 "AdamE.AppNav.Diagnostics.NavigationActivitySources",
                 "AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys",
+                "AdamE.AppNav.Diagnostics.NavigationDiagnosticDataMode",
                 "AdamE.AppNav.Diagnostics.NavigationDiagnosticEvent",
                 "AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind",
                 "AdamE.AppNav.Diagnostics.NavigationDiagnosticPhase",
                 "AdamE.AppNav.Diagnostics.NavigationDiagnostics",
+                "AdamE.AppNav.Diagnostics.NavigationDiagnosticsOptions",
                 "AdamE.AppNav.History.NavigationHistory",
                 "AdamE.AppNav.History.NavigationHistoryEntry",
                 "AdamE.AppNav.Navigation.BackNavigationResult",
@@ -78,6 +81,7 @@ public sealed class PublicApiContractTests
                 "AdamE.AppNav.Requests.IDeferredNavigationRequestStore",
                 "AdamE.AppNav.Requests.INavigationRequestMetadataSerializer",
                 "AdamE.AppNav.Requests.InMemoryDeferredNavigationRequestStore",
+                "AdamE.AppNav.Requests.InvalidDeferredNavigationRequestDataException",
                 "AdamE.AppNav.Requests.NavigationMetadataValueSnapshot",
                 "AdamE.AppNav.Requests.NavigationRequestProvenance",
                 "AdamE.AppNav.Requests.NavigationRequestProvenanceSnapshot",
@@ -85,6 +89,7 @@ public sealed class PublicApiContractTests
                 "AdamE.AppNav.Requests.NavigationRequestSource",
                 "AdamE.AppNav.Requests.RouterNavigationDisposition",
                 "AdamE.AppNav.Requests.RouterNavigationRequest",
+                "AdamE.AppNav.Requests.UnsupportedDeferredNavigationRequestSchemaException",
                 "AdamE.AppNav.RouteStateLifetime",
                 "AdamE.AppNav.RouteStateRegistry",
                 "AdamE.AppNav.RouteStateRegistryBuilder",
@@ -207,6 +212,7 @@ public sealed class PublicApiContractTests
                 "AdamE.AppNav.Maui.IMauiRoutePageLifecycleHook",
                 "AdamE.AppNav.Maui.IMauiRoutePageModule",
                 "AdamE.AppNav.Maui.IMauiRoutePresentationNavigator",
+                "AdamE.AppNav.Maui.MauiPresentationConsistencyException",
                 "AdamE.AppNav.Maui.MauiRoutePageAttribute",
                 "AdamE.AppNav.Maui.MauiRoutePageRegistry",
                 "AdamE.AppNav.Maui.MauiRoutePageReuseKind",
@@ -237,8 +243,8 @@ public sealed class PublicApiContractTests
             method.Name == nameof(IRouterNavigator.ReconcileAsync) &&
             method.GetParameters() is
             [
-                { ParameterType: var firstParameterType },
-                { ParameterType: var secondParameterType }
+            { ParameterType: var firstParameterType },
+            { ParameterType: var secondParameterType }
             ] &&
             firstParameterType == typeof(Presentation.NavigationReconciliation) &&
             secondParameterType == typeof(CancellationToken));
@@ -265,7 +271,13 @@ public sealed class PublicApiContractTests
         Assert.Equal(57, (int)NavigationDiagnosticEventKind.AppLinkFailed);
         Assert.Equal(58, (int)NavigationDiagnosticEventKind.DiagnosticObserverFailed);
         Assert.Equal(60, (int)NavigationDiagnosticEventKind.PresentationVerificationFailed);
+        Assert.Equal(61, (int)NavigationDiagnosticEventKind.PresentationRollbackStarted);
+        Assert.Equal(62, (int)NavigationDiagnosticEventKind.PresentationRollbackCompleted);
+        Assert.Equal(63, (int)NavigationDiagnosticEventKind.PresentationRollbackFailed);
+        Assert.Equal(64, (int)NavigationDiagnosticEventKind.PresentationPageReleaseFailed);
+        Assert.Equal(65, (int)NavigationDiagnosticEventKind.DeferredRequestStoreQuarantined);
         Assert.Equal(40, (int)NavigationDiagnosticEventKind.StartupDeferredRequestPending);
+        Assert.Equal(11, (int)NavigationDiagnosticPhase.Persistence);
     }
 
     private static void AssertPublicApi(Assembly assembly, IReadOnlyList<string> expected)

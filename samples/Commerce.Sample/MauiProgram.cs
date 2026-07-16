@@ -1,5 +1,4 @@
-﻿using AdamE.AppNav.Diagnostics;
-using AdamE.AppNav.Maui.DependencyInjection;
+﻿using AdamE.AppNav.Maui.DependencyInjection;
 using AdamE.AppNav.Maui.AppLinks;
 using AdamE.AppNav.Requests;
 using AdamE.AppNav.Policies;
@@ -28,7 +27,7 @@ public static class MauiProgram
 		builder.Logging.AddDebug();
 #endif
 
-		builder.Services.AddSingleton<NavigationDiagnostics>();
+		builder.Services.AddAppNavDiagnostics();
 		builder.Services.AddSingleton<INavigationRequestTransformer, LegacyProductUrlTransformer>();
 		builder.Services.AddAppNavFileDeferredNavigationRequests(options =>
 		{
