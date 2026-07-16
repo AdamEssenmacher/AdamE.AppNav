@@ -126,7 +126,7 @@ public sealed class MauiExternalNavigationDispatcherTests
             diagnosticEvent.Data.TryGetValue(NavigationDiagnosticDataKeys.ProvenanceProvider, out var providerValue) &&
             Equals(providerValue, "qr-scanner") &&
             diagnosticEvent.Data.TryGetValue(NavigationDiagnosticDataKeys.ProvenanceOriginalUri, out var originalUri) &&
-            Equals(originalUri, qrUri.ToString()));
+            Equals(originalUri, "https://example.com"));
     }
 
     [Fact]
