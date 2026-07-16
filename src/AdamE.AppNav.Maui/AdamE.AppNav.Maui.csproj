@@ -30,6 +30,16 @@
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">21.0</SupportedOSPlatformVersion>
 	</PropertyGroup>
 
+	<!-- AppNav continues to verify .NET 9 compatibility after Microsoft's servicing window.
+	     Disable only the SDK EOL notices for the exact retained TFMs; every other warning remains enabled. -->
+	<PropertyGroup Condition="'$(TargetFramework)' == 'net9.0' Or
+	                          '$(TargetFramework)' == 'net9.0-android' Or
+	                          '$(TargetFramework)' == 'net9.0-ios' Or
+	                          '$(TargetFramework)' == 'net9.0-maccatalyst'">
+		<CheckEolTargetFramework>false</CheckEolTargetFramework>
+		<CheckEolWorkloads>false</CheckEolWorkloads>
+	</PropertyGroup>
+
 	<ItemGroup>
 		<PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
 		<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0" />

@@ -1,3 +1,5 @@
+using System.Xml.Linq;
+
 namespace AdamE.AppNav.Tests;
 
 public sealed class RepositoryContractTests
@@ -110,6 +112,27 @@ public sealed class RepositoryContractTests
         Assert.DoesNotContain("windows", mauiProject, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("netstandard", coreProject, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("tests/AdamE.AppNav.Maui.Tests/AdamE.AppNav.Maui.Tests.csproj", solution, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Net9MauiEolAcknowledgementIsScopedToSupportedTargets()
+    {
+        var project = XDocument.Load(
+            Path.Combine(RepositoryRoot(), "src", "AdamE.AppNav.Maui", "AdamE.AppNav.Maui.csproj"));
+        var policy = Assert.Single(
+            project.Root!.Elements("PropertyGroup"),
+            group => string.Equals(
+                (string?)group.Element("CheckEolWorkloads"),
+                "false",
+                StringComparison.Ordinal));
+        var condition = Assert.IsType<string>((string?)policy.Attribute("Condition"));
+
+        Assert.Equal("false", (string?)policy.Element("CheckEolTargetFramework"));
+        Assert.Contains("'$(TargetFramework)' == 'net9.0'", condition, StringComparison.Ordinal);
+        Assert.Contains("'$(TargetFramework)' == 'net9.0-android'", condition, StringComparison.Ordinal);
+        Assert.Contains("'$(TargetFramework)' == 'net9.0-ios'", condition, StringComparison.Ordinal);
+        Assert.Contains("'$(TargetFramework)' == 'net9.0-maccatalyst'", condition, StringComparison.Ordinal);
+        Assert.DoesNotContain("net10.0", condition, StringComparison.Ordinal);
     }
 
     [Fact]

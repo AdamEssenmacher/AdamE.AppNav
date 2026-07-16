@@ -24,11 +24,11 @@ dotnet test tests/AdamE.AppNav.Generators.Tests/AdamE.AppNav.Generators.Tests.cs
 dotnet build tests/AdamE.AppNav.Maui.Tests/AdamE.AppNav.Maui.Tests.csproj -f net10.0-maccatalyst
 
 dotnet build src/AdamE.AppNav/AdamE.AppNav.csproj -c Release -f net9.0 -p:CheckEolTargetFramework=false -warnaserror
-dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net9.0 -p:CheckEolTargetFramework=false -warnaserror
-dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net9.0-android -p:CheckEolTargetFramework=false -warnaserror
-dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net9.0-ios -p:CheckEolTargetFramework=false -warnaserror
-dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net9.0-maccatalyst -p:CheckEolTargetFramework=false -warnaserror
-dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net9.0 -p:CheckEolTargetFramework=false -p:EnableTrimAnalyzer=true -p:EnableAotAnalyzer=true -p:SuppressTrimAnalysisWarnings=false -p:WarningsNotAsErrors=NU1900 -warnaserror
+dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net9.0 -warnaserror
+dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net9.0-android -warnaserror
+dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net9.0-ios -warnaserror
+dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net9.0-maccatalyst -warnaserror
+dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net9.0 -p:EnableTrimAnalyzer=true -p:EnableAotAnalyzer=true -p:SuppressTrimAnalysisWarnings=false -p:WarningsNotAsErrors=NU1900 -warnaserror
 dotnet build src/AdamE.AppNav/AdamE.AppNav.csproj -c Release -f net10.0 -warnaserror
 dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net10.0 -warnaserror
 dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net10.0-android -warnaserror
@@ -42,12 +42,13 @@ dotnet publish samples/Commerce.Sample/Commerce.Sample.csproj -c Release -f net1
 dotnet build benchmarks/AdamE.AppNav.Benchmarks/AdamE.AppNav.Benchmarks.csproj -c Release
 dotnet run -c Release --project benchmarks/AdamE.AppNav.Benchmarks -- --check-budgets
 dotnet pack src/AdamE.AppNav/AdamE.AppNav.csproj -c Release --no-build -p:CheckEolTargetFramework=false -o artifacts/packages
-dotnet pack src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release --no-build -p:CheckEolTargetFramework=false -o artifacts/packages
+dotnet pack src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release --no-build -o artifacts/packages
 eng/verify-package-assets.sh artifacts/packages
 ```
 
-.NET 9 remains supported by policy. `CheckEolTargetFramework=false` suppresses only the SDK's platform-EOL warning for
-that target; compiler, trim, AOT, and package checks remain warning-as-error gates.
+.NET 9 remains supported by AppNav compatibility policy. The MAUI adapter scopes `CheckEolTargetFramework=false` and
+`CheckEolWorkloads=false` to its exact .NET 9 TFMs; compiler, trim, AOT, and package checks remain warning-as-error
+gates. This compatibility commitment does not extend Microsoft's platform servicing or security-update window.
 
 ## XHarness
 

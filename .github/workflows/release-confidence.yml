@@ -28,9 +28,9 @@ jobs:
     name: Unit, API, and allocation contracts
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: |
             9.0.x
@@ -56,9 +56,9 @@ jobs:
     name: Supported targets, analyzers, and packages
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: |
             9.0.x
@@ -74,10 +74,10 @@ jobs:
       - name: Build .NET 9 target assets
         run: |
           dotnet build src/AdamE.AppNav/AdamE.AppNav.csproj -c Release -f net9.0 -p:CheckEolTargetFramework=false -warnaserror
-          dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net9.0 -p:CheckEolTargetFramework=false -p:WarningsNotAsErrors=NU1900 -warnaserror
-          dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net9.0-android -p:CheckEolTargetFramework=false -p:WarningsNotAsErrors=NU1900 -warnaserror
-          dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net9.0-ios -p:CheckEolTargetFramework=false -p:WarningsNotAsErrors=NU1900 -warnaserror
-          dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net9.0-maccatalyst -p:CheckEolTargetFramework=false -p:WarningsNotAsErrors=NU1900 -warnaserror
+          dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net9.0 -p:WarningsNotAsErrors=NU1900 -warnaserror
+          dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net9.0-android -p:WarningsNotAsErrors=NU1900 -warnaserror
+          dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net9.0-ios -p:WarningsNotAsErrors=NU1900 -warnaserror
+          dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net9.0-maccatalyst -p:WarningsNotAsErrors=NU1900 -warnaserror
 
       - name: Build .NET 10 target assets
         run: |
@@ -92,7 +92,6 @@ jobs:
           dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj
           -c Release
           -f net9.0
-          -p:CheckEolTargetFramework=false
           -p:EnableTrimAnalyzer=true
           -p:EnableAotAnalyzer=true
           -p:SuppressTrimAnalysisWarnings=false
@@ -113,12 +112,12 @@ jobs:
       - name: Pack packages
         run: |
           dotnet pack src/AdamE.AppNav/AdamE.AppNav.csproj -c Release --no-build -p:CheckEolTargetFramework=false -o artifacts/packages
-          dotnet pack src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release --no-build -p:CheckEolTargetFramework=false -p:WarningsNotAsErrors=NU1900 -o artifacts/packages
+          dotnet pack src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release --no-build -p:WarningsNotAsErrors=NU1900 -o artifacts/packages
 
       - name: Inspect package assets
         run: eng/verify-package-assets.sh artifacts/packages
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: packages
@@ -128,8 +127,8 @@ jobs:
     name: Mac Catalyst NativeAOT
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
       - run: dotnet workload install maui
@@ -145,7 +144,7 @@ jobs:
           -p:CodesignProvision=
           -warnaserror
           -o artifacts/aot/maccatalyst
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: maccatalyst-nativeaot
@@ -155,8 +154,8 @@ jobs:
     name: Android full trim
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
       - run: dotnet workload install maui
@@ -169,7 +168,7 @@ jobs:
           -p:TrimMode=full
           -p:AndroidLinkMode=Full
           -o artifacts/aot/android-arm64
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: android-full-trim
@@ -179,8 +178,8 @@ jobs:
     name: Mac Catalyst platform tests
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
       - run: dotnet workload install maui
@@ -189,7 +188,7 @@ jobs:
             --add-source https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet-eng/nuget/v3/index.json \
             --version "11.0.0-prerelease*"
       - run: eng/run-maui-platform-tests.sh maccatalyst
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: maccatalyst-xharness
@@ -200,8 +199,8 @@ jobs:
     runs-on: macos-latest
     if: github.event_name == 'workflow_dispatch' && inputs.run-ios-platform-tests
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
       - run: dotnet workload install maui
@@ -210,7 +209,7 @@ jobs:
             --add-source https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet-eng/nuget/v3/index.json \
             --version "11.0.0-prerelease*"
       - run: eng/run-maui-platform-tests.sh ios
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: ios-xharness-artifacts
@@ -221,8 +220,8 @@ jobs:
     runs-on: macos-latest
     if: github.event_name == 'workflow_dispatch' && inputs.run-android-platform-tests
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
       - run: dotnet workload install maui
@@ -236,7 +235,7 @@ jobs:
           target: google_apis
           arch: x86_64
           script: eng/run-maui-platform-tests.sh android
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: android-xharness-artifacts
