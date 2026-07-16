@@ -390,6 +390,7 @@ public sealed class RepositoryContractTests
         Assert.Contains("actions/checkout@v7", workflow, StringComparison.Ordinal);
         Assert.Contains("actions/setup-dotnet@v5", workflow, StringComparison.Ordinal);
         Assert.Contains("actions/upload-artifact@v7", workflow, StringComparison.Ordinal);
+        Assert.Contains("-warnnotaserror:IL2104,IL3053", workflow, StringComparison.Ordinal);
     }
 
     [Fact]

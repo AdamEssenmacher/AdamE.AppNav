@@ -37,7 +37,7 @@ dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net10.
 dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net10.0 -p:EnableTrimAnalyzer=true -p:EnableAotAnalyzer=true -p:SuppressTrimAnalysisWarnings=false -p:WarningsNotAsErrors=NU1900 -warnaserror
 
 dotnet build samples/Commerce.Sample/Commerce.Sample.csproj -c Release -f net10.0-maccatalyst -warnaserror
-dotnet publish samples/Commerce.Sample/Commerce.Sample.csproj -c Release -f net10.0-maccatalyst -r maccatalyst-arm64 -p:PublishAot=true -p:EnableCodeSigning=false -p:CodesignKey=- -p:CodesignProvision= -o artifacts/aot/maccatalyst
+dotnet publish samples/Commerce.Sample/Commerce.Sample.csproj -c Release -f net10.0-maccatalyst -r maccatalyst-arm64 -p:PublishAot=true -p:EnableCodeSigning=false -p:CodesignKey=- -p:CodesignProvision= -warnaserror -warnnotaserror:IL2104,IL3053 -o artifacts/aot/maccatalyst
 dotnet publish samples/Commerce.Sample/Commerce.Sample.csproj -c Release -f net10.0-android -r android-arm64 -p:PublishTrimmed=true -p:TrimMode=full -p:AndroidLinkMode=Full -o artifacts/aot/android-arm64
 dotnet build benchmarks/AdamE.AppNav.Benchmarks/AdamE.AppNav.Benchmarks.csproj -c Release
 dotnet run -c Release --project benchmarks/AdamE.AppNav.Benchmarks -- --check-budgets
@@ -84,7 +84,9 @@ and analyzer/package checks, Mac Catalyst NativeAOT, Android full trimming, and 
 in one gate does not suppress the others. iOS simulator and Android emulator platform jobs remain manual
 `workflow_dispatch` gates for runners with stable simulator/emulator support. Hosted jobs pin `macos-26`, .NET SDKs
 `9.0.316` and `10.0.302`, and Xcode 26.6 for .NET 10 Apple lanes; update those pins together when advancing the
-validated release toolchain.
+validated release toolchain. The NativeAOT publish keeps warnings as errors except for framework-owned aggregate
+`IL2104` and `IL3053` diagnostics currently emitted by `Microsoft.Maui`; AppNav's dedicated trim/AOT analyzer lanes
+remain unexceptioned warning-as-error gates.
 
 ## Manual Smoke Checks
 
