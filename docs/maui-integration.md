@@ -124,9 +124,11 @@ schema-1 or future preview data and continues through fallback startup. Malforme
 atomically renamed to an adjacent `*.invalid-{utc}-{guid}` file and replaced with an empty queue. A quarantine failure
 preserves the original and fails startup; unexpected custom-store exceptions are never cleared automatically.
 
-Diagnostics use `NavigationDiagnosticDataMode.Safe` by default for observers, logging, and activities. Call
-`AddAppNavDiagnostics(...)` to opt into Full mode, and register `INavigationDiagnosticRedactor` for app-specific
-redaction. Redactor failures fall back to built-in Safe output without affecting navigation.
+Diagnostics use `NavigationDiagnosticDataMode.Safe` by default for observers, logging, and activities. Safe mode emits
+structural types, templates, codes, counts, and timings; it reduces absolute URIs to their origin and omits raw paths,
+application-defined navigation ids, and presentation mismatch values. Call `AddAppNavDiagnostics(...)` to opt into Full
+mode, and register `INavigationDiagnosticRedactor` for app-specific redaction. Redactor failures fall back to built-in
+Safe output without affecting navigation.
 
 ## Other Public Runtime Seams
 

@@ -218,7 +218,8 @@ public sealed class MauiPresentationVerifierTests
         var verifier = new SequencedVerifier(
             null,
             new MauiPresentationVerificationMismatch("$.root", "expected", "actual"));
-        var diagnostics = new NavigationDiagnostics();
+        var diagnostics = new NavigationDiagnostics(
+            options: new NavigationDiagnosticsOptions { DataMode = NavigationDiagnosticDataMode.Full });
         var observer = new RecordingNavigationDiagnosticObserver();
         diagnostics.AddObserver(observer);
         var presenter = new MauiNavigationPresenter(

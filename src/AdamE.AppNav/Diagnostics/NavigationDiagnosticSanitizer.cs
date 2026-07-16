@@ -7,7 +7,6 @@ internal static class NavigationDiagnosticSanitizer
         NavigationDiagnosticDataKeys.DurationMs,
         NavigationDiagnosticDataKeys.ExceptionType,
         NavigationDiagnosticDataKeys.Uri,
-        NavigationDiagnosticDataKeys.Path,
         NavigationDiagnosticDataKeys.RequestSource,
         NavigationDiagnosticDataKeys.RequestDisposition,
         NavigationDiagnosticDataKeys.ProvenanceProvider,
@@ -26,19 +25,9 @@ internal static class NavigationDiagnosticSanitizer
         NavigationDiagnosticDataKeys.RedirectFrom,
         NavigationDiagnosticDataKeys.RedirectTo,
         NavigationDiagnosticDataKeys.RedirectTrace,
-        NavigationDiagnosticDataKeys.WindowId,
         NavigationDiagnosticDataKeys.ReconciliationSource,
         NavigationDiagnosticDataKeys.OriginalKind,
         NavigationDiagnosticDataKeys.PageType,
-        NavigationDiagnosticDataKeys.HostId,
-        NavigationDiagnosticDataKeys.BranchId,
-        NavigationDiagnosticDataKeys.RouteEntryId,
-        NavigationDiagnosticDataKeys.PresentationOwnerRouteEntryId,
-        NavigationDiagnosticDataKeys.PresentationPageKey,
-        NavigationDiagnosticDataKeys.ModalId,
-        NavigationDiagnosticDataKeys.PresentationPath,
-        NavigationDiagnosticDataKeys.PresentationExpected,
-        NavigationDiagnosticDataKeys.PresentationActual,
         NavigationDiagnosticDataKeys.HandlerName,
         NavigationDiagnosticDataKeys.Platform,
         NavigationDiagnosticDataKeys.StartupOutcome,
@@ -95,29 +84,25 @@ internal static class NavigationDiagnosticSanitizer
             return null;
 
         if (!Uri.TryCreate(text, UriKind.RelativeOrAbsolute, out Uri? uri))
-            return StripQueryAndFragment(text);
+            return "<invalid-uri>";
 
         if (!uri.IsAbsoluteUri)
-            return StripQueryAndFragment(uri.OriginalString);
+            return "<relative-uri>";
+
+        if (string.IsNullOrEmpty(uri.Host))
+            return $"{uri.Scheme}:<absolute-uri>";
 
         var builder = new UriBuilder(uri)
         {
             UserName = string.Empty,
             Password = string.Empty,
+            Path = "/",
             Query = string.Empty,
             Fragment = string.Empty
         };
         return builder.Uri.GetComponents(
-            UriComponents.SchemeAndServer | UriComponents.Path,
+            UriComponents.SchemeAndServer,
             UriFormat.UriEscaped);
-    }
-
-    private static string StripQueryAndFragment(string value)
-    {
-        int query = value.IndexOf('?');
-        int fragment = value.IndexOf('#');
-        int end = query < 0 ? fragment : fragment < 0 ? query : Math.Min(query, fragment);
-        return end < 0 ? value : value[..end];
     }
 
     private static object SanitizeAttributes(object? value)
