@@ -1150,8 +1150,9 @@ them. They cannot redefine built-in constraint names. Matching and formatting us
 formatted path value throws instead of producing an invalid URL.
 
 Optional path parameters must be complete trailing segments. Catch-all parameters must be final. Duplicate parameter
-names, unknown constraints, exact duplicate templates, and ambiguous overlapping templates are rejected when the route
-table is built.
+names, unknown constraints, exact duplicate templates, multiple templates for the same exact route type, and ambiguous
+overlapping templates are rejected when the route table is built. Each route type has one canonical template for both
+matching and formatting; normalize aliases and legacy paths with `INavigationRequestTransformer` before matching.
 
 Overlapping constrained templates are allowed only when the built-in constraints are known to be disjoint. For example,
 `/values/{value:int}` and `/values/{value:alpha}` can coexist, while overlapping pairs such as `int`/`long`, `int`/
