@@ -6,11 +6,23 @@ internal static class MauiAppLinkRequestFactory
 {
     public static RouterNavigationRequest FromUri(Uri uri)
     {
+        return FromUri(uri, MauiAppLinkProvenanceProviders.MauiAppLink);
+    }
+
+    public static RouterNavigationRequest? TryFromUriString(string? value, string provider)
+    {
+        return Uri.TryCreate(value, UriKind.Absolute, out var uri)
+            ? FromUri(uri, provider)
+            : null;
+    }
+
+    private static RouterNavigationRequest FromUri(Uri uri, string provider)
+    {
         return RouterNavigationRequest.FromUri(
             uri,
             NavigationRequestSource.AppLink,
             provenance: new NavigationRequestProvenance(
-                provider: MauiAppLinkProvenanceProviders.MauiAppLink,
+                provider: provider,
                 originalUri: uri));
     }
 }

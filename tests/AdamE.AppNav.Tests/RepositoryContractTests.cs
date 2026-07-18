@@ -197,22 +197,27 @@ public sealed class RepositoryContractTests
     public void AppLinkFactoriesUseProviderConstants()
     {
         var root = RepositoryRoot();
-        var factoryFiles = new[]
+        var platformFactoryFiles = new[]
         {
-            Path.Combine(root, "src", "AdamE.AppNav.Maui", "AppLinks", "MauiAppLinkRequestFactory.cs"),
             Path.Combine(root, "src", "AdamE.AppNav.Maui", "AppLinks", "AppleAppLinkRequestFactory.cs"),
             Path.Combine(root, "src", "AdamE.AppNav.Maui", "Platforms", "Android", "AndroidAppLinkRequestFactory.cs")
         };
-        var factorySource = string.Join(Environment.NewLine, factoryFiles.Select(File.ReadAllText));
+        var platformFactorySource = string.Join(
+            Environment.NewLine,
+            platformFactoryFiles.Select(File.ReadAllText));
+        var genericFactorySource = File.ReadAllText(
+            Path.Combine(root, "src", "AdamE.AppNav.Maui", "AppLinks", "MauiAppLinkRequestFactory.cs"));
 
-        Assert.Contains("MauiAppLinkProvenanceProviders.MauiAppLink", factorySource, StringComparison.Ordinal);
-        Assert.Contains("MauiAppLinkProvenanceProviders.IosOpenUrl", factorySource, StringComparison.Ordinal);
-        Assert.Contains("MauiAppLinkProvenanceProviders.IosUserActivity", factorySource, StringComparison.Ordinal);
-        Assert.Contains("MauiAppLinkProvenanceProviders.AndroidIntent", factorySource, StringComparison.Ordinal);
-        Assert.DoesNotContain("\"maui-app-link\"", factorySource, StringComparison.Ordinal);
-        Assert.DoesNotContain("\"ios-open-url\"", factorySource, StringComparison.Ordinal);
-        Assert.DoesNotContain("\"ios-user-activity\"", factorySource, StringComparison.Ordinal);
-        Assert.DoesNotContain("\"android-intent\"", factorySource, StringComparison.Ordinal);
+        Assert.Contains("MauiAppLinkProvenanceProviders.MauiAppLink", genericFactorySource, StringComparison.Ordinal);
+        Assert.Contains("MauiAppLinkRequestFactory.TryFromUriString", platformFactorySource, StringComparison.Ordinal);
+        Assert.Contains("MauiAppLinkProvenanceProviders.IosOpenUrl", platformFactorySource, StringComparison.Ordinal);
+        Assert.Contains("MauiAppLinkProvenanceProviders.IosUserActivity", platformFactorySource, StringComparison.Ordinal);
+        Assert.Contains("MauiAppLinkProvenanceProviders.AndroidIntent", platformFactorySource, StringComparison.Ordinal);
+        Assert.DoesNotContain("RouterNavigationRequest.FromUri", platformFactorySource, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"maui-app-link\"", genericFactorySource, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"ios-open-url\"", platformFactorySource, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"ios-user-activity\"", platformFactorySource, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"android-intent\"", platformFactorySource, StringComparison.Ordinal);
     }
 
     [Fact]
