@@ -3,14 +3,6 @@ using AdamE.AppNav.Requests;
 using AdamE.AppNav.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 
-#if ANDROID
-using Android.Content;
-#endif
-
-#if IOS || MACCATALYST
-using Foundation;
-#endif
-
 namespace AdamE.AppNav.Maui.Tests;
 
 [Collection(ExternalNavigationBridgeTestCollection.Name)]
@@ -69,45 +61,31 @@ public sealed class MauiAppLinkRequestFactoryTests
         Assert.False(dispatcher.HasPendingRequests);
     }
 
-#if ANDROID
-    [Fact]
-    public void AndroidIntentFactoryPopulatesAndroidIntentProvenance()
+    [Theory]
+    [InlineData(MauiAppLinkProvenanceProviders.AndroidIntent)]
+    [InlineData(MauiAppLinkProvenanceProviders.IosOpenUrl)]
+    [InlineData(MauiAppLinkProvenanceProviders.IosUserActivity)]
+    public void ProviderUriStringFactoryPopulatesRequestedProvenance(string provider)
     {
         var incoming = new Uri("https://example.com/stores/northwind");
-        using var intent = new Intent(Intent.ActionView, Android.Net.Uri.Parse(incoming.ToString()));
 
-        var request = AndroidAppLinkRequestFactory.FromIntent(intent);
+        var request = MauiAppLinkRequestFactory.TryFromUriString(incoming.ToString(), provider);
 
-        AssertProvenance(request, MauiAppLinkProvenanceProviders.AndroidIntent, incoming);
+        AssertProvenance(request, provider, incoming);
     }
-#endif
 
-#if IOS || MACCATALYST
-    [Fact]
-    public void AppleOpenUrlFactoryPopulatesOpenUrlProvenance()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("not-a-uri")]
+    public void ProviderUriStringFactoryRejectsInvalidUris(string? value)
     {
-        var incoming = new Uri("https://example.com/stores/northwind");
-        using var url = new NSUrl(incoming.ToString());
+        var request = MauiAppLinkRequestFactory.TryFromUriString(
+            value,
+            MauiAppLinkProvenanceProviders.MauiAppLink);
 
-        var request = AppleAppLinkRequestFactory.FromOpenUrl(url);
-
-        AssertProvenance(request, MauiAppLinkProvenanceProviders.IosOpenUrl, incoming);
+        Assert.Null(request);
     }
-
-    [Fact]
-    public void AppleUserActivityFactoryPopulatesUserActivityProvenance()
-    {
-        var incoming = new Uri("https://example.com/stores/northwind");
-        using var activity = new NSUserActivity("NSUserActivityTypeBrowsingWeb")
-        {
-            WebPageUrl = new NSUrl(incoming.ToString())
-        };
-
-        var request = AppleAppLinkRequestFactory.FromUserActivity(activity);
-
-        AssertProvenance(request, MauiAppLinkProvenanceProviders.IosUserActivity, incoming);
-    }
-#endif
 
     private static void AssertProvenance(
         RouterNavigationRequest? request,
