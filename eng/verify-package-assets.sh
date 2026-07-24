@@ -33,22 +33,15 @@ require_asset() {
   fi
 }
 
-require_asset "${core_entries}" '^lib/net9\.0/AdamE\.AppNav\.dll$' 'the core net9.0 assembly'
 require_asset "${core_entries}" '^lib/net10\.0/AdamE\.AppNav\.dll$' 'the core net10.0 assembly'
 require_asset "${core_entries}" '^analyzers/dotnet/cs/AdamE\.AppNav\.Generators\.dll$' 'the route source generator'
 
-require_asset "${maui_entries}" '^lib/net9\.0/AdamE\.AppNav\.Maui\.dll$' 'the MAUI net9.0 assembly'
 require_asset "${maui_entries}" '^lib/net10\.0/AdamE\.AppNav\.Maui\.dll$' 'the MAUI net10.0 assembly'
-require_asset "${maui_entries}" '^lib/net9\.0-android[^/]*/AdamE\.AppNav\.Maui\.dll$' 'the MAUI net9.0 Android assembly'
-require_asset "${maui_entries}" '^lib/net9\.0-ios[^/]*/AdamE\.AppNav\.Maui\.dll$' 'the MAUI net9.0 iOS assembly'
-require_asset "${maui_entries}" '^lib/net9\.0-maccatalyst[^/]*/AdamE\.AppNav\.Maui\.dll$' 'the MAUI net9.0 Mac Catalyst assembly'
 require_asset "${maui_entries}" '^lib/net10\.0-android[^/]*/AdamE\.AppNav\.Maui\.dll$' 'the MAUI net10.0 Android assembly'
 require_asset "${maui_entries}" '^lib/net10\.0-ios[^/]*/AdamE\.AppNav\.Maui\.dll$' 'the MAUI net10.0 iOS assembly'
 require_asset "${maui_entries}" '^lib/net10\.0-maccatalyst[^/]*/AdamE\.AppNav\.Maui\.dll$' 'the MAUI net10.0 Mac Catalyst assembly'
-require_asset "${maui_nuspec}" '<group targetFramework="net9\.0">' 'the MAUI net9.0 dependency group'
-require_asset "${maui_nuspec}" '<dependency id="Microsoft\.Maui\.Controls" version="9\.[^"]+"' 'a MAUI 9 dependency for net9.0 assets'
 require_asset "${maui_nuspec}" '<group targetFramework="net10\.0">' 'the MAUI net10.0 dependency group'
-require_asset "${maui_nuspec}" '<dependency id="Microsoft\.Maui\.Controls" version="10\.[^"]+"' 'a MAUI 10 dependency for net10.0 assets'
+require_asset "${maui_nuspec}" '<dependency id="Microsoft\.Maui\.Controls" version="10\.0\.90"' 'the MAUI SR9 dependency for net10.0 assets'
 
 if grep -Eq '^lib/(net8|netstandard)' <<<"${core_entries}"$'\n'"${maui_entries}"; then
   echo 'Packages contain an unsupported net8 or netstandard library asset.' >&2

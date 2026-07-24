@@ -199,8 +199,8 @@ Until packages are published, consume the library with project references.
 
 | Area                                     | v1 Support                                                                  |
 |------------------------------------------|-----------------------------------------------------------------------------|
-| Core target frameworks                   | `net9.0`, `net10.0`                                                         |
-| MAUI adapter target frameworks           | `net9.0`, `net10.0`, plus Android, iOS, and Mac Catalyst platform TFMs      |
+| Core target framework                    | `net10.0`                                                                   |
+| MAUI adapter target frameworks           | `net10.0`, plus Android, iOS, and Mac Catalyst platform TFMs                |
 | MAUI adapter targets                     | Android, iOS, Mac Catalyst                                                  |
 | MAUI containers                          | `NavigationPage`, `TabbedPage`, modal navigation                            |
 | Page creation                            | DI-backed page factories                                                    |
@@ -221,13 +221,9 @@ Until packages are published, consume the library with project references.
 ## Trimming And NativeAOT
 
 `AdamE.AppNav` and `AdamE.AppNav.Maui` declare `IsAotCompatible` and are built with the trim and AOT analyzers enabled.
-Release confidence runs trim/AOT analyzers against both platform-neutral `net9.0` and `net10.0` adapter builds,
+Release confidence runs trim/AOT analyzers against the platform-neutral `net10.0` adapter build,
 publishes the Commerce sample with Mac Catalyst NativeAOT and Android full trimming, and inspects package assets for
-every supported .NET 9 and .NET 10 TFM. .NET 9 remains an explicit compatibility target even after its platform EOL;
-the adapter disables the SDK target-framework and workload EOL notices only for its exact .NET 9 TFMs while keeping
-all compiler, trim, and AOT warnings as errors. The .NET 10 compiler produces both target lines, while CI installs the
-matching .NET 9 and .NET 10 MAUI workload packs. AppNav compatibility support does not extend Microsoft's platform
-servicing or security-update window.
+each supported .NET 10 TFM while keeping all compiler, trim, and AOT warnings as errors.
 
 Deferred request persistence uses source-generated `System.Text.Json` metadata. Registered restorable state uses the
 same route value codecs as URL matching and formatting. A custom `INavigationRequestMetadataSerializer` must return
@@ -2456,7 +2452,6 @@ From the repository root:
 dotnet test tests/AdamE.AppNav.Tests/AdamE.AppNav.Tests.csproj
 dotnet test tests/AdamE.AppNav.Generators.Tests/AdamE.AppNav.Generators.Tests.csproj
 dotnet build tests/AdamE.AppNav.Maui.Tests/AdamE.AppNav.Maui.Tests.csproj -f net10.0-maccatalyst
-dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -f net9.0
 dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -f net10.0
 dotnet build samples/Commerce.Sample/Commerce.Sample.csproj -f net10.0-maccatalyst
 ```

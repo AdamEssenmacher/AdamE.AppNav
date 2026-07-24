@@ -10,25 +10,21 @@ This checklist is for validating a production release candidate before publishin
 
 ## Required Commands
 
-Install MAUI workload packs for both target lines. `eng/sdk/net9/global.json` scopes the first installation to .NET 9;
-repository-root build commands use the .NET 10 compiler to produce both .NET 9 and .NET 10 assets.
+Install the MAUI workload with the pinned .NET 10 SDK before running the validation commands.
 
 ```bash
-cd eng/sdk/net9
-dotnet workload install maui
-cd ../../..
 dotnet workload install maui
 
-dotnet test tests/AdamE.AppNav.Tests/AdamE.AppNav.Tests.csproj -c Release -p:TreatWarningsAsErrors=true -p:CheckEolTargetFramework=false
-dotnet test tests/AdamE.AppNav.Generators.Tests/AdamE.AppNav.Generators.Tests.csproj -c Release -p:TreatWarningsAsErrors=true -p:CheckEolTargetFramework=false
+dotnet test tests/AdamE.AppNav.Tests/AdamE.AppNav.Tests.csproj -c Release -p:TreatWarningsAsErrors=true
+dotnet test tests/AdamE.AppNav.Generators.Tests/AdamE.AppNav.Generators.Tests.csproj -c Release -p:TreatWarningsAsErrors=true
 dotnet build tests/AdamE.AppNav.Maui.Tests/AdamE.AppNav.Maui.Tests.csproj -f net10.0-maccatalyst
 
-dotnet build src/AdamE.AppNav/AdamE.AppNav.csproj -c Release -f net9.0 -p:CheckEolTargetFramework=false -warnaserror
-dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net9.0 -warnaserror
-dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net9.0-android -warnaserror
-dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net9.0-ios -warnaserror
-dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net9.0-maccatalyst -warnaserror
-dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net9.0 -p:EnableTrimAnalyzer=true -p:EnableAotAnalyzer=true -p:SuppressTrimAnalysisWarnings=false -p:WarningsNotAsErrors=NU1900 -warnaserror
+dotnet build src/AdamE.AppNav/AdamE.AppNav.csproj -c Release -f net10.0 -warnaserror
+dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net10.0 -warnaserror
+dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net10.0-android -warnaserror
+dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net10.0-ios -warnaserror
+dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net10.0-maccatalyst -warnaserror
+dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net10.0 -p:EnableTrimAnalyzer=true -p:EnableAotAnalyzer=true -p:SuppressTrimAnalysisWarnings=false -p:WarningsNotAsErrors=NU1900 -warnaserror
 dotnet build src/AdamE.AppNav/AdamE.AppNav.csproj -c Release -f net10.0 -warnaserror
 dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net10.0 -warnaserror
 dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net10.0-android -warnaserror
@@ -83,7 +79,7 @@ The release-confidence workflow exposes independent required jobs for unit/API/a
 and analyzer/package checks, Mac Catalyst NativeAOT, Android full trimming, and Mac Catalyst XHarness tests. A failure
 in one gate does not suppress the others. iOS simulator and Android emulator platform jobs remain manual
 `workflow_dispatch` gates for runners with stable simulator/emulator support. Hosted jobs pin `macos-26`, .NET SDKs
-`9.0.316` and `10.0.302`, and Xcode 26.6 for .NET 10 Apple lanes; update those pins together when advancing the
+`10.0.302`, and Xcode 26.6 for .NET 10 Apple lanes; update those pins together when advancing the
 validated release toolchain. The NativeAOT publish keeps warnings as errors except for framework-owned aggregate
 `IL2104` and `IL3053` diagnostics currently emitted by `Microsoft.Maui`; AppNav's dedicated trim/AOT analyzer lanes
 remain unexceptioned warning-as-error gates.

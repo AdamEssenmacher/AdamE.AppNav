@@ -32,13 +32,7 @@ jobs:
 
       - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: |
-            9.0.316
-            10.0.302
-
-      - name: Install .NET 9 MAUI workload
-        working-directory: eng/sdk/net9
-        run: dotnet workload install maui
+          dotnet-version: 10.0.302
 
       - name: Install .NET 10 MAUI workload
         run: dotnet workload install maui
@@ -60,24 +54,10 @@ jobs:
 
       - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: |
-            9.0.316
-            10.0.302
-
-      - name: Install .NET 9 MAUI workload
-        working-directory: eng/sdk/net9
-        run: dotnet workload install maui
+          dotnet-version: 10.0.302
 
       - name: Install .NET 10 MAUI workload
         run: dotnet workload install maui
-
-      - name: Build .NET 9 target assets
-        run: |
-          dotnet build src/AdamE.AppNav/AdamE.AppNav.csproj -c Release -f net9.0 -p:CheckEolTargetFramework=false -warnaserror
-          dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net9.0 -p:WarningsNotAsErrors=NU1900 -warnaserror
-          dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net9.0-android -p:WarningsNotAsErrors=NU1900 -warnaserror
-          dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net9.0-ios -p:WarningsNotAsErrors=NU1900 -warnaserror
-          dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net9.0-maccatalyst -p:WarningsNotAsErrors=NU1900 -warnaserror
 
       - name: Build .NET 10 target assets
         env:
@@ -88,17 +68,6 @@ jobs:
           dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net10.0-android -p:WarningsNotAsErrors=NU1900 -warnaserror
           dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net10.0-ios -p:WarningsNotAsErrors=NU1900 -warnaserror
           dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net10.0-maccatalyst -p:WarningsNotAsErrors=NU1900 -warnaserror
-
-      - name: .NET 9 trim and AOT analyzer build
-        run: >-
-          dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj
-          -c Release
-          -f net9.0
-          -p:EnableTrimAnalyzer=true
-          -p:EnableAotAnalyzer=true
-          -p:SuppressTrimAnalysisWarnings=false
-          -p:WarningsNotAsErrors=NU1900
-          -warnaserror
 
       - name: .NET 10 trim and AOT analyzer build
         run: >-

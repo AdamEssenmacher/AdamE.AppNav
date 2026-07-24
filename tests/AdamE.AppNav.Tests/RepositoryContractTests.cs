@@ -88,7 +88,7 @@ public sealed class RepositoryContractTests
     }
 
     [Fact]
-    public void TargetFrameworksMatchV1PlatformContract()
+    public void TargetFrameworksMatchNet10PlatformContract()
     {
         var root = RepositoryRoot();
         var coreProject = File.ReadAllText(Path.Combine(root, "src", "AdamE.AppNav", "AdamE.AppNav.csproj"));
@@ -99,13 +99,10 @@ public sealed class RepositoryContractTests
             Path.Combine(root, "tests", "AdamE.AppNav.Generators.Tests", "AdamE.AppNav.Generators.Tests.csproj"));
         var solution = File.ReadAllText(Path.Combine(root, "AdamE.AppNav.slnx"));
 
-        Assert.Contains("<TargetFrameworks>net9.0;net10.0</TargetFrameworks>", coreProject, StringComparison.Ordinal);
-        Assert.Contains("<TargetFrameworks>net9.0;net10.0;", mauiProject, StringComparison.Ordinal);
-        Assert.Contains("<TargetFrameworks>net9.0;net10.0</TargetFrameworks>", coreTestsProject, StringComparison.Ordinal);
-        Assert.Contains("<TargetFrameworks>net9.0;net10.0</TargetFrameworks>", generatorTestsProject, StringComparison.Ordinal);
-        Assert.Contains("net9.0-android", mauiProject, StringComparison.Ordinal);
-        Assert.Contains("net9.0-ios", mauiProject, StringComparison.Ordinal);
-        Assert.Contains("net9.0-maccatalyst", mauiProject, StringComparison.Ordinal);
+        Assert.Contains("<TargetFramework>net10.0</TargetFramework>", coreProject, StringComparison.Ordinal);
+        Assert.Contains("<TargetFrameworks>net10.0;net10.0-android;net10.0-ios;net10.0-maccatalyst</TargetFrameworks>", mauiProject, StringComparison.Ordinal);
+        Assert.Contains("<TargetFramework>net10.0</TargetFramework>", coreTestsProject, StringComparison.Ordinal);
+        Assert.Contains("<TargetFramework>net10.0</TargetFramework>", generatorTestsProject, StringComparison.Ordinal);
         Assert.Contains("net10.0-android", mauiProject, StringComparison.Ordinal);
         Assert.Contains("net10.0-ios", mauiProject, StringComparison.Ordinal);
         Assert.Contains("net10.0-maccatalyst", mauiProject, StringComparison.Ordinal);
@@ -115,24 +112,13 @@ public sealed class RepositoryContractTests
     }
 
     [Fact]
-    public void Net9MauiEolAcknowledgementIsScopedToSupportedTargets()
+    public void MauiProjectDoesNotSuppressTargetFrameworkEolWarnings()
     {
         var project = XDocument.Load(
             Path.Combine(RepositoryRoot(), "src", "AdamE.AppNav.Maui", "AdamE.AppNav.Maui.csproj"));
-        var policy = Assert.Single(
+        Assert.DoesNotContain(
             project.Root!.Elements("PropertyGroup"),
-            group => string.Equals(
-                (string?)group.Element("CheckEolWorkloads"),
-                "false",
-                StringComparison.Ordinal));
-        var condition = Assert.IsType<string>((string?)policy.Attribute("Condition"));
-
-        Assert.Equal("false", (string?)policy.Element("CheckEolTargetFramework"));
-        Assert.Contains("'$(TargetFramework)' == 'net9.0'", condition, StringComparison.Ordinal);
-        Assert.Contains("'$(TargetFramework)' == 'net9.0-android'", condition, StringComparison.Ordinal);
-        Assert.Contains("'$(TargetFramework)' == 'net9.0-ios'", condition, StringComparison.Ordinal);
-        Assert.Contains("'$(TargetFramework)' == 'net9.0-maccatalyst'", condition, StringComparison.Ordinal);
-        Assert.DoesNotContain("net10.0", condition, StringComparison.Ordinal);
+            group => string.Equals((string?)group.Element("CheckEolWorkloads"), "false", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -378,7 +364,6 @@ public sealed class RepositoryContractTests
         Assert.Contains("dotnet build samples/Commerce.Sample/Commerce.Sample.csproj -c Release -f net10.0-maccatalyst", workflow, StringComparison.Ordinal);
         Assert.Contains("dotnet pack src/AdamE.AppNav/AdamE.AppNav.csproj", workflow, StringComparison.Ordinal);
         Assert.Contains("eng/verify-package-assets.sh artifacts/packages", workflow, StringComparison.Ordinal);
-        Assert.Contains("-f net9.0-android", workflow, StringComparison.Ordinal);
         Assert.Contains("-f net10.0-android", workflow, StringComparison.Ordinal);
         Assert.Contains("eng/run-maui-platform-tests.sh maccatalyst", workflow, StringComparison.Ordinal);
         Assert.Contains("run-ios-platform-tests", workflow, StringComparison.Ordinal);
@@ -386,7 +371,6 @@ public sealed class RepositoryContractTests
         Assert.Contains("reactivecircus/android-emulator-runner", workflow, StringComparison.Ordinal);
         Assert.Contains("runs-on: macos-26", workflow, StringComparison.Ordinal);
         Assert.DoesNotContain("runs-on: macos-latest", workflow, StringComparison.Ordinal);
-        Assert.Contains("9.0.316", workflow, StringComparison.Ordinal);
         Assert.Contains("10.0.302", workflow, StringComparison.Ordinal);
         Assert.Contains(
             "DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer",

@@ -16,6 +16,7 @@
         <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
         <PublishRepositoryUrl>true</PublishRepositoryUrl>
         <EmbedUntrackedSources>true</EmbedUntrackedSources>
+        <MauiVersion>10.0.90</MauiVersion>
     </PropertyGroup>
 
     <ItemGroup Condition="$([System.String]::Copy('$(PackageId)').StartsWith('AdamE.AppNav'))">
