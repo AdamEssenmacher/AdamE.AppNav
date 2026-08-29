@@ -20,10 +20,12 @@ public sealed class ProductionHardeningTests
             new RouteEchoPlanner(),
             presenter);
 
-        var first = navigator.NavigateAsync(new TestRoutes.StoreRoute("first"), NavigationRequestSource.Test).AsTask();
+        var first = navigator.NavigateAsync(RouterNavigationRequest.FromRoute(
+            new TestRoutes.StoreRoute("first"), NavigationRequestSource.Test)).AsTask();
         await presenter.FirstPresentationStarted.Task;
 
-        var second = navigator.NavigateAsync(new TestRoutes.StoreRoute("second"), NavigationRequestSource.Test).AsTask();
+        var second = navigator.NavigateAsync(RouterNavigationRequest.FromRoute(
+            new TestRoutes.StoreRoute("second"), NavigationRequestSource.Test)).AsTask();
         await Task.Delay(100);
 
         Assert.False(second.IsCompleted);
@@ -49,7 +51,8 @@ public sealed class ProductionHardeningTests
             new RouterNavigatorOptions { Diagnostics = diagnostics });
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            navigator.NavigateAsync(new TestRoutes.StoreRoute("northwind"), NavigationRequestSource.Test).AsTask());
+            navigator.NavigateAsync(RouterNavigationRequest.FromRoute(
+                new TestRoutes.StoreRoute("northwind"), NavigationRequestSource.Test)).AsTask());
 
         Assert.Null(navigator.CurrentState.ActiveWindow);
         Assert.Empty(navigator.History.Entries);
@@ -67,9 +70,12 @@ public sealed class ProductionHardeningTests
             NullNavigationPresenter.Instance,
             new RouterNavigatorOptions { MaxHistoryEntries = 2 });
 
-        await navigator.NavigateAsync(new TestRoutes.StoreRoute("one"), NavigationRequestSource.Test);
-        await navigator.NavigateAsync(new TestRoutes.StoreRoute("two"), NavigationRequestSource.Test);
-        await navigator.NavigateAsync(new TestRoutes.StoreRoute("three"), NavigationRequestSource.Test);
+        await navigator.NavigateAsync(RouterNavigationRequest.FromRoute(
+            new TestRoutes.StoreRoute("one"), NavigationRequestSource.Test));
+        await navigator.NavigateAsync(RouterNavigationRequest.FromRoute(
+            new TestRoutes.StoreRoute("two"), NavigationRequestSource.Test));
+        await navigator.NavigateAsync(RouterNavigationRequest.FromRoute(
+            new TestRoutes.StoreRoute("three"), NavigationRequestSource.Test));
 
         Assert.Equal(2, navigator.History.Entries.Count);
         Assert.Equal("two", ((TestRoutes.StoreRoute)navigator.History.Entries[0].Route).StoreId);

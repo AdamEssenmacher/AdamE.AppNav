@@ -6,11 +6,15 @@ namespace AdamE.AppNav.Maui.AppLinks;
 
 internal static class AndroidAppLinkRequestFactory
 {
-    public static RouterNavigationRequest? FromIntent(Intent? intent)
+    public static MauiExternalNavigationIngress FromIntent(
+        Intent? intent,
+        MauiExternalNavigationOptions options)
     {
-        return MauiAppLinkRequestFactory.TryFromUriString(
+        ArgumentNullException.ThrowIfNull(options);
+        return MauiAppLinkRequestFactory.ParseUriString(
             intent?.DataString,
-            MauiAppLinkProvenanceProviders.AndroidIntent);
+            MauiAppLinkProvenanceProviders.AndroidIntent,
+            options.MaximumUriLength);
     }
 }
 #endif

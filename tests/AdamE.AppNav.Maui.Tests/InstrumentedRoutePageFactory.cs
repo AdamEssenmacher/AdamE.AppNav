@@ -13,6 +13,8 @@ internal sealed class InstrumentedRoutePageFactory : IMauiRoutePageFactory
     private readonly Dictionary<Page, RouteEntry> _lastUpdatedEntries = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<Page, MauiRoutePageUpdateContext> _lastUpdateContexts = new(ReferenceEqualityComparer.Instance);
 
+    public event Action<Page>? PresentationPageReleased;
+
     public IReadOnlyList<Page> CreatedPages => _createdPages.ToArray();
 
     public IReadOnlyList<Page> ReleasedPages => _releasedPages.ToArray();
@@ -94,6 +96,7 @@ internal sealed class InstrumentedRoutePageFactory : IMauiRoutePageFactory
         _releasedPresentationPages.Add(page);
         _releaseCounts.TryGetValue(page, out var count);
         _releaseCounts[page] = count + 1;
+        PresentationPageReleased?.Invoke(page);
         return ValueTask.CompletedTask;
     }
 

@@ -379,7 +379,8 @@ public sealed class NavigationDiagnostics
             ? LogLevel.Error
             : kind is NavigationDiagnosticEventKind.RouteNotMatched or
                     NavigationDiagnosticEventKind.BackUnhandled or
-                    NavigationDiagnosticEventKind.DeferredRequestStoreQuarantined
+                    NavigationDiagnosticEventKind.DeferredRequestStoreQuarantined or
+                    NavigationDiagnosticEventKind.DeferredRequestStoreOverflowed
                 ? LogLevel.Warning
                 : kind is NavigationDiagnosticEventKind.PresentationPageCreated or
                     NavigationDiagnosticEventKind.PresentationPageReleased or
@@ -429,7 +430,10 @@ public sealed class NavigationDiagnostics
                 NavigationDiagnosticEventKind.PresentationCompleted or
                 NavigationDiagnosticEventKind.PresentationFailed =>
                 NavigationDiagnosticPhase.Presentation,
-            NavigationDiagnosticEventKind.DeferredRequestStoreQuarantined =>
+            NavigationDiagnosticEventKind.DeferredRequestStoreQuarantined or
+                NavigationDiagnosticEventKind.DeferredRequestStoreReset or
+                NavigationDiagnosticEventKind.DeferredRequestStorePruned or
+                NavigationDiagnosticEventKind.DeferredRequestStoreOverflowed =>
                 NavigationDiagnosticPhase.Persistence,
             NavigationDiagnosticEventKind.StartupStarted or
                 NavigationDiagnosticEventKind.StartupAppLinkPending or
@@ -451,7 +455,13 @@ public sealed class NavigationDiagnostics
             NavigationDiagnosticEventKind.AppLinkReceived or
                 NavigationDiagnosticEventKind.AppLinkBuffered or
                 NavigationDiagnosticEventKind.AppLinkDispatched or
-                NavigationDiagnosticEventKind.AppLinkFailed =>
+                NavigationDiagnosticEventKind.AppLinkFailed or
+                NavigationDiagnosticEventKind.ExternalNavigationRejected or
+                NavigationDiagnosticEventKind.ExternalNavigationRetrying or
+                NavigationDiagnosticEventKind.ExternalNavigationExpired or
+                NavigationDiagnosticEventKind.ExternalNavigationOverflowed or
+                NavigationDiagnosticEventKind.ExternalNavigationDeduplicated or
+                NavigationDiagnosticEventKind.ExternalNavigationTerminalDrop =>
                 NavigationDiagnosticPhase.AppLink,
             NavigationDiagnosticEventKind.DiagnosticObserverFailed =>
                 NavigationDiagnosticPhase.Diagnostics,

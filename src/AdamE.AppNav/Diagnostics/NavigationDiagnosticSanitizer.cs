@@ -4,16 +4,14 @@ internal static class NavigationDiagnosticSanitizer
 {
     private static readonly HashSet<string> AllowedDataKeys =
     [
+        NavigationDiagnosticDataKeys.Count,
+        NavigationDiagnosticDataKeys.Reason,
+        NavigationDiagnosticDataKeys.SchemaVersion,
         NavigationDiagnosticDataKeys.DurationMs,
         NavigationDiagnosticDataKeys.ExceptionType,
         NavigationDiagnosticDataKeys.Uri,
         NavigationDiagnosticDataKeys.RequestSource,
         NavigationDiagnosticDataKeys.RequestDisposition,
-        NavigationDiagnosticDataKeys.ProvenanceProvider,
-        NavigationDiagnosticDataKeys.ProvenanceOriginalUri,
-        NavigationDiagnosticDataKeys.ProvenanceReferrerUri,
-        NavigationDiagnosticDataKeys.ProvenanceIsColdStart,
-        NavigationDiagnosticDataKeys.ProvenanceAttributes,
         NavigationDiagnosticDataKeys.RouteType,
         NavigationDiagnosticDataKeys.RouteTemplate,
         NavigationDiagnosticDataKeys.RouteDiagnosticCode,
@@ -32,7 +30,12 @@ internal static class NavigationDiagnosticSanitizer
         NavigationDiagnosticDataKeys.Platform,
         NavigationDiagnosticDataKeys.StartupOutcome,
         NavigationDiagnosticDataKeys.StartupDeferredRequestPending,
-        NavigationDiagnosticDataKeys.AppLinkGraceMs
+        NavigationDiagnosticDataKeys.AppLinkGraceMs,
+        NavigationDiagnosticDataKeys.ExternalNavigationReason,
+        NavigationDiagnosticDataKeys.DispatchAttempt,
+        NavigationDiagnosticDataKeys.MaximumDispatchAttempts,
+        NavigationDiagnosticDataKeys.PendingRequestCount,
+        NavigationDiagnosticDataKeys.RetryDelayMs
     ];
 
     public static NavigationDiagnosticEvent Sanitize(NavigationDiagnosticEvent diagnosticEvent)
@@ -50,13 +53,10 @@ internal static class NavigationDiagnosticSanitizer
 
             object? value = pair.Key switch
             {
-                NavigationDiagnosticDataKeys.Uri or
-                    NavigationDiagnosticDataKeys.ProvenanceOriginalUri or
-                    NavigationDiagnosticDataKeys.ProvenanceReferrerUri => SanitizeUri(pair.Value),
+                NavigationDiagnosticDataKeys.Uri => SanitizeUri(pair.Value),
                 NavigationDiagnosticDataKeys.RedirectFrom or NavigationDiagnosticDataKeys.RedirectTo =>
                     SanitizeRedirectTarget(pair.Value?.ToString()),
                 NavigationDiagnosticDataKeys.RedirectTrace => SanitizeRedirectTrace(pair.Value?.ToString()),
-                NavigationDiagnosticDataKeys.ProvenanceAttributes => SanitizeAttributes(pair.Value),
                 _ => pair.Value
             };
 
@@ -103,19 +103,6 @@ internal static class NavigationDiagnosticSanitizer
         return builder.Uri.GetComponents(
             UriComponents.SchemeAndServer,
             UriFormat.UriEscaped);
-    }
-
-    private static object SanitizeAttributes(object? value)
-    {
-        IEnumerable<string> keys = value switch
-        {
-            IReadOnlyDictionary<string, string?> dictionary => dictionary.Keys,
-            IReadOnlyDictionary<string, object?> dictionary => dictionary.Keys,
-            _ => []
-        };
-
-        return keys.Order(StringComparer.Ordinal)
-            .ToDictionary(static key => key, static _ => (string?)null, StringComparer.Ordinal);
     }
 
     private static string? SanitizeRedirectTrace(string? value)

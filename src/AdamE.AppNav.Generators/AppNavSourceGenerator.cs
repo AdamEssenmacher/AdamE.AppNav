@@ -64,34 +64,12 @@ public sealed class AppNavSourceGenerator : IIncrementalGenerator
 
         ValidateRouteTable(routes, context.ReportDiagnostic);
 
-        List<PageModel> pages = new();
-        foreach (INamedTypeSymbol type in SymbolWalker.GetAllTypes(compilation.GlobalNamespace))
-        {
-            if (!SymbolFacts.IsDeclaredInSource(type))
-                continue;
-
-            AttributeData? pageAttribute = SymbolFacts.GetAttribute(type, AppNavSymbols.MauiRoutePageAttributeName);
-            if (pageAttribute is null)
-                continue;
-
-            sawAppNavDeclaration = true;
-            PageModel? model = PageModelFactory.TryCreate(
-                type,
-                pageAttribute,
-                symbols,
-                context.ReportDiagnostic);
-            if (model is not null)
-                pages.Add(model);
-        }
-
-        ValidatePageMappings(pages, context.ReportDiagnostic);
-
-        if (routes.Count == 0 && pages.Count == 0 && !sawAppNavDeclaration)
+        if (routes.Count == 0 && !sawAppNavDeclaration)
             return;
 
         string rootNamespace = GetRootNamespace(compilation, options);
-        string source = AppNavSourceEmitter.Emit(rootNamespace, routes, pages);
-        context.AddSource("AppNavGenerated.g.cs", SourceText.From(source, Encoding.UTF8));
+        string source = AppNavSourceEmitter.Emit(rootNamespace, routes);
+        context.AddSource("AppNavRoutes.g.cs", SourceText.From(source, Encoding.UTF8));
     }
 
     private static void ValidateRouteTable(
@@ -125,29 +103,6 @@ public sealed class AppNavSourceGenerator : IIncrementalGenerator
                         left.Template.Value,
                         right.Template.Value));
                 }
-            }
-        }
-    }
-
-    private static void ValidatePageMappings(
-        IReadOnlyList<PageModel> pages,
-        Action<Diagnostic> reportDiagnostic)
-    {
-        for (var i = 0; i < pages.Count; i++)
-        {
-            for (int j = i + 1; j < pages.Count; j++)
-            {
-                PageModel left = pages[i];
-                PageModel right = pages[j];
-                if (!SymbolEqualityComparer.Default.Equals(left.RouteType, right.RouteType))
-                    continue;
-
-                reportDiagnostic(Diagnostic.Create(
-                    AppNavDiagnostics.DuplicatePageRoute,
-                    right.Location,
-                    right.RouteType.ToDisplayString(),
-                    left.PageType.ToDisplayString(),
-                    right.PageType.ToDisplayString()));
             }
         }
     }
@@ -275,23 +230,14 @@ internal sealed class AppNavSymbols
     public const string QueryAttributeName = "AdamE.AppNav.Routing.AppNavQueryAttribute";
     public const string QueryMetadataAttributeName = "AdamE.AppNav.Routing.AppNavQueryMetadataAttribute";
     public const string RouteMetadataKeyName = "AdamE.AppNav.Routing.RouteMetadataKey`1";
-    public const string MauiRoutePageAttributeName = "AdamE.AppNav.Maui.MauiRoutePageAttribute";
-    public const string MauiPageName = "Microsoft.Maui.Controls.Page";
-    public const string ActivatorUtilitiesConstructorAttributeName =
-        "Microsoft.Extensions.DependencyInjection.ActivatorUtilitiesConstructorAttribute";
-
     private AppNavSymbols(
         Compilation compilation,
         INamedTypeSymbol? appRoute,
-        INamedTypeSymbol? routeMetadataKey,
-        INamedTypeSymbol? mauiPage,
-        INamedTypeSymbol? mauiRoutePageAttribute)
+        INamedTypeSymbol? routeMetadataKey)
     {
         Compilation = compilation;
         AppRoute = appRoute;
         RouteMetadataKey = routeMetadataKey;
-        MauiPage = mauiPage;
-        MauiRoutePageAttribute = mauiRoutePageAttribute;
     }
 
     public Compilation Compilation { get; }
@@ -300,18 +246,12 @@ internal sealed class AppNavSymbols
 
     public INamedTypeSymbol? RouteMetadataKey { get; }
 
-    public INamedTypeSymbol? MauiPage { get; }
-
-    public INamedTypeSymbol? MauiRoutePageAttribute { get; }
-
     public static AppNavSymbols Create(Compilation compilation)
     {
         return new AppNavSymbols(
             compilation,
             compilation.GetTypeByMetadataName(AppRouteName),
-            compilation.GetTypeByMetadataName(RouteMetadataKeyName),
-            compilation.GetTypeByMetadataName(MauiPageName),
-            compilation.GetTypeByMetadataName(MauiRoutePageAttributeName));
+            compilation.GetTypeByMetadataName(RouteMetadataKeyName));
     }
 }
 
@@ -1125,186 +1065,6 @@ internal static class RouteModelFactory
     }
 }
 
-internal static class PageModelFactory
-{
-    public static PageModel? TryCreate(
-        INamedTypeSymbol pageType,
-        AttributeData attribute,
-        AppNavSymbols symbols,
-        Action<Diagnostic> reportDiagnostic)
-    {
-        Location? location = SymbolFacts.GetLocation(pageType, attribute);
-        INamedTypeSymbol? routeType = attribute.ConstructorArguments.Length == 1
-            ? attribute.ConstructorArguments[0].Value as INamedTypeSymbol
-            : null;
-
-        if (routeType is null ||
-            symbols.AppRoute is null ||
-            !SymbolFacts.InheritsFrom(routeType, symbols.AppRoute) ||
-            routeType.IsAbstract ||
-            SymbolFacts.ContainsTypeParameters(routeType) ||
-            !SymbolFacts.IsAccessibleFromGeneratedCode(routeType) ||
-            SymbolFacts.GetAttribute(routeType, AppNavSymbols.RouteAttributeName) is null)
-        {
-            reportDiagnostic(Diagnostic.Create(
-                AppNavDiagnostics.InvalidPageRoute,
-                location,
-                pageType.ToDisplayString(),
-                routeType?.ToDisplayString() ?? string.Empty));
-            return null;
-        }
-
-        if (SymbolFacts.ContainsTypeParameters(pageType) ||
-            !SymbolFacts.IsAccessibleFromGeneratedCode(pageType))
-        {
-            reportDiagnostic(Diagnostic.Create(
-                AppNavDiagnostics.InvalidPageType,
-                location,
-                pageType.ToDisplayString()));
-            return null;
-        }
-
-        if (symbols.MauiPage is not null &&
-            !SymbolFacts.IsAssignableTo(pageType, symbols.MauiPage) &&
-            !CanDeferPageTypeValidation(pageType))
-        {
-            reportDiagnostic(Diagnostic.Create(
-                AppNavDiagnostics.InvalidPageType,
-                location,
-                pageType.ToDisplayString()));
-            return null;
-        }
-
-        bool fromServices = false;
-        INamedTypeSymbol? pageModelType = null;
-        foreach (KeyValuePair<string, TypedConstant> argument in attribute.NamedArguments)
-        {
-            if (argument.Key == "FromServices" && argument.Value.Value is bool value)
-            {
-                fromServices = value;
-                continue;
-            }
-
-            if (argument.Key == "PageModelType")
-                pageModelType = argument.Value.Value as INamedTypeSymbol;
-        }
-
-        if (pageModelType is not null &&
-            (SymbolFacts.ContainsTypeParameters(pageModelType) ||
-             !SymbolFacts.IsAccessibleFromGeneratedCode(pageModelType)))
-        {
-            reportDiagnostic(Diagnostic.Create(
-                AppNavDiagnostics.InvalidPageModelType,
-                location,
-                pageType.ToDisplayString(),
-                pageModelType.ToDisplayString()));
-            return null;
-        }
-
-        IMethodSymbol? constructor = null;
-        IParameterSymbol? routeParameter = null;
-        if (!fromServices && pageModelType is null)
-        {
-            constructor = SelectPageConstructor(pageType, routeType, location, reportDiagnostic);
-            if (constructor is null)
-                return null;
-
-            routeParameter = SelectPageRouteParameter(constructor, routeType);
-        }
-
-        return new PageModel(pageType, routeType, fromServices, pageModelType, constructor, routeParameter, location);
-    }
-
-    private static bool CanDeferPageTypeValidation(INamedTypeSymbol pageType)
-    {
-        if (pageType.TypeKind != TypeKind.Class)
-            return false;
-
-        if (pageType.BaseType is { SpecialType: not SpecialType.System_Object })
-            return false;
-
-        return pageType.DeclaringSyntaxReferences
-            .Select(static reference => reference.GetSyntax())
-            .OfType<ClassDeclarationSyntax>()
-            .Any(static declaration =>
-                declaration.BaseList is null &&
-                declaration.Modifiers.Any(SyntaxKind.PartialKeyword));
-    }
-
-    private static IMethodSymbol? SelectPageConstructor(
-        INamedTypeSymbol pageType,
-        INamedTypeSymbol routeType,
-        Location? location,
-        Action<Diagnostic> reportDiagnostic)
-    {
-        IMethodSymbol[] constructors = pageType.Constructors
-            .Where(constructor => constructor.DeclaredAccessibility == Accessibility.Public)
-            .ToArray();
-
-        IMethodSymbol[] markedConstructors = constructors
-            .Where(constructor => SymbolFacts.GetAttribute(
-                constructor,
-                AppNavSymbols.ActivatorUtilitiesConstructorAttributeName) is not null)
-            .ToArray();
-
-        IMethodSymbol? selected = markedConstructors.Length switch
-        {
-            1 => markedConstructors[0],
-            > 1 => null,
-            _ => constructors.Length == 1 ? constructors[0] : null
-        };
-
-        if (selected is null)
-        {
-            reportDiagnostic(Diagnostic.Create(
-                AppNavDiagnostics.AmbiguousPageConstructor,
-                location,
-                pageType.ToDisplayString()));
-            return null;
-        }
-
-        if (SelectPageRouteParameter(selected, routeType) is null)
-        {
-            reportDiagnostic(Diagnostic.Create(
-                AppNavDiagnostics.MissingPageRouteParameter,
-                location,
-                pageType.ToDisplayString(),
-                routeType.ToDisplayString()));
-            return null;
-        }
-
-        return selected;
-    }
-
-    private static IParameterSymbol? SelectPageRouteParameter(IMethodSymbol constructor, INamedTypeSymbol routeType)
-    {
-        return constructor.Parameters
-            .Where(parameter => SymbolFacts.IsAssignableTo(routeType, parameter.Type))
-            .OrderBy(parameter => RouteParameterScore(routeType, parameter.Type))
-            .FirstOrDefault();
-    }
-
-    private static int RouteParameterScore(INamedTypeSymbol routeType, ITypeSymbol parameterType)
-    {
-        if (SymbolEqualityComparer.Default.Equals(routeType, parameterType))
-            return 0;
-
-        var distance = 1;
-        for (INamedTypeSymbol? current = routeType.BaseType; current is not null; current = current.BaseType)
-        {
-            if (SymbolEqualityComparer.Default.Equals(current, parameterType))
-                return distance;
-
-            distance++;
-        }
-
-        if (parameterType.SpecialType == SpecialType.System_Object)
-            return 1000;
-
-        return 500;
-    }
-}
-
 internal sealed class RouteModel
 {
     public RouteModel(
@@ -1340,41 +1100,6 @@ internal sealed class RouteModel
     public IMethodSymbol Constructor { get; }
 
     public IReadOnlyList<ConstructorArgument> ConstructorArguments { get; }
-
-    public Location? Location { get; }
-}
-
-internal sealed class PageModel
-{
-    public PageModel(
-        INamedTypeSymbol pageType,
-        INamedTypeSymbol routeType,
-        bool fromServices,
-        INamedTypeSymbol? pageModelType,
-        IMethodSymbol? constructor,
-        IParameterSymbol? routeParameter,
-        Location? location)
-    {
-        PageType = pageType;
-        RouteType = routeType;
-        FromServices = fromServices;
-        PageModelType = pageModelType;
-        Constructor = constructor;
-        RouteParameter = routeParameter;
-        Location = location;
-    }
-
-    public INamedTypeSymbol PageType { get; }
-
-    public INamedTypeSymbol RouteType { get; }
-
-    public bool FromServices { get; }
-
-    public INamedTypeSymbol? PageModelType { get; }
-
-    public IMethodSymbol? Constructor { get; }
-
-    public IParameterSymbol? RouteParameter { get; }
 
     public Location? Location { get; }
 }
@@ -2164,7 +1889,7 @@ internal static class ConstantEmitter
 
 internal static class AppNavSourceEmitter
 {
-    public static string Emit(string rootNamespace, IReadOnlyList<RouteModel> routes, IReadOnlyList<PageModel> pages)
+    public static string Emit(string rootNamespace, IReadOnlyList<RouteModel> routes)
     {
         var builder = new StringBuilder();
         builder.AppendLine("// <auto-generated />");
@@ -2192,12 +1917,6 @@ internal static class AppNavSourceEmitter
         builder.AppendLine();
         builder.AppendLine("    public static global::AdamE.AppNav.Routing.IRouteTableModule RouteTableModule { get; } = new GeneratedRouteTableModule();");
 
-        if (pages.Count > 0)
-        {
-            builder.AppendLine();
-            builder.AppendLine("    public static global::AdamE.AppNav.Maui.IMauiRoutePageModule MauiPageModule { get; } = new GeneratedMauiPageModule();");
-        }
-
         if (routes.Any(static route => route.MetadataQueryBindings.Any(static binding => binding.QueryName is null)))
         {
             builder.AppendLine();
@@ -2213,9 +1932,6 @@ internal static class AppNavSourceEmitter
         }
 
         EmitRouteModule(builder, routes);
-
-        if (pages.Count > 0)
-            EmitPageModule(builder, pages);
 
         builder.AppendLine("}");
         return builder.ToString();
@@ -2428,64 +2144,6 @@ internal static class AppNavSourceEmitter
             default:
                 return RouteValueSourceEmitter.EmitDefault(argument.Parameter);
         }
-    }
-
-    private static void EmitPageModule(StringBuilder builder, IReadOnlyList<PageModel> pages)
-    {
-        builder.AppendLine();
-        builder.AppendLine("    private sealed class GeneratedMauiPageModule : global::AdamE.AppNav.Maui.IMauiRoutePageModule");
-        builder.AppendLine("    {");
-        builder.AppendLine("        public void MapPages(global::AdamE.AppNav.Maui.MauiRoutePageRegistry pages)");
-        builder.AppendLine("        {");
-
-        foreach (PageModel page in pages)
-        {
-            string routeTypeName = SymbolFacts.TypeName(page.RouteType);
-            string pageTypeName = SymbolFacts.TypeName(page.PageType);
-            if (page.PageModelType is not null)
-            {
-                string pageModelTypeName = SymbolFacts.TypeName(page.PageModelType);
-                builder.AppendLine("            pages.MapPage<" + routeTypeName + ">(static (services, route) =>");
-                builder.AppendLine("            {");
-                builder.AppendLine("                var page = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<" +
-                                   pageTypeName + ">(services);");
-                builder.AppendLine("                page.BindingContext ??= global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<" +
-                                   pageModelTypeName + ">(services);");
-                builder.AppendLine("                return page;");
-                builder.AppendLine("            });");
-                continue;
-            }
-
-            if (page.FromServices)
-            {
-                builder.AppendLine("            pages.MapPageFromServices<" + routeTypeName + ", " + pageTypeName + ">();");
-                continue;
-            }
-
-            string arguments = string.Join(", ", page.Constructor!.Parameters.Select(parameter =>
-            {
-                if (SymbolEqualityComparer.Default.Equals(parameter, page.RouteParameter))
-                    return "route";
-
-                if (parameter.Type.ToDisplayString() == "System.IServiceProvider")
-                    return "services";
-
-                if (parameter.HasExplicitDefaultValue)
-                    return ConstantEmitter.Emit(parameter.Type, parameter.ExplicitDefaultValue);
-
-                if (parameter.IsOptional)
-                    return "default(" + SymbolFacts.TypeName(parameter.Type) + ")";
-
-                return "global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<" +
-                       SymbolFacts.TypeName(parameter.Type) + ">(services)";
-            }));
-
-            builder.AppendLine("            pages.MapPage<" + routeTypeName + ">(static (services, route) =>");
-            builder.AppendLine("                new " + pageTypeName + "(" + arguments + "));");
-        }
-
-        builder.AppendLine("        }");
-        builder.AppendLine("    }");
     }
 
     private static string BoolLiteral(bool value)

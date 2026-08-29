@@ -39,7 +39,7 @@ public enum NavigationRequestSource
     Test = 6,
 
     /// <summary>
-    /// The request was synthesized while reconciling native navigation back into the router state.
+    /// The request was synthesized while reconciling host navigation back into the router state.
     /// </summary>
-    NativeReconciliation = 7
+    HostReconciliation = 7
 }

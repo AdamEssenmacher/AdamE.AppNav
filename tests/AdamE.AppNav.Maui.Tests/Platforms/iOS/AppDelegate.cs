@@ -5,29 +5,11 @@ using UIKit;
 namespace AdamE.AppNav.Maui.Tests;
 
 [Register("AppDelegate")]
-public sealed class AppDelegate : UIApplicationDelegate
+public sealed class AppDelegate : MauiUIApplicationDelegate
 {
-    public override bool FinishedLaunching(UIApplication application, NSDictionary? launchOptions)
+    protected override MauiApp CreateMauiApp()
     {
-        AppleTestDiagnostics.Reset();
-        AppleTestDiagnostics.Write("iOS AppDelegate.FinishedLaunching completed.");
-        _ = RunTestsAsync();
-        return true;
-    }
-
-    private static async Task RunTestsAsync()
-    {
-        try
-        {
-            AppleTestDiagnostics.Write("Invoking iOS XHarness test entrypoint.");
-            var entryPoint = new XHarnessAppleTestEntryPoint();
-            await entryPoint.RunAsync().ConfigureAwait(false);
-        }
-        catch (Exception exception)
-        {
-            AppleTestDiagnostics.Write(exception.ToString());
-            Console.WriteLine(exception);
-        }
+        return MauiProgram.CreateMauiApp();
     }
 }
 #endif

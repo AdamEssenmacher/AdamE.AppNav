@@ -21,7 +21,7 @@ AppNav sets transport provenance it owns; apps set provider/business provenance 
 
 ## Built-In MAUI App Links
 
-When `UseAppNavAppLinks()` handles a platform app link, AppNav creates the request and attaches provenance automatically. App code does not need to add provenance for this path.
+When `UseAppNavExternalNavigation()` handles a platform app link, AppNav creates the request and attaches provenance automatically. App code does not need to add provenance for this path.
 
 Built-in provider names are exposed as constants:
 
@@ -56,7 +56,10 @@ var request = RouterNavigationRequest.FromUri(
         originalUri: originalBranchUri,
         correlationId: branchClickId));
 
-externalNavigationDispatcher.Dispatch(request);
+if (!externalNavigationDispatcher.TryDispatch(request))
+{
+    // Recover provider UI or record a structural rejection.
+}
 ```
 
 Push notification:
@@ -74,7 +77,7 @@ var request = RouterNavigationRequest.FromUri(
             ["messageId"] = messageId
         }));
 
-externalNavigationDispatcher.Dispatch(request);
+_ = externalNavigationDispatcher.TryDispatch(request);
 ```
 
 QR scan:
@@ -88,7 +91,7 @@ var request = RouterNavigationRequest.FromUri(
         originalUri: scannedUri,
         correlationId: scanId));
 
-externalNavigationDispatcher.Dispatch(request);
+_ = externalNavigationDispatcher.TryDispatch(request);
 ```
 
 If a QR scanner is an interactive foreground surface, it may call `IRouterNavigator.NavigateAsync(RouterNavigationRequest)` directly instead of the fire-and-forget dispatcher so it can observe navigation failure and recover scanner UI state. The request should still use `NavigationRequestSource.QrCode` and explicit QR provenance.

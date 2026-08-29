@@ -128,6 +128,7 @@ public sealed class RouteMatchContext
         return value;
     }
 
+#pragma warning disable RS0026 // Typed and untyped metadata insertion are intentionally paired public operations.
     // ReSharper disable once MemberCanBePrivate.Global
     public void AddMetadata<T>(RouteMetadataKey<T> key, T? value, bool omitWhenNull = true)
     {
@@ -150,4 +151,5 @@ public sealed class RouteMatchContext
         _metadata ??= new Dictionary<string, object?>(StringComparer.Ordinal);
         _metadata[name] = value;
     }
+#pragma warning restore RS0026
 }

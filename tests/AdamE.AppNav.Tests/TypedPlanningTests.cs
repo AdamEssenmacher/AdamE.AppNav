@@ -73,9 +73,9 @@ public sealed class TypedPlanningTests
         var presenter = new RecordingNavigationPresenter();
         var navigator = new RouterNavigator(TestRoutes.CreateTable(), planner, presenter);
 
-        var result = await navigator.NavigateAsync(
+        var result = await navigator.NavigateAsync(RouterNavigationRequest.FromUri(
             new Uri("https://example.com/stores/northwind"),
-            NavigationRequestSource.Test);
+            NavigationRequestSource.Test));
 
         var stack = Assert.IsType<StackNode>(result.State.ActiveWindow!.Root);
         Assert.IsType<TestRoutes.StoreRoute>(stack.Top!.Route);

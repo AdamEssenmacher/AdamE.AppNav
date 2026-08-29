@@ -34,7 +34,16 @@ public sealed record NavigationState
         init => field = NavigationIdentity.OptionalId(value, nameof(ActiveWindowId));
     }
 
-    public WindowNode? ActiveWindow => FindWindow(ActiveWindowId) ?? (Windows.Count > 0 ? Windows[0] : null);
+    /// <summary>
+    /// Gets the explicitly active window, or the first window when no active window id is set.
+    /// </summary>
+    /// <remarks>
+    /// A non-null <see cref="ActiveWindowId"/> never falls back to a different window.
+    /// Navigation-state validation requires it to identify an existing window.
+    /// </remarks>
+    public WindowNode? ActiveWindow => ActiveWindowId is null
+        ? (Windows.Count > 0 ? Windows[0] : null)
+        : FindWindow(ActiveWindowId);
 
     public WindowNode? FindWindow(string? id)
     {

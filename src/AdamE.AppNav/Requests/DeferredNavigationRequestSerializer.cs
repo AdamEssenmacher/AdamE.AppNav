@@ -5,12 +5,12 @@ namespace AdamE.AppNav.Requests;
 
 public sealed class DeferredNavigationRequestSerializer(
     RouteTable routes,
-    DeferredNavigationRequestPersistenceOptions? options = null)
+    DeferredNavigationRequestPersistenceOptions options)
 {
     private readonly RouteTable _routes = routes ?? throw new ArgumentNullException(nameof(routes));
 
     private readonly DeferredNavigationRequestPersistenceOptions _options =
-        options ?? new DeferredNavigationRequestPersistenceOptions();
+        ValidateOptions(options);
 
     public DeferredNavigationRequestStoreSnapshot CreateSnapshot(IReadOnlyList<RouterNavigationRequest> requests)
     {
@@ -19,7 +19,6 @@ public sealed class DeferredNavigationRequestSerializer(
         return new DeferredNavigationRequestStoreSnapshot
         {
             SchemaVersion = DeferredNavigationRequestStoreSnapshot.CurrentSchemaVersion,
-            CreatedAt = DateTimeOffset.UtcNow,
             Requests = requests.Select(CreateRequestSnapshot).ToArray()
         };
     }
@@ -59,7 +58,6 @@ public sealed class DeferredNavigationRequestSerializer(
         (AppRoute route, IReadOnlyDictionary<string, object?>? routeMetadata) = ResolveRequestRoute(request);
         IReadOnlyDictionary<string, object?>? effectiveMetadata = MergeMetadata(routeMetadata, request.Metadata);
         return new NavigationRequestSnapshot(
-            request.Uri?.ToString(),
             FormatCanonicalRouteUri(route, effectiveMetadata),
             request.Source,
             request.WindowId,
@@ -81,34 +79,16 @@ public sealed class DeferredNavigationRequestSerializer(
             throw new InvalidOperationException(
                 $"Navigation request disposition '{(int)snapshot.Disposition}' is invalid.");
 
-        Uri? requestUri = null;
-        if (snapshot.Uri is not null)
-        {
-            if (string.IsNullOrWhiteSpace(snapshot.Uri) ||
-                !Uri.TryCreate(snapshot.Uri, UriKind.RelativeOrAbsolute, out requestUri))
-            {
-                throw new FormatException("The persisted request target URI is invalid.");
-            }
-        }
-
         IReadOnlyDictionary<string, object?>? metadata = MergeMetadata(routeMetadata, persistedMetadata);
         NavigationRequestProvenance? provenance =
             NavigationRequestProvenanceSnapshotMapper.Restore(snapshot.Provenance);
-        RouterNavigationRequest request = requestUri is null
-            ? RouterNavigationRequest.FromRoute(
-                route,
-                snapshot.Source,
-                snapshot.WindowId,
-                metadata,
-                snapshot.Disposition,
-                provenance)
-            : RouterNavigationRequest.FromUri(
-                requestUri,
-                snapshot.Source,
-                snapshot.WindowId,
-                metadata,
-                snapshot.Disposition,
-                provenance);
+        RouterNavigationRequest request = RouterNavigationRequest.FromRoute(
+            route,
+            snapshot.Source,
+            snapshot.WindowId,
+            metadata,
+            snapshot.Disposition,
+            provenance);
         request = request with { Timestamp = snapshot.Timestamp };
 
         return request;
@@ -134,12 +114,19 @@ public sealed class DeferredNavigationRequestSerializer(
     private (AppRoute Route, IReadOnlyDictionary<string, object?>? Metadata) RestoreRoute(string routeUri)
     {
         if (string.IsNullOrWhiteSpace(routeUri) ||
-            !Uri.TryCreate(routeUri, UriKind.RelativeOrAbsolute, out Uri? uri))
+            !Uri.TryCreate(routeUri, UriKind.Absolute, out Uri? uri))
             throw new FormatException("The persisted canonical route URI is invalid.");
 
         RouteMatchResult match = _routes.Match(uri);
         if (!match.IsSuccess || match.Route is null)
             throw new InvalidOperationException("The persisted canonical route URI does not match a registered route.");
+
+        string canonicalRouteUri = FormatCanonicalRouteUri(match.Route, match.Metadata);
+        if (!StringComparer.Ordinal.Equals(routeUri, canonicalRouteUri))
+        {
+            throw new InvalidOperationException(
+                "The persisted canonical route URI does not match the configured base URI or canonical route format.");
+        }
 
         return (match.Route, match.Metadata);
     }
@@ -410,5 +397,13 @@ public sealed class DeferredNavigationRequestSerializer(
             merged[pair.Key] = pair.Value;
 
         return merged;
+    }
+
+    private static DeferredNavigationRequestPersistenceOptions ValidateOptions(
+        DeferredNavigationRequestPersistenceOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        _ = options.BaseUri;
+        return options;
     }
 }

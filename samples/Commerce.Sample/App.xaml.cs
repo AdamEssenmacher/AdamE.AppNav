@@ -1,5 +1,4 @@
 ﻿using AdamE.AppNav.Maui;
-using Microsoft.Maui.ApplicationModel;
 
 namespace Commerce.Sample;
 
@@ -17,10 +16,7 @@ public partial class App : Application
 	{
 		var window = new Window(CreateLoadingPage());
 
-		MainThread.BeginInvokeOnMainThread(async () =>
-		{
-			await _startup.StartAsync(window);
-		});
+		_startup.Start(window, "main");
 
 		return window;
 	}

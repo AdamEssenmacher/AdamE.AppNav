@@ -50,6 +50,10 @@ public sealed record RouteEntry
 /// </summary>
 public sealed record StackNode : NavigationNode
 {
+    private protected override void SealNodeType()
+    {
+    }
+
     public StackNode(string Id, IReadOnlyList<RouteEntry> Entries)
         : base(Id)
     {
@@ -86,6 +90,10 @@ public sealed record StackNode : NavigationNode
 /// </summary>
 public sealed record BranchHostNode : NavigationNode
 {
+    private protected override void SealNodeType()
+    {
+    }
+
     public BranchHostNode(
         string Id,
         IReadOnlyList<NavigationBranch> Branches,
@@ -186,6 +194,10 @@ public sealed record ModalNode(
     RouteEntry RouteEntry,
     NavigationNode? Content = null) : NavigationNode(Id)
 {
+    private protected override void SealNodeType()
+    {
+    }
+
     /// <summary>
     /// Gets the route entry that represents the modal shell or route.
     /// </summary>
@@ -201,6 +213,10 @@ public sealed record ModalNode(
 /// </summary>
 public sealed record WindowNode : NavigationNode
 {
+    private protected override void SealNodeType()
+    {
+    }
+
     public WindowNode(
         string Id,
         NavigationNode? Root = null,

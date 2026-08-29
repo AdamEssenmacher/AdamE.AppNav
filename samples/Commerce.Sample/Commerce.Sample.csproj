@@ -37,7 +37,7 @@
 
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
-		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">21.0</SupportedOSPlatformVersion>
+		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">28.0</SupportedOSPlatformVersion>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -63,10 +63,19 @@
 		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
 	</ItemGroup>
 
+	<ItemGroup Condition="'$(Configuration)' == 'Debug' And ($([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios' Or $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst')">
+		<PartialAppManifest Include="Platforms\Apple\DebugUrlScheme.plist" />
+	</ItemGroup>
+
 	<ItemGroup>
 	  <ProjectReference Include="..\..\src\AdamE.AppNav\AdamE.AppNav.csproj" />
 	  <ProjectReference Include="..\..\src\AdamE.AppNav.Maui\AdamE.AppNav.Maui.csproj" />
 	  <ProjectReference Include="..\..\src\AdamE.AppNav.Generators\AdamE.AppNav.Generators.csproj"
+	                    OutputItemType="Analyzer"
+	                    ReferenceOutputAssembly="false"
+	                    PrivateAssets="all"
+	                    GlobalPropertiesToRemove="PublishAot;IsAotCompatible;IsTrimmable;EnableTrimAnalyzer;EnableAotAnalyzer;PublishTrimmed;TrimMode" />
+	  <ProjectReference Include="..\..\src\AdamE.AppNav.Maui.Generators\AdamE.AppNav.Maui.Generators.csproj"
 	                    OutputItemType="Analyzer"
 	                    ReferenceOutputAssembly="false"
 	                    PrivateAssets="all"

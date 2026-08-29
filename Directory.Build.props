@@ -17,10 +17,28 @@
         <PublishRepositoryUrl>true</PublishRepositoryUrl>
         <EmbedUntrackedSources>true</EmbedUntrackedSources>
         <MauiVersion>10.0.90</MauiVersion>
+        <AppNavDefaultVersion>0.1.0-preview.local</AppNavDefaultVersion>
+        <AppNavReleaseTag Condition="'$(AppNavReleaseTag)' == '' And '$(GITHUB_REF_TYPE)' == 'tag'">$(GITHUB_REF_NAME)</AppNavReleaseTag>
+        <AppNavReleaseVersion Condition="'$(AppNavReleaseTag)' != '' And $([System.String]::Copy('$(AppNavReleaseTag)').StartsWith('v'))">$([System.String]::Copy('$(AppNavReleaseTag)').Substring(1))</AppNavReleaseVersion>
+        <Version Condition="'$(AppNavReleaseVersion)' != ''">$(AppNavReleaseVersion)</Version>
+        <Version Condition="'$(Version)' == ''">$(AppNavDefaultVersion)</Version>
+        <PackageVersion Condition="'$(AppNavReleaseVersion)' != ''">$(AppNavReleaseVersion)</PackageVersion>
+        <PackageVersion Condition="'$(PackageVersion)' == ''">$(Version)</PackageVersion>
     </PropertyGroup>
 
     <ItemGroup Condition="$([System.String]::Copy('$(PackageId)').StartsWith('AdamE.AppNav'))">
         <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="/" Visible="false"/>
         <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All"/>
     </ItemGroup>
+
+    <Target Name="ValidateAppNavPackageVersion"
+            BeforeTargets="GenerateNuspec"
+            Condition="$([System.String]::Copy('$(PackageId)').StartsWith('AdamE.AppNav'))">
+        <Error Condition="'$(AppNavReleaseTag)' != '' And !$([System.Text.RegularExpressions.Regex]::IsMatch('$(AppNavReleaseTag)', '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'))"
+               Text="AppNavReleaseTag must be a validated v-prefixed semantic version tag." />
+        <Error Condition="'$(AppNavReleaseTag)' != '' And '$(PackageVersion)' != '$(AppNavReleaseVersion)'"
+               Text="A validated AppNavReleaseTag is authoritative and must match PackageVersion." />
+        <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(PackageVersion)', '^[^+]*-')) And '$(AppNavStableRelease)' != 'true'"
+               Text="Stable AppNav packages require AppNavStableRelease=true. Preview and local packages must use a prerelease suffix." />
+    </Target>
 </Project>

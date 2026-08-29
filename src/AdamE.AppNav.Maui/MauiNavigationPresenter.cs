@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using AdamE.AppNav.Diagnostics;
+using AdamE.AppNav.Navigation;
 using AdamE.AppNav.Plans;
 using AdamE.AppNav.Presentation;
 using AdamE.AppNav.State;
@@ -320,20 +321,29 @@ internal sealed class MauiNavigationPresenter :
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(window);
+        ArgumentException.ThrowIfNullOrWhiteSpace(windowId);
 
-        if (_attachedWindow is not null)
+        WindowNode? presentedWindow = _lastState.ActiveWindow;
+        if (presentedWindow is not null &&
+            !StringComparer.Ordinal.Equals(presentedWindow.Id, windowId))
+        {
+            throw new AppNavigationConfigurationException(
+                $"Presented navigation state window id '{presentedWindow.Id}' does not match the MAUI window id '{windowId}'.");
+        }
+
+        if (CurrentPage is not null)
+            _nativeOperations.SetWindowPage(window, CurrentPage);
+
+        if (_attachedWindow is not null && !ReferenceEquals(_attachedWindow, window))
         {
             UnsubscribeWindowLifecycle(_attachedWindow);
         }
 
+        bool alreadyAttached = ReferenceEquals(_attachedWindow, window);
         _attachedWindow = window;
         _attachedWindowId = windowId;
-        SubscribeWindowLifecycle(window);
-
-        if (CurrentPage is not null)
-        {
-            _nativeOperations.SetWindowPage(window, CurrentPage);
-        }
+        if (!alreadyAttached)
+            SubscribeWindowLifecycle(window);
 
         _externalNavigationDispatcher?.SetForegrounded(true);
         _externalNavigationDispatcher?.MarkReady();
@@ -438,6 +448,7 @@ internal sealed class MauiNavigationPresenter :
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        ValidatePlanForMaui(plan);
         _suppressReconciliation = true;
         _activeOperationId = context.OperationId;
         var transaction = new MauiPresentationTransaction(this);
@@ -481,6 +492,75 @@ internal sealed class MauiNavigationPresenter :
         {
             _activeOperationId = null;
             _suppressReconciliation = false;
+        }
+    }
+
+    private void ValidatePlanForMaui(NavigationPlan plan)
+    {
+        NavigationState state = plan.TargetState;
+        if (state.Windows.Count > 1)
+        {
+            throw new NotSupportedException(
+                "The MAUI presenter supports one window per navigation plan. Multi-window state remains available to other adapters.");
+        }
+
+        WindowNode? targetWindow = state.ActiveWindow;
+        if (state.ActiveWindowId is not null && targetWindow is null)
+        {
+            throw new AppNavigationConfigurationException(
+                $"Navigation plan active window id '{state.ActiveWindowId}' does not reference an existing window.");
+        }
+
+        if (_attachedWindowId is not null && targetWindow is null)
+        {
+            throw new AppNavigationConfigurationException(
+                $"Navigation plan must contain the attached MAUI window id '{_attachedWindowId}'.");
+        }
+
+        if (_attachedWindowId is not null && targetWindow is not null &&
+            !StringComparer.Ordinal.Equals(_attachedWindowId, targetWindow.Id))
+        {
+            throw new AppNavigationConfigurationException(
+                $"Navigation plan window id '{targetWindow.Id}' does not match the attached MAUI window id '{_attachedWindowId}'.");
+        }
+
+        if (targetWindow?.Root is not null)
+        {
+            ValidateMauiNode(targetWindow.Root, "window root");
+        }
+
+        if (targetWindow is not null)
+        {
+            foreach (ModalNode modal in targetWindow.Modals)
+            {
+                ValidateMauiNode(modal, "window modal");
+            }
+        }
+    }
+
+    private static void ValidateMauiNode(NavigationNode node, string path)
+    {
+        switch (node)
+        {
+            case StackNode:
+                return;
+            case BranchHostNode branchHost:
+                foreach (NavigationBranch branch in branchHost.Branches)
+                {
+                    ValidateMauiNode(branch.Content, $"{path} branch '{branch.Id}'");
+                }
+
+                return;
+            case ModalNode modal:
+                if (modal.Content is not null)
+                {
+                    ValidateMauiNode(modal.Content, $"{path} content");
+                }
+
+                return;
+            default:
+                throw new NotSupportedException(
+                    $"The MAUI presenter does not support navigation node type '{node.GetType().FullName}' at {path}.");
         }
     }
 
@@ -1616,7 +1696,7 @@ internal sealed class MauiNavigationPresenter :
         }
 
         var updatedState = _lastState.ReplaceWindow(updatedWindow);
-        RequestReconciliation(updatedState, NavigationReconciliationSource.TabChanged, "Native tab selection changed.");
+        RequestReconciliation(updatedState, NavigationReconciliationSource.BranchChanged, "Native tab selection changed.");
     }
 
     private void OnModalPageDisappearing(object? sender, EventArgs e)
@@ -1779,7 +1859,7 @@ internal sealed class MauiNavigationPresenter :
 
         var updatedState = _lastState.ReplaceWindow(updatedWindow);
         var route = FindTopRouteForPresentedNode(updatedWindow, ownerModalId);
-        RequestReconciliation(updatedState, NavigationReconciliationSource.NativeBackGesture, "Native stack pop changed.", route);
+        RequestReconciliation(updatedState, NavigationReconciliationSource.HostBack, "Native stack pop changed.", route);
     }
 
     private static StackNode? FindStack(WindowNode? window, string? ownerModalId, string stackId)

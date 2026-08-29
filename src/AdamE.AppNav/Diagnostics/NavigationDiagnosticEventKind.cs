@@ -253,5 +253,50 @@ public enum NavigationDiagnosticEventKind
     /// <summary>
     /// Invalid deferred-navigation data was quarantined instead of replayed.
     /// </summary>
-    DeferredRequestStoreQuarantined
+    DeferredRequestStoreQuarantined,
+
+    /// <summary>
+    /// An external navigation request was rejected before entering the router pipeline.
+    /// </summary>
+    ExternalNavigationRejected,
+
+    /// <summary>
+    /// A retryable external navigation request was moved to the tail of the pending queue.
+    /// </summary>
+    ExternalNavigationRetrying,
+
+    /// <summary>
+    /// An external navigation request expired before it could be dispatched.
+    /// </summary>
+    ExternalNavigationExpired,
+
+    /// <summary>
+    /// The oldest external navigation request was dropped because the pending queue was full.
+    /// </summary>
+    ExternalNavigationOverflowed,
+
+    /// <summary>
+    /// An equivalent external navigation request was already pending.
+    /// </summary>
+    ExternalNavigationDeduplicated,
+
+    /// <summary>
+    /// An external navigation request was dropped after a terminal failure or its final attempt.
+    /// </summary>
+    ExternalNavigationTerminalDrop,
+
+    /// <summary>
+    /// Legacy preview deferred-navigation data was deliberately reset during a schema transition.
+    /// </summary>
+    DeferredRequestStoreReset = 72,
+
+    /// <summary>
+    /// Expired deferred-navigation requests were pruned from persistence.
+    /// </summary>
+    DeferredRequestStorePruned,
+
+    /// <summary>
+    /// The oldest deferred-navigation requests were dropped to preserve configured store bounds.
+    /// </summary>
+    DeferredRequestStoreOverflowed
 }

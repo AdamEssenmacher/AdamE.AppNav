@@ -18,9 +18,9 @@ public sealed class RouterPipelineTests
         var presenter = new RecordingNavigationPresenter();
         var navigator = new RouterNavigator(TestRoutes.CreateTable(), planner, presenter);
 
-        var result = await navigator.NavigateAsync(
+        var result = await navigator.NavigateAsync(RouterNavigationRequest.FromUri(
             new Uri("https://example.com/stores/northwind/products/123?variant=blue&promo=spring"),
-            NavigationRequestSource.Test);
+            NavigationRequestSource.Test));
 
         var route = Assert.IsType<TestRoutes.ProductDetailRoute>(planner.ReceivedRoute);
         Assert.Equal(123, route.ProductId);
@@ -45,9 +45,9 @@ public sealed class RouterPipelineTests
         var planner = new MetadataCapturingPlanner();
         var navigator = new RouterNavigator(table, planner, NullNavigationPresenter.Instance);
 
-        await navigator.NavigateAsync(
+        await navigator.NavigateAsync(RouterNavigationRequest.FromUri(
             new Uri("https://example.com/stores/northwind?missionId=mission-1"),
-            NavigationRequestSource.Test);
+            NavigationRequestSource.Test));
 
         Assert.Equal("mission-1", planner.Metadata[MissionIdMetadata.Name]);
     }
@@ -65,7 +65,8 @@ public sealed class RouterPipelineTests
                 RequestTransformers = [new LegacyProductUriTransformer()]
             });
 
-        await navigator.NavigateAsync(new Uri("/p/123", UriKind.Relative), NavigationRequestSource.AppLink);
+        await navigator.NavigateAsync(RouterNavigationRequest.FromUri(
+            new Uri("/p/123", UriKind.Relative), NavigationRequestSource.AppLink));
 
         Assert.Equal(new TestRoutes.ProductDetailRoute("northwind", 123), planner.Route);
         Assert.Equal(new Uri("/stores/northwind/products/123", UriKind.Relative), planner.Request!.Uri);
@@ -85,7 +86,8 @@ public sealed class RouterPipelineTests
                 RequestPolicies = [new StoreToCatalogUriPolicy()]
             });
 
-        await navigator.NavigateAsync(new Uri("/stores/northwind", UriKind.Relative));
+        await navigator.NavigateAsync(RouterNavigationRequest.FromUri(
+            new Uri("/stores/northwind", UriKind.Relative), NavigationRequestSource.InAppCommand));
 
         Assert.Equal(new TestRoutes.CatalogRoute("northwind"), planner.Route);
         Assert.Equal(new Uri("/stores/northwind/catalog", UriKind.Relative), planner.Request!.Uri);
@@ -103,7 +105,8 @@ public sealed class RouterPipelineTests
             NullNavigationPresenter.Instance,
             new RouterNavigatorOptions { RequestPolicies = [policy] });
 
-        await navigator.NavigateAsync(new Uri("/stores/northwind", UriKind.Relative));
+        await navigator.NavigateAsync(RouterNavigationRequest.FromUri(
+            new Uri("/stores/northwind", UriKind.Relative), NavigationRequestSource.InAppCommand));
 
         Assert.Equal(1, policy.CallCount);
         Assert.Equal(RouterNavigationDisposition.ReplaceCurrent, planner.Disposition);
@@ -339,9 +342,8 @@ public sealed class RouterPipelineTests
             routeRequest,
             NavigationRequestSource.InAppCommand,
             disposition: RouterNavigationDisposition.ReplaceCurrent));
-        await appRouteRequestNavigator.NavigateAsync(
+        await ((IRouterNavigator)appRouteRequestNavigator).NavigateAsync(
             routeRequest,
-            NavigationRequestSource.InAppCommand,
             RouterNavigationDisposition.ReplaceCurrent);
 
         Assert.Equal(rawPlanner.Route, appRouteRequestPlanner.Route);

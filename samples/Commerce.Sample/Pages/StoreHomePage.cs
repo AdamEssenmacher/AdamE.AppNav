@@ -1,6 +1,5 @@
 using AdamE.AppNav.Navigation;
 using AdamE.AppNav.Maui;
-using AdamE.AppNav.Requests;
 using Commerce.Sample.Routes;
 
 namespace Commerce.Sample.Pages;
@@ -20,17 +19,13 @@ public sealed class StoreHomePage : ContentPage
         var catalogButton = new Button { Text = "Browse catalog" };
         catalogButton.Clicked += async (_, _) =>
         {
-            await _navigator.NavigateAsync(
-                CommerceRouteFactory.StoreCatalog(_route.StoreId),
-                NavigationRequestSource.InAppCommand);
+            await _navigator.NavigateAsync(CommerceRouteFactory.StoreCatalog(_route.StoreId));
         };
 
         var cartButton = new Button { Text = "View cart" };
         cartButton.Clicked += async (_, _) =>
         {
-            await _navigator.NavigateAsync(
-                CommerceRouteFactory.Cart(_route.StoreId),
-                NavigationRequestSource.InAppCommand);
+            await _navigator.NavigateAsync(CommerceRouteFactory.Cart(_route.StoreId));
         };
 
         Content = new VerticalStackLayout

@@ -1,5 +1,4 @@
 using AdamE.AppNav.Navigation;
-using AdamE.AppNav.Requests;
 using Commerce.Sample.Routes;
 
 namespace Commerce.Sample.Pages;
@@ -18,17 +17,13 @@ public sealed class CommerceNotFoundPage : ContentPage
         var homeButton = new Button { Text = "Go home" };
         homeButton.Clicked += async (_, _) =>
         {
-            await _navigator.NavigateAsync(
-                CommerceRouteFactory.StoreHome(_route.StoreId),
-                NavigationRequestSource.InAppCommand);
+            await _navigator.NavigateAsync(CommerceRouteFactory.StoreHome(_route.StoreId));
         };
 
         var catalogButton = new Button { Text = "Browse catalog" };
         catalogButton.Clicked += async (_, _) =>
         {
-            await _navigator.NavigateAsync(
-                CommerceRouteFactory.StoreCatalog(_route.StoreId),
-                NavigationRequestSource.InAppCommand);
+            await _navigator.NavigateAsync(CommerceRouteFactory.StoreCatalog(_route.StoreId));
         };
 
         Content = new VerticalStackLayout

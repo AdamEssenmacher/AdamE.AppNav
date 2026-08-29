@@ -35,7 +35,8 @@ public sealed class FallbackRoutingTests
             });
         var uri = new Uri("https://example.com/missing/page");
 
-        var result = await navigator.NavigateAsync(uri, NavigationRequestSource.Test);
+        var result = await navigator.NavigateAsync(
+            RouterNavigationRequest.FromUri(uri, NavigationRequestSource.Test));
 
         var route = Assert.IsType<NotFoundRoute>(result.Route);
         Assert.Equal(uri, route.Uri);
@@ -79,7 +80,8 @@ public sealed class FallbackRoutingTests
             });
 
         await Assert.ThrowsAsync<RouteNotMatchedException>(() => navigator
-            .NavigateAsync(new Uri("https://example.com/products/not-a-number"), NavigationRequestSource.Test)
+            .NavigateAsync(RouterNavigationRequest.FromUri(
+                new Uri("https://example.com/products/not-a-number"), NavigationRequestSource.Test))
             .AsTask());
 
         Assert.False(fallbackCalled);
@@ -95,7 +97,8 @@ public sealed class FallbackRoutingTests
             NullNavigationPresenter.Instance);
 
         await Assert.ThrowsAsync<RouteNotMatchedException>(() => navigator
-            .NavigateAsync(new Uri("https://example.com/missing/page"), NavigationRequestSource.Test)
+            .NavigateAsync(RouterNavigationRequest.FromUri(
+                new Uri("https://example.com/missing/page"), NavigationRequestSource.Test))
             .AsTask());
 
         Assert.Empty(navigator.History.Entries);
@@ -114,7 +117,8 @@ public sealed class FallbackRoutingTests
             });
 
         await Assert.ThrowsAsync<RouteNotMatchedException>(() => navigator
-            .NavigateAsync(new Uri("https://example.com/missing/page"), NavigationRequestSource.Test)
+            .NavigateAsync(RouterNavigationRequest.FromUri(
+                new Uri("https://example.com/missing/page"), NavigationRequestSource.Test))
             .AsTask());
 
         Assert.Empty(navigator.History.Entries);
@@ -137,7 +141,8 @@ public sealed class FallbackRoutingTests
             });
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => navigator
-            .NavigateAsync(new Uri("https://example.com/missing/page"), NavigationRequestSource.Test)
+            .NavigateAsync(RouterNavigationRequest.FromUri(
+                new Uri("https://example.com/missing/page"), NavigationRequestSource.Test))
             .AsTask());
 
         Assert.Null(navigator.CurrentState.ActiveWindow);

@@ -74,93 +74,6 @@ internal sealed class RouterNavigator : IRouterNavigator
 
     public NavigationHistory History { get; private set; }
 
-    public ValueTask<NavigationResult> NavigateAsync(
-        Uri uri,
-        NavigationRequestSource source = NavigationRequestSource.InAppCommand,
-        CancellationToken cancellationToken = default)
-    {
-        return NavigateAsync(RouterNavigationRequest.FromUri(uri, source), cancellationToken);
-    }
-
-    public ValueTask<NavigationResult> NavigateAsync(
-        Uri uri,
-        NavigationRequestSource source,
-        RouterNavigationDisposition disposition,
-        CancellationToken cancellationToken = default)
-    {
-        return NavigateAsync(RouterNavigationRequest.FromUri(uri, source, disposition: disposition), cancellationToken);
-    }
-
-    public ValueTask<NavigationResult> NavigateAsync(
-        Uri uri,
-        RouterNavigationDisposition disposition,
-        CancellationToken cancellationToken = default)
-    {
-        return NavigateAsync(uri, NavigationRequestSource.InAppCommand, disposition, cancellationToken);
-    }
-
-    public ValueTask<NavigationResult> NavigateAsync(
-        AppRoute route,
-        NavigationRequestSource source = NavigationRequestSource.InAppCommand,
-        CancellationToken cancellationToken = default)
-    {
-        return NavigateAsync(RouterNavigationRequest.FromRoute(route, source), cancellationToken);
-    }
-
-    public ValueTask<NavigationResult> NavigateAsync(
-        AppRoute route,
-        NavigationRequestSource source,
-        RouterNavigationDisposition disposition,
-        CancellationToken cancellationToken = default)
-    {
-        return NavigateAsync(RouterNavigationRequest.FromRoute(route, source, disposition: disposition),
-            cancellationToken);
-    }
-
-    public ValueTask<NavigationResult> NavigateAsync(
-        AppRoute route,
-        RouterNavigationDisposition disposition,
-        CancellationToken cancellationToken = default)
-    {
-        return NavigateAsync(route, NavigationRequestSource.InAppCommand, disposition, cancellationToken);
-    }
-
-    /// <summary>
-    /// Navigates using an app-facing route request and an explicit request source.
-    /// </summary>
-    public ValueTask<NavigationResult> NavigateAsync(
-        AppRouteRequest routeRequest,
-        NavigationRequestSource source = NavigationRequestSource.InAppCommand,
-        CancellationToken cancellationToken = default)
-    {
-        return NavigateAsync(RouterNavigationRequest.FromRouteRequest(routeRequest, source), cancellationToken);
-    }
-
-    /// <summary>
-    /// Navigates using an app-facing route request, explicit request source, and explicit disposition.
-    /// </summary>
-    public ValueTask<NavigationResult> NavigateAsync(
-        AppRouteRequest routeRequest,
-        NavigationRequestSource source,
-        RouterNavigationDisposition disposition,
-        CancellationToken cancellationToken = default)
-    {
-        return NavigateAsync(
-            RouterNavigationRequest.FromRouteRequest(routeRequest, source, disposition: disposition),
-            cancellationToken);
-    }
-
-    /// <summary>
-    /// Navigates using an app-facing route request and an explicit disposition.
-    /// </summary>
-    public ValueTask<NavigationResult> NavigateAsync(
-        AppRouteRequest routeRequest,
-        RouterNavigationDisposition disposition,
-        CancellationToken cancellationToken = default)
-    {
-        return NavigateAsync(routeRequest, NavigationRequestSource.InAppCommand, disposition, cancellationToken);
-    }
-
     public async ValueTask<NavigationResult> NavigateAsync(
         RouterNavigationRequest request,
         CancellationToken cancellationToken = default)
@@ -269,7 +182,7 @@ internal sealed class RouterNavigator : IRouterNavigator
     {
         RouterNavigationRequest request = RouterNavigationRequest.FromRoute(
             reconciliation.Route ?? new ReconciledRoute(),
-            NavigationRequestSource.NativeReconciliation);
+            NavigationRequestSource.HostReconciliation);
 
         return ReconcileCoreAsync(request, reconciliation, cancellationToken);
     }
