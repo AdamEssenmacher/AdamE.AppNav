@@ -172,7 +172,7 @@ internal sealed class AppNavStartupService : IAppNavStartupService
                     deferredRequestStore,
                     operationId,
                     windowId,
-                    cancellationToken).ConfigureAwait(false);
+                    cancellationToken);
 
                 if (hasDeferredRequests)
                 {
