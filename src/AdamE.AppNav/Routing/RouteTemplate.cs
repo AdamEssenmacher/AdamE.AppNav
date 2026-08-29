@@ -131,7 +131,7 @@ public sealed class RouteTemplate
         {
             if (segment.ParameterName is null)
             {
-                segments.Add(segment.Literal!);
+                segments.Add(Uri.EscapeDataString(segment.Literal!));
                 continue;
             }
 

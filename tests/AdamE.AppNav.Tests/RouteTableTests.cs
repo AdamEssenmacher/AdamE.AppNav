@@ -75,6 +75,20 @@ public sealed class RouteTableTests
         Assert.Equal(route, matched.Route);
     }
 
+    [Theory]
+    [InlineData("/files/a%2Fb", "/files/a%2Fb")]
+    [InlineData("/files/a b", "/files/a%20b")]
+    [InlineData("/files/a%252Fb", "/files/a%252Fb")]
+    public void FormatCanonicalizesLiteralSegments(string value, string expected)
+    {
+        RouteTemplate template = RouteTemplate.Parse(value);
+
+        string formatted = template.Format(new Dictionary<string, string>());
+
+        Assert.Equal(expected, formatted);
+        Assert.NotNull(template.Match(formatted));
+    }
+
     [Fact]
     public void FormatPrefersMostSpecificFormatterForDerivedRoute()
     {
@@ -464,6 +478,22 @@ public sealed class RouteTableTests
         Assert.Equal(
             "https://example.com/stores/northwind?missionId=mission-1",
             table.FormatUri(request, new Uri("https://example.com")).ToString());
+    }
+
+    [Fact]
+    public void FormatUriKeepsEscapedLiteralWithinBaseAuthority()
+    {
+        var table = RouteTable.Create(routes => routes.Map(
+            "/%2Fevil.example",
+            _ => new DocsIndexRoute()));
+
+        Uri formatted = table.FormatUri(
+            new DocsIndexRoute(),
+            new Uri("https://trusted.example/app/"));
+
+        Assert.Equal("trusted.example", formatted.Host);
+        Assert.Equal("/%2Fevil.example", formatted.AbsolutePath);
+        Assert.IsType<DocsIndexRoute>(table.Match(formatted).Route);
     }
 
     [Fact]
