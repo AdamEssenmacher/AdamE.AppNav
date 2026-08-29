@@ -2,7 +2,13 @@
 
 set -euo pipefail
 
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 package_directory="${1:-artifacts/packages}"
+expected_package_version="${2:-}"
+if [[ -z "$expected_package_version" ]]; then
+  echo 'Usage: verify-package-assets.sh <package-directory> <expected-package-version>' >&2
+  exit 2
+fi
 
 shopt -s nullglob
 core_candidates=("${package_directory}"/AdamE.AppNav.[0-9]*.nupkg)
@@ -36,6 +42,13 @@ core_symbol_entries="$(unzip -Z1 "${core_symbol_candidates[0]}")"
 maui_symbol_entries="$(unzip -Z1 "${maui_symbol_candidates[0]}")"
 maui_nuspec="$(unzip -p "${maui_candidates[0]}" AdamE.AppNav.Maui.nuspec)"
 core_nuspec="$(unzip -p "${core_candidates[0]}" AdamE.AppNav.nuspec)"
+
+dotnet run \
+  --file "$ROOT/eng/verify-package-versions.cs" \
+  -- \
+  "$expected_package_version" \
+  "${core_candidates[0]}" \
+  "${maui_candidates[0]}"
 
 require_asset() {
   local entries="$1"

@@ -161,14 +161,22 @@ run_contracts() {
 }
 
 build_supported_targets() {
+  local package_properties=("$@")
+
   require_jdk_21
   dotnet build "$ROOT/src/AdamE.AppNav/AdamE.AppNav.csproj" \
-    -c "$CONFIGURATION" -f net10.0 -warnaserror
+    -c "$CONFIGURATION" \
+    -f net10.0 \
+    "${package_properties[@]}" \
+    -warnaserror
 
   local framework
   for framework in net10.0 net10.0-android net10.0-ios net10.0-maccatalyst; do
     dotnet build "$ROOT/src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj" \
-      -c "$CONFIGURATION" -f "$framework" -warnaserror
+      -c "$CONFIGURATION" \
+      -f "$framework" \
+      "${package_properties[@]}" \
+      -warnaserror
   done
 
   dotnet build "$ROOT/src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj" \
@@ -177,6 +185,7 @@ build_supported_targets() {
     -p:EnableTrimAnalyzer=true \
     -p:EnableAotAnalyzer=true \
     -p:SuppressTrimAnalysisWarnings=false \
+    "${package_properties[@]}" \
     -warnaserror
 
   for framework in net10.0-android net10.0-ios net10.0-maccatalyst; do
@@ -185,6 +194,7 @@ build_supported_targets() {
       -f "$framework" \
       -t:Compile \
       -p:CheckEolTargetFramework=false \
+      "${package_properties[@]}" \
       -warnaserror
   done
 }
@@ -233,13 +243,9 @@ verify_stable_package_guard() {
 }
 
 pack_and_verify() {
-  local package_version
-  package_version="$(resolve_package_version)"
-  local release_tag="${APPNAV_RELEASE_TAG:-}"
-  local pack_properties=("-p:PackageVersion=$package_version")
-  if [[ -n "$release_tag" ]]; then
-    pack_properties+=("-p:AppNavReleaseTag=$release_tag")
-  fi
+  local package_version="$1"
+  shift
+  local package_properties=("$@")
 
   verify_stable_package_guard
   mkdir -p "$PACKAGE_DIRECTORY"
@@ -250,23 +256,34 @@ pack_and_verify() {
     -c "$CONFIGURATION" \
     --no-build \
     -p:CheckEolTargetFramework=false \
-    "${pack_properties[@]}" \
+    "${package_properties[@]}" \
     -warnaserror \
     -o "$PACKAGE_DIRECTORY"
   dotnet pack "$ROOT/src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj" \
     -c "$CONFIGURATION" \
     --no-build \
-    "${pack_properties[@]}" \
+    "${package_properties[@]}" \
     -warnaserror \
     -o "$PACKAGE_DIRECTORY"
 
-  "$ROOT/eng/verify-package-assets.sh" "$PACKAGE_DIRECTORY"
+  "$ROOT/eng/verify-package-assets.sh" "$PACKAGE_DIRECTORY" "$package_version"
   "$ROOT/eng/verify-package-consumer.sh" "$PACKAGE_DIRECTORY"
 }
 
 run_packages() {
-  build_supported_targets
-  pack_and_verify
+  local package_version
+  package_version="$(resolve_package_version)"
+  local release_tag="${APPNAV_RELEASE_TAG:-}"
+  local package_properties=(
+    "-p:Version=$package_version"
+    "-p:PackageVersion=$package_version"
+  )
+  if [[ -n "$release_tag" ]]; then
+    package_properties+=("-p:AppNavReleaseTag=$release_tag")
+  fi
+
+  build_supported_targets "${package_properties[@]}"
+  pack_and_verify "$package_version" "${package_properties[@]}"
 }
 
 prepare_output() {
