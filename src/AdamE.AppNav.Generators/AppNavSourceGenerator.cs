@@ -1582,7 +1582,7 @@ internal static class BuiltInConstraints
         if (StringComparer.OrdinalIgnoreCase.Equals(left, right))
             return true;
 
-        if (IsNumericConstraint(left) && IsNumericConstraint(right))
+        if (IsNumericOrGuidConstraint(left) && IsNumericOrGuidConstraint(right))
             return true;
 
         return PairEquals(left, right, "bool", "alpha") || PairEquals(left, right, "alpha", "guid");
@@ -1593,6 +1593,14 @@ internal static class BuiltInConstraints
         return StringComparer.OrdinalIgnoreCase.Equals(constraint, "int") ||
                StringComparer.OrdinalIgnoreCase.Equals(constraint, "long") ||
                StringComparer.OrdinalIgnoreCase.Equals(constraint, "decimal");
+    }
+
+    private static bool IsNumericOrGuidConstraint(string constraint)
+    {
+        // Guid.TryParse accepts N-format values, including this numeric witness:
+        // 00000000000000000000000000000001.
+        return IsNumericConstraint(constraint) ||
+               StringComparer.OrdinalIgnoreCase.Equals(constraint, "guid");
     }
 
     private static bool PairEquals(string left, string right, string first, string second)
