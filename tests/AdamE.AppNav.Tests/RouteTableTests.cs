@@ -624,6 +624,99 @@ public sealed class RouteTableTests
     }
 
     [Fact]
+    public void ConventionRouteFormatsEveryValueShapeWithItsDeclaredCodecType()
+    {
+        var metadataKey = new RouteMetadataKey<IDeclaredRouteValue>("context");
+        var table = RouteTable.Create(routes => routes
+            .AddValueCodec<IDeclaredRouteValue>(
+                static value => new DeclaredRouteValue(value.ToUpperInvariant()),
+                static value => value.Value.ToLowerInvariant())
+            .MapRoute<ConventionDeclaredCodecRoute>(
+                "/declared/{id}",
+                route => route
+                    .Query(value => value.Filter, "filter")
+                    .Query(value => value.Tags, "tag")
+                    .QueryMetadata(metadataKey)));
+
+        RouteMatchResult match = table.Match(new Uri(
+            "/declared/ONE?filter=TWO&tag=THREE&tag=FOUR&context=FIVE",
+            UriKind.Relative));
+
+        var route = Assert.IsType<ConventionDeclaredCodecRoute>(match.Route);
+        Assert.Equal("ONE", route.Id.Value);
+        Assert.Equal("TWO", route.Filter!.Value);
+        Assert.Equal(["THREE", "FOUR"], route.Tags!.Select(static value => value.Value));
+        Assert.Equal(
+            "FIVE",
+            Assert.IsAssignableFrom<IDeclaredRouteValue>(match.Metadata[metadataKey.Name]).Value);
+        Assert.Equal(
+            "/declared/one?filter=two&tag=three&tag=four&context=five",
+            table.Format(
+                route,
+                new Dictionary<string, object?>
+                {
+                    [metadataKey.Name] = new DeclaredRouteValue("FIVE")
+                }));
+
+        RouteMatchResult withoutOptionalValues = table.Match(new Uri("/declared/ONE", UriKind.Relative));
+        Assert.Equal("/declared/one", table.Format(withoutOptionalValues.Route!));
+    }
+
+    [Fact]
+    public void ExplicitRouteFormattersRetainDeclaredBaseTypesAndNullEmission()
+    {
+        var metadataKey = new RouteMetadataKey<DeclaredRouteValueBase>("context");
+        var table = RouteTable.Create(routes => routes
+            .AddValueCodec<DeclaredRouteValueBase>(
+                static value => new ConcreteDeclaredRouteValue(value.ToUpperInvariant()),
+                static value => value.Value.ToLowerInvariant())
+            .Map<ExplicitDeclaredCodecRoute>(
+                "/explicit/{id}",
+                match =>
+                {
+                    match.QueryMetadata(metadataKey, omitWhenNull: false);
+                    return new ExplicitDeclaredCodecRoute(
+                        match.Path<DeclaredRouteValueBase>("id"),
+                        match.Query<DeclaredRouteValueBase>("filter"),
+                        match.QueryAll<DeclaredRouteValueBase>("tag"));
+                },
+                format => format
+                    .PathParam<DeclaredRouteValueBase>("id", route => route.Id)
+                    .QueryParam<DeclaredRouteValueBase?>(
+                        "filter",
+                        route => route.Filter,
+                        omitWhenNull: false)
+                    .QueryParam<IReadOnlyList<DeclaredRouteValueBase>?>(
+                        "tag",
+                        route => route.Tags,
+                        omitWhenNull: false)
+                    .QueryMetadata(metadataKey, omitWhenNull: false)));
+
+        RouteMatchResult match = table.Match(new Uri(
+            "/explicit/ONE?filter=TWO&tag=THREE&tag=FOUR&context=FIVE",
+            UriKind.Relative));
+
+        var route = Assert.IsType<ExplicitDeclaredCodecRoute>(match.Route);
+        Assert.Equal("ONE", route.Id.Value);
+        Assert.Equal("TWO", route.Filter!.Value);
+        Assert.Equal(["THREE", "FOUR"], route.Tags!.Select(static value => value.Value));
+        Assert.Equal(
+            "FIVE",
+            Assert.IsAssignableFrom<DeclaredRouteValueBase>(match.Metadata[metadataKey.Name]).Value);
+        Assert.Equal(
+            "/explicit/one?filter=two&tag=three&tag=four&context=five",
+            table.Format(
+                route,
+                new Dictionary<string, object?>
+                {
+                    [metadataKey.Name] = new ConcreteDeclaredRouteValue("FIVE")
+                }));
+        Assert.Equal(
+            "/explicit/one?filter=&tag=&context=",
+            table.Format(new ExplicitDeclaredCodecRoute(new ConcreteDeclaredRouteValue("ONE"))));
+    }
+
+    [Fact]
     public void ConventionRouteRejectsMissingCustomValueCodecWhenTableIsBuilt()
     {
         var exception = Assert.Throws<InvalidOperationException>(() => RouteTable.Create(routes =>
@@ -1145,6 +1238,30 @@ public sealed class RouteTableTests
     private readonly record struct SlugValue(string Value);
 
     private sealed record CustomSlugRoute(SlugValue Slug) : AppRoute;
+
+    private interface IDeclaredRouteValue
+    {
+        string Value { get; }
+    }
+
+    private sealed record DeclaredRouteValue(string Value) : IDeclaredRouteValue;
+
+    private sealed record ConventionDeclaredCodecRoute(
+        IDeclaredRouteValue Id,
+        IDeclaredRouteValue? Filter = null,
+        IReadOnlyList<IDeclaredRouteValue>? Tags = null) : AppRoute;
+
+    private abstract class DeclaredRouteValueBase(string value)
+    {
+        public string Value { get; } = value;
+    }
+
+    private sealed class ConcreteDeclaredRouteValue(string value) : DeclaredRouteValueBase(value);
+
+    private sealed record ExplicitDeclaredCodecRoute(
+        DeclaredRouteValueBase Id,
+        DeclaredRouteValueBase? Filter = null,
+        IReadOnlyList<DeclaredRouteValueBase>? Tags = null) : AppRoute;
 
     private sealed record DocsRoute(string Path) : AppRoute;
 

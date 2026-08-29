@@ -2,3 +2,5 @@
 AdamE.AppNav.Navigation.AppNavigationConfigurationException
 AdamE.AppNav.Navigation.AppNavigationConfigurationException.AppNavigationConfigurationException(string! message) -> void
 AdamE.AppNav.Navigation.AppNavigationConfigurationException.AppNavigationConfigurationException(string! message, System.Exception! innerException) -> void
+AdamE.AppNav.Routing.RouteFormatBuilder<TRoute>.PathParam<TValue>(string! name, System.Func<TRoute!, TValue>! value) -> AdamE.AppNav.Routing.RouteFormatBuilder<TRoute!>!
+AdamE.AppNav.Routing.RouteFormatBuilder<TRoute>.QueryParam<TValue>(string! name, System.Func<TRoute!, TValue>! value, bool omitWhenNull = true) -> AdamE.AppNav.Routing.RouteFormatBuilder<TRoute!>!

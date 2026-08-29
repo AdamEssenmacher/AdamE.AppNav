@@ -122,7 +122,12 @@ TRoute>
         var pathValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (string parameter in _template.ParameterNames)
         {
-            string? value = RouteValueFormatting.Format(_pathProperties[parameter].GetValue(route), parameter, codecs);
+            PropertyInfo property = _pathProperties[parameter];
+            string? value = RouteValueFormatting.Format(
+                property.GetValue(route),
+                property.PropertyType,
+                parameter,
+                codecs);
             if (!string.IsNullOrEmpty(value))
                 pathValues[parameter] = value;
         }
@@ -132,6 +137,7 @@ TRoute>
         foreach (ConventionQueryBinding binding in _queryBindings)
             query.AddRange(from value in RouteValueFormatting.FormatMany(
                     binding.Property.GetValue(route),
+                    binding.Property.PropertyType,
                     binding.QueryName,
                     codecs,
                     _queryCollections[binding.Property.Name]?.ElementType)
@@ -142,10 +148,14 @@ TRoute>
         {
             object? metadataValue = null;
             metadata?.TryGetValue(binding.MetadataName, out metadataValue);
-            query.AddRange(from value in RouteValueFormatting.FormatMany(
-                    metadataValue, binding.QueryName, codecs)
-                           where value is not null || !binding.OmitWhenNull
-                           select $"{Uri.EscapeDataString(binding.QueryName)}={Uri.EscapeDataString(value ?? string.Empty)}");
+            string? value = RouteValueFormatting.Format(
+                metadataValue,
+                binding.ValueType,
+                binding.QueryName,
+                codecs);
+            if (value is not null || !binding.OmitWhenNull)
+                query.Add(
+                    $"{Uri.EscapeDataString(binding.QueryName)}={Uri.EscapeDataString(value ?? string.Empty)}");
         }
 
         return query.Count == 0 ? path : $"{path}?{string.Join("&", query)}";

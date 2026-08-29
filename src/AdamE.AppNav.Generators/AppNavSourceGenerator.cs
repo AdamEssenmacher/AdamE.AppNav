@@ -2065,14 +2065,16 @@ internal static class AppNavSourceEmitter
         foreach (TemplateParameter parameter in route.Template.Parameters)
         {
             IPropertySymbol property = route.PathProperties[parameter.Name];
-            builder.AppendLine("                    format.PathParam(" +
+            builder.AppendLine("                    format.PathParam<" +
+                               SymbolFacts.TypeName(property.Type) + ">(" +
                                SymbolDisplay.FormatLiteral(parameter.Name, quote: true) +
                                ", static route => route." + SymbolFacts.Identifier(property.Name) + ");");
         }
 
         foreach (QueryBinding queryBinding in route.QueryBindings)
         {
-            builder.AppendLine("                    format.QueryParam(" +
+            builder.AppendLine("                    format.QueryParam<" +
+                               SymbolFacts.TypeName(queryBinding.Property.Type) + ">(" +
                                SymbolDisplay.FormatLiteral(queryBinding.QueryName, quote: true) +
                                ", static route => route." + SymbolFacts.Identifier(queryBinding.Property.Name) +
                                ", omitWhenNull: " + BoolLiteral(queryBinding.OmitWhenNull) + ");");
