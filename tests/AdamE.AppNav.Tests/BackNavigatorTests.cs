@@ -207,6 +207,24 @@ public sealed class BackNavigatorTests
     }
 
     [Fact]
+    public void BackWithExplicitSecondaryWindowPreservesImplicitActiveWindow()
+    {
+        var state = new NavigationState(new[]
+        {
+            new WindowNode("main", Stack("main-stack", new TestRoute("main"))),
+            new WindowNode("secondary", Stack("secondary-stack", new TestRoute("secondary"), new TestRoute("secondary-detail")))
+        });
+
+        var plan = new DefaultBackNavigator().CreateBackPlan(state, "secondary");
+
+        Assert.Null(plan!.TargetState.ActiveWindowId);
+        Assert.Equal("main", plan.TargetState.ActiveWindow!.Id);
+        var secondaryStack = Assert.IsType<StackNode>(plan.TargetState.FindWindow("secondary")!.Root);
+        Assert.Single(secondaryStack.Entries);
+        Assert.Equal("secondary", ((TestRoute)secondaryStack.Top!.Route).Value);
+    }
+
+    [Fact]
     public void BackReturnsToDefaultBranchWhenSelectedStackCannotPop()
     {
         var state = new NavigationState(new[]

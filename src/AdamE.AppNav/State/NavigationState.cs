@@ -52,6 +52,13 @@ public sealed record NavigationState
             : Windows.FirstOrDefault(window => StringComparer.Ordinal.Equals(window.Id, id));
     }
 
+    /// <summary>
+    /// Replaces the window with the same identifier, or appends the supplied window when no match exists.
+    /// </summary>
+    /// <remarks>
+    /// This operation preserves <see cref="ActiveWindowId"/>. Callers that intend to activate the supplied
+    /// window must set <see cref="ActiveWindowId"/> explicitly.
+    /// </remarks>
     public NavigationState ReplaceWindow(WindowNode window)
     {
         ArgumentNullException.ThrowIfNull(window);
@@ -61,13 +68,9 @@ public sealed record NavigationState
             if (StringComparer.Ordinal.Equals(windows[i].Id, window.Id))
             {
                 windows[i] = window;
-                return this with { Windows = windows, ActiveWindowId = ActiveWindowId ?? window.Id };
+                return this with { Windows = windows };
             }
 
-        return this with
-        {
-            Windows = windows.Concat([window]).ToArray(),
-            ActiveWindowId = ActiveWindowId ?? window.Id
-        };
+        return this with { Windows = windows.Concat([window]).ToArray() };
     }
 }
