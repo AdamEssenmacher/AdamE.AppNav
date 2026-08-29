@@ -28,7 +28,8 @@ public sealed class RouterNavigatorPresentationTests
             planner,
             presenter);
 
-        var result = await navigator.NavigateAsync(requestedRoute, NavigationRequestSource.Test);
+        var result = await navigator.NavigateAsync(RouterNavigationRequest.FromRoute(
+            requestedRoute, NavigationRequestSource.Test));
 
         Assert.Equal(requestedRoute, planner.LastRoute);
         Assert.Equal(rewrittenState, presenter.LastPlan?.TargetState);
@@ -56,13 +57,13 @@ public sealed class RouterNavigatorPresentationTests
 
         presenter.RequestReconciliation(new NavigationReconciliation(
             reconciledState,
-            NavigationReconciliationSource.NativeBackGesture,
+            NavigationReconciliationSource.HostBack,
             reconciledRoute,
             "test reconciliation"));
         await navigator.WhenReconciliationIdleAsync();
 
         Assert.Equal(reconciledState, navigator.CurrentState);
-        Assert.Equal(NavigationRequestSource.NativeReconciliation, navigator.History.Current!.Request.Source);
+        Assert.Equal(NavigationRequestSource.HostReconciliation, navigator.History.Current!.Request.Source);
         Assert.Equal(reconciledRoute, navigator.History.Current.Route);
         Assert.Equal(1, presenter.ApplyCount);
         Assert.Equal(NavigationPlanKind.Reconcile, presenter.LastPlan?.Kind);
@@ -88,7 +89,7 @@ public sealed class RouterNavigatorPresentationTests
 
         var result = await navigator.ReconcileAsync(new NavigationReconciliation(
             rewrittenState,
-            NavigationReconciliationSource.NativeBackGesture,
+            NavigationReconciliationSource.HostBack,
             requestedRoute,
             "test reconciliation"));
 
@@ -140,7 +141,7 @@ public sealed class RouterNavigatorPresentationTests
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => navigator.ReconcileAsync(new NavigationReconciliation(
             reconciledState,
-            NavigationReconciliationSource.NativeBackGesture,
+            NavigationReconciliationSource.HostBack,
             new TestRoutes.CatalogRoute("northwind"),
             "test reconciliation")).AsTask());
 

@@ -20,7 +20,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\AdamE.AppNav\AdamE.AppNav.csproj" />
-    <ProjectReference Include="..\..\src\AdamE.AppNav.Maui\AdamE.AppNav.Maui.csproj" />
   </ItemGroup>
 
 </Project>

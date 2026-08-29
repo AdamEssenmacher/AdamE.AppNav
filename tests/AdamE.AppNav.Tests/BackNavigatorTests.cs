@@ -111,7 +111,7 @@ public sealed class BackNavigatorTests
     }
 
     [Fact]
-    public void BackWithStaleActiveWindowIdFallsBackToFirstWindow()
+    public void BackWithStaleActiveWindowIdIsNotHandled()
     {
         var state = new NavigationState(new[]
         {
@@ -120,10 +120,7 @@ public sealed class BackNavigatorTests
 
         var plan = new DefaultBackNavigator().CreateBackPlan(state);
 
-        var stack = Assert.IsType<StackNode>(plan!.TargetState.FindWindow("main")!.Root);
-        Assert.Single(stack.Entries);
-        Assert.Equal("main", ((TestRoute)stack.Top!.Route).Value);
-        Assert.Equal("main", plan.TargetState.ActiveWindowId);
+        Assert.Null(plan);
     }
 
     [Fact]
@@ -162,7 +159,7 @@ public sealed class BackNavigatorTests
     }
 
     [Fact]
-    public void BackNavigationContextWithStaleActiveWindowIdFallsBackToFirstWindow()
+    public void BackNavigationContextWithStaleActiveWindowIdDoesNotResolveWindow()
     {
         var state = new NavigationState(new[]
         {
@@ -172,8 +169,8 @@ public sealed class BackNavigatorTests
         var context = new BackNavigationContext(state, null, "operation");
 
         Assert.True(context.UsesActiveWindow);
-        Assert.Equal("main", context.Window?.Id);
-        Assert.Equal("main", context.ResolvedWindowId);
+        Assert.Null(context.Window);
+        Assert.Null(context.ResolvedWindowId);
     }
 
     [Fact]
@@ -413,7 +410,7 @@ public sealed class BackNavigatorTests
                     new RouteEntry("catalog", new TestRoutes.CatalogRoute("northwind")),
                     new RouteEntry("product", new TestRoutes.ProductDetailRoute("northwind", 123))
                 }))
-        }, "missing");
+        }, "main");
         var navigator = new RouterNavigator(
             TestRoutes.CreateTable(),
             TestNavigationPlanner.EchoStack(),

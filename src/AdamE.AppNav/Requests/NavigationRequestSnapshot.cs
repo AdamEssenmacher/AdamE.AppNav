@@ -4,7 +4,6 @@ namespace AdamE.AppNav.Requests;
 /// Represents a serialized navigation request for deferred request persistence.
 /// </summary>
 public sealed record NavigationRequestSnapshot(
-    string? Uri,
     string RouteUri,
     NavigationRequestSource Source,
     string? WindowId,
@@ -17,12 +16,7 @@ public sealed record NavigationRequestSnapshot(
 /// Represents serialized provenance metadata for a deferred navigation request.
 /// </summary>
 public sealed record NavigationRequestProvenanceSnapshot(
-    string? Provider,
-    string? OriginalUri,
-    string? ReferrerUri,
-    string? CorrelationId,
-    bool? IsColdStart,
-    IReadOnlyDictionary<string, string?>? Attributes);
+    string? Provider);
 
 /// <summary>
 /// Represents one serialized navigation metadata value.
@@ -59,18 +53,10 @@ internal static class NavigationRequestProvenanceSnapshotMapper
 {
     public static NavigationRequestProvenanceSnapshot? Create(NavigationRequestProvenance? provenance)
     {
-        if (provenance is null)
+        if (string.IsNullOrWhiteSpace(provenance?.Provider))
             return null;
 
-        return new NavigationRequestProvenanceSnapshot(
-            provenance.Provider,
-            provenance.OriginalUri?.ToString(),
-            provenance.ReferrerUri?.ToString(),
-            provenance.CorrelationId,
-            provenance.IsColdStart,
-            provenance.Attributes.Count == 0
-                ? null
-                : new Dictionary<string, string?>(provenance.Attributes, StringComparer.Ordinal));
+        return new NavigationRequestProvenanceSnapshot(provenance.Provider);
     }
 
     public static NavigationRequestProvenance? Restore(NavigationRequestProvenanceSnapshot? snapshot)
@@ -78,26 +64,6 @@ internal static class NavigationRequestProvenanceSnapshotMapper
         if (snapshot is null)
             return null;
 
-        return new NavigationRequestProvenance(
-            snapshot.Provider,
-            RestoreUri(snapshot.OriginalUri, nameof(snapshot.OriginalUri)),
-            RestoreUri(snapshot.ReferrerUri, nameof(snapshot.ReferrerUri)),
-            snapshot.CorrelationId,
-            snapshot.IsColdStart,
-            snapshot.Attributes is { Count: > 0 }
-                ? new Dictionary<string, string?>(snapshot.Attributes, StringComparer.Ordinal)
-                : null);
-    }
-
-    private static Uri? RestoreUri(string? value, string fieldName)
-    {
-        if (value is null)
-            return null;
-
-        if (string.IsNullOrWhiteSpace(value) ||
-            !Uri.TryCreate(value, UriKind.RelativeOrAbsolute, out Uri? uri))
-            throw new FormatException($"Persisted provenance field '{fieldName}' is not a valid URI.");
-
-        return uri;
+        return new NavigationRequestProvenance(snapshot.Provider);
     }
 }

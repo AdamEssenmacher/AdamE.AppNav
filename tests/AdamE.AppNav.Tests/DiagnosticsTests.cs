@@ -85,15 +85,8 @@ public sealed class DiagnosticsTests
         Assert.Equal(NavigationDiagnosticPhase.RouteMatching, routeMatched.Phase);
         Assert.Equal(LogLevel.Information, routeMatched.Severity);
         Assert.Equal("/stores/{storeId}/products/{productId:int}", routeMatched.Data[NavigationDiagnosticDataKeys.RouteTemplate]);
-        Assert.Equal("branch", routeMatched.Data[NavigationDiagnosticDataKeys.ProvenanceProvider]);
-        Assert.Equal("https://example.com", routeMatched.Data[NavigationDiagnosticDataKeys.ProvenanceOriginalUri]);
-        Assert.Equal("https://referrer.example", routeMatched.Data[NavigationDiagnosticDataKeys.ProvenanceReferrerUri]);
-        Assert.False(routeMatched.Data.ContainsKey(NavigationDiagnosticDataKeys.ProvenanceCorrelationId));
-        Assert.True((bool)routeMatched.Data[NavigationDiagnosticDataKeys.ProvenanceIsColdStart]!);
-        var provenanceAttributes = Assert.IsAssignableFrom<IReadOnlyDictionary<string, string?>>(
-            routeMatched.Data[NavigationDiagnosticDataKeys.ProvenanceAttributes]);
-        Assert.Null(provenanceAttributes["campaign"]);
-        Assert.Null(provenanceAttributes["nullable"]);
+        Assert.DoesNotContain(routeMatched.Data.Keys, static key =>
+            key.StartsWith("provenance", StringComparison.Ordinal));
         Assert.True(routeMatched.Data.ContainsKey(NavigationDiagnosticDataKeys.DurationMs));
     }
 
@@ -147,8 +140,6 @@ public sealed class DiagnosticsTests
         Assert.NotNull(observed);
         Assert.Same(observed, observer.Event);
         Assert.Equal("https://example.com", observed!.Data[NavigationDiagnosticDataKeys.Uri]);
-        Assert.Equal("myapp:<absolute-uri>", observed.Data[NavigationDiagnosticDataKeys.ProvenanceOriginalUri]);
-        Assert.Equal("https://referrer.example", observed.Data[NavigationDiagnosticDataKeys.ProvenanceReferrerUri]);
         Assert.Equal(
             "uri=https://example.com [Test, disposition=Auto]",
             observed.Data[NavigationDiagnosticDataKeys.RedirectFrom]);
@@ -164,6 +155,12 @@ public sealed class DiagnosticsTests
         foreach (string omittedKey in new[]
                  {
                      NavigationDiagnosticDataKeys.Path,
+                     NavigationDiagnosticDataKeys.ProvenanceProvider,
+                     NavigationDiagnosticDataKeys.ProvenanceOriginalUri,
+                     NavigationDiagnosticDataKeys.ProvenanceReferrerUri,
+                     NavigationDiagnosticDataKeys.ProvenanceCorrelationId,
+                     NavigationDiagnosticDataKeys.ProvenanceIsColdStart,
+                     NavigationDiagnosticDataKeys.ProvenanceAttributes,
                      NavigationDiagnosticDataKeys.WindowId,
                      NavigationDiagnosticDataKeys.HostId,
                      NavigationDiagnosticDataKeys.BranchId,
@@ -178,10 +175,6 @@ public sealed class DiagnosticsTests
         {
             Assert.False(observed.Data.ContainsKey(omittedKey));
         }
-
-        var attributes = Assert.IsAssignableFrom<IReadOnlyDictionary<string, string?>>(
-            observed.Data[NavigationDiagnosticDataKeys.ProvenanceAttributes]);
-        Assert.Null(attributes["campaign"]);
 
         string emitted = string.Join("|", logger.Entries.Select(static entry => entry.Message)) +
                          string.Join("|", activity.TagObjects.Select(static tag => tag.Value?.ToString())) +
@@ -315,7 +308,8 @@ public sealed class DiagnosticsTests
             new RouterNavigatorOptions { Diagnostics = diagnostics });
 
         await Assert.ThrowsAsync<RouteNotMatchedException>(() => navigator
-            .NavigateAsync(new Uri("https://example.com/products/not-a-number"), NavigationRequestSource.Test)
+            .NavigateAsync(RouterNavigationRequest.FromUri(
+                new Uri("https://example.com/products/not-a-number"), NavigationRequestSource.Test))
             .AsTask());
 
         var notMatched = Assert.Single(events, diagnosticEvent => diagnosticEvent.Kind == NavigationDiagnosticEventKind.RouteNotMatched);
@@ -339,7 +333,8 @@ public sealed class DiagnosticsTests
             new RouterNavigatorOptions { Diagnostics = diagnostics });
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => navigator
-            .NavigateAsync(new TestRoutes.StoreRoute("northwind"), NavigationRequestSource.Test)
+            .NavigateAsync(RouterNavigationRequest.FromRoute(
+                new TestRoutes.StoreRoute("northwind"), NavigationRequestSource.Test))
             .AsTask());
 
         Assert.Contains(logger.Entries, entry =>
@@ -398,7 +393,7 @@ public sealed class DiagnosticsTests
             candidate => candidate.DisplayName == "Navigation.Navigate" &&
                          candidate.ParentId == parentActivity.Id);
         Assert.Equal("Test", activity.Tags.Single(tag => tag.Key == "navigation.source").Value);
-        Assert.Equal("branch", activity.Tags.Single(tag => tag.Key == "navigation.provenance.provider").Value);
+        Assert.DoesNotContain(activity.Tags, tag => tag.Key.StartsWith("navigation.provenance.", StringComparison.Ordinal));
         Assert.DoesNotContain(activity.TagObjects, tag =>
             tag.Key == "navigation.provenance.correlation_id");
         Assert.Equal(typeof(TestRoutes.ProductDetailRoute).FullName, activity.Tags.Single(tag => tag.Key == "navigation.route_type").Value);
@@ -433,7 +428,7 @@ public sealed class DiagnosticsTests
 
         await navigator.ReconcileAsync(new NavigationReconciliation(
             state,
-            NavigationReconciliationSource.NativeBackGesture,
+            NavigationReconciliationSource.HostBack,
             new TestRoutes.StoreRoute("northwind"),
             "test reconciliation"));
 
@@ -442,7 +437,7 @@ public sealed class DiagnosticsTests
         Assert.Contains(NavigationDiagnosticEventKind.ReconciliationStarted, events);
         Assert.Contains(NavigationDiagnosticEventKind.ReconciliationCompleted, events);
         Assert.Single(navigator.History.Entries);
-        Assert.Equal(NavigationRequestSource.NativeReconciliation, navigator.History.Current!.Request.Source);
+        Assert.Equal(NavigationRequestSource.HostReconciliation, navigator.History.Current!.Request.Source);
     }
 
     [Fact]

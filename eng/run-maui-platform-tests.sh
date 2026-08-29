@@ -3,223 +3,251 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROJECT="$ROOT/tests/AdamE.AppNav.Maui.Tests/AdamE.AppNav.Maui.Tests.csproj"
-CONFIGURATION="${CONFIGURATION:-Debug}"
-OUTPUT_ROOT="${OUTPUT_ROOT:-$ROOT/artifacts/xharness}"
-PACKAGE_NAME="${PACKAGE_NAME:-com.adame.appnav.maui.tests}"
-APPLE_RESULT_FILE_NAME="AdamE.AppNav.Maui.Tests.xml"
-APPLE_RUNNER_LOG_FILE_NAME="AdamE.AppNav.Maui.Tests.runner.log"
-APPLE_RESULT_XML_BASE64_PREFIX="APPNAV_XHARNESS_RESULT_XML_BASE64:"
+CONFIGURATION="${CONFIGURATION:-Release}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-$ROOT/artifacts/device-runners}"
+CONNECTION_TIMEOUT="${DEVICE_RUNNERS_CONNECTION_TIMEOUT:-180}"
+DATA_TIMEOUT="${DEVICE_RUNNERS_DATA_TIMEOUT:-60}"
+LAST_TRX_TOTAL=0
 
 usage() {
   cat <<'USAGE'
 Usage: eng/run-maui-platform-tests.sh [android|ios|maccatalyst|all]
 
-Runs the MAUI adapter platform test app through XHarness.
+Builds, deploys, and runs the MAUI adapter platform tests through the
+DeviceRunners.Testing.Targets `dotnet test` integration.
 
 Environment overrides:
-  CONFIGURATION          Build configuration. Default: Debug.
-  OUTPUT_ROOT            XHarness artifact root. Default: artifacts/xharness.
-  XHARNESS_TARGET        Override the XHarness Apple target.
-  IOS_RUNTIME_IDENTIFIER Override iOS simulator RID. Default: iossimulator-arm64.
-  MACCATALYST_RUNTIME_IDENTIFIER Override Mac Catalyst RID. Default: maccatalyst-arm64.
-  PACKAGE_NAME           Android package name. Default: com.adame.appnav.maui.tests.
+  CONFIGURATION                    Build configuration. Default: Release.
+  OUTPUT_ROOT                      Artifact root. Default: artifacts/device-runners.
+  DEVICE_RUNNERS_DEVICE            Device/emulator identifier for every platform.
+  ANDROID_DEVICE                   Android emulator/device identifier.
+  IOS_DEVICE                       iOS simulator UDID.
+  IOS_RUNTIME_IDENTIFIER           iOS simulator RID. Default: iossimulator-arm64.
+  MACCATALYST_RUNTIME_IDENTIFIER   Mac Catalyst RID. Default: maccatalyst-arm64.
+  DEVICE_RUNNERS_CONNECTION_TIMEOUT Seconds to wait for the app. Default: 180.
+  DEVICE_RUNNERS_DATA_TIMEOUT      Seconds without test data before failure. Default: 60.
+  TEST_FILTER                      Optional standard `dotnet test --filter` expression.
 
-Prerequisite:
-  Install XHarness and ensure `xharness` is on PATH:
-    dotnet tool install Microsoft.DotNet.XHarness.CLI --global \
-      --add-source https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet-eng/nuget/v3/index.json \
-      --version "11.0.0-prerelease*"
+No global test tool is required. DeviceRunners.Testing.Targets is pinned in the
+test project and supplies the build, deployment, result collector, and CLI tools.
 USAGE
 }
 
-require_xharness() {
-  if ! command -v xharness >/dev/null 2>&1; then
-    echo "xharness was not found on PATH." >&2
-    echo "Install it with the command shown in --help output." >&2
-    exit 127
+read_trx_counter() {
+  local counters="$1"
+  local name="$2"
+  local pattern="(^|[[:space:]])${name}=\"([0-9]+)\""
+
+  if [[ "$counters" =~ $pattern ]]; then
+    printf '%s\n' "${BASH_REMATCH[2]}"
+    return 0
   fi
+
+  return 1
 }
 
-build_project() {
-  local framework="$1"
-  shift
-  dotnet build "$PROJECT" -c "$CONFIGURATION" -f "$framework" "$@"
+verify_all_pass_trx() {
+  local result="$1"
+  local platform="$2"
+  if ! grep -E '<ResultSummary outcome="Passed"' "$result" >/dev/null 2>&1; then
+    echo "DeviceRunners $platform TRX ResultSummary is not Passed: $result" >&2
+    exit 1
+  fi
+
+  local counters
+  counters="$(sed -n '/<Counters /{s/.*\(<Counters [^>]*>\).*/\1/;p;q;}' "$result")"
+  if [[ -z "$counters" ]]; then
+    echo "DeviceRunners $platform result has no readable TRX Counters record: $result" >&2
+    exit 1
+  fi
+
+  local total
+  local executed
+  local passed
+  total="$(read_trx_counter "$counters" total)" || {
+    echo "DeviceRunners $platform TRX is missing the total counter: $result" >&2
+    exit 1
+  }
+  executed="$(read_trx_counter "$counters" executed)" || {
+    echo "DeviceRunners $platform TRX is missing the executed counter: $result" >&2
+    exit 1
+  }
+  passed="$(read_trx_counter "$counters" passed)" || {
+    echo "DeviceRunners $platform TRX is missing the passed counter: $result" >&2
+    exit 1
+  }
+
+  if (( total <= 0 || executed <= 0 || passed <= 0 )); then
+    echo "DeviceRunners $platform must prove a non-zero run (total=$total executed=$executed passed=$passed): $result" >&2
+    exit 1
+  fi
+  if (( total != executed || executed != passed )); then
+    echo "DeviceRunners $platform is not all-pass (total=$total executed=$executed passed=$passed): $result" >&2
+    exit 1
+  fi
+  LAST_TRX_TOTAL="$total"
+
+  local counter
+  local value
+  local non_pass_counters=(
+    failed error timeout aborted inconclusive passedButRunAborted notRunnable
+    notExecuted disconnected warning completed inProgress pending
+  )
+  for counter in "${non_pass_counters[@]}"; do
+    value="$(read_trx_counter "$counters" "$counter")" || {
+      echo "DeviceRunners $platform TRX is missing the $counter counter: $result" >&2
+      exit 1
+    }
+    if (( value != 0 )); then
+      echo "DeviceRunners $platform reports $counter=$value; every non-pass counter must be zero: $result" >&2
+      exit 1
+    fi
+  done
 }
 
 require_test_results() {
   local output="$1"
   local platform="$2"
+  local results=()
   local result
-  result="$(find "$output" -type f \( -name '*.xml' -o -name '*.trx' \) -print | head -n 1)"
-  if [[ -z "$result" ]]; then
-    echo "XHarness $platform run completed without a test result XML/TRX artifact." >&2
+  while IFS= read -r -d '' result; do
+    results+=("$result")
+  done < <(find "$output" -type f -name '*.trx' -print0)
+
+  if [[ "${#results[@]}" -ne 1 ]]; then
+    echo "DeviceRunners $platform must emit exactly one TRX result; found ${#results[@]}." >&2
     echo "Logs are available under: $output" >&2
     exit 1
   fi
 
-  if grep -E 'failed="[1-9][0-9]*"|failures="[1-9][0-9]*"' "$result" >/dev/null 2>&1; then
-    echo "XHarness $platform test result contains failures: $result" >&2
+  verify_all_pass_trx "${results[0]}" "$platform"
+}
+
+verify_event_stream() {
+  local output="$1"
+  local platform="$2"
+  local event_files=()
+  local event_file
+  while IFS= read -r -d '' event_file; do
+    event_files+=("$event_file")
+  done < <(find "$output" -type f -name '*.jsonl' -print0)
+
+  if [[ "${#event_files[@]}" -ne 1 ]]; then
+    echo "DeviceRunners $platform must emit exactly one JSONL event stream; found ${#event_files[@]}." >&2
+    exit 1
+  fi
+
+  event_file="${event_files[0]}"
+  local begin_count
+  local end_count
+  local result_count
+  local passed_count
+  begin_count="$(grep -Ec '"type":"begin"' "$event_file" || true)"
+  end_count="$(grep -Ec '"type":"end"' "$event_file" || true)"
+  result_count="$(grep -Ec '"type":"result"' "$event_file" || true)"
+  passed_count="$(grep -Ec '"type":"result".*"status":"Passed"' "$event_file" || true)"
+
+  if (( begin_count != 1 || end_count != 1 )); then
+    echo "DeviceRunners $platform JSONL stream is incomplete (begin=$begin_count end=$end_count): $event_file" >&2
+    exit 1
+  fi
+  if (( result_count <= 0 || result_count != passed_count || result_count != LAST_TRX_TOTAL )); then
+    echo "DeviceRunners $platform JSONL/TRX results disagree (events=$result_count passed-events=$passed_count trx-total=$LAST_TRX_TOTAL): $event_file" >&2
     exit 1
   fi
 }
 
-fail_on_unhandled_exceptions() {
+fail_on_runtime_markers() {
   local output="$1"
-  if find "$output" -type f -name '*.log' -print0 |
-    xargs -0 grep -E -i 'Unhandled exception|Native crash|SIGABRT|SIGSEGV' >/dev/null 2>&1; then
-    echo "XHarness logs contain an unhandled exception or native crash marker." >&2
+  local files=()
+  local file
+
+  while IFS= read -r -d '' file; do
+    files+=("$file")
+  done < <(find "$output" -type f \( -name '*.log' -o -name '*.txt' -o -name '*.jsonl' \) -print0)
+
+  if [[ "${#files[@]}" -gt 0 ]] &&
+    grep -E -i 'Unhandled exception|Native crash|app(lication)? appears to have crashed|incomplete: app crashed|SIGABRT|SIGSEGV|crash marker|consistency fault|retained scopes?[^0-9]*[1-9][0-9]*|"status":"(Failed|Error|TimedOut|Timeout|Aborted|Inconclusive|NotRunnable|NotExecuted|Skipped|Disconnected|Warning)"|"type":"(crash|error|abort|disconnect)"' "${files[@]}" >/dev/null 2>&1; then
+    echo "DeviceRunners logs contain an exception, crash, consistency-fault, or retained-scope marker." >&2
     echo "Logs are available under: $output" >&2
     exit 1
   fi
 }
 
-decode_base64_to_file() {
-  local value="$1"
-  local destination="$2"
-  if command -v base64 >/dev/null 2>&1 && printf '%s' "$value" | base64 --decode >"$destination" 2>/dev/null; then
-    return 0
+run_platform() {
+  local platform="$1"
+  local framework="$2"
+  local rid="$3"
+  local device="$4"
+  local output="$OUTPUT_ROOT/$platform"
+  local test_exit=0
+  local args=(
+    dotnet test "$PROJECT"
+    --configuration "$CONFIGURATION"
+    --framework "$framework"
+    --results-directory "$output"
+    --logger "trx;LogFileName=test-results.trx"
+    "-p:TreatWarningsAsErrors=true"
+    "-p:DeviceRunnersConnectionTimeout=$CONNECTION_TIMEOUT"
+    "-p:DeviceRunnersDataTimeout=$DATA_TIMEOUT"
+  )
+
+  if [[ -n "$rid" ]]; then
+    args+=("-p:RuntimeIdentifier=$rid")
   fi
 
-  if command -v base64 >/dev/null 2>&1 && printf '%s' "$value" | base64 -D >"$destination" 2>/dev/null; then
-    return 0
+  if [[ -n "$device" ]]; then
+    args+=("-p:DeviceRunnersDevice=$device")
   fi
 
-  python3 -c 'import base64, pathlib, sys; pathlib.Path(sys.argv[2]).write_bytes(base64.b64decode(sys.argv[1]))' "$value" "$destination"
-}
-
-extract_apple_result_xml_from_logs() {
-  local output="$1"
-  local encoded
-  encoded="$(
-    find "$output" -type f -name '*.log' -print0 |
-      xargs -0 grep -h "$APPLE_RESULT_XML_BASE64_PREFIX" 2>/dev/null |
-      tail -n 1 |
-      sed "s/.*$APPLE_RESULT_XML_BASE64_PREFIX//"
-  )"
-
-  if [[ -z "$encoded" ]]; then
-    return 0
+  if [[ -n "${TEST_FILTER:-}" ]]; then
+    args+=(--filter "$TEST_FILTER")
   fi
 
-  decode_base64_to_file "$encoded" "$output/$APPLE_RESULT_FILE_NAME"
+  rm -rf "$output"
+  mkdir -p "$output"
+
+  "${args[@]}" 2>&1 | tee "$output/dotnet-test.log" || test_exit=$?
+
+  require_test_results "$output" "$platform"
+  verify_event_stream "$output" "$platform"
+  fail_on_runtime_markers "$output"
+
+  if [[ "$test_exit" -ne 0 ]]; then
+    echo "DeviceRunners $platform run failed with exit code $test_exit." >&2
+    exit "$test_exit"
+  fi
 }
 
 run_android() {
-  local output="$OUTPUT_ROOT/android"
-  rm -rf "$output"
-  mkdir -p "$output"
-
-  build_project net10.0-android -p:EmbedAssembliesIntoApk=true
-  local apk
-  apk="$(find "$ROOT/tests/AdamE.AppNav.Maui.Tests/bin/$CONFIGURATION/net10.0-android" -name '*-Signed.apk' -print | head -n 1)"
-  if [[ -z "$apk" ]]; then
-    echo "No signed Android test APK was found." >&2
-    exit 1
-  fi
-
-  local xharness_exit=0
-  xharness android test \
-    --output-directory="$output" \
-    --package-name="$PACKAGE_NAME" \
-    --instrumentation="$PACKAGE_NAME.AndroidMauiTestInstrumentation" \
-    --app="$apk" || xharness_exit=$?
-  require_test_results "$output" "android"
-  fail_on_unhandled_exceptions "$output"
-  if [[ "$xharness_exit" -ne 0 ]]; then
-    exit "$xharness_exit"
-  fi
+  run_platform \
+    android \
+    net10.0-android \
+    "" \
+    "${ANDROID_DEVICE:-${DEVICE_RUNNERS_DEVICE:-}}"
 }
 
 run_ios() {
-  local rid="${IOS_RUNTIME_IDENTIFIER:-iossimulator-arm64}"
-  local target="${XHARNESS_TARGET:-ios-simulator-64}"
-  local output="$OUTPUT_ROOT/ios"
-  rm -rf "$output"
-  mkdir -p "$output"
-
-  build_project net10.0-ios -p:RuntimeIdentifier="$rid" -p:EmbedAssembliesIntoAppBundle=true -p:CodesignKey="" -p:CodesignProvision=""
-  local app
-  app="$(find "$ROOT/tests/AdamE.AppNav.Maui.Tests/bin/$CONFIGURATION/net10.0-ios/$rid" -maxdepth 1 -name '*.app' -print | head -n 1)"
-  if [[ -z "$app" ]]; then
-    echo "No iOS simulator test app was found." >&2
-    exit 1
-  fi
-
-  local xharness_exit=0
-  xharness apple test \
-    --app="$app" \
-    --output-directory="$output" \
-    --target="$target" || xharness_exit=$?
-  extract_apple_result_xml_from_logs "$output"
-  require_test_results "$output" "ios"
-  fail_on_unhandled_exceptions "$output"
-  if [[ "$xharness_exit" -ne 0 ]]; then
-    exit "$xharness_exit"
-  fi
+  run_platform \
+    ios \
+    net10.0-ios \
+    "${IOS_RUNTIME_IDENTIFIER:-iossimulator-arm64}" \
+    "${IOS_DEVICE:-${DEVICE_RUNNERS_DEVICE:-}}"
 }
 
 run_maccatalyst() {
-  local rid="${MACCATALYST_RUNTIME_IDENTIFIER:-maccatalyst-arm64}"
-  local target="${XHARNESS_TARGET:-maccatalyst}"
-  local output="$OUTPUT_ROOT/maccatalyst"
-  rm -rf "$output"
-  mkdir -p "$output"
-  local container="$HOME/Library/Containers/$PACKAGE_NAME/Data"
-  local fallback_result="$HOME/Library/$APPLE_RESULT_FILE_NAME"
-  local fallback_runner_log="$HOME/Library/$APPLE_RUNNER_LOG_FILE_NAME"
-  rm -f "$fallback_result" "$fallback_runner_log"
-  if [[ -d "$container" ]]; then
-    find "$container" -name "$APPLE_RESULT_FILE_NAME" -delete
-    find "$container" -name "$APPLE_RUNNER_LOG_FILE_NAME" -delete
-  fi
-
-  build_project net10.0-maccatalyst -p:RuntimeIdentifier="$rid" -p:EmbedAssembliesIntoAppBundle=true -p:CodesignKey="" -p:CodesignProvision=""
-  local app
-  app="$(find "$ROOT/tests/AdamE.AppNav.Maui.Tests/bin/$CONFIGURATION/net10.0-maccatalyst/$rid" -maxdepth 1 -name '*.app' -print | head -n 1)"
-  if [[ -z "$app" ]]; then
-    echo "No Mac Catalyst test app was found." >&2
-    exit 1
-  fi
-
-  local xharness_exit=0
-  xharness apple test \
-    --app="$app" \
-    --output-directory="$output" \
-    --target="$target" || xharness_exit=$?
-  local result_path=""
-  local runner_log_path=""
-  if [[ -d "$container" ]]; then
-    result_path="$(find "$container" -name "$APPLE_RESULT_FILE_NAME" -print | head -n 1)"
-    runner_log_path="$(find "$container" -name "$APPLE_RUNNER_LOG_FILE_NAME" -print | head -n 1)"
-  fi
-  if [[ -z "$result_path" && -f "$fallback_result" ]]; then
-    result_path="$fallback_result"
-  fi
-  if [[ -z "$runner_log_path" && -f "$fallback_runner_log" ]]; then
-    runner_log_path="$fallback_runner_log"
-  fi
-  if [[ -n "$result_path" && -f "$result_path" ]]; then
-    cp "$result_path" "$output/$APPLE_RESULT_FILE_NAME"
-  fi
-  if [[ -n "$runner_log_path" && -f "$runner_log_path" ]]; then
-    cp "$runner_log_path" "$output/$APPLE_RUNNER_LOG_FILE_NAME"
-  fi
-  require_test_results "$output" "maccatalyst"
-  fail_on_unhandled_exceptions "$output"
-  if [[ "$xharness_exit" -ne 0 ]]; then
-    exit "$xharness_exit"
-  fi
+  run_platform \
+    maccatalyst \
+    net10.0-maccatalyst \
+    "${MACCATALYST_RUNTIME_IDENTIFIER:-maccatalyst-arm64}" \
+    "${DEVICE_RUNNERS_DEVICE:-}"
 }
 
 platform="${1:-maccatalyst}"
-if [[ "$platform" == "--help" || "$platform" == "-h" ]]; then
-  usage
-  exit 0
-fi
-
-require_xharness
-
 case "$platform" in
+  --help|-h)
+    usage
+    ;;
   android)
     run_android
     ;;

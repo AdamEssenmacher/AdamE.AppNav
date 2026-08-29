@@ -9,6 +9,7 @@ using AdamE.AppNav.Presentation;
 using AdamE.AppNav.Requests;
 using AdamE.AppNav.Routing;
 using AdamE.AppNav.State;
+using DeviceRunners.UITesting.Xunit;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Maui.Controls;
 
@@ -81,12 +82,12 @@ public sealed class MauiNavigationPresenterLifecycleTests
         var rootPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
         var window = new Window();
 
-        fixture.Presenter.AttachWindow(window, "secondary");
+        fixture.Presenter.AttachWindow(window, "main");
 
         Assert.Same(rootPage, presentationState.RootPage);
         Assert.Same(rootPage, fixture.Presenter.CurrentPage);
         Assert.Same(window, presentationState.AttachedWindow);
-        Assert.Equal("secondary", presentationState.AttachedWindowId);
+        Assert.Equal("main", presentationState.AttachedWindowId);
 
         fixture.Presenter.DetachWindow(window);
 
@@ -128,6 +129,125 @@ public sealed class MauiNavigationPresenterLifecycleTests
         }
 
         fixture.Presenter.Dispose();
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void AttachWindowRejectsMissingWindowId(string? windowId)
+    {
+        var fixture = new PresenterFixture();
+
+        Assert.ThrowsAny<ArgumentException>(() =>
+            fixture.Presenter.AttachWindow(new Window(), windowId!));
+
+        fixture.Presenter.Dispose();
+    }
+
+    [Fact]
+    public async Task AttachWindowRejectsPresentedWindowMismatchBeforeMutatingEitherAttachment()
+    {
+        var fixture = new PresenterFixture();
+        var originalWindow = new Window();
+        fixture.Presenter.AttachWindow(originalWindow, "main");
+        int originalActivatedHandlers = EventHandlerCount(originalWindow, "Activated");
+
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("schools", Entry("schools"))),
+            Context(new TestPageRoute("schools")));
+        Page currentPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        var replacementWindow = new Window();
+        int replacementActivatedHandlers = EventHandlerCount(replacementWindow, "Activated");
+
+        var exception = Assert.Throws<AppNavigationConfigurationException>(() =>
+            fixture.Presenter.AttachWindow(replacementWindow, "secondary"));
+
+        Assert.Contains("does not match", exception.Message, StringComparison.Ordinal);
+        Assert.Same(originalWindow, fixture.Presenter.AttachedWindow);
+        Assert.Equal("main", fixture.Presenter.AttachedWindowId);
+        Assert.Same(currentPage, originalWindow.Page);
+        Assert.Null(replacementWindow.Page);
+        Assert.Equal(originalActivatedHandlers, EventHandlerCount(originalWindow, "Activated"));
+        Assert.Equal(replacementActivatedHandlers, EventHandlerCount(replacementWindow, "Activated"));
+
+        fixture.Presenter.Dispose();
+        await fixture.Presenter.DisposeAsync();
+    }
+
+    [Fact]
+    public void AttachWindowRejectsMissingIdWithoutDetachingExistingWindow()
+    {
+        var fixture = new PresenterFixture();
+        var originalWindow = new Window();
+        fixture.Presenter.AttachWindow(originalWindow, "main");
+        int originalActivatedHandlers = EventHandlerCount(originalWindow, "Activated");
+
+        Assert.ThrowsAny<ArgumentException>(() =>
+            fixture.Presenter.AttachWindow(new Window(), " "));
+
+        Assert.Same(originalWindow, fixture.Presenter.AttachedWindow);
+        Assert.Equal(originalActivatedHandlers, EventHandlerCount(originalWindow, "Activated"));
+        fixture.Presenter.Dispose();
+    }
+
+    [Fact]
+    public async Task AttachedWindowMismatchIsRejectedBeforeNativeMutation()
+    {
+        var fixture = new PresenterFixture();
+        var window = new Window();
+        fixture.Presenter.AttachWindow(window, "main");
+
+        var exception = await Assert.ThrowsAsync<AppNavigationConfigurationException>(() => fixture.Presenter
+            .ApplyAsync(
+                Plan(new WindowNode("secondary", Stack("stack", Entry("detail")))),
+                Context(new TestPageRoute("detail")))
+            .AsTask());
+
+        Assert.Contains("does not match", exception.Message, StringComparison.Ordinal);
+        Assert.Null(window.Page);
+        Assert.Null(fixture.Presenter.CurrentPage);
+        Assert.Empty(fixture.Factory.CreatedPages);
+    }
+
+    [Fact]
+    public async Task AttachedWindowRejectsWindowlessPlanBeforeNativeMutation()
+    {
+        var fixture = new PresenterFixture();
+        var window = new Window();
+        fixture.Presenter.AttachWindow(window, "main");
+
+        var exception = await Assert.ThrowsAsync<AppNavigationConfigurationException>(() => fixture.Presenter
+            .ApplyAsync(
+                new NavigationPlan(NavigationState.Empty),
+                Context(new TestPageRoute("empty")))
+            .AsTask());
+
+        Assert.Contains("must contain", exception.Message, StringComparison.Ordinal);
+        Assert.Null(window.Page);
+        Assert.Null(fixture.Presenter.CurrentPage);
+        Assert.Empty(fixture.Factory.CreatedPages);
+    }
+
+    [Fact]
+    public async Task MultiWindowPlanIsRejectedBeforeNativeMutation()
+    {
+        var fixture = new PresenterFixture();
+        var state = new NavigationState(
+            [
+                new WindowNode("main", Stack("main-stack", Entry("main"))),
+                new WindowNode("secondary", Stack("secondary-stack", Entry("secondary")))
+            ],
+            "main");
+
+        await Assert.ThrowsAsync<NotSupportedException>(() => fixture.Presenter
+            .ApplyAsync(
+                new NavigationPlan(state),
+                Context(new TestPageRoute("main")))
+            .AsTask());
+
+        Assert.Null(fixture.Presenter.CurrentPage);
+        Assert.Empty(fixture.Factory.CreatedPages);
     }
 
     [Fact]
@@ -807,23 +927,23 @@ public sealed class MauiNavigationPresenterLifecycleTests
         fixture.Presenter.Dispose();
     }
 
-    [Fact]
+    [UIFact]
     public async Task NativeStackPopReconcilesToActualRemainingStackEntries()
     {
         var fixture = new PresenterFixture();
-        NavigationReconciliation? reconciliation = null;
-        fixture.Presenter.ReconciliationRequested += (_, args) => reconciliation = args.Reconciliation;
 
         await fixture.Presenter.ApplyAsync(
             Plan(Stack("schools", Entry("schools"), Entry("school-riverside"), Entry("school-middleton"))),
             Context(new TestPageRoute("school-middleton")));
 
         var navigationPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
-        await navigationPage.Navigation.PopAsync(animated: false);
+        var reconciliation = await ReconcileAfterNativeMutationAsync(
+            fixture.Presenter,
+            async () => await navigationPage.Navigation.PopAsync(animated: false));
 
-        var stack = Assert.IsType<StackNode>(reconciliation?.TargetState.ActiveWindow?.Root);
+        var stack = Assert.IsType<StackNode>(reconciliation.TargetState.ActiveWindow?.Root);
         Assert.Equal(new[] { "schools", "school-riverside" }, stack.Entries.Select(entry => entry.Id));
-        Assert.Equal(NavigationReconciliationSource.NativeBackGesture, reconciliation!.Source);
+        Assert.Equal(NavigationReconciliationSource.HostBack, reconciliation.Source);
         Assert.Single(fixture.Factory.ReleasedPages);
 
         fixture.Presenter.Dispose();
@@ -951,7 +1071,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.Equal(1, page.Marker.DisposeCount);
     }
 
-    [Fact]
+    [UIFact]
     public async Task NativePopOfRouteOwnedPageDoesNotReconcileLogicalState()
     {
         var fixture = new PresenterFixture();
@@ -967,7 +1087,10 @@ public sealed class MauiNavigationPresenterLifecycleTests
 
         var navigationPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
         var presentationPage = navigationPage.Navigation.NavigationStack[^1];
-        await navigationPage.Navigation.PopAsync(animated: false);
+        await ReleasePresentationPageAfterNativeMutationAsync(
+            fixture.Factory,
+            presentationPage,
+            async () => await navigationPage.Navigation.PopAsync(animated: false));
 
         Assert.Null(reconciliation);
         Assert.Equal(new[] { "home", "create" },
@@ -1075,34 +1198,32 @@ public sealed class MauiNavigationPresenterLifecycleTests
         fixture.Presenter.Dispose();
     }
 
-    [Fact]
+    [UIFact]
     public async Task NativeStackPopToRootReconcilesToActualRootEntry()
     {
         var fixture = new PresenterFixture();
-        NavigationReconciliation? reconciliation = null;
-        fixture.Presenter.ReconciliationRequested += (_, args) => reconciliation = args.Reconciliation;
 
         await fixture.Presenter.ApplyAsync(
             Plan(Stack("schools", Entry("schools"), Entry("school-riverside"), Entry("school-middleton"))),
             Context(new TestPageRoute("school-middleton")));
 
         var navigationPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
-        await navigationPage.Navigation.PopToRootAsync(animated: false);
+        var reconciliation = await ReconcileAfterNativeMutationAsync(
+            fixture.Presenter,
+            async () => await navigationPage.Navigation.PopToRootAsync(animated: false));
 
-        var stack = Assert.IsType<StackNode>(reconciliation?.TargetState.ActiveWindow?.Root);
+        var stack = Assert.IsType<StackNode>(reconciliation.TargetState.ActiveWindow?.Root);
         Assert.Equal(new[] { "schools" }, stack.Entries.Select(entry => entry.Id));
-        Assert.Equal(NavigationReconciliationSource.NativeBackGesture, reconciliation!.Source);
+        Assert.Equal(NavigationReconciliationSource.HostBack, reconciliation.Source);
         Assert.Equal(2, fixture.Factory.ReleasedPages.Count);
 
         fixture.Presenter.Dispose();
     }
 
-    [Fact]
+    [UIFact]
     public async Task NativeStackPopInsideModalContentReconcilesOwningModalState()
     {
         var fixture = new PresenterFixture();
-        NavigationReconciliation? reconciliation = null;
-        fixture.Presenter.ReconciliationRequested += (_, args) => reconciliation = args.Reconciliation;
 
         await fixture.Presenter.ApplyAsync(
             Plan(
@@ -1120,13 +1241,15 @@ public sealed class MauiNavigationPresenterLifecycleTests
 
         var rootNavigationPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
         var modalNavigationPage = Assert.IsType<NavigationPage>(Assert.Single(rootNavigationPage.Navigation.ModalStack));
-        await modalNavigationPage.Navigation.PopAsync(animated: false);
+        var reconciliation = await ReconcileAfterNativeMutationAsync(
+            fixture.Presenter,
+            async () => await modalNavigationPage.Navigation.PopAsync(animated: false));
 
-        var modal = Assert.Single(reconciliation?.TargetState.ActiveWindow?.Modals ?? []);
+        var modal = Assert.Single(reconciliation.TargetState.ActiveWindow?.Modals ?? []);
         var stack = Assert.IsType<StackNode>(modal.Content);
         Assert.Equal(new[] { "cart", "cart-detail" }, stack.Entries.Select(entry => entry.Id));
-        Assert.Equal(new TestPageRoute("cart-detail"), reconciliation!.Route);
-        Assert.Equal(NavigationReconciliationSource.NativeBackGesture, reconciliation.Source);
+        Assert.Equal(new TestPageRoute("cart-detail"), reconciliation.Route);
+        Assert.Equal(NavigationReconciliationSource.HostBack, reconciliation.Source);
         Assert.IsType<StackNode>(reconciliation.TargetState.ActiveWindow?.Root);
 
         fixture.Presenter.Dispose();
@@ -1240,12 +1363,10 @@ public sealed class MauiNavigationPresenterLifecycleTests
         fixture.Presenter.Dispose();
     }
 
-    [Fact]
+    [UIFact]
     public async Task NativeTabSelectionReconcilesSelectedBranch()
     {
         var fixture = new PresenterFixture();
-        NavigationReconciliation? reconciliation = null;
-        fixture.Presenter.ReconciliationRequested += (_, args) => reconciliation = args.Reconciliation;
 
         var branchHost = new BranchHostNode(
             "store-branchHost",
@@ -1262,21 +1383,25 @@ public sealed class MauiNavigationPresenterLifecycleTests
             Context(new TestPageRoute("home")));
 
         var tabbedPage = Assert.IsType<TabbedPage>(fixture.Presenter.CurrentPage);
-        tabbedPage.CurrentPage = tabbedPage.Children[1];
+        var reconciliation = await ReconcileAfterNativeMutationAsync(
+            fixture.Presenter,
+            () =>
+            {
+                tabbedPage.CurrentPage = tabbedPage.Children[1];
+                return Task.CompletedTask;
+            });
 
-        var updatedBranchHost = Assert.IsType<BranchHostNode>(reconciliation?.TargetState.ActiveWindow?.Root);
+        var updatedBranchHost = Assert.IsType<BranchHostNode>(reconciliation.TargetState.ActiveWindow?.Root);
         Assert.Equal("catalog", updatedBranchHost.SelectedBranchId);
-        Assert.Equal(NavigationReconciliationSource.TabChanged, reconciliation!.Source);
+        Assert.Equal(NavigationReconciliationSource.BranchChanged, reconciliation.Source);
 
         fixture.Presenter.Dispose();
     }
 
-    [Fact]
+    [UIFact]
     public async Task NativeTabSelectionInsideModalContentReconcilesSelectedBranch()
     {
         var fixture = new PresenterFixture();
-        NavigationReconciliation? reconciliation = null;
-        fixture.Presenter.ReconciliationRequested += (_, args) => reconciliation = args.Reconciliation;
 
         var modalBranchHost = new BranchHostNode(
             "cart-branchHost",
@@ -1304,14 +1429,20 @@ public sealed class MauiNavigationPresenterLifecycleTests
 
         var rootNavigationPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
         var modalTabbedPage = Assert.IsType<TabbedPage>(Assert.Single(rootNavigationPage.Navigation.ModalStack));
-        modalTabbedPage.CurrentPage = modalTabbedPage.Children[1];
+        var reconciliation = await ReconcileAfterNativeMutationAsync(
+            fixture.Presenter,
+            () =>
+            {
+                modalTabbedPage.CurrentPage = modalTabbedPage.Children[1];
+                return Task.CompletedTask;
+            });
 
-        var modal = Assert.Single(reconciliation?.TargetState.ActiveWindow?.Modals ?? []);
+        var modal = Assert.Single(reconciliation.TargetState.ActiveWindow?.Modals ?? []);
         var updatedBranchHost = Assert.IsType<BranchHostNode>(modal.Content);
         Assert.Equal("catalog", updatedBranchHost.SelectedBranchId);
-        var activeWindow = Assert.IsType<WindowNode>(reconciliation!.TargetState.ActiveWindow);
+        var activeWindow = Assert.IsType<WindowNode>(reconciliation.TargetState.ActiveWindow);
         Assert.IsType<StackNode>(activeWindow.Root);
-        Assert.Equal(NavigationReconciliationSource.TabChanged, reconciliation!.Source);
+        Assert.Equal(NavigationReconciliationSource.BranchChanged, reconciliation.Source);
 
         fixture.Presenter.Dispose();
     }
@@ -1405,6 +1536,58 @@ public sealed class MauiNavigationPresenterLifecycleTests
     private static RouteEntry Entry(string id)
     {
         return new RouteEntry(id, new TestPageRoute(id));
+    }
+
+    private static async Task<NavigationReconciliation> ReconcileAfterNativeMutationAsync(
+        MauiNavigationPresenter presenter,
+        Func<Task> nativeMutation)
+    {
+        var completion = new TaskCompletionSource<NavigationReconciliation>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        void OnReconciliationRequested(object? sender, NavigationReconciliationRequestedEventArgs args)
+        {
+            completion.TrySetResult(args.Reconciliation);
+        }
+
+        presenter.ReconciliationRequested += OnReconciliationRequested;
+
+        try
+        {
+            await nativeMutation();
+            return await completion.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            presenter.ReconciliationRequested -= OnReconciliationRequested;
+        }
+    }
+
+    private static async Task ReleasePresentationPageAfterNativeMutationAsync(
+        InstrumentedRoutePageFactory pageFactory,
+        Page expectedPage,
+        Func<Task> nativeMutation)
+    {
+        var completion = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        void OnPresentationPageReleased(Page page)
+        {
+            if (ReferenceEquals(page, expectedPage))
+                completion.TrySetResult();
+        }
+
+        pageFactory.PresentationPageReleased += OnPresentationPageReleased;
+
+        try
+        {
+            await nativeMutation();
+            await completion.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            pageFactory.PresentationPageReleased -= OnPresentationPageReleased;
+        }
     }
 
     private sealed class PresenterFixture

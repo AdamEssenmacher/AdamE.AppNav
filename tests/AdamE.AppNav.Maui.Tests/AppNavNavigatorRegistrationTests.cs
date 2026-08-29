@@ -5,6 +5,7 @@ using AdamE.AppNav.Maui.AppLinks;
 using AdamE.AppNav.Maui.DependencyInjection;
 using AdamE.AppNav.Navigation;
 using AdamE.AppNav.Plans;
+using AdamE.AppNav.Planning;
 using AdamE.AppNav.Policies;
 using AdamE.AppNav.Presentation;
 using AdamE.AppNav.Requests;
@@ -73,6 +74,28 @@ public sealed class AppNavNavigatorRegistrationTests
     }
 
     [Fact]
+    public void AddAppNavModelOverloadRegistersStandardPlanner()
+    {
+        var services = new ServiceCollection();
+        var model = StackNavigationModel<TestRoute>.Create(builder =>
+        {
+            builder.CanonicalSurface("main", "main-stack");
+            builder.Map<TestRoute>(route => route.EntryId(value => value.Id));
+        });
+
+        services.AddAppNav(
+            Routes(),
+            model,
+            pages => pages.MapPage<TestRoute>((_, _) => new TestPage()));
+
+        using var provider = services.BuildServiceProvider();
+
+        Assert.Same(model, provider.GetRequiredService<INavigationModel<TestRoute>>());
+        Assert.IsType<NavigationModelPlanner<TestRoute>>(
+            provider.GetRequiredService<IAppNavigationPlanner>());
+    }
+
+    [Fact]
     public void AddAppNavPreservesPreRegisteredRouterNavigatorOverride()
     {
         var services = new ServiceCollection();
@@ -109,7 +132,8 @@ public sealed class AppNavNavigatorRegistrationTests
         var navigator = provider.GetRequiredService<IRouterNavigator>();
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            navigator.NavigateAsync(new TestRoute("registered"), NavigationRequestSource.Test).AsTask());
+            navigator.NavigateAsync(RouterNavigationRequest.FromRoute(
+                new TestRoute("registered"), NavigationRequestSource.Test)).AsTask());
         await navigator.BackAsync();
 
         Assert.Equal(RecordingRequestPolicy.ExceptionMessage, exception.Message);
@@ -131,7 +155,8 @@ public sealed class AppNavNavigatorRegistrationTests
         provider.Dispose();
 
         await Assert.ThrowsAsync<ObjectDisposedException>(() => navigator
-            .NavigateAsync(new TestRoute("disposed"), NavigationRequestSource.Test)
+            .NavigateAsync(RouterNavigationRequest.FromRoute(
+                new TestRoute("disposed"), NavigationRequestSource.Test))
             .AsTask());
     }
 
@@ -147,7 +172,8 @@ public sealed class AppNavNavigatorRegistrationTests
         ServiceProvider provider = services.BuildServiceProvider();
         var navigator = provider.GetRequiredService<IRouterNavigator>();
         var presenter = provider.GetRequiredService<MauiNavigationPresenter>();
-        await navigator.NavigateAsync(new TestRoute("owned"), NavigationRequestSource.Test);
+        await navigator.NavigateAsync(RouterNavigationRequest.FromRoute(
+            new TestRoute("owned"), NavigationRequestSource.Test));
         AsyncDisposeMarker marker = Assert.IsType<AsyncDisposePage>(
             Assert.IsType<NavigationPage>(presenter.CurrentPage).CurrentPage).Marker;
 
@@ -155,7 +181,8 @@ public sealed class AppNavNavigatorRegistrationTests
 
         Assert.Equal(1, marker.DisposeCount);
         await Assert.ThrowsAsync<ObjectDisposedException>(() => navigator
-            .NavigateAsync(new TestRoute("disposed"), NavigationRequestSource.Test)
+            .NavigateAsync(RouterNavigationRequest.FromRoute(
+                new TestRoute("disposed"), NavigationRequestSource.Test))
             .AsTask());
     }
 
@@ -174,7 +201,8 @@ public sealed class AppNavNavigatorRegistrationTests
         await provider.DisposeAsync();
 
         await Assert.ThrowsAsync<ObjectDisposedException>(() => runtime
-            .NavigateAsync(new TestRoute("disposed"), NavigationRequestSource.Test)
+            .NavigateAsync(RouterNavigationRequest.FromRoute(
+                new TestRoute("disposed"), NavigationRequestSource.Test))
             .AsTask());
     }
 
@@ -217,7 +245,11 @@ public sealed class AppNavNavigatorRegistrationTests
         services.AddAppNav<ThrowingPlanner>(
             Routes(),
             pages => pages.MapPage<TestRoute>((_, _) => new TestPage()));
-        services.AddAppNavFileDeferredNavigationRequests(options => options.Path = path);
+        services.AddAppNavFileDeferredNavigationRequests(options =>
+        {
+            options.Path = path;
+            options.BaseUri = new Uri("https://example.com/");
+        });
 
         using var provider = services.BuildServiceProvider();
 
@@ -344,15 +376,6 @@ public sealed class AppNavNavigatorRegistrationTests
 
         public NavigationHistory History => NavigationHistory.Empty;
 
-        public ValueTask<NavigationResult> NavigateAsync(Uri uri, NavigationRequestSource source = NavigationRequestSource.InAppCommand, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public ValueTask<NavigationResult> NavigateAsync(Uri uri, NavigationRequestSource source, RouterNavigationDisposition disposition, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public ValueTask<NavigationResult> NavigateAsync(Uri uri, RouterNavigationDisposition disposition, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public ValueTask<NavigationResult> NavigateAsync(AppRoute route, NavigationRequestSource source = NavigationRequestSource.InAppCommand, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public ValueTask<NavigationResult> NavigateAsync(AppRoute route, NavigationRequestSource source, RouterNavigationDisposition disposition, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public ValueTask<NavigationResult> NavigateAsync(AppRoute route, RouterNavigationDisposition disposition, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public ValueTask<NavigationResult> NavigateAsync(AppRouteRequest routeRequest, NavigationRequestSource source = NavigationRequestSource.InAppCommand, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public ValueTask<NavigationResult> NavigateAsync(AppRouteRequest routeRequest, NavigationRequestSource source, RouterNavigationDisposition disposition, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public ValueTask<NavigationResult> NavigateAsync(AppRouteRequest routeRequest, RouterNavigationDisposition disposition, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<NavigationResult> NavigateAsync(RouterNavigationRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<BackNavigationResult> BackAsync(string? windowId = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<NavigationResult> ReconcileAsync(NavigationReconciliation reconciliation, CancellationToken cancellationToken = default) => throw new NotSupportedException();

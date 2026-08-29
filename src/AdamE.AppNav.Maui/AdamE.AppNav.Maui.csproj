@@ -16,6 +16,7 @@
 		<Description>MAUI presenter and platform-link adapter for AdamE.AppNav.</Description>
 		<IsAotCompatible>true</IsAotCompatible>
 		<PackageTags>maui;navigation;application-navigation;router;deep-linking;app-links;url-routing</PackageTags>
+		<AppNavMauiGeneratorTargetFramework>$([System.String]::Concat('net','standard2.0'))</AppNavMauiGeneratorTargetFramework>
 
 		<!-- Enable XAML source generation for faster build times and improved performance.
 		     This generates C# code from XAML at compile time instead of runtime inflation.
@@ -27,16 +28,32 @@
 
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
-		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">21.0</SupportedOSPlatformVersion>
+		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">28.0</SupportedOSPlatformVersion>
+		<AndroidResourceDesignerClassModifier Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">internal</AndroidResourceDesignerClassModifier>
 	</PropertyGroup>
 
 	<ItemGroup>
 		<PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
+		<PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" Version="5.6.0" PrivateAssets="all" />
 		<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0" />
 	</ItemGroup>
 
 	<ItemGroup>
-	  <ProjectReference Include="..\AdamE.AppNav\AdamE.AppNav.csproj" />
+		<AdditionalFiles Include="PublicAPI.Shipped.txt" />
+		<AdditionalFiles Include="PublicAPI.Unshipped.txt" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\AdamE.AppNav\AdamE.AppNav.csproj" />
+		<ProjectReference Include="..\AdamE.AppNav.Maui.Generators\AdamE.AppNav.Maui.Generators.csproj"
+		                  OutputItemType="Analyzer"
+		                  ReferenceOutputAssembly="false"
+		                  PrivateAssets="all"
+		                  GlobalPropertiesToRemove="PublishAot;IsAotCompatible;IsTrimmable;EnableTrimAnalyzer;EnableAotAnalyzer;PublishTrimmed;TrimMode" />
+		<None Include="..\AdamE.AppNav.Maui.Generators\bin\$(Configuration)\$(AppNavMauiGeneratorTargetFramework)\AdamE.AppNav.Maui.Generators.dll"
+		      Pack="true"
+		      PackagePath="analyzers/dotnet/cs"
+		      Visible="false" />
 	</ItemGroup>
 
 </Project>

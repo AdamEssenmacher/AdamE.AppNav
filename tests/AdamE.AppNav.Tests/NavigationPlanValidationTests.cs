@@ -17,7 +17,7 @@ public sealed class NavigationPlanValidationTests
         var invalidState = StateWithMissingSelectedBranch();
         var presenter = new RecordingNavigationPresenter();
 
-        Assert.Throws<InvalidOperationException>(() => new RouterNavigator(
+        Assert.Throws<AppNavigationConfigurationException>(() => new RouterNavigator(
             TestRoutes.CreateTable(),
             TestNavigationPlanner.EchoStack(),
             presenter,
@@ -35,8 +35,30 @@ public sealed class NavigationPlanValidationTests
             new FixedPlanPlanner(StateWithMissingSelectedBranch()),
             presenter);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => navigator
-            .NavigateAsync(new TestRoutes.StoreRoute("northwind"), NavigationRequestSource.Test)
+        await Assert.ThrowsAsync<AppNavigationConfigurationException>(() => navigator
+            .NavigateAsync(RouterNavigationRequest.FromRoute(
+                new TestRoutes.StoreRoute("northwind"), NavigationRequestSource.Test))
+            .AsTask());
+
+        Assert.Equal(0, presenter.ApplyCount);
+    }
+
+    [Fact]
+    public async Task RouterRejectsMissingActiveWindowBeforePresentation()
+    {
+        var invalidState = new NavigationState(
+            [new WindowNode("main", new StackNode("main-stack", []))],
+            "missing");
+        var presenter = new RecordingNavigationPresenter();
+        var navigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            new FixedPlanPlanner(invalidState),
+            presenter);
+
+        await Assert.ThrowsAsync<AppNavigationConfigurationException>(() => navigator
+            .NavigateAsync(RouterNavigationRequest.FromRoute(
+                new TestRoutes.StoreRoute("northwind"),
+                NavigationRequestSource.Test))
             .AsTask());
 
         Assert.Equal(0, presenter.ApplyCount);
@@ -56,7 +78,7 @@ public sealed class NavigationPlanValidationTests
                 InitialState = ValidStackState()
             });
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => navigator.BackAsync().AsTask());
+        await Assert.ThrowsAsync<AppNavigationConfigurationException>(() => navigator.BackAsync().AsTask());
 
         Assert.Equal(0, presenter.ApplyCount);
     }
@@ -74,10 +96,10 @@ public sealed class NavigationPlanValidationTests
             presenter,
             new RouterNavigatorOptions { Diagnostics = diagnostics });
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => navigator
+        await Assert.ThrowsAsync<AppNavigationConfigurationException>(() => navigator
             .ReconcileAsync(new NavigationReconciliation(
                 StateWithMissingSelectedBranch(),
-                NavigationReconciliationSource.NativeBackGesture,
+                NavigationReconciliationSource.HostBack,
                 new TestRoutes.StoreRoute("northwind"),
                 "invalid test reconciliation"))
             .AsTask());
@@ -88,24 +110,23 @@ public sealed class NavigationPlanValidationTests
     }
 
     [Fact]
-    public async Task RouterAllowsCustomNavigationNodesForCustomPresenters()
+    public void NavigationNodeCannotBeDerivedOutsideTheCoreAssembly()
     {
-        var customState = new NavigationState(new[]
-        {
-            new WindowNode("main", new CustomNode("custom-root"))
-        }, "main");
-        var presenter = new RecordingNavigationPresenter();
-        var navigator = new RouterNavigator(
-            TestRoutes.CreateTable(),
-            new FixedPlanPlanner(customState),
-            presenter);
+        var constructor = Assert.Single(
+            typeof(NavigationNode).GetConstructors(
+                System.Reflection.BindingFlags.Instance |
+                System.Reflection.BindingFlags.NonPublic),
+            candidate => candidate.GetParameters() is [{ ParameterType: var parameterType }] &&
+                         parameterType == typeof(string));
+        Assert.True(constructor.IsFamilyAndAssembly);
 
-        var result = await navigator.NavigateAsync(new TestRoutes.StoreRoute("northwind"), NavigationRequestSource.Test);
-
-        Assert.True(result.Presented);
-        Assert.Equal(1, presenter.ApplyCount);
-        Assert.Same(customState, navigator.CurrentState);
-        Assert.IsType<CustomNode>(navigator.CurrentState.ActiveWindow!.Root);
+        var nodeTypeSeal = Assert.Single(
+            typeof(NavigationNode).GetMethods(
+                System.Reflection.BindingFlags.Instance |
+                System.Reflection.BindingFlags.NonPublic),
+            candidate => candidate.Name == "SealNodeType");
+        Assert.True(nodeTypeSeal.IsAbstract);
+        Assert.True(nodeTypeSeal.IsFamilyAndAssembly);
     }
 
     private static NavigationState ValidStackState()
@@ -161,6 +182,4 @@ public sealed class NavigationPlanValidationTests
             return new NavigationPlan(state, NavigationPlanKind.Back, "invalid test back plan");
         }
     }
-
-    private sealed record CustomNode(string NodeId) : NavigationNode(NodeId);
 }

@@ -6,9 +6,9 @@ internal sealed class MauiAppLinkDispatcher(MauiExternalNavigationDispatcher dis
 {
     public bool HasPendingRequests => dispatcher.HasPendingRequests;
 
-    public void Dispatch(RouterNavigationRequest? request)
+    public bool TryDispatch(RouterNavigationRequest? request)
     {
-        dispatcher.Dispatch(request);
+        return dispatcher.TryDispatch(request);
     }
 
     public ValueTask<bool> WaitForPendingRequestAsync(

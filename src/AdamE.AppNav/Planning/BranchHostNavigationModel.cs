@@ -1,3 +1,4 @@
+using AdamE.AppNav.Navigation;
 using AdamE.AppNav.State;
 
 namespace AdamE.AppNav.Planning;
@@ -5,7 +6,7 @@ namespace AdamE.AppNav.Planning;
 /// <summary>
 /// Provides canonical branch-host creation and contextual branch mutation for an application's semantic routes.
 /// </summary>
-public sealed class BranchHostNavigationModel<TRoute>
+public sealed class BranchHostNavigationModel<TRoute> : INavigationModel<TRoute>
     where TRoute : AppRoute
 {
     private readonly BranchHostBranchDefinition<TRoute>[] _branches;
@@ -169,7 +170,7 @@ public sealed class BranchHostNavigationModel<TRoute>
         string branchHostId)
     {
         TRoute rootRoute = branch.RootRouteFactory(scopedRoute) ??
-                           throw new InvalidOperationException(
+                           throw new AppNavigationConfigurationException(
                                $"Branch-host branch '{branch.Id}' returned a null root route.");
         return new StackNode(
             BuildBranchStackId(branchHostId, branch.Id),
@@ -199,7 +200,7 @@ public sealed class BranchHostNavigationModel<TRoute>
         {
             ArgumentNullException.ThrowIfNull(step);
             if (!_recipes.ContainsKey(step.Route.GetType()))
-                throw new InvalidOperationException(
+                throw new AppNavigationConfigurationException(
                     $"Branch-host route step '{step.Route.GetType().FullName}' must be registered before it can participate in branch-host planning.");
 
             entries.Add(CreateEntry(step.Route, step.Metadata));
@@ -316,7 +317,7 @@ public sealed class BranchHostNavigationModel<TRoute>
     private BranchHostRouteRecipe<TRoute> GetRecipe(TRoute route)
     {
         if (!_recipes.TryGetValue(route.GetType(), out BranchHostRouteRecipe<TRoute>? recipe))
-            throw new InvalidOperationException(
+            throw new AppNavigationConfigurationException(
                 $"Route '{route.GetType().FullName}' is not registered in this branch-host navigation model.");
 
         return recipe;

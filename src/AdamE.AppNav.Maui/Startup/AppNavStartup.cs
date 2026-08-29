@@ -9,6 +9,12 @@ namespace AdamE.AppNav.Maui;
 
 public interface IAppNavStartupService
 {
+    /// <summary>
+    /// Schedules observed AppNav startup for the supplied MAUI window.
+    /// </summary>
+    void Start(Window window, string windowId);
+
+#pragma warning disable RS0026 // The default-window and explicit-window advanced coordination overloads are intentional.
     ValueTask<AppNavStartupResult> StartAsync(
         Window window,
         CancellationToken cancellationToken = default);
@@ -17,6 +23,7 @@ public interface IAppNavStartupService
         Window window,
         string windowId,
         CancellationToken cancellationToken = default);
+#pragma warning restore RS0026
 }
 
 public sealed class AppNavStartupOptions
@@ -25,6 +32,15 @@ public sealed class AppNavStartupOptions
 
     public TimeSpan AppLinkGracePeriod { get; set; } = TimeSpan.FromMilliseconds(250);
 
+    /// <summary>
+    /// Creates the typed fallback route used when no external or deferred request is pending.
+    /// The route is wrapped in an in-app, canonical request for the startup window.
+    /// </summary>
+    public Func<IServiceProvider, CancellationToken, ValueTask<AppRoute?>>? FallbackRouteFactory { get; set; }
+
+    /// <summary>
+    /// Creates a complete fallback request envelope for advanced startup coordination.
+    /// </summary>
     public Func<IServiceProvider, CancellationToken, ValueTask<RouterNavigationRequest?>>? FallbackRequestFactory { get; set; }
 }
 
@@ -74,6 +90,21 @@ internal sealed class AppNavStartupService : IAppNavStartupService
                 nameof(options),
                 "AppLinkGracePeriod cannot be negative.");
         }
+
+        if (_options.FallbackRouteFactory is not null && _options.FallbackRequestFactory is not null)
+        {
+            throw new InvalidOperationException(
+                $"{nameof(AppNavStartupOptions.FallbackRouteFactory)} and " +
+                $"{nameof(AppNavStartupOptions.FallbackRequestFactory)} are mutually exclusive.");
+        }
+    }
+
+    public void Start(Window window, string windowId)
+    {
+        ArgumentNullException.ThrowIfNull(window);
+        ArgumentException.ThrowIfNullOrWhiteSpace(windowId);
+
+        _ = ObserveScheduledStartAsync(window, windowId);
     }
 
     public ValueTask<AppNavStartupResult> StartAsync(
@@ -155,33 +186,30 @@ internal sealed class AppNavStartupService : IAppNavStartupService
                 }
             }
 
-            if (_options.FallbackRequestFactory is not null)
+            RouterNavigationRequest? fallbackRequest = await CreateFallbackRequestAsync(
+                windowId,
+                cancellationToken);
+            if (fallbackRequest is not null)
             {
-                var fallbackRequest = await _options
-                    .FallbackRequestFactory(_services, cancellationToken);
+                var fallbackResult = await _navigator
+                    .NavigateAsync(fallbackRequest, cancellationToken);
 
-                if (fallbackRequest is not null)
-                {
-                    var fallbackResult = await _navigator
-                        .NavigateAsync(fallbackRequest, cancellationToken);
-
-                    _diagnostics.Write(
-                        NavigationDiagnosticEventKind.StartupFallbackNavigated,
-                        operationId,
-                        "Startup fallback navigation completed.",
-                        StartupData(
-                            windowId,
-                            (NavigationDiagnosticDataKeys.StartupOutcome, AppNavStartupOutcome.FallbackNavigated.ToString()),
-                            (NavigationDiagnosticDataKeys.RequestSource, fallbackRequest.Source.ToString()),
-                            (NavigationDiagnosticDataKeys.Uri, fallbackRequest.Uri?.ToString())));
-
-                    Attach(window, windowId, ref attached);
-                    return Complete(
-                        operationId,
+                _diagnostics.Write(
+                    NavigationDiagnosticEventKind.StartupFallbackNavigated,
+                    operationId,
+                    "Startup fallback navigation completed.",
+                    StartupData(
                         windowId,
-                        AppNavStartupOutcome.FallbackNavigated,
-                        fallbackResult);
-                }
+                        (NavigationDiagnosticDataKeys.StartupOutcome, AppNavStartupOutcome.FallbackNavigated.ToString()),
+                        (NavigationDiagnosticDataKeys.RequestSource, fallbackRequest.Source.ToString()),
+                        (NavigationDiagnosticDataKeys.Uri, fallbackRequest.Uri?.ToString())));
+
+                Attach(window, windowId, ref attached);
+                return Complete(
+                    operationId,
+                    windowId,
+                    AppNavStartupOutcome.FallbackNavigated,
+                    fallbackResult);
             }
 
             Attach(window, windowId, ref attached);
@@ -213,6 +241,47 @@ internal sealed class AppNavStartupService : IAppNavStartupService
                 FallbackNavigationResult: null,
                 ex);
         }
+    }
+
+    private async Task ObserveScheduledStartAsync(Window window, string windowId)
+    {
+        try
+        {
+            _ = await StartAsync(window, windowId).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _diagnostics.Write(
+                NavigationDiagnosticEventKind.StartupFailed,
+                Guid.NewGuid().ToString("N"),
+                "Scheduled AppNav startup failed.",
+                StartupData(
+                    windowId,
+                    (NavigationDiagnosticDataKeys.StartupOutcome, AppNavStartupOutcome.Failed.ToString()),
+                    (NavigationDiagnosticDataKeys.ExceptionType, ex.GetType().FullName),
+                    (NavigationDiagnosticDataKeys.ExceptionMessage, ex.Message)));
+        }
+    }
+
+    private async ValueTask<RouterNavigationRequest?> CreateFallbackRequestAsync(
+        string windowId,
+        CancellationToken cancellationToken)
+    {
+        if (_options.FallbackRouteFactory is not null)
+        {
+            AppRoute? route = await _options.FallbackRouteFactory(_services, cancellationToken);
+            return route is null
+                ? null
+                : RouterNavigationRequest.FromRoute(
+                    route,
+                    NavigationRequestSource.InAppCommand,
+                    windowId,
+                    disposition: RouterNavigationDisposition.Canonical);
+        }
+
+        return _options.FallbackRequestFactory is null
+            ? null
+            : await _options.FallbackRequestFactory(_services, cancellationToken);
     }
 
     private async Task<bool> HasDeferredRequestsOrRecoverAsync(

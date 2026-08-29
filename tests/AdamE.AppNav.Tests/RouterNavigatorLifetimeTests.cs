@@ -77,7 +77,7 @@ public sealed class RouterNavigatorLifetimeTests
                     TestNavigationState.Entry("catalog", new TestRoutes.CatalogRoute("northwind")))));
         presenter.RequestReconciliation(new NavigationReconciliation(
             reconciledState,
-            NavigationReconciliationSource.NativeBackGesture,
+            NavigationReconciliationSource.HostBack,
             new TestRoutes.CatalogRoute("northwind")));
 
         Task shutdown = navigator.DisposeAsync().AsTask();

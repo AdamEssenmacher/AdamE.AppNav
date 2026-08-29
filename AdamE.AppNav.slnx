@@ -4,14 +4,18 @@
   </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/Commerce.Sample/Commerce.Sample.csproj" />
+    <Project Path="samples/GettingStarted.Sample/GettingStarted.Sample.csproj" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/AdamE.AppNav.Generators/AdamE.AppNav.Generators.csproj" />
+    <Project Path="src/AdamE.AppNav.Maui.Generators/AdamE.AppNav.Maui.Generators.csproj" />
     <Project Path="src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj" />
     <Project Path="src/AdamE.AppNav/AdamE.AppNav.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/AdamE.AppNav.AdapterContract.Tests/AdamE.AppNav.AdapterContract.Tests.csproj" />
     <Project Path="tests/AdamE.AppNav.Generators.Tests/AdamE.AppNav.Generators.Tests.csproj" />
+    <Project Path="tests/AdamE.AppNav.Maui.Generators.Tests/AdamE.AppNav.Maui.Generators.Tests.csproj" />
     <Project Path="tests/AdamE.AppNav.Maui.Tests/AdamE.AppNav.Maui.Tests.csproj" />
     <Project Path="tests/AdamE.AppNav.Tests/AdamE.AppNav.Tests.csproj" />
   </Folder>

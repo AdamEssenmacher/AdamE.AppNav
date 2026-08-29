@@ -62,6 +62,7 @@ public class RouteFormattingBenchmarks : RouteBenchmarkBase
 public class NavigationBenchmarks : RouteBenchmarkBase
 {
     private IRouterNavigator _navigator = null!;
+    private RouterNavigationRequest _uriBackedRequest = null!;
 
     [GlobalSetup]
     public override void GlobalSetup()
@@ -75,12 +76,13 @@ public class NavigationBenchmarks : RouteBenchmarkBase
             {
                 MaxHistoryEntries = 1
             });
+        _uriBackedRequest = RouterNavigationRequest.FromUri(TargetUri, NavigationRequestSource.Test);
     }
 
     [Benchmark]
     public NavigationResult NavigateUriBacked_LastRoute()
     {
-        return _navigator.NavigateAsync(TargetUri).GetAwaiter().GetResult();
+        return _navigator.NavigateAsync(_uriBackedRequest).GetAwaiter().GetResult();
     }
 
     [Benchmark]
@@ -109,7 +111,12 @@ public class DeferredSerializationBenchmarks : RouteBenchmarkBase
     public override void GlobalSetup()
     {
         base.GlobalSetup();
-        _serializer = new DeferredNavigationRequestSerializer(ExplicitRoutes);
+        _serializer = new DeferredNavigationRequestSerializer(
+            ExplicitRoutes,
+            new DeferredNavigationRequestPersistenceOptions
+            {
+                BaseUri = new Uri("https://benchmarks.appnav.invalid/")
+            });
         _routeBackedRequest = RouterNavigationRequest.FromRoute(
             ExplicitTargetRoute,
             NavigationRequestSource.InAppCommand);
@@ -185,13 +192,7 @@ public abstract class RouteBenchmarkBase
         return RouteTable.Create(routes =>
         {
             for (var i = 0; i < routeCount - 1; i++)
-            {
-                int routeIndex = i;
-                routes.Map(
-                    $"/routes/non-{routeIndex}/items/{{Id:int}}",
-                    match => new ExplicitNonTargetRoute(match.Path<int>("Id")),
-                    format => format.PathParam("Id", route => route.Id));
-            }
+                SyntheticRouteMapper.Create(i).MapExplicit(routes, i);
 
             routes.Map(
                 "/routes/target/items/{Id:int}",
@@ -205,18 +206,74 @@ public abstract class RouteBenchmarkBase
         return RouteTable.Create(routes =>
         {
             for (var i = 0; i < routeCount - 1; i++)
-                routes.MapRoute<ConventionNonTargetRoute>($"/routes/non-{i}/items/{{Id:int}}");
+                SyntheticRouteMapper.Create(i).MapConvention(routes, i);
 
             routes.MapRoute<ConventionTargetRoute>("/routes/target/items/{Id:int}");
         });
     }
 }
 
-public sealed record ExplicitNonTargetRoute(int Id) : AppRoute;
+internal interface ISyntheticRouteMapper
+{
+    void MapExplicit(RouteTableBuilder routes, int index);
+
+    void MapConvention(RouteTableBuilder routes, int index);
+}
+
+internal static class SyntheticRouteMapper
+{
+    public static ISyntheticRouteMapper Create(int index)
+    {
+        Type markerType = CreateMarkerType(index);
+        Type mapperType = typeof(SyntheticRouteMapper<>).MakeGenericType(markerType);
+        return (ISyntheticRouteMapper)Activator.CreateInstance(mapperType)!;
+    }
+
+    private static Type CreateMarkerType(int index)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(index);
+
+        Type markerType = typeof(SyntheticRouteMarkerEnd);
+        do
+        {
+            Type markerDefinition = (index & 1) == 0
+                ? typeof(SyntheticRouteMarkerZero<>):
+                typeof(SyntheticRouteMarkerOne<>);
+            markerType = markerDefinition.MakeGenericType(markerType);
+            index >>= 1;
+        } while (index != 0);
+
+        return markerType;
+    }
+}
+
+internal sealed class SyntheticRouteMapper<TMarker> : ISyntheticRouteMapper
+{
+    public void MapExplicit(RouteTableBuilder routes, int index)
+    {
+        routes.Map(
+            $"/routes/non-{index}/items/{{Id:int}}",
+            match => new ExplicitNonTargetRoute<TMarker>(match.Path<int>("Id")),
+            format => format.PathParam("Id", route => route.Id));
+    }
+
+    public void MapConvention(RouteTableBuilder routes, int index)
+    {
+        routes.MapRoute<ConventionNonTargetRoute<TMarker>>($"/routes/non-{index}/items/{{Id:int}}");
+    }
+}
+
+internal sealed class SyntheticRouteMarkerEnd;
+
+internal sealed class SyntheticRouteMarkerZero<TMarker>;
+
+internal sealed class SyntheticRouteMarkerOne<TMarker>;
+
+public sealed record ExplicitNonTargetRoute<TMarker>(int Id) : AppRoute;
 
 public sealed record ExplicitTargetRoute(int Id) : AppRoute;
 
-public sealed record ConventionNonTargetRoute(int Id) : AppRoute;
+public sealed record ConventionNonTargetRoute<TMarker>(int Id) : AppRoute;
 
 public sealed record ConventionTargetRoute(int Id) : AppRoute;
 

@@ -86,7 +86,8 @@ public sealed class RedirectLoopProtectionTests
             });
 
         var exception = await Assert.ThrowsAsync<RouteRedirectLoopException>(() => navigator
-            .NavigateAsync(new RedirectRoute("legacy"), NavigationRequestSource.Test)
+            .NavigateAsync(RouterNavigationRequest.FromRoute(
+                new RedirectRoute("legacy"), NavigationRequestSource.Test))
             .AsTask());
 
         Assert.Equal(2, exception.Redirects.Count);
@@ -119,7 +120,8 @@ public sealed class RedirectLoopProtectionTests
                 RequestPolicies = new INavigationRequestPolicy[] { firstPolicy, secondPolicy }
             });
 
-        var result = await navigator.NavigateAsync(new RedirectRoute("closed"), NavigationRequestSource.Test);
+        var result = await navigator.NavigateAsync(RouterNavigationRequest.FromRoute(
+            new RedirectRoute("closed"), NavigationRequestSource.Test));
 
         var route = Assert.IsType<RedirectRoute>(result.Route);
         Assert.Equal("open", route.Value);
@@ -173,7 +175,8 @@ public sealed class RedirectLoopProtectionTests
             });
 
         var exception = await Assert.ThrowsAsync<RouteRedirectLoopException>(() => navigator
-            .NavigateAsync(new RedirectRoute("a"), NavigationRequestSource.Test)
+            .NavigateAsync(RouterNavigationRequest.FromRoute(
+                new RedirectRoute("a"), NavigationRequestSource.Test))
             .AsTask());
 
         Assert.Equal(new RedirectRoute("a"), exception.InitialRequest.Route);
@@ -218,7 +221,8 @@ public sealed class RedirectLoopProtectionTests
             });
 
         var exception = await Assert.ThrowsAsync<RouteRedirectLoopException>(() => navigator
-            .NavigateAsync(new CountRoute(0), NavigationRequestSource.Test)
+            .NavigateAsync(RouterNavigationRequest.FromRoute(
+                new CountRoute(0), NavigationRequestSource.Test))
             .AsTask());
 
         Assert.Equal(3, exception.Redirects.Count);
@@ -248,7 +252,8 @@ public sealed class RedirectLoopProtectionTests
             });
 
         var exception = await Assert.ThrowsAsync<RouteRedirectLoopException>(() => navigator
-            .NavigateAsync(new RedirectRoute("start"), NavigationRequestSource.Test)
+            .NavigateAsync(RouterNavigationRequest.FromRoute(
+                new RedirectRoute("start"), NavigationRequestSource.Test))
             .AsTask());
 
         Assert.Single(exception.Redirects);
@@ -288,7 +293,8 @@ public sealed class RedirectLoopProtectionTests
                 RequestPolicies = new INavigationRequestPolicy[] { metadataPolicy, nextPolicy }
             });
 
-        await navigator.NavigateAsync(new RedirectRoute("stable"), NavigationRequestSource.Test);
+        await navigator.NavigateAsync(RouterNavigationRequest.FromRoute(
+            new RedirectRoute("stable"), NavigationRequestSource.Test));
 
         Assert.Equal(1, metadataPolicy.CallCount);
         Assert.Equal(1, nextPolicy.CallCount);
@@ -322,9 +328,9 @@ public sealed class RedirectLoopProtectionTests
                 RequestPolicies = new INavigationRequestPolicy[] { policy }
             });
 
-        var result = await navigator.NavigateAsync(
+        var result = await navigator.NavigateAsync(RouterNavigationRequest.FromUri(
             new Uri("https://example.com/missing/product"),
-            NavigationRequestSource.Test);
+            NavigationRequestSource.Test));
 
         var route = Assert.IsType<TestRoutes.StoreRoute>(result.Route);
         Assert.Equal("northwind", route.StoreId);

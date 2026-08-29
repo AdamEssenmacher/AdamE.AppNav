@@ -1,0 +1,985 @@
+#nullable enable
+abstract AdamE.AppNav.AppRoute.<Clone>$() -> AdamE.AppNav.AppRoute!
+abstract AdamE.AppNav.State.NavigationNode.<Clone>$() -> AdamE.AppNav.State.NavigationNode!
+AdamE.AppNav.AppRoute
+AdamE.AppNav.AppRoute.AppRoute() -> void
+AdamE.AppNav.AppRoute.AppRoute(AdamE.AppNav.AppRoute! original) -> void
+AdamE.AppNav.AppRouteRequest
+AdamE.AppNav.AppRouteRequest.<Clone>$() -> AdamE.AppNav.AppRouteRequest!
+AdamE.AppNav.AppRouteRequest.AppRouteRequest(AdamE.AppNav.AppRoute! route, System.Collections.Generic.IReadOnlyDictionary<string!, object?>? metadata = null) -> void
+AdamE.AppNav.AppRouteRequest.Equals(AdamE.AppNav.AppRouteRequest? other) -> bool
+AdamE.AppNav.AppRouteRequest.Metadata.get -> System.Collections.Generic.IReadOnlyDictionary<string!, object?>!
+AdamE.AppNav.AppRouteRequest.Route.get -> AdamE.AppNav.AppRoute!
+AdamE.AppNav.AppRouteRequest.TryGetMetadata<TValue>(AdamE.AppNav.Routing.RouteMetadataKey<TValue>! key, out TValue? value) -> bool
+AdamE.AppNav.AppRouteRequest.WithMetadata<TValue>(AdamE.AppNav.Routing.RouteMetadataKey<TValue>! key, TValue? value) -> AdamE.AppNav.AppRouteRequest!
+AdamE.AppNav.Back.BackNavigationContext
+AdamE.AppNav.Back.BackNavigationContext.<Clone>$() -> AdamE.AppNav.Back.BackNavigationContext!
+AdamE.AppNav.Back.BackNavigationContext.BackNavigationContext(AdamE.AppNav.State.NavigationState! state, string? requestedWindowId, string! operationId) -> void
+AdamE.AppNav.Back.BackNavigationContext.Equals(AdamE.AppNav.Back.BackNavigationContext? other) -> bool
+AdamE.AppNav.Back.BackNavigationContext.OperationId.get -> string!
+AdamE.AppNav.Back.BackNavigationContext.RequestedWindowId.get -> string?
+AdamE.AppNav.Back.BackNavigationContext.ResolvedWindowId.get -> string?
+AdamE.AppNav.Back.BackNavigationContext.State.get -> AdamE.AppNav.State.NavigationState!
+AdamE.AppNav.Back.BackNavigationContext.UsesActiveWindow.get -> bool
+AdamE.AppNav.Back.BackNavigationContext.Window.get -> AdamE.AppNav.State.WindowNode?
+AdamE.AppNav.Back.BackNavigationOptions
+AdamE.AppNav.Back.BackNavigationOptions.<Clone>$() -> AdamE.AppNav.Back.BackNavigationOptions!
+AdamE.AppNav.Back.BackNavigationOptions.BackNavigationOptions() -> void
+AdamE.AppNav.Back.BackNavigationOptions.Equals(AdamE.AppNav.Back.BackNavigationOptions? other) -> bool
+AdamE.AppNav.Back.BackNavigationOptions.ReturnToDefaultBranchBeforeLeaving.get -> bool
+AdamE.AppNav.Back.BackNavigationOptions.ReturnToDefaultBranchBeforeLeaving.init -> void
+AdamE.AppNav.Back.DefaultBackNavigator
+AdamE.AppNav.Back.DefaultBackNavigator.CreateBackPlan(AdamE.AppNav.Back.BackNavigationContext! context) -> AdamE.AppNav.Plans.NavigationPlan?
+AdamE.AppNav.Back.DefaultBackNavigator.CreateBackPlan(AdamE.AppNav.State.NavigationState! state, string? windowId = null) -> AdamE.AppNav.Plans.NavigationPlan?
+AdamE.AppNav.Back.DefaultBackNavigator.DefaultBackNavigator(AdamE.AppNav.Back.BackNavigationOptions? options = null, AdamE.AppNav.Diagnostics.NavigationDiagnostics? diagnostics = null) -> void
+AdamE.AppNav.Back.IBackNavigator
+AdamE.AppNav.Back.IBackNavigator.CreateBackPlan(AdamE.AppNav.Back.BackNavigationContext! context) -> AdamE.AppNav.Plans.NavigationPlan?
+AdamE.AppNav.Diagnostics.INavigationDiagnosticObserver
+AdamE.AppNav.Diagnostics.INavigationDiagnosticObserver.OnNavigationDiagnosticEvent(AdamE.AppNav.Diagnostics.NavigationDiagnosticEvent! diagnosticEvent) -> void
+AdamE.AppNav.Diagnostics.INavigationDiagnosticRedactor
+AdamE.AppNav.Diagnostics.INavigationDiagnosticRedactor.Redact(AdamE.AppNav.Diagnostics.NavigationDiagnosticEvent! diagnosticEvent) -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEvent!
+AdamE.AppNav.Diagnostics.NavigationActivitySources
+AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys
+AdamE.AppNav.Diagnostics.NavigationDiagnosticDataMode
+AdamE.AppNav.Diagnostics.NavigationDiagnosticDataMode.Full = 1 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticDataMode
+AdamE.AppNav.Diagnostics.NavigationDiagnosticDataMode.Safe = 0 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticDataMode
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEvent
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEvent.<Clone>$() -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEvent!
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEvent.Data.get -> System.Collections.Generic.IReadOnlyDictionary<string!, object?>!
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEvent.Data.init -> void
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEvent.Deconstruct(out AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind Kind, out string! OperationId, out string! Message, out System.DateTimeOffset Timestamp, out System.Collections.Generic.IReadOnlyDictionary<string!, object?>! Data, out Microsoft.Extensions.Logging.LogLevel Severity, out AdamE.AppNav.Diagnostics.NavigationDiagnosticPhase Phase) -> void
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEvent.Equals(AdamE.AppNav.Diagnostics.NavigationDiagnosticEvent? other) -> bool
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEvent.Kind.get -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEvent.Kind.init -> void
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEvent.Message.get -> string!
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEvent.Message.init -> void
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEvent.NavigationDiagnosticEvent(AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind Kind, string! OperationId, string! Message, System.DateTimeOffset Timestamp, System.Collections.Generic.IReadOnlyDictionary<string!, object?>! Data, Microsoft.Extensions.Logging.LogLevel Severity = Microsoft.Extensions.Logging.LogLevel.Information, AdamE.AppNav.Diagnostics.NavigationDiagnosticPhase Phase = AdamE.AppNav.Diagnostics.NavigationDiagnosticPhase.Navigation) -> void
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEvent.OperationId.get -> string!
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEvent.OperationId.init -> void
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEvent.Phase.get -> AdamE.AppNav.Diagnostics.NavigationDiagnosticPhase
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEvent.Phase.init -> void
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEvent.Severity.get -> Microsoft.Extensions.Logging.LogLevel
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEvent.Severity.init -> void
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEvent.Timestamp.get -> System.DateTimeOffset
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEvent.Timestamp.init -> void
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.AppLinkBuffered = 55 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.AppLinkDispatched = 56 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.AppLinkFailed = 57 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.AppLinkReceived = 54 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.BackCompleted = 50 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.BackEvaluated = 49 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.BackFailed = 52 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.BackStarted = 48 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.BackUnhandled = 51 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.DeferredRequestStoreOverflowed = 74 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.DeferredRequestStorePruned = 73 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.DeferredRequestStoreQuarantined = 65 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.DeferredRequestStoreReset = 72 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.DiagnosticObserverFailed = 58 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.ExternalNavigationDeduplicated = 70 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.ExternalNavigationExpired = 68 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.ExternalNavigationOverflowed = 69 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.ExternalNavigationRejected = 66 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.ExternalNavigationRetrying = 67 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.ExternalNavigationTerminalDrop = 71 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.NavigationFailed = 53 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.PlanningCompleted = 11 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.PlanningFailed = 12 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.PlanningStarted = 10 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.PresentationCompleted = 26 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.PresentationFailed = 27 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.PresentationHandlerAttached = 19 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.PresentationHandlerDetached = 20 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.PresentationPageCreated = 17 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.PresentationPageReleased = 18 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.PresentationPageReleaseFailed = 64 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.PresentationPresenterDisposed = 21 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.PresentationRollbackCompleted = 62 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.PresentationRollbackFailed = 63 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.PresentationRollbackStarted = 61 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.PresentationStarted = 16 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.PresentationVerificationFailed = 60 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.ReconciliationCompleted = 46 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.ReconciliationFailed = 47 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.ReconciliationStarted = 45 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.RequestPolicyCompleted = 8 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.RequestPolicyFailed = 9 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.RequestPolicyStarted = 5 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.RequestRedirected = 6 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.RequestRedirectLoopDetected = 7 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.RequestTransformCompleted = 14 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.RequestTransformFailed = 15 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.RequestTransformStarted = 13 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.RouteFallbackSelected = 3 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.RouteMatched = 1 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.RouteMatchingFailed = 4 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.RouteMatchingStarted = 0 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.RouteNotMatched = 2 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.StartupAppLinkPending = 39 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.StartupCompleted = 43 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.StartupDeferredRequestPending = 40 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.StartupFailed = 44 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.StartupFallbackNavigated = 42 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.StartupStarted = 38 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticPhase
+AdamE.AppNav.Diagnostics.NavigationDiagnosticPhase.AppLink = 8 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticPhase
+AdamE.AppNav.Diagnostics.NavigationDiagnosticPhase.Back = 7 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticPhase
+AdamE.AppNav.Diagnostics.NavigationDiagnosticPhase.Diagnostics = 9 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticPhase
+AdamE.AppNav.Diagnostics.NavigationDiagnosticPhase.Navigation = 0 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticPhase
+AdamE.AppNav.Diagnostics.NavigationDiagnosticPhase.Persistence = 11 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticPhase
+AdamE.AppNav.Diagnostics.NavigationDiagnosticPhase.Planning = 3 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticPhase
+AdamE.AppNav.Diagnostics.NavigationDiagnosticPhase.Presentation = 4 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticPhase
+AdamE.AppNav.Diagnostics.NavigationDiagnosticPhase.Reconciliation = 6 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticPhase
+AdamE.AppNav.Diagnostics.NavigationDiagnosticPhase.RequestPolicy = 2 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticPhase
+AdamE.AppNav.Diagnostics.NavigationDiagnosticPhase.RequestTransformation = 10 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticPhase
+AdamE.AppNav.Diagnostics.NavigationDiagnosticPhase.RouteMatching = 1 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticPhase
+AdamE.AppNav.Diagnostics.NavigationDiagnosticPhase.Startup = 5 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticPhase
+AdamE.AppNav.Diagnostics.NavigationDiagnostics
+AdamE.AppNav.Diagnostics.NavigationDiagnostics.AddObserver(AdamE.AppNav.Diagnostics.INavigationDiagnosticObserver! observer) -> void
+AdamE.AppNav.Diagnostics.NavigationDiagnostics.EventWritten -> System.EventHandler<AdamE.AppNav.Diagnostics.NavigationDiagnosticEvent!>?
+AdamE.AppNav.Diagnostics.NavigationDiagnostics.NavigationDiagnostics(Microsoft.Extensions.Logging.ILogger? logger = null, AdamE.AppNav.Diagnostics.NavigationDiagnosticsOptions? options = null, AdamE.AppNav.Diagnostics.INavigationDiagnosticRedactor? redactor = null) -> void
+AdamE.AppNav.Diagnostics.NavigationDiagnostics.Write(AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind kind, string! operationId, string! message, System.Collections.Generic.IReadOnlyDictionary<string!, object?>? data = null, Microsoft.Extensions.Logging.LogLevel? severity = null, AdamE.AppNav.Diagnostics.NavigationDiagnosticPhase? phase = null) -> void
+AdamE.AppNav.Diagnostics.NavigationDiagnosticsOptions
+AdamE.AppNav.Diagnostics.NavigationDiagnosticsOptions.DataMode.get -> AdamE.AppNav.Diagnostics.NavigationDiagnosticDataMode
+AdamE.AppNav.Diagnostics.NavigationDiagnosticsOptions.DataMode.set -> void
+AdamE.AppNav.Diagnostics.NavigationDiagnosticsOptions.NavigationDiagnosticsOptions() -> void
+AdamE.AppNav.History.NavigationHistory
+AdamE.AppNav.History.NavigationHistory.Current.get -> AdamE.AppNav.History.NavigationHistoryEntry?
+AdamE.AppNav.History.NavigationHistory.Entries.get -> System.Collections.Generic.IReadOnlyList<AdamE.AppNav.History.NavigationHistoryEntry!>!
+AdamE.AppNav.History.NavigationHistoryEntry
+AdamE.AppNav.History.NavigationHistoryEntry.<Clone>$() -> AdamE.AppNav.History.NavigationHistoryEntry!
+AdamE.AppNav.History.NavigationHistoryEntry.Deconstruct(out AdamE.AppNav.Requests.RouterNavigationRequest! Request, out AdamE.AppNav.AppRoute! Route, out AdamE.AppNav.State.NavigationState! State) -> void
+AdamE.AppNav.History.NavigationHistoryEntry.Equals(AdamE.AppNav.History.NavigationHistoryEntry? other) -> bool
+AdamE.AppNav.History.NavigationHistoryEntry.NavigationHistoryEntry(AdamE.AppNav.Requests.RouterNavigationRequest! Request, AdamE.AppNav.AppRoute! Route, AdamE.AppNav.State.NavigationState! State) -> void
+AdamE.AppNav.History.NavigationHistoryEntry.Request.get -> AdamE.AppNav.Requests.RouterNavigationRequest!
+AdamE.AppNav.History.NavigationHistoryEntry.Request.init -> void
+AdamE.AppNav.History.NavigationHistoryEntry.Route.get -> AdamE.AppNav.AppRoute!
+AdamE.AppNav.History.NavigationHistoryEntry.Route.init -> void
+AdamE.AppNav.History.NavigationHistoryEntry.State.get -> AdamE.AppNav.State.NavigationState!
+AdamE.AppNav.History.NavigationHistoryEntry.State.init -> void
+AdamE.AppNav.Navigation.BackNavigationResult
+AdamE.AppNav.Navigation.BackNavigationResult.BackNavigationResult() -> void
+AdamE.AppNav.Navigation.BackNavigationResult.BackNavigationResult(bool Handled, AdamE.AppNav.Navigation.NavigationResult? HandledNavigationResult = null) -> void
+AdamE.AppNav.Navigation.BackNavigationResult.Deconstruct(out bool Handled, out AdamE.AppNav.Navigation.NavigationResult? HandledNavigationResult) -> void
+AdamE.AppNav.Navigation.BackNavigationResult.Equals(AdamE.AppNav.Navigation.BackNavigationResult other) -> bool
+AdamE.AppNav.Navigation.BackNavigationResult.Handled.get -> bool
+AdamE.AppNav.Navigation.BackNavigationResult.Handled.init -> void
+AdamE.AppNav.Navigation.BackNavigationResult.HandledNavigationResult.get -> AdamE.AppNav.Navigation.NavigationResult?
+AdamE.AppNav.Navigation.BackNavigationResult.HandledNavigationResult.init -> void
+AdamE.AppNav.Navigation.IRouterNavigator
+AdamE.AppNav.Navigation.IRouterNavigator.BackAsync(string? windowId = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<AdamE.AppNav.Navigation.BackNavigationResult>
+AdamE.AppNav.Navigation.IRouterNavigator.CurrentState.get -> AdamE.AppNav.State.NavigationState!
+AdamE.AppNav.Navigation.IRouterNavigator.History.get -> AdamE.AppNav.History.NavigationHistory!
+AdamE.AppNav.Navigation.IRouterNavigator.NavigateAsync(AdamE.AppNav.Requests.RouterNavigationRequest! request, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<AdamE.AppNav.Navigation.NavigationResult!>
+AdamE.AppNav.Navigation.IRouterNavigator.ReconcileAsync(AdamE.AppNav.Presentation.NavigationReconciliation! reconciliation, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<AdamE.AppNav.Navigation.NavigationResult!>
+AdamE.AppNav.Navigation.NavigationFallbackContext
+AdamE.AppNav.Navigation.NavigationFallbackContext.<Clone>$() -> AdamE.AppNav.Navigation.NavigationFallbackContext!
+AdamE.AppNav.Navigation.NavigationFallbackContext.CurrentState.get -> AdamE.AppNav.State.NavigationState!
+AdamE.AppNav.Navigation.NavigationFallbackContext.CurrentState.init -> void
+AdamE.AppNav.Navigation.NavigationFallbackContext.Deconstruct(out AdamE.AppNav.Requests.RouterNavigationRequest! Request, out System.Collections.Generic.IReadOnlyList<AdamE.AppNav.Routing.RouteDiagnostic!>! Diagnostics, out AdamE.AppNav.State.NavigationState! CurrentState, out string! OperationId) -> void
+AdamE.AppNav.Navigation.NavigationFallbackContext.Diagnostics.get -> System.Collections.Generic.IReadOnlyList<AdamE.AppNav.Routing.RouteDiagnostic!>!
+AdamE.AppNav.Navigation.NavigationFallbackContext.Diagnostics.init -> void
+AdamE.AppNav.Navigation.NavigationFallbackContext.Equals(AdamE.AppNav.Navigation.NavigationFallbackContext? other) -> bool
+AdamE.AppNav.Navigation.NavigationFallbackContext.NavigationFallbackContext(AdamE.AppNav.Requests.RouterNavigationRequest! Request, System.Collections.Generic.IReadOnlyList<AdamE.AppNav.Routing.RouteDiagnostic!>! Diagnostics, AdamE.AppNav.State.NavigationState! CurrentState, string! OperationId) -> void
+AdamE.AppNav.Navigation.NavigationFallbackContext.OperationId.get -> string!
+AdamE.AppNav.Navigation.NavigationFallbackContext.OperationId.init -> void
+AdamE.AppNav.Navigation.NavigationFallbackContext.Request.get -> AdamE.AppNav.Requests.RouterNavigationRequest!
+AdamE.AppNav.Navigation.NavigationFallbackContext.Request.init -> void
+AdamE.AppNav.Navigation.NavigationResult
+AdamE.AppNav.Navigation.NavigationResult.<Clone>$() -> AdamE.AppNav.Navigation.NavigationResult!
+AdamE.AppNav.Navigation.NavigationResult.Deconstruct(out AdamE.AppNav.AppRoute! Route, out AdamE.AppNav.Plans.NavigationPlan! Plan, out AdamE.AppNav.State.NavigationState! State, out bool Presented) -> void
+AdamE.AppNav.Navigation.NavigationResult.Equals(AdamE.AppNav.Navigation.NavigationResult? other) -> bool
+AdamE.AppNav.Navigation.NavigationResult.NavigationResult(AdamE.AppNav.AppRoute! Route, AdamE.AppNav.Plans.NavigationPlan! Plan, AdamE.AppNav.State.NavigationState! State, bool Presented) -> void
+AdamE.AppNav.Navigation.NavigationResult.Plan.get -> AdamE.AppNav.Plans.NavigationPlan!
+AdamE.AppNav.Navigation.NavigationResult.Plan.init -> void
+AdamE.AppNav.Navigation.NavigationResult.Presented.get -> bool
+AdamE.AppNav.Navigation.NavigationResult.Presented.init -> void
+AdamE.AppNav.Navigation.NavigationResult.Route.get -> AdamE.AppNav.AppRoute!
+AdamE.AppNav.Navigation.NavigationResult.Route.init -> void
+AdamE.AppNav.Navigation.NavigationResult.State.get -> AdamE.AppNav.State.NavigationState!
+AdamE.AppNav.Navigation.NavigationResult.State.init -> void
+AdamE.AppNav.Navigation.RouteRedirectLoopException
+AdamE.AppNav.Navigation.RouteRedirectLoopException.InitialRequest.get -> AdamE.AppNav.Requests.RouterNavigationRequest!
+AdamE.AppNav.Navigation.RouteRedirectLoopException.LastRequest.get -> AdamE.AppNav.Requests.RouterNavigationRequest!
+AdamE.AppNav.Navigation.RouteRedirectLoopException.Redirects.get -> System.Collections.Generic.IReadOnlyList<AdamE.AppNav.Requests.RouterNavigationRequest!>!
+AdamE.AppNav.Navigation.RouteRedirectLoopException.RouteRedirectLoopException(AdamE.AppNav.Requests.RouterNavigationRequest! initialRequest, AdamE.AppNav.Requests.RouterNavigationRequest! lastRequest, System.Collections.Generic.IReadOnlyList<AdamE.AppNav.Requests.RouterNavigationRequest!>! redirects, string! message) -> void
+AdamE.AppNav.Navigation.RouterNavigatorExtensions
+AdamE.AppNav.Navigation.RouterNavigatorFactory
+AdamE.AppNav.Navigation.RouterNavigatorFactoryOptions
+AdamE.AppNav.Navigation.RouterNavigatorFactoryOptions.BackNavigator.get -> AdamE.AppNav.Back.IBackNavigator?
+AdamE.AppNav.Navigation.RouterNavigatorFactoryOptions.BackNavigator.init -> void
+AdamE.AppNav.Navigation.RouterNavigatorFactoryOptions.Diagnostics.get -> AdamE.AppNav.Diagnostics.NavigationDiagnostics?
+AdamE.AppNav.Navigation.RouterNavigatorFactoryOptions.Diagnostics.init -> void
+AdamE.AppNav.Navigation.RouterNavigatorFactoryOptions.FallbackRouteFactory.get -> System.Func<AdamE.AppNav.Navigation.NavigationFallbackContext!, AdamE.AppNav.AppRoute?>?
+AdamE.AppNav.Navigation.RouterNavigatorFactoryOptions.FallbackRouteFactory.init -> void
+AdamE.AppNav.Navigation.RouterNavigatorFactoryOptions.InitialState.get -> AdamE.AppNav.State.NavigationState?
+AdamE.AppNav.Navigation.RouterNavigatorFactoryOptions.InitialState.init -> void
+AdamE.AppNav.Navigation.RouterNavigatorFactoryOptions.Logger.get -> Microsoft.Extensions.Logging.ILogger?
+AdamE.AppNav.Navigation.RouterNavigatorFactoryOptions.Logger.init -> void
+AdamE.AppNav.Navigation.RouterNavigatorFactoryOptions.LoggerFactory.get -> Microsoft.Extensions.Logging.ILoggerFactory?
+AdamE.AppNav.Navigation.RouterNavigatorFactoryOptions.LoggerFactory.init -> void
+AdamE.AppNav.Navigation.RouterNavigatorFactoryOptions.MaxHistoryEntries.get -> int
+AdamE.AppNav.Navigation.RouterNavigatorFactoryOptions.MaxHistoryEntries.init -> void
+AdamE.AppNav.Navigation.RouterNavigatorFactoryOptions.MaxRedirects.get -> int
+AdamE.AppNav.Navigation.RouterNavigatorFactoryOptions.MaxRedirects.init -> void
+AdamE.AppNav.Navigation.RouterNavigatorFactoryOptions.RequestPolicies.get -> System.Collections.Generic.IReadOnlyList<AdamE.AppNav.Policies.INavigationRequestPolicy!>!
+AdamE.AppNav.Navigation.RouterNavigatorFactoryOptions.RequestPolicies.init -> void
+AdamE.AppNav.Navigation.RouterNavigatorFactoryOptions.RequestTransformers.get -> System.Collections.Generic.IReadOnlyList<AdamE.AppNav.Policies.INavigationRequestTransformer!>!
+AdamE.AppNav.Navigation.RouterNavigatorFactoryOptions.RequestTransformers.init -> void
+AdamE.AppNav.Navigation.RouterNavigatorFactoryOptions.RouterNavigatorFactoryOptions() -> void
+AdamE.AppNav.Planning.BranchHostNavigationModel<TRoute>
+AdamE.AppNav.Planning.BranchHostNavigationModel<TRoute>.CreateCanonicalState(TRoute! route, System.Collections.Generic.IReadOnlyDictionary<string!, object?>? metadata = null, string? windowId = null, string? branchHostId = null) -> AdamE.AppNav.State.NavigationState!
+AdamE.AppNav.Planning.BranchHostNavigationModel<TRoute>.CreateEntry(TRoute! route, System.Collections.Generic.IReadOnlyDictionary<string!, object?>? metadata = null) -> AdamE.AppNav.State.RouteEntry!
+AdamE.AppNav.Planning.BranchHostNavigationModel<TRoute>.TryCreateContextualState(AdamE.AppNav.State.NavigationState! currentState, TRoute! route, AdamE.AppNav.Planning.ContextualStackMutationKind mutation, System.Collections.Generic.IReadOnlyDictionary<string!, object?>? metadata = null) -> AdamE.AppNav.State.NavigationState?
+AdamE.AppNav.Planning.BranchHostNavigationModelBuilder<TRoute>
+AdamE.AppNav.Planning.BranchHostNavigationModelBuilder<TRoute>.Branch(string! branchId, string! title, System.Func<TRoute!, TRoute!>! rootRouteFactory) -> AdamE.AppNav.Planning.BranchHostNavigationModelBuilder<TRoute!>!
+AdamE.AppNav.Planning.BranchHostNavigationModelBuilder<TRoute>.BranchHostNavigationModelBuilder() -> void
+AdamE.AppNav.Planning.BranchHostNavigationModelBuilder<TRoute>.CanonicalSurface(string! windowId, string! branchHostId) -> AdamE.AppNav.Planning.BranchHostNavigationModelBuilder<TRoute!>!
+AdamE.AppNav.Planning.BranchHostNavigationModelBuilder<TRoute>.Map<TRouteSpecific>(string! branchId, System.Action<AdamE.AppNav.Planning.BranchHostRouteRecipeBuilder<TRoute!, TRouteSpecific!>!>! configure) -> AdamE.AppNav.Planning.BranchHostNavigationModelBuilder<TRoute!>!
+AdamE.AppNav.Planning.BranchHostRouteRecipeBuilder<TRouteBase, TRoute>
+AdamE.AppNav.Planning.BranchHostRouteRecipeBuilder<TRouteBase, TRoute>.Canonical(System.Func<TRoute!, System.Collections.Generic.IReadOnlyDictionary<string!, object?>?, System.Collections.Generic.IReadOnlyList<AdamE.AppNav.Planning.StackRouteStep<TRouteBase!>!>!>! canonicalFactory) -> AdamE.AppNav.Planning.BranchHostRouteRecipeBuilder<TRouteBase!, TRoute!>!
+AdamE.AppNav.Planning.BranchHostRouteRecipeBuilder<TRouteBase, TRoute>.ContextualEligibility(AdamE.AppNav.Planning.ContextualStackEligibility contextualEligibility) -> AdamE.AppNav.Planning.BranchHostRouteRecipeBuilder<TRouteBase!, TRoute!>!
+AdamE.AppNav.Planning.BranchHostRouteRecipeBuilder<TRouteBase, TRoute>.ContextualTail(System.Func<TRoute!, System.Collections.Generic.IReadOnlyDictionary<string!, object?>?, System.Collections.Generic.IReadOnlyList<AdamE.AppNav.Planning.StackRouteStep<TRouteBase!>!>!>! contextualTailFactory) -> AdamE.AppNav.Planning.BranchHostRouteRecipeBuilder<TRouteBase!, TRoute!>!
+AdamE.AppNav.Planning.BranchHostRouteRecipeBuilder<TRouteBase, TRoute>.EntryId(System.Func<TRoute!, string!>! entryIdFactory) -> AdamE.AppNav.Planning.BranchHostRouteRecipeBuilder<TRouteBase!, TRoute!>!
+AdamE.AppNav.Planning.BranchHostRouteRecipeBuilder<TRouteBase, TRoute>.ScopeKey(System.Func<TRoute!, string?>! scopeKeyFactory) -> AdamE.AppNav.Planning.BranchHostRouteRecipeBuilder<TRouteBase!, TRoute!>!
+AdamE.AppNav.Planning.BranchHostRouteRecipeBuilder<TRouteBase, TRoute>.SlotId(System.Func<TRoute!, string?>! slotIdFactory) -> AdamE.AppNav.Planning.BranchHostRouteRecipeBuilder<TRouteBase!, TRoute!>!
+AdamE.AppNav.Planning.ContextualStackEligibility
+AdamE.AppNav.Planning.ContextualStackEligibility.AnyScope = 1 -> AdamE.AppNav.Planning.ContextualStackEligibility
+AdamE.AppNav.Planning.ContextualStackEligibility.MatchingScope = 0 -> AdamE.AppNav.Planning.ContextualStackEligibility
+AdamE.AppNav.Planning.ContextualStackMutationKind
+AdamE.AppNav.Planning.ContextualStackMutationKind.Push = 0 -> AdamE.AppNav.Planning.ContextualStackMutationKind
+AdamE.AppNav.Planning.ContextualStackMutationKind.ReplaceTop = 1 -> AdamE.AppNav.Planning.ContextualStackMutationKind
+AdamE.AppNav.Planning.ContextualStackPushBehavior
+AdamE.AppNav.Planning.ContextualStackPushBehavior.AppendTail = 0 -> AdamE.AppNav.Planning.ContextualStackPushBehavior
+AdamE.AppNav.Planning.ContextualStackPushBehavior.ReplaceWithCanonicalStack = 1 -> AdamE.AppNav.Planning.ContextualStackPushBehavior
+AdamE.AppNav.Planning.INavigationModel<TRoute>
+AdamE.AppNav.Planning.INavigationModel<TRoute>.CreateCanonicalState(TRoute! route, System.Collections.Generic.IReadOnlyDictionary<string!, object?>? metadata = null, string? windowId = null, string? hostId = null) -> AdamE.AppNav.State.NavigationState!
+AdamE.AppNav.Planning.INavigationModel<TRoute>.TryCreateContextualState(AdamE.AppNav.State.NavigationState! currentState, TRoute! route, AdamE.AppNav.Planning.ContextualStackMutationKind mutation, System.Collections.Generic.IReadOnlyDictionary<string!, object?>? metadata = null) -> AdamE.AppNav.State.NavigationState?
+AdamE.AppNav.Planning.NavigationModelPlanner<TRoute>
+AdamE.AppNav.Planning.NavigationModelPlanner<TRoute>.CreatePlanAsync(AdamE.AppNav.Policies.NavigationPlanningContext! context, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<AdamE.AppNav.Plans.NavigationPlan!>
+AdamE.AppNav.Planning.NavigationModelPlanner<TRoute>.NavigationModelPlanner(AdamE.AppNav.Planning.INavigationModel<TRoute!>! model) -> void
+AdamE.AppNav.Planning.StackNavigationModel<TRoute>
+AdamE.AppNav.Planning.StackNavigationModel<TRoute>.CreateCanonicalState(TRoute! route, System.Collections.Generic.IReadOnlyDictionary<string!, object?>? metadata = null, string? windowId = null, string? stackId = null) -> AdamE.AppNav.State.NavigationState!
+AdamE.AppNav.Planning.StackNavigationModel<TRoute>.CreateEntry(TRoute! route, System.Collections.Generic.IReadOnlyDictionary<string!, object?>? metadata = null) -> AdamE.AppNav.State.RouteEntry!
+AdamE.AppNav.Planning.StackNavigationModel<TRoute>.TryCreateContextualState(AdamE.AppNav.State.NavigationState! currentState, TRoute! route, AdamE.AppNav.Planning.ContextualStackMutationKind mutation, System.Collections.Generic.IReadOnlyDictionary<string!, object?>? metadata = null) -> AdamE.AppNav.State.NavigationState?
+AdamE.AppNav.Planning.StackNavigationModelBuilder<TRoute>
+AdamE.AppNav.Planning.StackNavigationModelBuilder<TRoute>.CanonicalSurface(string! windowId, string! stackId) -> AdamE.AppNav.Planning.StackNavigationModelBuilder<TRoute!>!
+AdamE.AppNav.Planning.StackNavigationModelBuilder<TRoute>.Map<TRouteSpecific>(System.Action<AdamE.AppNav.Planning.StackRouteRecipeBuilder<TRoute!, TRouteSpecific!>!>! configure) -> AdamE.AppNav.Planning.StackNavigationModelBuilder<TRoute!>!
+AdamE.AppNav.Planning.StackNavigationModelBuilder<TRoute>.StackNavigationModelBuilder() -> void
+AdamE.AppNav.Planning.StackRouteRecipeBuilder<TRouteBase, TRoute>
+AdamE.AppNav.Planning.StackRouteRecipeBuilder<TRouteBase, TRoute>.Canonical(System.Func<TRoute!, System.Collections.Generic.IReadOnlyDictionary<string!, object?>?, System.Collections.Generic.IReadOnlyList<AdamE.AppNav.Planning.StackRouteStep<TRouteBase!>!>!>! canonicalFactory) -> AdamE.AppNav.Planning.StackRouteRecipeBuilder<TRouteBase!, TRoute!>!
+AdamE.AppNav.Planning.StackRouteRecipeBuilder<TRouteBase, TRoute>.ContextualEligibility(AdamE.AppNav.Planning.ContextualStackEligibility contextualEligibility) -> AdamE.AppNav.Planning.StackRouteRecipeBuilder<TRouteBase!, TRoute!>!
+AdamE.AppNav.Planning.StackRouteRecipeBuilder<TRouteBase, TRoute>.ContextualPushBehavior(AdamE.AppNav.Planning.ContextualStackPushBehavior contextualPushBehavior) -> AdamE.AppNav.Planning.StackRouteRecipeBuilder<TRouteBase!, TRoute!>!
+AdamE.AppNav.Planning.StackRouteRecipeBuilder<TRouteBase, TRoute>.ContextualTail(System.Func<TRoute!, System.Collections.Generic.IReadOnlyDictionary<string!, object?>?, System.Collections.Generic.IReadOnlyList<AdamE.AppNav.Planning.StackRouteStep<TRouteBase!>!>!>! contextualTailFactory) -> AdamE.AppNav.Planning.StackRouteRecipeBuilder<TRouteBase!, TRoute!>!
+AdamE.AppNav.Planning.StackRouteRecipeBuilder<TRouteBase, TRoute>.EntryId(System.Func<TRoute!, string!>! entryIdFactory) -> AdamE.AppNav.Planning.StackRouteRecipeBuilder<TRouteBase!, TRoute!>!
+AdamE.AppNav.Planning.StackRouteRecipeBuilder<TRouteBase, TRoute>.ScopeKey(System.Func<TRoute!, string?>! scopeKeyFactory) -> AdamE.AppNav.Planning.StackRouteRecipeBuilder<TRouteBase!, TRoute!>!
+AdamE.AppNav.Planning.StackRouteRecipeBuilder<TRouteBase, TRoute>.SlotId(System.Func<TRoute!, string?>! slotIdFactory) -> AdamE.AppNav.Planning.StackRouteRecipeBuilder<TRouteBase!, TRoute!>!
+AdamE.AppNav.Planning.StackRouteRecipeBuilder<TRouteBase, TRoute>.StackRouteRecipeBuilder() -> void
+AdamE.AppNav.Planning.StackRouteStep<TRoute>
+AdamE.AppNav.Planning.StackRouteStep<TRoute>.Metadata.get -> System.Collections.Generic.IReadOnlyDictionary<string!, object?>?
+AdamE.AppNav.Planning.StackRouteStep<TRoute>.Route.get -> TRoute!
+AdamE.AppNav.Planning.StackRouteStep<TRoute>.StackRouteStep(TRoute! route, System.Collections.Generic.IReadOnlyDictionary<string!, object?>? metadata = null) -> void
+AdamE.AppNav.Plans.NavigationPlan
+AdamE.AppNav.Plans.NavigationPlan.<Clone>$() -> AdamE.AppNav.Plans.NavigationPlan!
+AdamE.AppNav.Plans.NavigationPlan.Deconstruct(out AdamE.AppNav.State.NavigationState! TargetState, out AdamE.AppNav.Plans.NavigationPlanKind Kind, out string? Reason) -> void
+AdamE.AppNav.Plans.NavigationPlan.Equals(AdamE.AppNav.Plans.NavigationPlan? other) -> bool
+AdamE.AppNav.Plans.NavigationPlan.Kind.get -> AdamE.AppNav.Plans.NavigationPlanKind
+AdamE.AppNav.Plans.NavigationPlan.Kind.init -> void
+AdamE.AppNav.Plans.NavigationPlan.NavigationPlan(AdamE.AppNav.State.NavigationState! TargetState, AdamE.AppNav.Plans.NavigationPlanKind Kind = AdamE.AppNav.Plans.NavigationPlanKind.Navigate, string? Reason = null) -> void
+AdamE.AppNav.Plans.NavigationPlan.Reason.get -> string?
+AdamE.AppNav.Plans.NavigationPlan.Reason.init -> void
+AdamE.AppNav.Plans.NavigationPlan.TargetState.get -> AdamE.AppNav.State.NavigationState!
+AdamE.AppNav.Plans.NavigationPlan.TargetState.init -> void
+AdamE.AppNav.Plans.NavigationPlanKind
+AdamE.AppNav.Plans.NavigationPlanKind.Back = 1 -> AdamE.AppNav.Plans.NavigationPlanKind
+AdamE.AppNav.Plans.NavigationPlanKind.Navigate = 0 -> AdamE.AppNav.Plans.NavigationPlanKind
+AdamE.AppNav.Plans.NavigationPlanKind.Reconcile = 2 -> AdamE.AppNav.Plans.NavigationPlanKind
+AdamE.AppNav.Policies.AccessGateNavigationPolicy
+AdamE.AppNav.Policies.AccessGateNavigationPolicy.AccessGateNavigationPolicy(AdamE.AppNav.Policies.INavigationAccessEvaluator! evaluator, AdamE.AppNav.Requests.IDeferredNavigationRequestStore! deferredRequests) -> void
+AdamE.AppNav.Policies.AccessGateNavigationPolicy.ApplyAsync(AdamE.AppNav.Policies.NavigationRequestPolicyContext! context, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<AdamE.AppNav.Requests.RouterNavigationRequest!>
+AdamE.AppNav.Policies.IAppNavigationPlanner
+AdamE.AppNav.Policies.IAppNavigationPlanner.CreatePlanAsync(AdamE.AppNav.Policies.NavigationPlanningContext! context, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<AdamE.AppNav.Plans.NavigationPlan!>
+AdamE.AppNav.Policies.INavigationAccessEvaluator
+AdamE.AppNav.Policies.INavigationAccessEvaluator.EvaluateAsync(AdamE.AppNav.Policies.NavigationRequestPolicyContext! context, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<AdamE.AppNav.Policies.NavigationAccessDecision!>
+AdamE.AppNav.Policies.INavigationRequestPolicy
+AdamE.AppNav.Policies.INavigationRequestPolicy.ApplyAsync(AdamE.AppNav.Policies.NavigationRequestPolicyContext! context, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<AdamE.AppNav.Requests.RouterNavigationRequest!>
+AdamE.AppNav.Policies.INavigationRequestTransformer
+AdamE.AppNav.Policies.INavigationRequestTransformer.TransformAsync(AdamE.AppNav.Policies.NavigationRequestTransformContext! context, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<AdamE.AppNav.Requests.RouterNavigationRequest!>
+AdamE.AppNav.Policies.NavigationAccessDecision
+AdamE.AppNav.Policies.NavigationAccessDecision.<Clone>$() -> AdamE.AppNav.Policies.NavigationAccessDecision!
+AdamE.AppNav.Policies.NavigationAccessDecision.DeferOriginalRequest.get -> bool
+AdamE.AppNav.Policies.NavigationAccessDecision.Equals(AdamE.AppNav.Policies.NavigationAccessDecision? other) -> bool
+AdamE.AppNav.Policies.NavigationAccessDecision.IsAllowed.get -> bool
+AdamE.AppNav.Policies.NavigationAccessDecision.RedirectRequest.get -> AdamE.AppNav.Requests.RouterNavigationRequest?
+AdamE.AppNav.Policies.NavigationPlanningContext
+AdamE.AppNav.Policies.NavigationPlanningContext.<Clone>$() -> AdamE.AppNav.Policies.NavigationPlanningContext!
+AdamE.AppNav.Policies.NavigationPlanningContext.CurrentState.get -> AdamE.AppNav.State.NavigationState!
+AdamE.AppNav.Policies.NavigationPlanningContext.CurrentState.init -> void
+AdamE.AppNav.Policies.NavigationPlanningContext.Deconstruct(out AdamE.AppNav.Requests.RouterNavigationRequest! Request, out AdamE.AppNav.AppRoute! Route, out AdamE.AppNav.State.NavigationState! CurrentState, out string! OperationId) -> void
+AdamE.AppNav.Policies.NavigationPlanningContext.Equals(AdamE.AppNav.Policies.NavigationPlanningContext? other) -> bool
+AdamE.AppNav.Policies.NavigationPlanningContext.NavigationPlanningContext(AdamE.AppNav.Requests.RouterNavigationRequest! Request, AdamE.AppNav.AppRoute! Route, AdamE.AppNav.State.NavigationState! CurrentState, string! OperationId) -> void
+AdamE.AppNav.Policies.NavigationPlanningContext.OperationId.get -> string!
+AdamE.AppNav.Policies.NavigationPlanningContext.OperationId.init -> void
+AdamE.AppNav.Policies.NavigationPlanningContext.Request.get -> AdamE.AppNav.Requests.RouterNavigationRequest!
+AdamE.AppNav.Policies.NavigationPlanningContext.Request.init -> void
+AdamE.AppNav.Policies.NavigationPlanningContext.Route.get -> AdamE.AppNav.AppRoute!
+AdamE.AppNav.Policies.NavigationPlanningContext.Route.init -> void
+AdamE.AppNav.Policies.NavigationRequestPolicyContext
+AdamE.AppNav.Policies.NavigationRequestPolicyContext.<Clone>$() -> AdamE.AppNav.Policies.NavigationRequestPolicyContext!
+AdamE.AppNav.Policies.NavigationRequestPolicyContext.CurrentState.get -> AdamE.AppNav.State.NavigationState!
+AdamE.AppNav.Policies.NavigationRequestPolicyContext.Equals(AdamE.AppNav.Policies.NavigationRequestPolicyContext? other) -> bool
+AdamE.AppNav.Policies.NavigationRequestPolicyContext.NavigationRequestPolicyContext(AdamE.AppNav.Requests.RouterNavigationRequest! request, AdamE.AppNav.AppRoute! route, System.Collections.Generic.IReadOnlyDictionary<string!, object?>? routeMetadata, AdamE.AppNav.State.NavigationState! currentState, string! operationId) -> void
+AdamE.AppNav.Policies.NavigationRequestPolicyContext.OperationId.get -> string!
+AdamE.AppNav.Policies.NavigationRequestPolicyContext.Request.get -> AdamE.AppNav.Requests.RouterNavigationRequest!
+AdamE.AppNav.Policies.NavigationRequestPolicyContext.Route.get -> AdamE.AppNav.AppRoute!
+AdamE.AppNav.Policies.NavigationRequestPolicyContext.RouteMetadata.get -> System.Collections.Generic.IReadOnlyDictionary<string!, object?>!
+AdamE.AppNav.Policies.NavigationRequestTransformContext
+AdamE.AppNav.Policies.NavigationRequestTransformContext.<Clone>$() -> AdamE.AppNav.Policies.NavigationRequestTransformContext!
+AdamE.AppNav.Policies.NavigationRequestTransformContext.CurrentState.get -> AdamE.AppNav.State.NavigationState!
+AdamE.AppNav.Policies.NavigationRequestTransformContext.CurrentState.init -> void
+AdamE.AppNav.Policies.NavigationRequestTransformContext.Deconstruct(out AdamE.AppNav.Requests.RouterNavigationRequest! Request, out AdamE.AppNav.State.NavigationState! CurrentState, out string! OperationId) -> void
+AdamE.AppNav.Policies.NavigationRequestTransformContext.Equals(AdamE.AppNav.Policies.NavigationRequestTransformContext? other) -> bool
+AdamE.AppNav.Policies.NavigationRequestTransformContext.NavigationRequestTransformContext(AdamE.AppNav.Requests.RouterNavigationRequest! Request, AdamE.AppNav.State.NavigationState! CurrentState, string! OperationId) -> void
+AdamE.AppNav.Policies.NavigationRequestTransformContext.OperationId.get -> string!
+AdamE.AppNav.Policies.NavigationRequestTransformContext.OperationId.init -> void
+AdamE.AppNav.Policies.NavigationRequestTransformContext.Request.get -> AdamE.AppNav.Requests.RouterNavigationRequest!
+AdamE.AppNav.Policies.NavigationRequestTransformContext.Request.init -> void
+AdamE.AppNav.Policies.RoutePlannerNotFoundException
+AdamE.AppNav.Policies.RoutePlannerNotFoundException.RoutePlannerNotFoundException(System.Type! routeType) -> void
+AdamE.AppNav.Policies.RoutePlannerNotFoundException.RouteType.get -> System.Type!
+AdamE.AppNav.Presentation.INavigationPresenter
+AdamE.AppNav.Presentation.INavigationPresenter.ApplyAsync(AdamE.AppNav.Plans.NavigationPlan! plan, AdamE.AppNav.Presentation.NavigationPresentationContext! context, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+AdamE.AppNav.Presentation.INavigationPresenter.ReconciliationRequested -> System.EventHandler<AdamE.AppNav.Presentation.NavigationReconciliationRequestedEventArgs!>?
+AdamE.AppNav.Presentation.NavigationPresentationContext
+AdamE.AppNav.Presentation.NavigationPresentationContext.<Clone>$() -> AdamE.AppNav.Presentation.NavigationPresentationContext!
+AdamE.AppNav.Presentation.NavigationPresentationContext.CurrentState.get -> AdamE.AppNav.State.NavigationState!
+AdamE.AppNav.Presentation.NavigationPresentationContext.CurrentState.init -> void
+AdamE.AppNav.Presentation.NavigationPresentationContext.Deconstruct(out AdamE.AppNav.Requests.RouterNavigationRequest! Request, out AdamE.AppNav.AppRoute! Route, out AdamE.AppNav.State.NavigationState! CurrentState, out string! OperationId) -> void
+AdamE.AppNav.Presentation.NavigationPresentationContext.Equals(AdamE.AppNav.Presentation.NavigationPresentationContext? other) -> bool
+AdamE.AppNav.Presentation.NavigationPresentationContext.NavigationPresentationContext(AdamE.AppNav.Requests.RouterNavigationRequest! Request, AdamE.AppNav.AppRoute! Route, AdamE.AppNav.State.NavigationState! CurrentState, string! OperationId) -> void
+AdamE.AppNav.Presentation.NavigationPresentationContext.OperationId.get -> string!
+AdamE.AppNav.Presentation.NavigationPresentationContext.OperationId.init -> void
+AdamE.AppNav.Presentation.NavigationPresentationContext.Request.get -> AdamE.AppNav.Requests.RouterNavigationRequest!
+AdamE.AppNav.Presentation.NavigationPresentationContext.Request.init -> void
+AdamE.AppNav.Presentation.NavigationPresentationContext.Route.get -> AdamE.AppNav.AppRoute!
+AdamE.AppNav.Presentation.NavigationPresentationContext.Route.init -> void
+AdamE.AppNav.Presentation.NavigationReconciliation
+AdamE.AppNav.Presentation.NavigationReconciliation.<Clone>$() -> AdamE.AppNav.Presentation.NavigationReconciliation!
+AdamE.AppNav.Presentation.NavigationReconciliation.Deconstruct(out AdamE.AppNav.State.NavigationState! TargetState, out AdamE.AppNav.Presentation.NavigationReconciliationSource Source, out AdamE.AppNav.AppRoute? Route, out string? Reason) -> void
+AdamE.AppNav.Presentation.NavigationReconciliation.Equals(AdamE.AppNav.Presentation.NavigationReconciliation? other) -> bool
+AdamE.AppNav.Presentation.NavigationReconciliation.NavigationReconciliation(AdamE.AppNav.State.NavigationState! TargetState, AdamE.AppNav.Presentation.NavigationReconciliationSource Source, AdamE.AppNav.AppRoute? Route = null, string? Reason = null) -> void
+AdamE.AppNav.Presentation.NavigationReconciliation.Reason.get -> string?
+AdamE.AppNav.Presentation.NavigationReconciliation.Reason.init -> void
+AdamE.AppNav.Presentation.NavigationReconciliation.Route.get -> AdamE.AppNav.AppRoute?
+AdamE.AppNav.Presentation.NavigationReconciliation.Route.init -> void
+AdamE.AppNav.Presentation.NavigationReconciliation.Source.get -> AdamE.AppNav.Presentation.NavigationReconciliationSource
+AdamE.AppNav.Presentation.NavigationReconciliation.Source.init -> void
+AdamE.AppNav.Presentation.NavigationReconciliation.TargetState.get -> AdamE.AppNav.State.NavigationState!
+AdamE.AppNav.Presentation.NavigationReconciliation.TargetState.init -> void
+AdamE.AppNav.Presentation.NavigationReconciliationRequestedEventArgs
+AdamE.AppNav.Presentation.NavigationReconciliationRequestedEventArgs.NavigationReconciliationRequestedEventArgs(AdamE.AppNav.Presentation.NavigationReconciliation! reconciliation) -> void
+AdamE.AppNav.Presentation.NavigationReconciliationRequestedEventArgs.Reconciliation.get -> AdamE.AppNav.Presentation.NavigationReconciliation!
+AdamE.AppNav.Presentation.NavigationReconciliationSource
+AdamE.AppNav.Presentation.NavigationReconciliationSource.BranchChanged = 2 -> AdamE.AppNav.Presentation.NavigationReconciliationSource
+AdamE.AppNav.Presentation.NavigationReconciliationSource.HostBack = 0 -> AdamE.AppNav.Presentation.NavigationReconciliationSource
+AdamE.AppNav.Presentation.NavigationReconciliationSource.ModalDismissed = 1 -> AdamE.AppNav.Presentation.NavigationReconciliationSource
+AdamE.AppNav.Requests.DeferredNavigationReplayResult
+AdamE.AppNav.Requests.DeferredNavigationReplayResult.AttemptedCount.get -> int
+AdamE.AppNav.Requests.DeferredNavigationReplayResult.AttemptedCount.init -> void
+AdamE.AppNav.Requests.DeferredNavigationReplayResult.Deconstruct(out int AttemptedCount, out int ReplayedCount, out int FailedCount) -> void
+AdamE.AppNav.Requests.DeferredNavigationReplayResult.DeferredNavigationReplayResult() -> void
+AdamE.AppNav.Requests.DeferredNavigationReplayResult.DeferredNavigationReplayResult(int AttemptedCount, int ReplayedCount, int FailedCount) -> void
+AdamE.AppNav.Requests.DeferredNavigationReplayResult.Equals(AdamE.AppNav.Requests.DeferredNavigationReplayResult other) -> bool
+AdamE.AppNav.Requests.DeferredNavigationReplayResult.FailedCount.get -> int
+AdamE.AppNav.Requests.DeferredNavigationReplayResult.FailedCount.init -> void
+AdamE.AppNav.Requests.DeferredNavigationReplayResult.HadDeferredRequests.get -> bool
+AdamE.AppNav.Requests.DeferredNavigationReplayResult.ReplayedAny.get -> bool
+AdamE.AppNav.Requests.DeferredNavigationReplayResult.ReplayedCount.get -> int
+AdamE.AppNav.Requests.DeferredNavigationReplayResult.ReplayedCount.init -> void
+AdamE.AppNav.Requests.DeferredNavigationRequestPersistenceOptions
+AdamE.AppNav.Requests.DeferredNavigationRequestPersistenceOptions.BaseUri.get -> System.Uri!
+AdamE.AppNav.Requests.DeferredNavigationRequestPersistenceOptions.BaseUri.init -> void
+AdamE.AppNav.Requests.DeferredNavigationRequestPersistenceOptions.DeferredNavigationRequestPersistenceOptions() -> void
+AdamE.AppNav.Requests.DeferredNavigationRequestPersistenceOptions.MetadataSerializer.get -> AdamE.AppNav.Requests.INavigationRequestMetadataSerializer?
+AdamE.AppNav.Requests.DeferredNavigationRequestPersistenceOptions.MetadataSerializer.init -> void
+AdamE.AppNav.Requests.DeferredNavigationRequestPersistenceOptions.RouteStateRegistry.get -> AdamE.AppNav.RouteStateRegistry?
+AdamE.AppNav.Requests.DeferredNavigationRequestPersistenceOptions.RouteStateRegistry.init -> void
+AdamE.AppNav.Requests.DeferredNavigationRequestReplayer
+AdamE.AppNav.Requests.DeferredNavigationRequestReplayer.DeferredNavigationRequestReplayer(AdamE.AppNav.Requests.IDeferredNavigationRequestStore! deferredRequests, AdamE.AppNav.Navigation.IRouterNavigator! navigator, Microsoft.Extensions.Logging.ILogger<AdamE.AppNav.Requests.DeferredNavigationRequestReplayer!>? logger = null) -> void
+AdamE.AppNav.Requests.DeferredNavigationRequestReplayer.ReplayAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<AdamE.AppNav.Requests.DeferredNavigationReplayResult>
+AdamE.AppNav.Requests.DeferredNavigationRequestSerializer
+AdamE.AppNav.Requests.DeferredNavigationRequestSerializer.CreateSnapshot(System.Collections.Generic.IReadOnlyList<AdamE.AppNav.Requests.RouterNavigationRequest!>! requests) -> AdamE.AppNav.Requests.DeferredNavigationRequestStoreSnapshot!
+AdamE.AppNav.Requests.DeferredNavigationRequestSerializer.DeferredNavigationRequestSerializer(AdamE.AppNav.Routing.RouteTable! routes, AdamE.AppNav.Requests.DeferredNavigationRequestPersistenceOptions! options) -> void
+AdamE.AppNav.Requests.DeferredNavigationRequestSerializer.Restore(AdamE.AppNav.Requests.DeferredNavigationRequestStoreSnapshot! snapshot) -> System.Collections.Generic.IReadOnlyList<AdamE.AppNav.Requests.RouterNavigationRequest!>!
+AdamE.AppNav.Requests.DeferredNavigationRequestStoreSnapshot
+AdamE.AppNav.Requests.DeferredNavigationRequestStoreSnapshot.<Clone>$() -> AdamE.AppNav.Requests.DeferredNavigationRequestStoreSnapshot!
+AdamE.AppNav.Requests.DeferredNavigationRequestStoreSnapshot.DeferredNavigationRequestStoreSnapshot() -> void
+AdamE.AppNav.Requests.DeferredNavigationRequestStoreSnapshot.Equals(AdamE.AppNav.Requests.DeferredNavigationRequestStoreSnapshot? other) -> bool
+AdamE.AppNav.Requests.DeferredNavigationRequestStoreSnapshot.Requests.get -> System.Collections.Generic.IReadOnlyList<AdamE.AppNav.Requests.NavigationRequestSnapshot!>!
+AdamE.AppNav.Requests.DeferredNavigationRequestStoreSnapshot.Requests.init -> void
+AdamE.AppNav.Requests.DeferredNavigationRequestStoreSnapshot.SchemaVersion.get -> int
+AdamE.AppNav.Requests.DeferredNavigationRequestStoreSnapshot.SchemaVersion.init -> void
+AdamE.AppNav.Requests.IDeferredNavigationRequestLease
+AdamE.AppNav.Requests.IDeferredNavigationRequestLease.AcknowledgeAsync(int requestIndex, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+AdamE.AppNav.Requests.IDeferredNavigationRequestLease.Requests.get -> System.Collections.Generic.IReadOnlyList<AdamE.AppNav.Requests.RouterNavigationRequest!>!
+AdamE.AppNav.Requests.IDeferredNavigationRequestReplayer
+AdamE.AppNav.Requests.IDeferredNavigationRequestReplayer.ReplayAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<AdamE.AppNav.Requests.DeferredNavigationReplayResult>
+AdamE.AppNav.Requests.IDeferredNavigationRequestStore
+AdamE.AppNav.Requests.IDeferredNavigationRequestStore.AcquireReplayLeaseAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<AdamE.AppNav.Requests.IDeferredNavigationRequestLease!>
+AdamE.AppNav.Requests.IDeferredNavigationRequestStore.ClearAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+AdamE.AppNav.Requests.IDeferredNavigationRequestStore.EnqueueAsync(AdamE.AppNav.Requests.RouterNavigationRequest! request, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+AdamE.AppNav.Requests.IDeferredNavigationRequestStore.HasDeferredRequestsAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+AdamE.AppNav.Requests.INavigationRequestMetadataSerializer
+AdamE.AppNav.Requests.INavigationRequestMetadataSerializer.Deserialize(System.Collections.Generic.IReadOnlyDictionary<string!, object?>! metadata) -> System.Collections.Generic.IReadOnlyDictionary<string!, object?>?
+AdamE.AppNav.Requests.INavigationRequestMetadataSerializer.Serialize(System.Collections.Generic.IReadOnlyDictionary<string!, object?>! metadata) -> System.Collections.Generic.IReadOnlyDictionary<string!, object?>?
+AdamE.AppNav.Requests.InMemoryDeferredNavigationRequestStore
+AdamE.AppNav.Requests.InMemoryDeferredNavigationRequestStore.AcquireReplayLeaseAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<AdamE.AppNav.Requests.IDeferredNavigationRequestLease!>
+AdamE.AppNav.Requests.InMemoryDeferredNavigationRequestStore.ClearAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+AdamE.AppNav.Requests.InMemoryDeferredNavigationRequestStore.EnqueueAsync(AdamE.AppNav.Requests.RouterNavigationRequest! request, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+AdamE.AppNav.Requests.InMemoryDeferredNavigationRequestStore.HasDeferredRequestsAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+AdamE.AppNav.Requests.InMemoryDeferredNavigationRequestStore.InMemoryDeferredNavigationRequestStore() -> void
+AdamE.AppNav.Requests.InvalidDeferredNavigationRequestDataException
+AdamE.AppNav.Requests.InvalidDeferredNavigationRequestDataException.InvalidDeferredNavigationRequestDataException(int requestIndex, System.Exception! innerException) -> void
+AdamE.AppNav.Requests.InvalidDeferredNavigationRequestDataException.RequestIndex.get -> int
+AdamE.AppNav.Requests.NavigationMetadataValueSnapshot
+AdamE.AppNav.Requests.NavigationMetadataValueSnapshot.<Clone>$() -> AdamE.AppNav.Requests.NavigationMetadataValueSnapshot!
+AdamE.AppNav.Requests.NavigationMetadataValueSnapshot.Deconstruct(out string? Type, out string? Value, out bool IsNull) -> void
+AdamE.AppNav.Requests.NavigationMetadataValueSnapshot.Equals(AdamE.AppNav.Requests.NavigationMetadataValueSnapshot? other) -> bool
+AdamE.AppNav.Requests.NavigationMetadataValueSnapshot.IsNull.get -> bool
+AdamE.AppNav.Requests.NavigationMetadataValueSnapshot.IsNull.init -> void
+AdamE.AppNav.Requests.NavigationMetadataValueSnapshot.NavigationMetadataValueSnapshot(string? Type, string? Value, bool IsNull) -> void
+AdamE.AppNav.Requests.NavigationMetadataValueSnapshot.Type.get -> string?
+AdamE.AppNav.Requests.NavigationMetadataValueSnapshot.Type.init -> void
+AdamE.AppNav.Requests.NavigationMetadataValueSnapshot.Value.get -> string?
+AdamE.AppNav.Requests.NavigationMetadataValueSnapshot.Value.init -> void
+AdamE.AppNav.Requests.NavigationRequestProvenance
+AdamE.AppNav.Requests.NavigationRequestProvenance.<Clone>$() -> AdamE.AppNav.Requests.NavigationRequestProvenance!
+AdamE.AppNav.Requests.NavigationRequestProvenance.Attributes.get -> System.Collections.Generic.IReadOnlyDictionary<string!, string?>!
+AdamE.AppNav.Requests.NavigationRequestProvenance.Attributes.init -> void
+AdamE.AppNav.Requests.NavigationRequestProvenance.CorrelationId.get -> string?
+AdamE.AppNav.Requests.NavigationRequestProvenance.Equals(AdamE.AppNav.Requests.NavigationRequestProvenance? other) -> bool
+AdamE.AppNav.Requests.NavigationRequestProvenance.IsColdStart.get -> bool?
+AdamE.AppNav.Requests.NavigationRequestProvenance.NavigationRequestProvenance(string? provider = null, System.Uri? originalUri = null, System.Uri? referrerUri = null, string? correlationId = null, bool? isColdStart = null, System.Collections.Generic.IReadOnlyDictionary<string!, string?>? attributes = null) -> void
+AdamE.AppNav.Requests.NavigationRequestProvenance.OriginalUri.get -> System.Uri?
+AdamE.AppNav.Requests.NavigationRequestProvenance.OriginalUri.init -> void
+AdamE.AppNav.Requests.NavigationRequestProvenance.Provider.get -> string?
+AdamE.AppNav.Requests.NavigationRequestProvenance.ReferrerUri.get -> System.Uri?
+AdamE.AppNav.Requests.NavigationRequestProvenanceSnapshot
+AdamE.AppNav.Requests.NavigationRequestProvenanceSnapshot.<Clone>$() -> AdamE.AppNav.Requests.NavigationRequestProvenanceSnapshot!
+AdamE.AppNav.Requests.NavigationRequestProvenanceSnapshot.Deconstruct(out string? Provider) -> void
+AdamE.AppNav.Requests.NavigationRequestProvenanceSnapshot.Equals(AdamE.AppNav.Requests.NavigationRequestProvenanceSnapshot? other) -> bool
+AdamE.AppNav.Requests.NavigationRequestProvenanceSnapshot.NavigationRequestProvenanceSnapshot(string? Provider) -> void
+AdamE.AppNav.Requests.NavigationRequestProvenanceSnapshot.Provider.get -> string?
+AdamE.AppNav.Requests.NavigationRequestProvenanceSnapshot.Provider.init -> void
+AdamE.AppNav.Requests.NavigationRequestSnapshot
+AdamE.AppNav.Requests.NavigationRequestSnapshot.<Clone>$() -> AdamE.AppNav.Requests.NavigationRequestSnapshot!
+AdamE.AppNav.Requests.NavigationRequestSnapshot.Deconstruct(out string! RouteUri, out AdamE.AppNav.Requests.NavigationRequestSource Source, out string? WindowId, out System.Collections.Generic.IReadOnlyDictionary<string!, AdamE.AppNav.Requests.NavigationMetadataValueSnapshot!>? Metadata, out System.DateTimeOffset Timestamp, out AdamE.AppNav.Requests.RouterNavigationDisposition Disposition, out AdamE.AppNav.Requests.NavigationRequestProvenanceSnapshot? Provenance) -> void
+AdamE.AppNav.Requests.NavigationRequestSnapshot.Disposition.get -> AdamE.AppNav.Requests.RouterNavigationDisposition
+AdamE.AppNav.Requests.NavigationRequestSnapshot.Disposition.init -> void
+AdamE.AppNav.Requests.NavigationRequestSnapshot.Equals(AdamE.AppNav.Requests.NavigationRequestSnapshot? other) -> bool
+AdamE.AppNav.Requests.NavigationRequestSnapshot.Metadata.get -> System.Collections.Generic.IReadOnlyDictionary<string!, AdamE.AppNav.Requests.NavigationMetadataValueSnapshot!>?
+AdamE.AppNav.Requests.NavigationRequestSnapshot.Metadata.init -> void
+AdamE.AppNav.Requests.NavigationRequestSnapshot.NavigationRequestSnapshot(string! RouteUri, AdamE.AppNav.Requests.NavigationRequestSource Source, string? WindowId, System.Collections.Generic.IReadOnlyDictionary<string!, AdamE.AppNav.Requests.NavigationMetadataValueSnapshot!>? Metadata, System.DateTimeOffset Timestamp, AdamE.AppNav.Requests.RouterNavigationDisposition Disposition, AdamE.AppNav.Requests.NavigationRequestProvenanceSnapshot? Provenance) -> void
+AdamE.AppNav.Requests.NavigationRequestSnapshot.Provenance.get -> AdamE.AppNav.Requests.NavigationRequestProvenanceSnapshot?
+AdamE.AppNav.Requests.NavigationRequestSnapshot.Provenance.init -> void
+AdamE.AppNav.Requests.NavigationRequestSnapshot.RouteUri.get -> string!
+AdamE.AppNav.Requests.NavigationRequestSnapshot.RouteUri.init -> void
+AdamE.AppNav.Requests.NavigationRequestSnapshot.Source.get -> AdamE.AppNav.Requests.NavigationRequestSource
+AdamE.AppNav.Requests.NavigationRequestSnapshot.Source.init -> void
+AdamE.AppNav.Requests.NavigationRequestSnapshot.Timestamp.get -> System.DateTimeOffset
+AdamE.AppNav.Requests.NavigationRequestSnapshot.Timestamp.init -> void
+AdamE.AppNav.Requests.NavigationRequestSnapshot.WindowId.get -> string?
+AdamE.AppNav.Requests.NavigationRequestSnapshot.WindowId.init -> void
+AdamE.AppNav.Requests.NavigationRequestSource
+AdamE.AppNav.Requests.NavigationRequestSource.AppLink = 1 -> AdamE.AppNav.Requests.NavigationRequestSource
+AdamE.AppNav.Requests.NavigationRequestSource.HostReconciliation = 7 -> AdamE.AppNav.Requests.NavigationRequestSource
+AdamE.AppNav.Requests.NavigationRequestSource.InAppCommand = 4 -> AdamE.AppNav.Requests.NavigationRequestSource
+AdamE.AppNav.Requests.NavigationRequestSource.Push = 2 -> AdamE.AppNav.Requests.NavigationRequestSource
+AdamE.AppNav.Requests.NavigationRequestSource.QrCode = 3 -> AdamE.AppNav.Requests.NavigationRequestSource
+AdamE.AppNav.Requests.NavigationRequestSource.Test = 6 -> AdamE.AppNav.Requests.NavigationRequestSource
+AdamE.AppNav.Requests.NavigationRequestSource.Unknown = 0 -> AdamE.AppNav.Requests.NavigationRequestSource
+AdamE.AppNav.Requests.RouterNavigationDisposition
+AdamE.AppNav.Requests.RouterNavigationDisposition.Auto = 0 -> AdamE.AppNav.Requests.RouterNavigationDisposition
+AdamE.AppNav.Requests.RouterNavigationDisposition.Canonical = 2 -> AdamE.AppNav.Requests.RouterNavigationDisposition
+AdamE.AppNav.Requests.RouterNavigationDisposition.Contextual = 1 -> AdamE.AppNav.Requests.RouterNavigationDisposition
+AdamE.AppNav.Requests.RouterNavigationDisposition.ReplaceCurrent = 3 -> AdamE.AppNav.Requests.RouterNavigationDisposition
+AdamE.AppNav.Requests.RouterNavigationRequest
+AdamE.AppNav.Requests.RouterNavigationRequest.<Clone>$() -> AdamE.AppNav.Requests.RouterNavigationRequest!
+AdamE.AppNav.Requests.RouterNavigationRequest.Disposition.get -> AdamE.AppNav.Requests.RouterNavigationDisposition
+AdamE.AppNav.Requests.RouterNavigationRequest.Disposition.init -> void
+AdamE.AppNav.Requests.RouterNavigationRequest.Equals(AdamE.AppNav.Requests.RouterNavigationRequest? other) -> bool
+AdamE.AppNav.Requests.RouterNavigationRequest.Metadata.get -> System.Collections.Generic.IReadOnlyDictionary<string!, object?>!
+AdamE.AppNav.Requests.RouterNavigationRequest.Metadata.init -> void
+AdamE.AppNav.Requests.RouterNavigationRequest.Provenance.get -> AdamE.AppNav.Requests.NavigationRequestProvenance?
+AdamE.AppNav.Requests.RouterNavigationRequest.Provenance.init -> void
+AdamE.AppNav.Requests.RouterNavigationRequest.Route.get -> AdamE.AppNav.AppRoute?
+AdamE.AppNav.Requests.RouterNavigationRequest.Source.get -> AdamE.AppNav.Requests.NavigationRequestSource
+AdamE.AppNav.Requests.RouterNavigationRequest.Timestamp.get -> System.DateTimeOffset
+AdamE.AppNav.Requests.RouterNavigationRequest.Timestamp.init -> void
+AdamE.AppNav.Requests.RouterNavigationRequest.Uri.get -> System.Uri?
+AdamE.AppNav.Requests.RouterNavigationRequest.WindowId.get -> string?
+AdamE.AppNav.Requests.RouterNavigationRequest.WindowId.init -> void
+AdamE.AppNav.Requests.RouterNavigationRequest.WithTarget(AdamE.AppNav.AppRoute! route) -> AdamE.AppNav.Requests.RouterNavigationRequest!
+AdamE.AppNav.Requests.RouterNavigationRequest.WithTarget(System.Uri! uri) -> AdamE.AppNav.Requests.RouterNavigationRequest!
+AdamE.AppNav.Requests.UnsupportedDeferredNavigationRequestSchemaException
+AdamE.AppNav.Requests.UnsupportedDeferredNavigationRequestSchemaException.ActualVersion.get -> int
+AdamE.AppNav.Requests.UnsupportedDeferredNavigationRequestSchemaException.SupportedVersion.get -> int
+AdamE.AppNav.Requests.UnsupportedDeferredNavigationRequestSchemaException.UnsupportedDeferredNavigationRequestSchemaException(int actualVersion, int supportedVersion) -> void
+AdamE.AppNav.RouteStateLifetime
+AdamE.AppNav.RouteStateLifetime.Canonical = 0 -> AdamE.AppNav.RouteStateLifetime
+AdamE.AppNav.RouteStateLifetime.Ephemeral = 2 -> AdamE.AppNav.RouteStateLifetime
+AdamE.AppNav.RouteStateLifetime.Restorable = 1 -> AdamE.AppNav.RouteStateLifetime
+AdamE.AppNav.RouteStateRegistry
+AdamE.AppNav.RouteStateRegistry.Canonicalize(AdamE.AppNav.AppRouteRequest! request) -> AdamE.AppNav.AppRouteRequest!
+AdamE.AppNav.RouteStateRegistry.FilterKnown(System.Collections.Generic.IReadOnlyDictionary<string!, object?>! metadata) -> System.Collections.Generic.IReadOnlyDictionary<string!, object?>!
+AdamE.AppNav.RouteStateRegistry.FilterRestorable(System.Collections.Generic.IReadOnlyDictionary<string!, object?>! metadata) -> System.Collections.Generic.IReadOnlyDictionary<string!, object?>!
+AdamE.AppNav.RouteStateRegistryBuilder
+AdamE.AppNav.RouteStateRegistryBuilder.Canonical<TValue>(AdamE.AppNav.Routing.RouteMetadataKey<TValue>! key) -> AdamE.AppNav.RouteStateRegistryBuilder!
+AdamE.AppNav.RouteStateRegistryBuilder.Ephemeral<TValue>(AdamE.AppNav.Routing.RouteMetadataKey<TValue>! key) -> AdamE.AppNav.RouteStateRegistryBuilder!
+AdamE.AppNav.RouteStateRegistryBuilder.Restorable<TValue>(AdamE.AppNav.Routing.RouteMetadataKey<TValue>! key) -> AdamE.AppNav.RouteStateRegistryBuilder!
+AdamE.AppNav.RouteStateRegistryBuilder.RouteStateRegistryBuilder() -> void
+AdamE.AppNav.Routing.AppNavQueryAttribute
+AdamE.AppNav.Routing.AppNavQueryAttribute.AppNavQueryAttribute(string! propertyName) -> void
+AdamE.AppNav.Routing.AppNavQueryAttribute.Name.get -> string?
+AdamE.AppNav.Routing.AppNavQueryAttribute.Name.set -> void
+AdamE.AppNav.Routing.AppNavQueryAttribute.OmitWhenNull.get -> bool
+AdamE.AppNav.Routing.AppNavQueryAttribute.OmitWhenNull.set -> void
+AdamE.AppNav.Routing.AppNavQueryAttribute.PropertyName.get -> string!
+AdamE.AppNav.Routing.AppNavQueryMetadataAttribute
+AdamE.AppNav.Routing.AppNavQueryMetadataAttribute.AppNavQueryMetadataAttribute(System.Type! declaringType, string! memberName) -> void
+AdamE.AppNav.Routing.AppNavQueryMetadataAttribute.DeclaringType.get -> System.Type!
+AdamE.AppNav.Routing.AppNavQueryMetadataAttribute.MemberName.get -> string!
+AdamE.AppNav.Routing.AppNavQueryMetadataAttribute.OmitWhenNull.get -> bool
+AdamE.AppNav.Routing.AppNavQueryMetadataAttribute.OmitWhenNull.set -> void
+AdamE.AppNav.Routing.AppNavRouteAttribute
+AdamE.AppNav.Routing.AppNavRouteAttribute.AppNavRouteAttribute(string! template) -> void
+AdamE.AppNav.Routing.AppNavRouteAttribute.Template.get -> string!
+AdamE.AppNav.Routing.ConventionRouteBuilder<TRoute>
+AdamE.AppNav.Routing.ConventionRouteBuilder<TRoute>.ConventionRouteBuilder() -> void
+AdamE.AppNav.Routing.ConventionRouteBuilder<TRoute>.Query<TValue>(System.Linq.Expressions.Expression<System.Func<TRoute!, TValue>!>! member, bool omitWhenNull = true) -> AdamE.AppNav.Routing.ConventionRouteBuilder<TRoute!>!
+AdamE.AppNav.Routing.ConventionRouteBuilder<TRoute>.Query<TValue>(System.Linq.Expressions.Expression<System.Func<TRoute!, TValue>!>! member, string! name, bool omitWhenNull = true) -> AdamE.AppNav.Routing.ConventionRouteBuilder<TRoute!>!
+AdamE.AppNav.Routing.ConventionRouteBuilder<TRoute>.QueryMetadata<TValue>(AdamE.AppNav.Routing.RouteMetadataKey<TValue>! key, bool omitWhenNull = true) -> AdamE.AppNav.Routing.ConventionRouteBuilder<TRoute!>!
+AdamE.AppNav.Routing.IRouteTableModule
+AdamE.AppNav.Routing.IRouteTableModule.MapRoutes(AdamE.AppNav.Routing.RouteTableBuilder! routes) -> void
+AdamE.AppNav.Routing.RouteDefinition
+AdamE.AppNav.Routing.RouteDefinition.Order.get -> int
+AdamE.AppNav.Routing.RouteDefinition.RouteType.get -> System.Type!
+AdamE.AppNav.Routing.RouteDefinition.Template.get -> AdamE.AppNav.Routing.RouteTemplate!
+AdamE.AppNav.Routing.RouteDiagnostic
+AdamE.AppNav.Routing.RouteDiagnostic.<Clone>$() -> AdamE.AppNav.Routing.RouteDiagnostic!
+AdamE.AppNav.Routing.RouteDiagnostic.Code.get -> string!
+AdamE.AppNav.Routing.RouteDiagnostic.Code.init -> void
+AdamE.AppNav.Routing.RouteDiagnostic.Data.get -> System.Collections.Generic.IReadOnlyDictionary<string!, object?>!
+AdamE.AppNav.Routing.RouteDiagnostic.Deconstruct(out string! Code, out string! Message, out System.Collections.Generic.IReadOnlyDictionary<string!, object?>? Data) -> void
+AdamE.AppNav.Routing.RouteDiagnostic.Equals(AdamE.AppNav.Routing.RouteDiagnostic? other) -> bool
+AdamE.AppNav.Routing.RouteDiagnostic.Message.get -> string!
+AdamE.AppNav.Routing.RouteDiagnostic.Message.init -> void
+AdamE.AppNav.Routing.RouteDiagnostic.RouteDiagnostic(string! Code, string! Message, System.Collections.Generic.IReadOnlyDictionary<string!, object?>? Data = null) -> void
+AdamE.AppNav.Routing.RouteFormatBuilder<TRoute>
+AdamE.AppNav.Routing.RouteFormatBuilder<TRoute>.PathParam(string! name, System.Func<TRoute!, object?>! value) -> AdamE.AppNav.Routing.RouteFormatBuilder<TRoute!>!
+AdamE.AppNav.Routing.RouteFormatBuilder<TRoute>.QueryMetadata<TValue>(AdamE.AppNav.Routing.RouteMetadataKey<TValue>! key, bool omitWhenNull = true) -> AdamE.AppNav.Routing.RouteFormatBuilder<TRoute!>!
+AdamE.AppNav.Routing.RouteFormatBuilder<TRoute>.QueryParam(string! name, System.Func<TRoute!, object?>! value, bool omitWhenNull = true) -> AdamE.AppNav.Routing.RouteFormatBuilder<TRoute!>!
+AdamE.AppNav.Routing.RouteFormatBuilder<TRoute>.RouteFormatBuilder() -> void
+AdamE.AppNav.Routing.RouteMatchContext
+AdamE.AppNav.Routing.RouteMatchContext.AddMetadata(string! name, object? value, bool omitWhenNull = true) -> void
+AdamE.AppNav.Routing.RouteMatchContext.AddMetadata<T>(AdamE.AppNav.Routing.RouteMetadataKey<T>! key, T? value, bool omitWhenNull = true) -> void
+AdamE.AppNav.Routing.RouteMatchContext.ConvertValue<TValue>(string! value, string! name) -> TValue
+AdamE.AppNav.Routing.RouteMatchContext.Path(string! name) -> string!
+AdamE.AppNav.Routing.RouteMatchContext.Path<T>(string! name) -> T
+AdamE.AppNav.Routing.RouteMatchContext.PathOptional(string! name) -> string?
+AdamE.AppNav.Routing.RouteMatchContext.PathOptional<T>(string! name) -> T?
+AdamE.AppNav.Routing.RouteMatchContext.PathValues.get -> System.Collections.Generic.IReadOnlyDictionary<string!, string!>!
+AdamE.AppNav.Routing.RouteMatchContext.Query(string! name) -> string?
+AdamE.AppNav.Routing.RouteMatchContext.Query<T>(string! name) -> T?
+AdamE.AppNav.Routing.RouteMatchContext.QueryAll(string! name) -> System.Collections.Generic.IReadOnlyList<string!>!
+AdamE.AppNav.Routing.RouteMatchContext.QueryAll<T>(string! name) -> System.Collections.Generic.IReadOnlyList<T>!
+AdamE.AppNav.Routing.RouteMatchContext.QueryMetadata<T>(AdamE.AppNav.Routing.RouteMetadataKey<T>! key, bool omitWhenNull = true) -> T?
+AdamE.AppNav.Routing.RouteMatchContext.QueryValueLists.get -> System.Collections.Generic.IReadOnlyDictionary<string!, System.Collections.Generic.IReadOnlyList<string!>!>!
+AdamE.AppNav.Routing.RouteMatchContext.QueryValues.get -> System.Collections.Generic.IReadOnlyDictionary<string!, string!>!
+AdamE.AppNav.Routing.RouteMatchContext.SourceUri.get -> System.Uri!
+AdamE.AppNav.Routing.RouteMatchResult
+AdamE.AppNav.Routing.RouteMatchResult.<Clone>$() -> AdamE.AppNav.Routing.RouteMatchResult!
+AdamE.AppNav.Routing.RouteMatchResult.Deconstruct(out bool IsSuccess, out AdamE.AppNav.AppRoute? Route, out AdamE.AppNav.Routing.RouteDefinition? Definition, out System.Collections.Generic.IReadOnlyDictionary<string!, object?>! Metadata, out System.Collections.Generic.IReadOnlyList<AdamE.AppNav.Routing.RouteDiagnostic!>! Diagnostics) -> void
+AdamE.AppNav.Routing.RouteMatchResult.Definition.get -> AdamE.AppNav.Routing.RouteDefinition?
+AdamE.AppNav.Routing.RouteMatchResult.Definition.init -> void
+AdamE.AppNav.Routing.RouteMatchResult.Diagnostics.get -> System.Collections.Generic.IReadOnlyList<AdamE.AppNav.Routing.RouteDiagnostic!>!
+AdamE.AppNav.Routing.RouteMatchResult.Diagnostics.init -> void
+AdamE.AppNav.Routing.RouteMatchResult.Equals(AdamE.AppNav.Routing.RouteMatchResult? other) -> bool
+AdamE.AppNav.Routing.RouteMatchResult.IsSuccess.get -> bool
+AdamE.AppNav.Routing.RouteMatchResult.IsSuccess.init -> void
+AdamE.AppNav.Routing.RouteMatchResult.Metadata.get -> System.Collections.Generic.IReadOnlyDictionary<string!, object?>!
+AdamE.AppNav.Routing.RouteMatchResult.Metadata.init -> void
+AdamE.AppNav.Routing.RouteMatchResult.Route.get -> AdamE.AppNav.AppRoute?
+AdamE.AppNav.Routing.RouteMatchResult.Route.init -> void
+AdamE.AppNav.Routing.RouteMatchResult.RouteMatchResult(bool IsSuccess, AdamE.AppNav.AppRoute? Route, AdamE.AppNav.Routing.RouteDefinition? Definition, System.Collections.Generic.IReadOnlyDictionary<string!, object?>! Metadata, System.Collections.Generic.IReadOnlyList<AdamE.AppNav.Routing.RouteDiagnostic!>! Diagnostics) -> void
+AdamE.AppNav.Routing.RouteMetadataKey<TValue>
+AdamE.AppNav.Routing.RouteMetadataKey<TValue>.<Clone>$() -> AdamE.AppNav.Routing.RouteMetadataKey<TValue>!
+AdamE.AppNav.Routing.RouteMetadataKey<TValue>.Equals(AdamE.AppNav.Routing.RouteMetadataKey<TValue>? other) -> bool
+AdamE.AppNav.Routing.RouteMetadataKey<TValue>.Name.get -> string!
+AdamE.AppNav.Routing.RouteMetadataKey<TValue>.RouteMetadataKey(string! name) -> void
+AdamE.AppNav.Routing.RouteNotMatchedException
+AdamE.AppNav.Routing.RouteNotMatchedException.Diagnostics.get -> System.Collections.Generic.IReadOnlyList<AdamE.AppNav.Routing.RouteDiagnostic!>!
+AdamE.AppNav.Routing.RouteNotMatchedException.RouteNotMatchedException(System.Uri! uri, System.Collections.Generic.IReadOnlyList<AdamE.AppNav.Routing.RouteDiagnostic!>! diagnostics) -> void
+AdamE.AppNav.Routing.RouteNotMatchedException.Uri.get -> System.Uri!
+AdamE.AppNav.Routing.RouteTable
+AdamE.AppNav.Routing.RouteTable.Definitions.get -> System.Collections.Generic.IReadOnlyList<AdamE.AppNav.Routing.RouteDefinition!>!
+AdamE.AppNav.Routing.RouteTable.Format(AdamE.AppNav.AppRoute! route) -> string!
+AdamE.AppNav.Routing.RouteTable.Format(AdamE.AppNav.AppRoute! route, System.Collections.Generic.IReadOnlyDictionary<string!, object?>? metadata) -> string!
+AdamE.AppNav.Routing.RouteTable.Format(AdamE.AppNav.AppRouteRequest! routeRequest) -> string!
+AdamE.AppNav.Routing.RouteTable.FormatUri(AdamE.AppNav.AppRoute! route, System.Uri! baseUri) -> System.Uri!
+AdamE.AppNav.Routing.RouteTable.FormatUri(AdamE.AppNav.AppRoute! route, System.Uri! baseUri, System.Collections.Generic.IReadOnlyDictionary<string!, object?>? metadata) -> System.Uri!
+AdamE.AppNav.Routing.RouteTable.FormatUri(AdamE.AppNav.AppRouteRequest! routeRequest, System.Uri! baseUri) -> System.Uri!
+AdamE.AppNav.Routing.RouteTable.Match(System.Uri! uri) -> AdamE.AppNav.Routing.RouteMatchResult!
+AdamE.AppNav.Routing.RouteTableBuilder
+AdamE.AppNav.Routing.RouteTableBuilder.AddConstraint(string! name, System.Func<string!, bool>! matches, System.Collections.Generic.IEnumerable<string!>? disjointWith = null) -> AdamE.AppNav.Routing.RouteTableBuilder!
+AdamE.AppNav.Routing.RouteTableBuilder.AddEnumValueCodec<TEnum>() -> AdamE.AppNav.Routing.RouteTableBuilder!
+AdamE.AppNav.Routing.RouteTableBuilder.AddModule(AdamE.AppNav.Routing.IRouteTableModule! module) -> AdamE.AppNav.Routing.RouteTableBuilder!
+AdamE.AppNav.Routing.RouteTableBuilder.AddValueCodec<TValue>(System.Func<string!, TValue>! parse, System.Func<TValue, string!>! format) -> AdamE.AppNav.Routing.RouteTableBuilder!
+AdamE.AppNav.Routing.RouteTableBuilder.Build() -> AdamE.AppNav.Routing.RouteTable!
+AdamE.AppNav.Routing.RouteTableBuilder.Map<TRoute>(string! template, System.Func<AdamE.AppNav.Routing.RouteMatchContext!, TRoute!>! createRoute, System.Action<AdamE.AppNav.Routing.RouteFormatBuilder<TRoute!>!>? configureFormat = null) -> AdamE.AppNav.Routing.RouteTableBuilder!
+AdamE.AppNav.Routing.RouteTableBuilder.MapRoute<TRoute>(string! template, System.Action<AdamE.AppNav.Routing.ConventionRouteBuilder<TRoute!>!>? configure = null) -> AdamE.AppNav.Routing.RouteTableBuilder!
+AdamE.AppNav.Routing.RouteTableBuilder.RequireValueCodec<TValue>() -> AdamE.AppNav.Routing.RouteTableBuilder!
+AdamE.AppNav.Routing.RouteTableBuilder.RouteTableBuilder() -> void
+AdamE.AppNav.Routing.RouteTemplate
+AdamE.AppNav.Routing.RouteTemplate.Format(System.Collections.Generic.IReadOnlyDictionary<string!, string!>! pathValues) -> string!
+AdamE.AppNav.Routing.RouteTemplate.Match(string! path) -> System.Collections.Generic.IReadOnlyDictionary<string!, string!>?
+AdamE.AppNav.Routing.RouteTemplate.ParameterNames.get -> System.Collections.Generic.IReadOnlyList<string!>!
+AdamE.AppNav.Routing.RouteTemplate.Value.get -> string!
+AdamE.AppNav.State.BranchHostNode
+AdamE.AppNav.State.BranchHostNode.Branches.get -> System.Collections.Generic.IReadOnlyList<AdamE.AppNav.State.NavigationBranch!>!
+AdamE.AppNav.State.BranchHostNode.Branches.init -> void
+AdamE.AppNav.State.BranchHostNode.BranchHostNode(string! Id, System.Collections.Generic.IReadOnlyList<AdamE.AppNav.State.NavigationBranch!>! Branches, string! SelectedBranchId, string? DefaultBranchId = null) -> void
+AdamE.AppNav.State.BranchHostNode.DefaultBranchId.get -> string?
+AdamE.AppNav.State.BranchHostNode.DefaultBranchId.init -> void
+AdamE.AppNav.State.BranchHostNode.Equals(AdamE.AppNav.State.BranchHostNode? other) -> bool
+AdamE.AppNav.State.BranchHostNode.ReplaceBranch(AdamE.AppNav.State.NavigationBranch! branch) -> AdamE.AppNav.State.BranchHostNode!
+AdamE.AppNav.State.BranchHostNode.SelectedBranch.get -> AdamE.AppNav.State.NavigationBranch?
+AdamE.AppNav.State.BranchHostNode.SelectedBranchId.get -> string!
+AdamE.AppNav.State.BranchHostNode.SelectedBranchId.init -> void
+AdamE.AppNav.State.ModalNode
+AdamE.AppNav.State.ModalNode.Content.get -> AdamE.AppNav.State.NavigationNode?
+AdamE.AppNav.State.ModalNode.Content.init -> void
+AdamE.AppNav.State.ModalNode.Deconstruct(out string! Id, out AdamE.AppNav.State.RouteEntry! RouteEntry, out AdamE.AppNav.State.NavigationNode? Content) -> void
+AdamE.AppNav.State.ModalNode.Equals(AdamE.AppNav.State.ModalNode? other) -> bool
+AdamE.AppNav.State.ModalNode.ModalNode(string! Id, AdamE.AppNav.State.RouteEntry! RouteEntry, AdamE.AppNav.State.NavigationNode? Content = null) -> void
+AdamE.AppNav.State.ModalNode.RouteEntry.get -> AdamE.AppNav.State.RouteEntry!
+AdamE.AppNav.State.ModalNode.RouteEntry.init -> void
+AdamE.AppNav.State.NavigationBranch
+AdamE.AppNav.State.NavigationBranch.<Clone>$() -> AdamE.AppNav.State.NavigationBranch!
+AdamE.AppNav.State.NavigationBranch.Content.get -> AdamE.AppNav.State.NavigationNode!
+AdamE.AppNav.State.NavigationBranch.Content.init -> void
+AdamE.AppNav.State.NavigationBranch.Deconstruct(out string! Id, out string! Title, out AdamE.AppNav.State.NavigationNode! Content) -> void
+AdamE.AppNav.State.NavigationBranch.Equals(AdamE.AppNav.State.NavigationBranch? other) -> bool
+AdamE.AppNav.State.NavigationBranch.Id.get -> string!
+AdamE.AppNav.State.NavigationBranch.Id.init -> void
+AdamE.AppNav.State.NavigationBranch.NavigationBranch(string! Id, string! Title, AdamE.AppNav.State.NavigationNode! Content) -> void
+AdamE.AppNav.State.NavigationBranch.Title.get -> string!
+AdamE.AppNav.State.NavigationBranch.Title.init -> void
+AdamE.AppNav.State.NavigationNode
+AdamE.AppNav.State.NavigationNode.Id.get -> string!
+AdamE.AppNav.State.NavigationNode.Id.init -> void
+AdamE.AppNav.State.NavigationNode.NavigationNode(AdamE.AppNav.State.NavigationNode! original) -> void
+AdamE.AppNav.State.NavigationState
+AdamE.AppNav.State.NavigationState.<Clone>$() -> AdamE.AppNav.State.NavigationState!
+AdamE.AppNav.State.NavigationState.ActiveWindow.get -> AdamE.AppNav.State.WindowNode?
+AdamE.AppNav.State.NavigationState.ActiveWindowId.get -> string?
+AdamE.AppNav.State.NavigationState.ActiveWindowId.init -> void
+AdamE.AppNav.State.NavigationState.Equals(AdamE.AppNav.State.NavigationState? other) -> bool
+AdamE.AppNav.State.NavigationState.FindWindow(string? id) -> AdamE.AppNav.State.WindowNode?
+AdamE.AppNav.State.NavigationState.NavigationState(System.Collections.Generic.IReadOnlyList<AdamE.AppNav.State.WindowNode!>! Windows, string? ActiveWindowId = null) -> void
+AdamE.AppNav.State.NavigationState.ReplaceWindow(AdamE.AppNav.State.WindowNode! window) -> AdamE.AppNav.State.NavigationState!
+AdamE.AppNav.State.NavigationState.Windows.get -> System.Collections.Generic.IReadOnlyList<AdamE.AppNav.State.WindowNode!>!
+AdamE.AppNav.State.NavigationState.Windows.init -> void
+AdamE.AppNav.State.RouteEntry
+AdamE.AppNav.State.RouteEntry.<Clone>$() -> AdamE.AppNav.State.RouteEntry!
+AdamE.AppNav.State.RouteEntry.Equals(AdamE.AppNav.State.RouteEntry? other) -> bool
+AdamE.AppNav.State.RouteEntry.Id.get -> string!
+AdamE.AppNav.State.RouteEntry.Id.init -> void
+AdamE.AppNav.State.RouteEntry.Metadata.get -> System.Collections.Generic.IReadOnlyDictionary<string!, object?>?
+AdamE.AppNav.State.RouteEntry.Route.get -> AdamE.AppNav.AppRoute!
+AdamE.AppNav.State.RouteEntry.Route.init -> void
+AdamE.AppNav.State.RouteEntry.RouteEntry(string! Id, AdamE.AppNav.AppRoute! Route, System.Collections.Generic.IReadOnlyDictionary<string!, object?>? Metadata = null) -> void
+AdamE.AppNav.State.StackNode
+AdamE.AppNav.State.StackNode.Entries.get -> System.Collections.Generic.IReadOnlyList<AdamE.AppNav.State.RouteEntry!>!
+AdamE.AppNav.State.StackNode.Entries.init -> void
+AdamE.AppNav.State.StackNode.Equals(AdamE.AppNav.State.StackNode? other) -> bool
+AdamE.AppNav.State.StackNode.StackNode(string! Id, System.Collections.Generic.IReadOnlyList<AdamE.AppNav.State.RouteEntry!>! Entries) -> void
+AdamE.AppNav.State.StackNode.Top.get -> AdamE.AppNav.State.RouteEntry?
+AdamE.AppNav.State.WindowNode
+AdamE.AppNav.State.WindowNode.Equals(AdamE.AppNav.State.WindowNode? other) -> bool
+AdamE.AppNav.State.WindowNode.Modals.get -> System.Collections.Generic.IReadOnlyList<AdamE.AppNav.State.ModalNode!>!
+AdamE.AppNav.State.WindowNode.Modals.init -> void
+AdamE.AppNav.State.WindowNode.Root.get -> AdamE.AppNav.State.NavigationNode?
+AdamE.AppNav.State.WindowNode.Root.init -> void
+AdamE.AppNav.State.WindowNode.WindowNode(string! Id, AdamE.AppNav.State.NavigationNode? Root = null, System.Collections.Generic.IReadOnlyList<AdamE.AppNav.State.ModalNode!>? Modals = null) -> void
+const AdamE.AppNav.Diagnostics.NavigationActivitySources.DefaultName = "AdamE.AppNav" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.AppLinkGraceMs = "appLinkGraceMs" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.BranchId = "branchId" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.CandidateCount = "candidateCount" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.Count = "count" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.DispatchAttempt = "dispatchAttempt" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.DurationMs = "durationMs" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.ExceptionMessage = "exceptionMessage" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.ExceptionType = "exceptionType" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.ExternalNavigationReason = "externalNavigationReason" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.HandlerName = "handlerName" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.HostId = "hostId" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.MaximumDispatchAttempts = "maximumDispatchAttempts" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.ModalId = "modalId" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.OriginalKind = "originalKind" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.PageType = "pageType" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.Path = "path" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.PendingRequestCount = "pendingRequestCount" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.PlanKind = "planKind" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.Platform = "platform" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.PolicyType = "policyType" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.PresentationActual = "presentationActual" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.PresentationExpected = "presentationExpected" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.PresentationOwnerRouteEntryId = "presentationOwnerRouteEntryId" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.PresentationPageKey = "presentationPageKey" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.PresentationPath = "presentationPath" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.ProvenanceAttributes = "provenanceAttributes" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.ProvenanceCorrelationId = "provenanceCorrelationId" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.ProvenanceIsColdStart = "provenanceIsColdStart" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.ProvenanceOriginalUri = "provenanceOriginalUri" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.ProvenanceProvider = "provenanceProvider" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.ProvenanceReferrerUri = "provenanceReferrerUri" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.Reason = "reason" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.ReconciliationSource = "reconciliationSource" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.RedirectCount = "redirectCount" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.RedirectFrom = "redirectFrom" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.RedirectTo = "redirectTo" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.RedirectTrace = "redirectTrace" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.RequestDisposition = "requestDisposition" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.RequestSource = "requestSource" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.RequestTransformerType = "requestTransformerType" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.RetryDelayMs = "retryDelayMs" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.RouteDiagnosticCode = "routeDiagnosticCode" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.RouteDiagnosticMessage = "routeDiagnosticMessage" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.RouteEntryId = "routeEntryId" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.RouteTemplate = "routeTemplate" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.RouteType = "routeType" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.SchemaVersion = "schemaVersion" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.StartupDeferredRequestPending = "startupDeferredRequestPending" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.StartupOutcome = "startupOutcome" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.Uri = "uri" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.WindowId = "windowId" -> string!
+const AdamE.AppNav.Requests.DeferredNavigationRequestStoreSnapshot.CurrentSchemaVersion = 3 -> int
+override AdamE.AppNav.AppRoute.Equals(object? obj) -> bool
+override AdamE.AppNav.AppRoute.GetHashCode() -> int
+override AdamE.AppNav.AppRoute.ToString() -> string!
+override AdamE.AppNav.AppRouteRequest.Equals(object? obj) -> bool
+override AdamE.AppNav.AppRouteRequest.GetHashCode() -> int
+override AdamE.AppNav.AppRouteRequest.ToString() -> string!
+override AdamE.AppNav.Back.BackNavigationContext.Equals(object? obj) -> bool
+override AdamE.AppNav.Back.BackNavigationContext.GetHashCode() -> int
+override AdamE.AppNav.Back.BackNavigationContext.ToString() -> string!
+override AdamE.AppNav.Back.BackNavigationOptions.Equals(object? obj) -> bool
+override AdamE.AppNav.Back.BackNavigationOptions.GetHashCode() -> int
+override AdamE.AppNav.Back.BackNavigationOptions.ToString() -> string!
+override AdamE.AppNav.Diagnostics.NavigationDiagnosticEvent.Equals(object? obj) -> bool
+override AdamE.AppNav.Diagnostics.NavigationDiagnosticEvent.GetHashCode() -> int
+override AdamE.AppNav.Diagnostics.NavigationDiagnosticEvent.ToString() -> string!
+override AdamE.AppNav.History.NavigationHistoryEntry.Equals(object? obj) -> bool
+override AdamE.AppNav.History.NavigationHistoryEntry.GetHashCode() -> int
+override AdamE.AppNav.History.NavigationHistoryEntry.ToString() -> string!
+override AdamE.AppNav.Navigation.BackNavigationResult.GetHashCode() -> int
+override AdamE.AppNav.Navigation.NavigationFallbackContext.Equals(object? obj) -> bool
+override AdamE.AppNav.Navigation.NavigationFallbackContext.GetHashCode() -> int
+override AdamE.AppNav.Navigation.NavigationFallbackContext.ToString() -> string!
+override AdamE.AppNav.Navigation.NavigationResult.Equals(object? obj) -> bool
+override AdamE.AppNav.Navigation.NavigationResult.GetHashCode() -> int
+override AdamE.AppNav.Navigation.NavigationResult.ToString() -> string!
+override AdamE.AppNav.Planning.StackRouteStep<TRoute>.Equals(object? obj) -> bool
+override AdamE.AppNav.Planning.StackRouteStep<TRoute>.GetHashCode() -> int
+override AdamE.AppNav.Planning.StackRouteStep<TRoute>.ToString() -> string!
+override AdamE.AppNav.Plans.NavigationPlan.Equals(object? obj) -> bool
+override AdamE.AppNav.Plans.NavigationPlan.GetHashCode() -> int
+override AdamE.AppNav.Plans.NavigationPlan.ToString() -> string!
+override AdamE.AppNav.Policies.NavigationAccessDecision.Equals(object? obj) -> bool
+override AdamE.AppNav.Policies.NavigationAccessDecision.GetHashCode() -> int
+override AdamE.AppNav.Policies.NavigationAccessDecision.ToString() -> string!
+override AdamE.AppNav.Policies.NavigationPlanningContext.Equals(object? obj) -> bool
+override AdamE.AppNav.Policies.NavigationPlanningContext.GetHashCode() -> int
+override AdamE.AppNav.Policies.NavigationPlanningContext.ToString() -> string!
+override AdamE.AppNav.Policies.NavigationRequestPolicyContext.Equals(object? obj) -> bool
+override AdamE.AppNav.Policies.NavigationRequestPolicyContext.GetHashCode() -> int
+override AdamE.AppNav.Policies.NavigationRequestPolicyContext.ToString() -> string!
+override AdamE.AppNav.Policies.NavigationRequestTransformContext.Equals(object? obj) -> bool
+override AdamE.AppNav.Policies.NavigationRequestTransformContext.GetHashCode() -> int
+override AdamE.AppNav.Policies.NavigationRequestTransformContext.ToString() -> string!
+override AdamE.AppNav.Presentation.NavigationPresentationContext.Equals(object? obj) -> bool
+override AdamE.AppNav.Presentation.NavigationPresentationContext.GetHashCode() -> int
+override AdamE.AppNav.Presentation.NavigationPresentationContext.ToString() -> string!
+override AdamE.AppNav.Presentation.NavigationReconciliation.Equals(object? obj) -> bool
+override AdamE.AppNav.Presentation.NavigationReconciliation.GetHashCode() -> int
+override AdamE.AppNav.Presentation.NavigationReconciliation.ToString() -> string!
+override AdamE.AppNav.Requests.DeferredNavigationReplayResult.GetHashCode() -> int
+override AdamE.AppNav.Requests.DeferredNavigationRequestStoreSnapshot.Equals(object? obj) -> bool
+override AdamE.AppNav.Requests.DeferredNavigationRequestStoreSnapshot.GetHashCode() -> int
+override AdamE.AppNav.Requests.DeferredNavigationRequestStoreSnapshot.ToString() -> string!
+override AdamE.AppNav.Requests.NavigationMetadataValueSnapshot.Equals(object? obj) -> bool
+override AdamE.AppNav.Requests.NavigationMetadataValueSnapshot.GetHashCode() -> int
+override AdamE.AppNav.Requests.NavigationMetadataValueSnapshot.ToString() -> string!
+override AdamE.AppNav.Requests.NavigationRequestProvenance.Equals(object? obj) -> bool
+override AdamE.AppNav.Requests.NavigationRequestProvenance.GetHashCode() -> int
+override AdamE.AppNav.Requests.NavigationRequestProvenance.ToString() -> string!
+override AdamE.AppNav.Requests.NavigationRequestProvenanceSnapshot.Equals(object? obj) -> bool
+override AdamE.AppNav.Requests.NavigationRequestProvenanceSnapshot.GetHashCode() -> int
+override AdamE.AppNav.Requests.NavigationRequestProvenanceSnapshot.ToString() -> string!
+override AdamE.AppNav.Requests.NavigationRequestSnapshot.Equals(object? obj) -> bool
+override AdamE.AppNav.Requests.NavigationRequestSnapshot.GetHashCode() -> int
+override AdamE.AppNav.Requests.NavigationRequestSnapshot.ToString() -> string!
+override AdamE.AppNav.Requests.RouterNavigationRequest.Equals(object? obj) -> bool
+override AdamE.AppNav.Requests.RouterNavigationRequest.GetHashCode() -> int
+override AdamE.AppNav.Requests.RouterNavigationRequest.ToString() -> string!
+override AdamE.AppNav.Routing.RouteDiagnostic.Equals(object? obj) -> bool
+override AdamE.AppNav.Routing.RouteDiagnostic.GetHashCode() -> int
+override AdamE.AppNav.Routing.RouteDiagnostic.ToString() -> string!
+override AdamE.AppNav.Routing.RouteMatchResult.Equals(object? obj) -> bool
+override AdamE.AppNav.Routing.RouteMatchResult.GetHashCode() -> int
+override AdamE.AppNav.Routing.RouteMatchResult.ToString() -> string!
+override AdamE.AppNav.Routing.RouteMetadataKey<TValue>.Equals(object? obj) -> bool
+override AdamE.AppNav.Routing.RouteMetadataKey<TValue>.GetHashCode() -> int
+override AdamE.AppNav.Routing.RouteMetadataKey<TValue>.ToString() -> string!
+override AdamE.AppNav.State.BranchHostNode.<Clone>$() -> AdamE.AppNav.State.BranchHostNode!
+override AdamE.AppNav.State.BranchHostNode.Equals(object? obj) -> bool
+override AdamE.AppNav.State.BranchHostNode.GetHashCode() -> int
+override AdamE.AppNav.State.BranchHostNode.ToString() -> string!
+override AdamE.AppNav.State.ModalNode.<Clone>$() -> AdamE.AppNav.State.ModalNode!
+override AdamE.AppNav.State.ModalNode.Equals(object? obj) -> bool
+override AdamE.AppNav.State.ModalNode.GetHashCode() -> int
+override AdamE.AppNav.State.ModalNode.ToString() -> string!
+override AdamE.AppNav.State.NavigationBranch.Equals(object? obj) -> bool
+override AdamE.AppNav.State.NavigationBranch.GetHashCode() -> int
+override AdamE.AppNav.State.NavigationBranch.ToString() -> string!
+override AdamE.AppNav.State.NavigationNode.Equals(object? obj) -> bool
+override AdamE.AppNav.State.NavigationNode.GetHashCode() -> int
+override AdamE.AppNav.State.NavigationNode.ToString() -> string!
+override AdamE.AppNav.State.NavigationState.Equals(object? obj) -> bool
+override AdamE.AppNav.State.NavigationState.GetHashCode() -> int
+override AdamE.AppNav.State.NavigationState.ToString() -> string!
+override AdamE.AppNav.State.RouteEntry.Equals(object? obj) -> bool
+override AdamE.AppNav.State.RouteEntry.GetHashCode() -> int
+override AdamE.AppNav.State.RouteEntry.ToString() -> string!
+override AdamE.AppNav.State.StackNode.<Clone>$() -> AdamE.AppNav.State.StackNode!
+override AdamE.AppNav.State.StackNode.Equals(object? obj) -> bool
+override AdamE.AppNav.State.StackNode.GetHashCode() -> int
+override AdamE.AppNav.State.StackNode.ToString() -> string!
+override AdamE.AppNav.State.WindowNode.<Clone>$() -> AdamE.AppNav.State.WindowNode!
+override AdamE.AppNav.State.WindowNode.Equals(object? obj) -> bool
+override AdamE.AppNav.State.WindowNode.GetHashCode() -> int
+override AdamE.AppNav.State.WindowNode.ToString() -> string!
+override sealed AdamE.AppNav.State.BranchHostNode.Equals(AdamE.AppNav.State.NavigationNode? other) -> bool
+override sealed AdamE.AppNav.State.ModalNode.Equals(AdamE.AppNav.State.NavigationNode? other) -> bool
+override sealed AdamE.AppNav.State.StackNode.Equals(AdamE.AppNav.State.NavigationNode? other) -> bool
+override sealed AdamE.AppNav.State.WindowNode.Equals(AdamE.AppNav.State.NavigationNode? other) -> bool
+static AdamE.AppNav.AppRoute.operator !=(AdamE.AppNav.AppRoute? left, AdamE.AppNav.AppRoute? right) -> bool
+static AdamE.AppNav.AppRoute.operator ==(AdamE.AppNav.AppRoute? left, AdamE.AppNav.AppRoute? right) -> bool
+static AdamE.AppNav.AppRouteRequest.For(AdamE.AppNav.AppRoute! route) -> AdamE.AppNav.AppRouteRequest!
+static AdamE.AppNav.AppRouteRequest.operator !=(AdamE.AppNav.AppRouteRequest? left, AdamE.AppNav.AppRouteRequest? right) -> bool
+static AdamE.AppNav.AppRouteRequest.operator ==(AdamE.AppNav.AppRouteRequest? left, AdamE.AppNav.AppRouteRequest? right) -> bool
+static AdamE.AppNav.Back.BackNavigationContext.operator !=(AdamE.AppNav.Back.BackNavigationContext? left, AdamE.AppNav.Back.BackNavigationContext? right) -> bool
+static AdamE.AppNav.Back.BackNavigationContext.operator ==(AdamE.AppNav.Back.BackNavigationContext? left, AdamE.AppNav.Back.BackNavigationContext? right) -> bool
+static AdamE.AppNav.Back.BackNavigationOptions.Default.get -> AdamE.AppNav.Back.BackNavigationOptions!
+static AdamE.AppNav.Back.BackNavigationOptions.operator !=(AdamE.AppNav.Back.BackNavigationOptions? left, AdamE.AppNav.Back.BackNavigationOptions? right) -> bool
+static AdamE.AppNav.Back.BackNavigationOptions.operator ==(AdamE.AppNav.Back.BackNavigationOptions? left, AdamE.AppNav.Back.BackNavigationOptions? right) -> bool
+static AdamE.AppNav.Diagnostics.NavigationActivitySources.Default.get -> System.Diagnostics.ActivitySource!
+static AdamE.AppNav.Diagnostics.NavigationDiagnosticEvent.operator !=(AdamE.AppNav.Diagnostics.NavigationDiagnosticEvent? left, AdamE.AppNav.Diagnostics.NavigationDiagnosticEvent? right) -> bool
+static AdamE.AppNav.Diagnostics.NavigationDiagnosticEvent.operator ==(AdamE.AppNav.Diagnostics.NavigationDiagnosticEvent? left, AdamE.AppNav.Diagnostics.NavigationDiagnosticEvent? right) -> bool
+static AdamE.AppNav.Diagnostics.NavigationDiagnostics.None.get -> AdamE.AppNav.Diagnostics.NavigationDiagnostics!
+static AdamE.AppNav.History.NavigationHistory.Empty.get -> AdamE.AppNav.History.NavigationHistory!
+static AdamE.AppNav.History.NavigationHistoryEntry.operator !=(AdamE.AppNav.History.NavigationHistoryEntry? left, AdamE.AppNav.History.NavigationHistoryEntry? right) -> bool
+static AdamE.AppNav.History.NavigationHistoryEntry.operator ==(AdamE.AppNav.History.NavigationHistoryEntry? left, AdamE.AppNav.History.NavigationHistoryEntry? right) -> bool
+static AdamE.AppNav.Navigation.BackNavigationResult.HandledBy(AdamE.AppNav.Navigation.NavigationResult! result) -> AdamE.AppNav.Navigation.BackNavigationResult
+static AdamE.AppNav.Navigation.BackNavigationResult.operator !=(AdamE.AppNav.Navigation.BackNavigationResult left, AdamE.AppNav.Navigation.BackNavigationResult right) -> bool
+static AdamE.AppNav.Navigation.BackNavigationResult.operator ==(AdamE.AppNav.Navigation.BackNavigationResult left, AdamE.AppNav.Navigation.BackNavigationResult right) -> bool
+static AdamE.AppNav.Navigation.BackNavigationResult.Unhandled.get -> AdamE.AppNav.Navigation.BackNavigationResult
+static AdamE.AppNav.Navigation.NavigationFallbackContext.operator !=(AdamE.AppNav.Navigation.NavigationFallbackContext? left, AdamE.AppNav.Navigation.NavigationFallbackContext? right) -> bool
+static AdamE.AppNav.Navigation.NavigationFallbackContext.operator ==(AdamE.AppNav.Navigation.NavigationFallbackContext? left, AdamE.AppNav.Navigation.NavigationFallbackContext? right) -> bool
+static AdamE.AppNav.Navigation.NavigationResult.operator !=(AdamE.AppNav.Navigation.NavigationResult? left, AdamE.AppNav.Navigation.NavigationResult? right) -> bool
+static AdamE.AppNav.Navigation.NavigationResult.operator ==(AdamE.AppNav.Navigation.NavigationResult? left, AdamE.AppNav.Navigation.NavigationResult? right) -> bool
+static AdamE.AppNav.Navigation.RouterNavigatorExtensions.NavigateAsync(this AdamE.AppNav.Navigation.IRouterNavigator! navigator, AdamE.AppNav.AppRoute! route, AdamE.AppNav.Requests.RouterNavigationDisposition disposition, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<AdamE.AppNav.Navigation.NavigationResult!>
+static AdamE.AppNav.Navigation.RouterNavigatorExtensions.NavigateAsync(this AdamE.AppNav.Navigation.IRouterNavigator! navigator, AdamE.AppNav.AppRoute! route, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<AdamE.AppNav.Navigation.NavigationResult!>
+static AdamE.AppNav.Navigation.RouterNavigatorExtensions.NavigateAsync(this AdamE.AppNav.Navigation.IRouterNavigator! navigator, AdamE.AppNav.AppRouteRequest! routeRequest, AdamE.AppNav.Requests.RouterNavigationDisposition disposition, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<AdamE.AppNav.Navigation.NavigationResult!>
+static AdamE.AppNav.Navigation.RouterNavigatorExtensions.NavigateAsync(this AdamE.AppNav.Navigation.IRouterNavigator! navigator, AdamE.AppNav.AppRouteRequest! routeRequest, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<AdamE.AppNav.Navigation.NavigationResult!>
+static AdamE.AppNav.Navigation.RouterNavigatorFactory.Create(AdamE.AppNav.Routing.RouteTable! routes, AdamE.AppNav.Policies.IAppNavigationPlanner! planner, AdamE.AppNav.Presentation.INavigationPresenter! presenter, AdamE.AppNav.Navigation.RouterNavigatorFactoryOptions? options = null) -> AdamE.AppNav.Navigation.IRouterNavigator!
+static AdamE.AppNav.Planning.BranchHostNavigationModel<TRoute>.Create(System.Action<AdamE.AppNav.Planning.BranchHostNavigationModelBuilder<TRoute!>!>! configure) -> AdamE.AppNav.Planning.BranchHostNavigationModel<TRoute!>!
+static AdamE.AppNav.Planning.StackNavigationModel<TRoute>.Create(System.Action<AdamE.AppNav.Planning.StackNavigationModelBuilder<TRoute!>!>! configure) -> AdamE.AppNav.Planning.StackNavigationModel<TRoute!>!
+static AdamE.AppNav.Plans.NavigationPlan.operator !=(AdamE.AppNav.Plans.NavigationPlan? left, AdamE.AppNav.Plans.NavigationPlan? right) -> bool
+static AdamE.AppNav.Plans.NavigationPlan.operator ==(AdamE.AppNav.Plans.NavigationPlan? left, AdamE.AppNav.Plans.NavigationPlan? right) -> bool
+static AdamE.AppNav.Policies.NavigationAccessDecision.Allow() -> AdamE.AppNav.Policies.NavigationAccessDecision!
+static AdamE.AppNav.Policies.NavigationAccessDecision.DeferAndRedirect(AdamE.AppNav.Requests.RouterNavigationRequest! redirectRequest) -> AdamE.AppNav.Policies.NavigationAccessDecision!
+static AdamE.AppNav.Policies.NavigationAccessDecision.operator !=(AdamE.AppNav.Policies.NavigationAccessDecision? left, AdamE.AppNav.Policies.NavigationAccessDecision? right) -> bool
+static AdamE.AppNav.Policies.NavigationAccessDecision.operator ==(AdamE.AppNav.Policies.NavigationAccessDecision? left, AdamE.AppNav.Policies.NavigationAccessDecision? right) -> bool
+static AdamE.AppNav.Policies.NavigationAccessDecision.Redirect(AdamE.AppNav.Requests.RouterNavigationRequest! redirectRequest) -> AdamE.AppNav.Policies.NavigationAccessDecision!
+static AdamE.AppNav.Policies.NavigationPlanningContext.operator !=(AdamE.AppNav.Policies.NavigationPlanningContext? left, AdamE.AppNav.Policies.NavigationPlanningContext? right) -> bool
+static AdamE.AppNav.Policies.NavigationPlanningContext.operator ==(AdamE.AppNav.Policies.NavigationPlanningContext? left, AdamE.AppNav.Policies.NavigationPlanningContext? right) -> bool
+static AdamE.AppNav.Policies.NavigationRequestPolicyContext.operator !=(AdamE.AppNav.Policies.NavigationRequestPolicyContext? left, AdamE.AppNav.Policies.NavigationRequestPolicyContext? right) -> bool
+static AdamE.AppNav.Policies.NavigationRequestPolicyContext.operator ==(AdamE.AppNav.Policies.NavigationRequestPolicyContext? left, AdamE.AppNav.Policies.NavigationRequestPolicyContext? right) -> bool
+static AdamE.AppNav.Policies.NavigationRequestTransformContext.operator !=(AdamE.AppNav.Policies.NavigationRequestTransformContext? left, AdamE.AppNav.Policies.NavigationRequestTransformContext? right) -> bool
+static AdamE.AppNav.Policies.NavigationRequestTransformContext.operator ==(AdamE.AppNav.Policies.NavigationRequestTransformContext? left, AdamE.AppNav.Policies.NavigationRequestTransformContext? right) -> bool
+static AdamE.AppNav.Presentation.NavigationPresentationContext.operator !=(AdamE.AppNav.Presentation.NavigationPresentationContext? left, AdamE.AppNav.Presentation.NavigationPresentationContext? right) -> bool
+static AdamE.AppNav.Presentation.NavigationPresentationContext.operator ==(AdamE.AppNav.Presentation.NavigationPresentationContext? left, AdamE.AppNav.Presentation.NavigationPresentationContext? right) -> bool
+static AdamE.AppNav.Presentation.NavigationReconciliation.operator !=(AdamE.AppNav.Presentation.NavigationReconciliation? left, AdamE.AppNav.Presentation.NavigationReconciliation? right) -> bool
+static AdamE.AppNav.Presentation.NavigationReconciliation.operator ==(AdamE.AppNav.Presentation.NavigationReconciliation? left, AdamE.AppNav.Presentation.NavigationReconciliation? right) -> bool
+static AdamE.AppNav.Requests.DeferredNavigationReplayResult.operator !=(AdamE.AppNav.Requests.DeferredNavigationReplayResult left, AdamE.AppNav.Requests.DeferredNavigationReplayResult right) -> bool
+static AdamE.AppNav.Requests.DeferredNavigationReplayResult.operator ==(AdamE.AppNav.Requests.DeferredNavigationReplayResult left, AdamE.AppNav.Requests.DeferredNavigationReplayResult right) -> bool
+static AdamE.AppNav.Requests.DeferredNavigationRequestStoreSnapshot.operator !=(AdamE.AppNav.Requests.DeferredNavigationRequestStoreSnapshot? left, AdamE.AppNav.Requests.DeferredNavigationRequestStoreSnapshot? right) -> bool
+static AdamE.AppNav.Requests.DeferredNavigationRequestStoreSnapshot.operator ==(AdamE.AppNav.Requests.DeferredNavigationRequestStoreSnapshot? left, AdamE.AppNav.Requests.DeferredNavigationRequestStoreSnapshot? right) -> bool
+static AdamE.AppNav.Requests.NavigationMetadataValueSnapshot.operator !=(AdamE.AppNav.Requests.NavigationMetadataValueSnapshot? left, AdamE.AppNav.Requests.NavigationMetadataValueSnapshot? right) -> bool
+static AdamE.AppNav.Requests.NavigationMetadataValueSnapshot.operator ==(AdamE.AppNav.Requests.NavigationMetadataValueSnapshot? left, AdamE.AppNav.Requests.NavigationMetadataValueSnapshot? right) -> bool
+static AdamE.AppNav.Requests.NavigationRequestProvenance.operator !=(AdamE.AppNav.Requests.NavigationRequestProvenance? left, AdamE.AppNav.Requests.NavigationRequestProvenance? right) -> bool
+static AdamE.AppNav.Requests.NavigationRequestProvenance.operator ==(AdamE.AppNav.Requests.NavigationRequestProvenance? left, AdamE.AppNav.Requests.NavigationRequestProvenance? right) -> bool
+static AdamE.AppNav.Requests.NavigationRequestProvenanceSnapshot.operator !=(AdamE.AppNav.Requests.NavigationRequestProvenanceSnapshot? left, AdamE.AppNav.Requests.NavigationRequestProvenanceSnapshot? right) -> bool
+static AdamE.AppNav.Requests.NavigationRequestProvenanceSnapshot.operator ==(AdamE.AppNav.Requests.NavigationRequestProvenanceSnapshot? left, AdamE.AppNav.Requests.NavigationRequestProvenanceSnapshot? right) -> bool
+static AdamE.AppNav.Requests.NavigationRequestSnapshot.operator !=(AdamE.AppNav.Requests.NavigationRequestSnapshot? left, AdamE.AppNav.Requests.NavigationRequestSnapshot? right) -> bool
+static AdamE.AppNav.Requests.NavigationRequestSnapshot.operator ==(AdamE.AppNav.Requests.NavigationRequestSnapshot? left, AdamE.AppNav.Requests.NavigationRequestSnapshot? right) -> bool
+static AdamE.AppNav.Requests.RouterNavigationRequest.FromRoute(AdamE.AppNav.AppRoute! route, AdamE.AppNav.Requests.NavigationRequestSource source, string? windowId = null, System.Collections.Generic.IReadOnlyDictionary<string!, object?>? metadata = null, AdamE.AppNav.Requests.RouterNavigationDisposition disposition = AdamE.AppNav.Requests.RouterNavigationDisposition.Auto, AdamE.AppNav.Requests.NavigationRequestProvenance? provenance = null) -> AdamE.AppNav.Requests.RouterNavigationRequest!
+static AdamE.AppNav.Requests.RouterNavigationRequest.FromRouteRequest(AdamE.AppNav.AppRouteRequest! routeRequest, AdamE.AppNav.Requests.NavigationRequestSource source, string? windowId = null, System.Collections.Generic.IReadOnlyDictionary<string!, object?>? extraMetadata = null, AdamE.AppNav.Requests.RouterNavigationDisposition disposition = AdamE.AppNav.Requests.RouterNavigationDisposition.Auto, AdamE.AppNav.Requests.NavigationRequestProvenance? provenance = null) -> AdamE.AppNav.Requests.RouterNavigationRequest!
+static AdamE.AppNav.Requests.RouterNavigationRequest.FromUri(System.Uri! uri, AdamE.AppNav.Requests.NavigationRequestSource source, string? windowId = null, System.Collections.Generic.IReadOnlyDictionary<string!, object?>? metadata = null, AdamE.AppNav.Requests.RouterNavigationDisposition disposition = AdamE.AppNav.Requests.RouterNavigationDisposition.Auto, AdamE.AppNav.Requests.NavigationRequestProvenance? provenance = null) -> AdamE.AppNav.Requests.RouterNavigationRequest!
+static AdamE.AppNav.Requests.RouterNavigationRequest.operator !=(AdamE.AppNav.Requests.RouterNavigationRequest? left, AdamE.AppNav.Requests.RouterNavigationRequest? right) -> bool
+static AdamE.AppNav.Requests.RouterNavigationRequest.operator ==(AdamE.AppNav.Requests.RouterNavigationRequest? left, AdamE.AppNav.Requests.RouterNavigationRequest? right) -> bool
+static AdamE.AppNav.RouteStateRegistry.Create(System.Action<AdamE.AppNav.RouteStateRegistryBuilder!>! configure) -> AdamE.AppNav.RouteStateRegistry!
+static AdamE.AppNav.Routing.RouteDiagnostic.operator !=(AdamE.AppNav.Routing.RouteDiagnostic? left, AdamE.AppNav.Routing.RouteDiagnostic? right) -> bool
+static AdamE.AppNav.Routing.RouteDiagnostic.operator ==(AdamE.AppNav.Routing.RouteDiagnostic? left, AdamE.AppNav.Routing.RouteDiagnostic? right) -> bool
+static AdamE.AppNav.Routing.RouteMatchResult.Failure(params AdamE.AppNav.Routing.RouteDiagnostic![]! diagnostics) -> AdamE.AppNav.Routing.RouteMatchResult!
+static AdamE.AppNav.Routing.RouteMatchResult.operator !=(AdamE.AppNav.Routing.RouteMatchResult? left, AdamE.AppNav.Routing.RouteMatchResult? right) -> bool
+static AdamE.AppNav.Routing.RouteMatchResult.operator ==(AdamE.AppNav.Routing.RouteMatchResult? left, AdamE.AppNav.Routing.RouteMatchResult? right) -> bool
+static AdamE.AppNav.Routing.RouteMatchResult.Success(AdamE.AppNav.AppRoute! route, AdamE.AppNav.Routing.RouteDefinition! definition, System.Collections.Generic.IReadOnlyDictionary<string!, object?>? metadata = null) -> AdamE.AppNav.Routing.RouteMatchResult!
+static AdamE.AppNav.Routing.RouteMetadataKey<TValue>.operator !=(AdamE.AppNav.Routing.RouteMetadataKey<TValue>? left, AdamE.AppNav.Routing.RouteMetadataKey<TValue>? right) -> bool
+static AdamE.AppNav.Routing.RouteMetadataKey<TValue>.operator ==(AdamE.AppNav.Routing.RouteMetadataKey<TValue>? left, AdamE.AppNav.Routing.RouteMetadataKey<TValue>? right) -> bool
+static AdamE.AppNav.Routing.RouteTable.Create(System.Action<AdamE.AppNav.Routing.RouteTableBuilder!>! configure) -> AdamE.AppNav.Routing.RouteTable!
+static AdamE.AppNav.Routing.RouteTemplate.Parse(string! value) -> AdamE.AppNav.Routing.RouteTemplate!
+static AdamE.AppNav.State.BranchHostNode.operator !=(AdamE.AppNav.State.BranchHostNode? left, AdamE.AppNav.State.BranchHostNode? right) -> bool
+static AdamE.AppNav.State.BranchHostNode.operator ==(AdamE.AppNav.State.BranchHostNode? left, AdamE.AppNav.State.BranchHostNode? right) -> bool
+static AdamE.AppNav.State.ModalNode.operator !=(AdamE.AppNav.State.ModalNode? left, AdamE.AppNav.State.ModalNode? right) -> bool
+static AdamE.AppNav.State.ModalNode.operator ==(AdamE.AppNav.State.ModalNode? left, AdamE.AppNav.State.ModalNode? right) -> bool
+static AdamE.AppNav.State.NavigationBranch.operator !=(AdamE.AppNav.State.NavigationBranch? left, AdamE.AppNav.State.NavigationBranch? right) -> bool
+static AdamE.AppNav.State.NavigationBranch.operator ==(AdamE.AppNav.State.NavigationBranch? left, AdamE.AppNav.State.NavigationBranch? right) -> bool
+static AdamE.AppNav.State.NavigationNode.operator !=(AdamE.AppNav.State.NavigationNode? left, AdamE.AppNav.State.NavigationNode? right) -> bool
+static AdamE.AppNav.State.NavigationNode.operator ==(AdamE.AppNav.State.NavigationNode? left, AdamE.AppNav.State.NavigationNode? right) -> bool
+static AdamE.AppNav.State.NavigationState.Empty.get -> AdamE.AppNav.State.NavigationState!
+static AdamE.AppNav.State.NavigationState.operator !=(AdamE.AppNav.State.NavigationState? left, AdamE.AppNav.State.NavigationState? right) -> bool
+static AdamE.AppNav.State.NavigationState.operator ==(AdamE.AppNav.State.NavigationState? left, AdamE.AppNav.State.NavigationState? right) -> bool
+static AdamE.AppNav.State.RouteEntry.operator !=(AdamE.AppNav.State.RouteEntry? left, AdamE.AppNav.State.RouteEntry? right) -> bool
+static AdamE.AppNav.State.RouteEntry.operator ==(AdamE.AppNav.State.RouteEntry? left, AdamE.AppNav.State.RouteEntry? right) -> bool
+static AdamE.AppNav.State.StackNode.operator !=(AdamE.AppNav.State.StackNode? left, AdamE.AppNav.State.StackNode? right) -> bool
+static AdamE.AppNav.State.StackNode.operator ==(AdamE.AppNav.State.StackNode? left, AdamE.AppNav.State.StackNode? right) -> bool
+static AdamE.AppNav.State.WindowNode.operator !=(AdamE.AppNav.State.WindowNode? left, AdamE.AppNav.State.WindowNode? right) -> bool
+static AdamE.AppNav.State.WindowNode.operator ==(AdamE.AppNav.State.WindowNode? left, AdamE.AppNav.State.WindowNode? right) -> bool
+virtual AdamE.AppNav.AppRoute.EqualityContract.get -> System.Type!
+virtual AdamE.AppNav.AppRoute.Equals(AdamE.AppNav.AppRoute? other) -> bool
+virtual AdamE.AppNav.AppRoute.PrintMembers(System.Text.StringBuilder! builder) -> bool
+virtual AdamE.AppNav.State.NavigationNode.EqualityContract.get -> System.Type!
+virtual AdamE.AppNav.State.NavigationNode.Equals(AdamE.AppNav.State.NavigationNode? other) -> bool
+virtual AdamE.AppNav.State.NavigationNode.PrintMembers(System.Text.StringBuilder! builder) -> bool
+~AdamE.AppNav.Planning.StackRouteStep<TRoute>.<Clone>$() -> AdamE.AppNav.Planning.StackRouteStep<TRoute>!
+~AdamE.AppNav.Planning.StackRouteStep<TRoute>.Equals(AdamE.AppNav.Planning.StackRouteStep<TRoute>? other) -> bool
+~override AdamE.AppNav.Navigation.BackNavigationResult.Equals(object obj) -> bool
+~override AdamE.AppNav.Navigation.BackNavigationResult.ToString() -> string
+~override AdamE.AppNav.Requests.DeferredNavigationReplayResult.Equals(object obj) -> bool
+~override AdamE.AppNav.Requests.DeferredNavigationReplayResult.ToString() -> string
+~static AdamE.AppNav.Planning.StackRouteStep<TRoute>.operator !=(AdamE.AppNav.Planning.StackRouteStep<TRoute>? left, AdamE.AppNav.Planning.StackRouteStep<TRoute>? right) -> bool
+~static AdamE.AppNav.Planning.StackRouteStep<TRoute>.operator ==(AdamE.AppNav.Planning.StackRouteStep<TRoute>? left, AdamE.AppNav.Planning.StackRouteStep<TRoute>? right) -> bool

@@ -1,6 +1,6 @@
-﻿using AdamE.AppNav.Maui.DependencyInjection;
+﻿using AdamE.AppNav;
+using AdamE.AppNav.Maui.DependencyInjection;
 using AdamE.AppNav.Maui.AppLinks;
-using AdamE.AppNav.Requests;
 using AdamE.AppNav.Policies;
 using Commerce.Sample.Navigation;
 using Commerce.Sample.Pages;
@@ -16,7 +16,14 @@ public static class MauiProgram
 		var builder = MauiApp.CreateBuilder();
 		builder
 			.UseMauiApp<App>()
-			.UseAppNavAppLinks()
+			.UseAppNavExternalNavigation(options =>
+			{
+				options.AllowOrigin(new Uri("https://example.com"));
+				options.AllowOrigin(new Uri("https://legacy.example.com"));
+#if DEBUG
+				options.AllowOrigin(new Uri("appnav-commerce://shop"));
+#endif
+			})
 			.ConfigureFonts(fonts =>
 			{
 				fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
@@ -29,21 +36,19 @@ public static class MauiProgram
 
 		builder.Services.AddAppNavDiagnostics();
 		builder.Services.AddSingleton<INavigationRequestTransformer, LegacyProductUrlTransformer>();
-		builder.Services.AddAppNavFileDeferredNavigationRequests(options =>
-		{
-			options.BaseUri = new Uri("https://example.com/");
-			options.RouteStateRegistry = CommerceRouteMetadata.RouteStateRegistry;
-		});
 		builder.Services.AddAppNavStartup(options =>
 		{
-			options.FallbackRequestFactory = (_, _) =>
-				ValueTask.FromResult<RouterNavigationRequest?>(
-					RouterNavigationRequest.FromUri(
-						new Uri("https://example.com/stores/northwind/products/123?variant=blue&promo=spring&campaign=spring-launch"),
-						NavigationRequestSource.InAppCommand));
+			options.FallbackRouteFactory = (_, _) =>
+				ValueTask.FromResult<AppRoute?>(
+					new ProductDetailRoute(
+						"northwind",
+						123,
+						"blue",
+						"spring"));
 		});
-		builder.Services.AddAppNav<CommerceNavigationPlanner>(
+		builder.Services.AddAppNav(
 			AppNavGenerated.CreateRouteTable(),
+			CommerceNavigationModel.Create(),
 			options => options
 				.AddModule(AppNavGenerated.MauiPageModule)
 				.MapPage<CommerceNotFoundRoute, CommerceNotFoundPage>());

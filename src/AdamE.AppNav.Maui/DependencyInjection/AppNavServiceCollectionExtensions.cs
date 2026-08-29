@@ -4,6 +4,7 @@ using AdamE.AppNav.Maui;
 using AdamE.AppNav.Maui.AppLinks;
 using AdamE.AppNav.Maui.Requests;
 using AdamE.AppNav.Navigation;
+using AdamE.AppNav.Planning;
 using AdamE.AppNav.Policies;
 using AdamE.AppNav.Requests;
 using AdamE.AppNav.Routing;
@@ -32,6 +33,7 @@ public static class AppNavServiceCollectionExtensions
         return services.AddAppNavDiagnosticsServices();
     }
 
+#pragma warning disable RS0026 // Advanced-planner and standard-model registration are intentional preview overloads.
     public static IServiceCollection AddAppNav<
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
     TPlanner>(
@@ -54,6 +56,34 @@ public static class AppNavServiceCollectionExtensions
 
         return services;
     }
+
+    /// <summary>
+    /// Registers AppNav with the standard disposition planner backed by a topology model.
+    /// </summary>
+    public static IServiceCollection AddAppNav<TRoute>(
+        this IServiceCollection services,
+        RouteTable routes,
+        INavigationModel<TRoute> model,
+        Action<MauiRoutePageRegistry>? configurePages = null)
+        where TRoute : AppRoute
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(routes);
+        ArgumentNullException.ThrowIfNull(model);
+
+        services.AddAppNavCoreServices(routes);
+        if (configurePages is not null)
+        {
+            services.AddAppNavPages(configurePages);
+        }
+
+        services.AddSingleton(model);
+        services.AddSingleton<IAppNavigationPlanner>(new NavigationModelPlanner<TRoute>(model));
+        services.AddAppNavRuntime();
+
+        return services;
+    }
+#pragma warning restore RS0026
 
     public static IServiceCollection AddAppNavPages(
         this IServiceCollection services,
@@ -149,6 +179,7 @@ public static class AppNavServiceCollectionExtensions
     private static IServiceCollection AddAppNavBoundaryServices(this IServiceCollection services)
     {
         services.AddAppNavDiagnosticsServices();
+        services.TryAddSingleton<MauiExternalNavigationOptions>();
         services.TryAddSingleton<MauiExternalNavigationDispatcher>();
         services.TryAddSingleton<IMauiExternalNavigationDispatcher>(provider =>
             provider.GetRequiredService<MauiExternalNavigationDispatcher>());

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using AdamE.AppNav.Requests;
 using AdamE.AppNav.Routing;
 
@@ -79,18 +80,20 @@ public sealed class DeferredNavigationRequestSerializerTests
 
         var restored = Assert.Single(serializer.Restore(serializer.CreateSnapshot([request])));
 
-        Assert.Equal(request.Uri, restored.Uri);
-        Assert.Null(restored.Route);
+        Assert.Null(restored.Uri);
+        Assert.Equal(new TestRoutes.StoreRoute("northwind"), restored.Route);
         Assert.Equal("mission-1", restored.Metadata[missionId.Name]);
     }
 
     [Theory]
     [InlineData(0)]
     [InlineData(1)]
-    [InlineData(3)]
+    [InlineData(2)]
     public void Restore_RejectsUnsupportedSchemaVersions(int schemaVersion)
     {
-        var serializer = new DeferredNavigationRequestSerializer(TestRoutes.CreateTable());
+        var serializer = new DeferredNavigationRequestSerializer(
+            TestRoutes.CreateTable(),
+            new DeferredNavigationRequestPersistenceOptions { BaseUri = BaseUri });
         var snapshot = new DeferredNavigationRequestStoreSnapshot
         {
             SchemaVersion = schemaVersion,
@@ -218,7 +221,7 @@ public sealed class DeferredNavigationRequestSerializerTests
     }
 
     [Fact]
-    public void CreateSnapshotAndRestore_RoundTripsProvenance()
+    public void CreateSnapshotAndRestore_PreservesOnlyProvenanceProvider()
     {
         var routes = TestRoutes.CreateTable();
         var serializer = new DeferredNavigationRequestSerializer(routes, new DeferredNavigationRequestPersistenceOptions
@@ -244,54 +247,53 @@ public sealed class DeferredNavigationRequestSerializerTests
 
         var snapshotProvenance = Assert.Single(snapshot.Requests).Provenance!;
         Assert.Equal("push", snapshotProvenance.Provider);
-        Assert.Equal("https://example.com/stores/northwind", snapshotProvenance.OriginalUri);
-        Assert.Equal("https://notifications.example/message/1", snapshotProvenance.ReferrerUri);
-        Assert.Equal("correlation-1", snapshotProvenance.CorrelationId);
-        Assert.Equal("notification-1", snapshotProvenance.Attributes!["notificationId"]);
-        Assert.Equal(provenance, restored.Provenance);
+        Assert.Equal("push", restored.Provenance!.Provider);
+        Assert.Null(restored.Provenance.OriginalUri);
+        Assert.Null(restored.Provenance.ReferrerUri);
+        Assert.Null(restored.Provenance.CorrelationId);
+        Assert.Null(restored.Provenance.IsColdStart);
+        Assert.Empty(restored.Provenance.Attributes);
     }
 
     [Fact]
-    public void Restore_RejectsMalformedProvenanceWithoutPartiallyRestoringRequest()
+    public void SnapshotJson_DoesNotContainTransportOrProvenanceSecrets()
     {
         var routes = TestRoutes.CreateTable();
         var serializer = new DeferredNavigationRequestSerializer(routes, new DeferredNavigationRequestPersistenceOptions
         {
             BaseUri = BaseUri
         });
-        var request = RouterNavigationRequest.FromRoute(
-            new TestRoutes.StoreRoute("northwind"),
+        var request = RouterNavigationRequest.FromUri(
+            new Uri("https://example.com/stores/northwind?transportSecret=raw-secret"),
             NavigationRequestSource.Push,
             provenance: new NavigationRequestProvenance(
                 provider: "push",
-                originalUri: new Uri("https://example.com/stores/northwind"),
-                referrerUri: new Uri("https://notifications.example/message/1")));
-        var snapshot = serializer.CreateSnapshot([request]);
-        var snapshotRequest = snapshot.Requests[0];
-        var malformed = snapshot with
-        {
-            Requests = new[]
-            {
-                snapshotRequest with
+                originalUri: new Uri("https://source.example/path?token=original-secret"),
+                referrerUri: new Uri("https://referrer.example/path?token=referrer-secret"),
+                correlationId: "correlation-secret",
+                isColdStart: true,
+                attributes: new Dictionary<string, string?>
                 {
-                    Provenance = snapshotRequest.Provenance! with
-                    {
-                        OriginalUri = "http://[::1",
-                        ReferrerUri = "https://notifications.example/message/1"
-                    }
-                }
-            }
-        };
+                    ["authorization"] = "attribute-secret"
+                }));
+        var snapshot = serializer.CreateSnapshot([request]);
+        string json = JsonSerializer.Serialize(snapshot);
 
-        var exception = Assert.Throws<InvalidDeferredNavigationRequestDataException>(
-            () => serializer.Restore(malformed));
-
-        Assert.Equal(0, exception.RequestIndex);
-        Assert.IsType<FormatException>(exception.InnerException);
+        Assert.DoesNotContain("raw-secret", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("original-secret", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("referrer-secret", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("correlation-secret", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("attribute-secret", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("transportSecret", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("originalUri", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("referrerUri", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("correlationId", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("isColdStart", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("attributes", json, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public void Restore_ReportsExactIndexForInvalidSchemaTwoRecord()
+    public void Restore_ReportsExactIndexForInvalidSchemaThreeRecord()
     {
         var serializer = new DeferredNavigationRequestSerializer(
             TestRoutes.CreateTable(),
@@ -319,6 +321,64 @@ public sealed class DeferredNavigationRequestSerializerTests
 
         Assert.Equal(1, exception.RequestIndex);
         Assert.IsType<InvalidOperationException>(exception.InnerException);
+    }
+
+    [Theory]
+    [InlineData("/stores/northwind")]
+    [InlineData("https://attacker.example/stores/northwind")]
+    [InlineData("https://example.com/stores/northwind?unexpected=value")]
+    public void Restore_RejectsNonCanonicalOrWrongOriginRouteUris(string routeUri)
+    {
+        var serializer = new DeferredNavigationRequestSerializer(
+            TestRoutes.CreateTable(),
+            new DeferredNavigationRequestPersistenceOptions { BaseUri = BaseUri });
+        DeferredNavigationRequestStoreSnapshot snapshot = serializer.CreateSnapshot(
+            [RouterNavigationRequest.FromRoute(
+                new TestRoutes.StoreRoute("northwind"),
+                NavigationRequestSource.AppLink)]);
+        snapshot = snapshot with
+        {
+            Requests = [snapshot.Requests[0] with { RouteUri = routeUri }]
+        };
+
+        Assert.Throws<InvalidDeferredNavigationRequestDataException>(() => serializer.Restore(snapshot));
+    }
+
+    [Fact]
+    public void Constructor_RequiresExplicitAbsoluteBaseUri()
+    {
+        Assert.Equal(3, DeferredNavigationRequestStoreSnapshot.CurrentSchemaVersion);
+        Assert.Throws<InvalidOperationException>(() => new DeferredNavigationRequestSerializer(
+            TestRoutes.CreateTable(),
+            new DeferredNavigationRequestPersistenceOptions()));
+        Assert.Throws<ArgumentException>(() => new DeferredNavigationRequestPersistenceOptions
+        {
+            BaseUri = new Uri("relative", UriKind.Relative)
+        });
+        Assert.Throws<ArgumentException>(() => new DeferredNavigationRequestPersistenceOptions
+        {
+            BaseUri = new Uri("https://user:secret@example.com/")
+        });
+        Assert.Throws<ArgumentException>(() => new DeferredNavigationRequestPersistenceOptions
+        {
+            BaseUri = new Uri("https://@example.com/")
+        });
+        Assert.Throws<ArgumentException>(() => new DeferredNavigationRequestPersistenceOptions
+        {
+            BaseUri = new Uri("https://example.com/base/")
+        });
+        Assert.Throws<ArgumentException>(() => new DeferredNavigationRequestPersistenceOptions
+        {
+            BaseUri = new Uri("https://example.com/?token=secret")
+        });
+        Assert.Throws<ArgumentException>(() => new DeferredNavigationRequestPersistenceOptions
+        {
+            BaseUri = new Uri("https://example.com/?")
+        });
+        Assert.Throws<ArgumentException>(() => new DeferredNavigationRequestPersistenceOptions
+        {
+            BaseUri = new Uri("https://example.com/#")
+        });
     }
 
     private sealed class PassThroughMetadataSerializer : INavigationRequestMetadataSerializer

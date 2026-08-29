@@ -253,14 +253,15 @@ public sealed class MauiPresentationVerifierTests
             new InstrumentedRoutePageFactory(),
             diagnostics: diagnostics,
             presentationVerifier: verifier);
-        var navigator = new RouterNavigator(
+        await using IRouterNavigator navigator = RouterNavigatorFactory.Create(
             Routes(),
             new EchoPlanner(),
             presenter,
-            new RouterNavigatorOptions { Diagnostics = diagnostics });
+            new RouterNavigatorFactoryOptions { Diagnostics = diagnostics });
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            navigator.NavigateAsync(new TestPageRoute("home"), NavigationRequestSource.Test).AsTask());
+            navigator.NavigateAsync(RouterNavigationRequest.FromRoute(
+                new TestPageRoute("home"), NavigationRequestSource.Test)).AsTask());
 
         Assert.Null(navigator.CurrentState.ActiveWindow);
         Assert.Empty(navigator.History.Entries);

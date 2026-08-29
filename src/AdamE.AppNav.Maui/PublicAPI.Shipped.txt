@@ -1,0 +1,151 @@
+#nullable enable
+AdamE.AppNav.Maui.AppLinks.AppNavExternalNavigationBuilderExtensions
+AdamE.AppNav.Maui.AppLinks.IMauiExternalNavigationDispatcher
+AdamE.AppNav.Maui.AppLinks.IMauiExternalNavigationDispatcher.TryDispatch(AdamE.AppNav.Requests.RouterNavigationRequest? request) -> bool
+AdamE.AppNav.Maui.AppLinks.MauiAppLinkProvenanceProviders
+AdamE.AppNav.Maui.AppLinks.MauiExternalNavigationFailureDisposition
+AdamE.AppNav.Maui.AppLinks.MauiExternalNavigationFailureDisposition.Drop = 1 -> AdamE.AppNav.Maui.AppLinks.MauiExternalNavigationFailureDisposition
+AdamE.AppNav.Maui.AppLinks.MauiExternalNavigationFailureDisposition.Retry = 0 -> AdamE.AppNav.Maui.AppLinks.MauiExternalNavigationFailureDisposition
+AdamE.AppNav.Maui.AppLinks.MauiExternalNavigationOptions
+AdamE.AppNav.Maui.AppLinks.MauiExternalNavigationOptions.AllowedOrigins.get -> System.Collections.Generic.IReadOnlyList<System.Uri!>!
+AdamE.AppNav.Maui.AppLinks.MauiExternalNavigationOptions.AllowOrigin(System.Uri! origin) -> AdamE.AppNav.Maui.AppLinks.MauiExternalNavigationOptions!
+AdamE.AppNav.Maui.AppLinks.MauiExternalNavigationOptions.ClassifyFailure.get -> System.Func<System.Exception!, AdamE.AppNav.Maui.AppLinks.MauiExternalNavigationFailureDisposition>!
+AdamE.AppNav.Maui.AppLinks.MauiExternalNavigationOptions.ClassifyFailure.set -> void
+AdamE.AppNav.Maui.AppLinks.MauiExternalNavigationOptions.MauiExternalNavigationOptions() -> void
+AdamE.AppNav.Maui.AppLinks.MauiExternalNavigationOptions.MaximumDispatchAttempts.get -> int
+AdamE.AppNav.Maui.AppLinks.MauiExternalNavigationOptions.MaximumDispatchAttempts.set -> void
+AdamE.AppNav.Maui.AppLinks.MauiExternalNavigationOptions.MaximumPendingRequests.get -> int
+AdamE.AppNav.Maui.AppLinks.MauiExternalNavigationOptions.MaximumPendingRequests.set -> void
+AdamE.AppNav.Maui.AppLinks.MauiExternalNavigationOptions.MaximumRequestAge.get -> System.TimeSpan
+AdamE.AppNav.Maui.AppLinks.MauiExternalNavigationOptions.MaximumRequestAge.set -> void
+AdamE.AppNav.Maui.AppLinks.MauiExternalNavigationOptions.MaximumUriLength.get -> int
+AdamE.AppNav.Maui.AppLinks.MauiExternalNavigationOptions.MaximumUriLength.set -> void
+AdamE.AppNav.Maui.AppLinks.MauiExternalNavigationOptions.RetryDelay.get -> System.TimeSpan
+AdamE.AppNav.Maui.AppLinks.MauiExternalNavigationOptions.RetryDelay.set -> void
+AdamE.AppNav.Maui.AppLinks.MauiExternalNavigationOptions.ShouldDispatch.get -> System.Func<AdamE.AppNav.Requests.RouterNavigationRequest!, bool>!
+AdamE.AppNav.Maui.AppLinks.MauiExternalNavigationOptions.ShouldDispatch.set -> void
+AdamE.AppNav.Maui.AppNavStartupOptions
+AdamE.AppNav.Maui.AppNavStartupOptions.AppLinkGracePeriod.get -> System.TimeSpan
+AdamE.AppNav.Maui.AppNavStartupOptions.AppLinkGracePeriod.set -> void
+AdamE.AppNav.Maui.AppNavStartupOptions.AppNavStartupOptions() -> void
+AdamE.AppNav.Maui.AppNavStartupOptions.FallbackRequestFactory.get -> System.Func<System.IServiceProvider!, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<AdamE.AppNav.Requests.RouterNavigationRequest?>>?
+AdamE.AppNav.Maui.AppNavStartupOptions.FallbackRequestFactory.set -> void
+AdamE.AppNav.Maui.AppNavStartupOptions.FallbackRouteFactory.get -> System.Func<System.IServiceProvider!, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<AdamE.AppNav.AppRoute?>>?
+AdamE.AppNav.Maui.AppNavStartupOptions.FallbackRouteFactory.set -> void
+AdamE.AppNav.Maui.AppNavStartupOptions.WindowId.get -> string!
+AdamE.AppNav.Maui.AppNavStartupOptions.WindowId.set -> void
+AdamE.AppNav.Maui.AppNavStartupOutcome
+AdamE.AppNav.Maui.AppNavStartupOutcome.AppLinkPending = 0 -> AdamE.AppNav.Maui.AppNavStartupOutcome
+AdamE.AppNav.Maui.AppNavStartupOutcome.Failed = 3 -> AdamE.AppNav.Maui.AppNavStartupOutcome
+AdamE.AppNav.Maui.AppNavStartupOutcome.FallbackNavigated = 1 -> AdamE.AppNav.Maui.AppNavStartupOutcome
+AdamE.AppNav.Maui.AppNavStartupOutcome.NoNavigation = 2 -> AdamE.AppNav.Maui.AppNavStartupOutcome
+AdamE.AppNav.Maui.AppNavStartupResult
+AdamE.AppNav.Maui.AppNavStartupResult.<Clone>$() -> AdamE.AppNav.Maui.AppNavStartupResult!
+AdamE.AppNav.Maui.AppNavStartupResult.AppNavStartupResult(AdamE.AppNav.Maui.AppNavStartupOutcome Outcome, AdamE.AppNav.Navigation.NavigationResult? FallbackNavigationResult = null, System.Exception? Exception = null) -> void
+AdamE.AppNav.Maui.AppNavStartupResult.Deconstruct(out AdamE.AppNav.Maui.AppNavStartupOutcome Outcome, out AdamE.AppNav.Navigation.NavigationResult? FallbackNavigationResult, out System.Exception? Exception) -> void
+AdamE.AppNav.Maui.AppNavStartupResult.Equals(AdamE.AppNav.Maui.AppNavStartupResult? other) -> bool
+AdamE.AppNav.Maui.AppNavStartupResult.Exception.get -> System.Exception?
+AdamE.AppNav.Maui.AppNavStartupResult.Exception.init -> void
+AdamE.AppNav.Maui.AppNavStartupResult.FallbackNavigationResult.get -> AdamE.AppNav.Navigation.NavigationResult?
+AdamE.AppNav.Maui.AppNavStartupResult.FallbackNavigationResult.init -> void
+AdamE.AppNav.Maui.AppNavStartupResult.Outcome.get -> AdamE.AppNav.Maui.AppNavStartupOutcome
+AdamE.AppNav.Maui.AppNavStartupResult.Outcome.init -> void
+AdamE.AppNav.Maui.AppNavStartupResult.Succeeded.get -> bool
+AdamE.AppNav.Maui.DependencyInjection.AppNavServiceCollectionExtensions
+AdamE.AppNav.Maui.IAppNavStartupService
+AdamE.AppNav.Maui.IAppNavStartupService.Start(Microsoft.Maui.Controls.Window! window, string! windowId) -> void
+AdamE.AppNav.Maui.IAppNavStartupService.StartAsync(Microsoft.Maui.Controls.Window! window, string! windowId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<AdamE.AppNav.Maui.AppNavStartupResult!>
+AdamE.AppNav.Maui.IAppNavStartupService.StartAsync(Microsoft.Maui.Controls.Window! window, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<AdamE.AppNav.Maui.AppNavStartupResult!>
+AdamE.AppNav.Maui.IMauiPresentationState
+AdamE.AppNav.Maui.IMauiPresentationState.AttachedWindow.get -> Microsoft.Maui.Controls.Window?
+AdamE.AppNav.Maui.IMauiPresentationState.AttachedWindowId.get -> string?
+AdamE.AppNav.Maui.IMauiPresentationState.GetTopPresentedPage() -> Microsoft.Maui.Controls.Page?
+AdamE.AppNav.Maui.IMauiPresentationState.IsModalPresented(Microsoft.Maui.Controls.Page! page) -> bool
+AdamE.AppNav.Maui.IMauiPresentationState.RootPage.get -> Microsoft.Maui.Controls.Page?
+AdamE.AppNav.Maui.IMauiPresentationState.RootPageChanged -> System.EventHandler<Microsoft.Maui.Controls.Page?>?
+AdamE.AppNav.Maui.IMauiRoutePageLifecycleHook
+AdamE.AppNav.Maui.IMauiRoutePageLifecycleHook.OnPageCreatedAsync(Microsoft.Maui.Controls.Page! page, AdamE.AppNav.State.RouteEntry! entry, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+AdamE.AppNav.Maui.IMauiRoutePageLifecycleHook.OnPageReleasedAsync(Microsoft.Maui.Controls.Page! page, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+AdamE.AppNav.Maui.IMauiRoutePageLifecycleHook.OnPageUpdatedAsync(Microsoft.Maui.Controls.Page! page, AdamE.AppNav.State.RouteEntry! entry, AdamE.AppNav.Maui.MauiRoutePageUpdateContext context, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+AdamE.AppNav.Maui.IMauiRoutePageModule
+AdamE.AppNav.Maui.IMauiRoutePageModule.MapPages(AdamE.AppNav.Maui.MauiRoutePageRegistry! pages) -> void
+AdamE.AppNav.Maui.IMauiRoutePresentationNavigator
+AdamE.AppNav.Maui.IMauiRoutePresentationNavigator.PopAsync(bool animated = true, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+AdamE.AppNav.Maui.IMauiRoutePresentationNavigator.PushAsync<TPage>(string! key, AdamE.AppNav.Maui.MauiRoutePresentationPageOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+AdamE.AppNav.Maui.MauiPresentationConsistencyException
+AdamE.AppNav.Maui.MauiPresentationConsistencyException.MauiPresentationConsistencyException(string! message, System.Exception! innerException) -> void
+AdamE.AppNav.Maui.MauiRoutePageAttribute
+AdamE.AppNav.Maui.MauiRoutePageAttribute.FromServices.get -> bool
+AdamE.AppNav.Maui.MauiRoutePageAttribute.FromServices.set -> void
+AdamE.AppNav.Maui.MauiRoutePageAttribute.MauiRoutePageAttribute(System.Type! routeType) -> void
+AdamE.AppNav.Maui.MauiRoutePageAttribute.PageModelType.get -> System.Type?
+AdamE.AppNav.Maui.MauiRoutePageAttribute.PageModelType.set -> void
+AdamE.AppNav.Maui.MauiRoutePageAttribute.RouteType.get -> System.Type!
+AdamE.AppNav.Maui.MauiRoutePageRegistry
+AdamE.AppNav.Maui.MauiRoutePageRegistry.AddModule(AdamE.AppNav.Maui.IMauiRoutePageModule! module) -> AdamE.AppNav.Maui.MauiRoutePageRegistry!
+AdamE.AppNav.Maui.MauiRoutePageRegistry.MapPage<TRoute, TPage>() -> AdamE.AppNav.Maui.MauiRoutePageRegistry!
+AdamE.AppNav.Maui.MauiRoutePageRegistry.MapPage<TRoute>(System.Func<System.IServiceProvider!, TRoute!, Microsoft.Maui.Controls.Page!>! factory) -> AdamE.AppNav.Maui.MauiRoutePageRegistry!
+AdamE.AppNav.Maui.MauiRoutePageRegistry.MapPageFromServices<TRoute, TPage>() -> AdamE.AppNav.Maui.MauiRoutePageRegistry!
+AdamE.AppNav.Maui.MauiRoutePageRegistry.MauiRoutePageRegistry() -> void
+AdamE.AppNav.Maui.MauiRoutePageReuseKind
+AdamE.AppNav.Maui.MauiRoutePageReuseKind.ExplicitTarget = 1 -> AdamE.AppNav.Maui.MauiRoutePageReuseKind
+AdamE.AppNav.Maui.MauiRoutePageReuseKind.NonTargetReuse = 0 -> AdamE.AppNav.Maui.MauiRoutePageReuseKind
+AdamE.AppNav.Maui.MauiRoutePageReuseKind.ResurfacedTarget = 2 -> AdamE.AppNav.Maui.MauiRoutePageReuseKind
+AdamE.AppNav.Maui.MauiRoutePageUpdateContext
+AdamE.AppNav.Maui.MauiRoutePageUpdateContext.Deconstruct(out AdamE.AppNav.Maui.MauiRoutePageReuseKind ReuseKind) -> void
+AdamE.AppNav.Maui.MauiRoutePageUpdateContext.Equals(AdamE.AppNav.Maui.MauiRoutePageUpdateContext other) -> bool
+AdamE.AppNav.Maui.MauiRoutePageUpdateContext.IsNavigationTarget.get -> bool
+AdamE.AppNav.Maui.MauiRoutePageUpdateContext.MauiRoutePageUpdateContext() -> void
+AdamE.AppNav.Maui.MauiRoutePageUpdateContext.MauiRoutePageUpdateContext(AdamE.AppNav.Maui.MauiRoutePageReuseKind ReuseKind) -> void
+AdamE.AppNav.Maui.MauiRoutePageUpdateContext.ReuseKind.get -> AdamE.AppNav.Maui.MauiRoutePageReuseKind
+AdamE.AppNav.Maui.MauiRoutePageUpdateContext.ReuseKind.init -> void
+AdamE.AppNav.Maui.MauiRoutePresentationPageOptions
+AdamE.AppNav.Maui.MauiRoutePresentationPageOptions.<Clone>$() -> AdamE.AppNav.Maui.MauiRoutePresentationPageOptions!
+AdamE.AppNav.Maui.MauiRoutePresentationPageOptions.Animated.get -> bool
+AdamE.AppNav.Maui.MauiRoutePresentationPageOptions.Animated.init -> void
+AdamE.AppNav.Maui.MauiRoutePresentationPageOptions.Equals(AdamE.AppNav.Maui.MauiRoutePresentationPageOptions? other) -> bool
+AdamE.AppNav.Maui.MauiRoutePresentationPageOptions.InheritBindingContext.get -> bool
+AdamE.AppNav.Maui.MauiRoutePresentationPageOptions.InheritBindingContext.init -> void
+AdamE.AppNav.Maui.MauiRoutePresentationPageOptions.MauiRoutePresentationPageOptions() -> void
+AdamE.AppNav.Maui.Requests.MauiFileDeferredNavigationRequestStoreOptions
+AdamE.AppNav.Maui.Requests.MauiFileDeferredNavigationRequestStoreOptions.BaseUri.get -> System.Uri!
+AdamE.AppNav.Maui.Requests.MauiFileDeferredNavigationRequestStoreOptions.BaseUri.set -> void
+AdamE.AppNav.Maui.Requests.MauiFileDeferredNavigationRequestStoreOptions.MauiFileDeferredNavigationRequestStoreOptions() -> void
+AdamE.AppNav.Maui.Requests.MauiFileDeferredNavigationRequestStoreOptions.MaximumFileSize.get -> long
+AdamE.AppNav.Maui.Requests.MauiFileDeferredNavigationRequestStoreOptions.MaximumFileSize.set -> void
+AdamE.AppNav.Maui.Requests.MauiFileDeferredNavigationRequestStoreOptions.MaximumPendingRequests.get -> int
+AdamE.AppNav.Maui.Requests.MauiFileDeferredNavigationRequestStoreOptions.MaximumPendingRequests.set -> void
+AdamE.AppNav.Maui.Requests.MauiFileDeferredNavigationRequestStoreOptions.MaximumRequestAge.get -> System.TimeSpan
+AdamE.AppNav.Maui.Requests.MauiFileDeferredNavigationRequestStoreOptions.MaximumRequestAge.set -> void
+AdamE.AppNav.Maui.Requests.MauiFileDeferredNavigationRequestStoreOptions.MetadataSerializer.get -> AdamE.AppNav.Requests.INavigationRequestMetadataSerializer?
+AdamE.AppNav.Maui.Requests.MauiFileDeferredNavigationRequestStoreOptions.MetadataSerializer.set -> void
+AdamE.AppNav.Maui.Requests.MauiFileDeferredNavigationRequestStoreOptions.Path.get -> string!
+AdamE.AppNav.Maui.Requests.MauiFileDeferredNavigationRequestStoreOptions.Path.set -> void
+AdamE.AppNav.Maui.Requests.MauiFileDeferredNavigationRequestStoreOptions.RouteStateRegistry.get -> AdamE.AppNav.RouteStateRegistry?
+AdamE.AppNav.Maui.Requests.MauiFileDeferredNavigationRequestStoreOptions.RouteStateRegistry.set -> void
+const AdamE.AppNav.Maui.AppLinks.MauiAppLinkProvenanceProviders.AndroidIntent = "android-intent" -> string!
+const AdamE.AppNav.Maui.AppLinks.MauiAppLinkProvenanceProviders.IosOpenUrl = "ios-open-url" -> string!
+const AdamE.AppNav.Maui.AppLinks.MauiAppLinkProvenanceProviders.IosUserActivity = "ios-user-activity" -> string!
+const AdamE.AppNav.Maui.AppLinks.MauiAppLinkProvenanceProviders.MauiAppLink = "maui-app-link" -> string!
+override AdamE.AppNav.Maui.AppNavStartupResult.Equals(object? obj) -> bool
+override AdamE.AppNav.Maui.AppNavStartupResult.GetHashCode() -> int
+override AdamE.AppNav.Maui.AppNavStartupResult.ToString() -> string!
+override AdamE.AppNav.Maui.MauiRoutePageUpdateContext.GetHashCode() -> int
+override AdamE.AppNav.Maui.MauiRoutePresentationPageOptions.Equals(object? obj) -> bool
+override AdamE.AppNav.Maui.MauiRoutePresentationPageOptions.GetHashCode() -> int
+override AdamE.AppNav.Maui.MauiRoutePresentationPageOptions.ToString() -> string!
+static AdamE.AppNav.Maui.AppLinks.AppNavExternalNavigationBuilderExtensions.UseAppNavExternalNavigation(this Microsoft.Maui.Hosting.MauiAppBuilder! builder, System.Action<AdamE.AppNav.Maui.AppLinks.MauiExternalNavigationOptions!>! configure) -> Microsoft.Maui.Hosting.MauiAppBuilder!
+static AdamE.AppNav.Maui.AppNavStartupResult.operator !=(AdamE.AppNav.Maui.AppNavStartupResult? left, AdamE.AppNav.Maui.AppNavStartupResult? right) -> bool
+static AdamE.AppNav.Maui.AppNavStartupResult.operator ==(AdamE.AppNav.Maui.AppNavStartupResult? left, AdamE.AppNav.Maui.AppNavStartupResult? right) -> bool
+static AdamE.AppNav.Maui.DependencyInjection.AppNavServiceCollectionExtensions.AddAppNav<TPlanner>(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, AdamE.AppNav.Routing.RouteTable! routes, System.Action<AdamE.AppNav.Maui.MauiRoutePageRegistry!>? configurePages = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static AdamE.AppNav.Maui.DependencyInjection.AppNavServiceCollectionExtensions.AddAppNav<TRoute>(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, AdamE.AppNav.Routing.RouteTable! routes, AdamE.AppNav.Planning.INavigationModel<TRoute!>! model, System.Action<AdamE.AppNav.Maui.MauiRoutePageRegistry!>? configurePages = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static AdamE.AppNav.Maui.DependencyInjection.AppNavServiceCollectionExtensions.AddAppNavDiagnostics(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<AdamE.AppNav.Diagnostics.NavigationDiagnosticsOptions!>? configure = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static AdamE.AppNav.Maui.DependencyInjection.AppNavServiceCollectionExtensions.AddAppNavFileDeferredNavigationRequests(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<AdamE.AppNav.Maui.Requests.MauiFileDeferredNavigationRequestStoreOptions!>? configure = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static AdamE.AppNav.Maui.DependencyInjection.AppNavServiceCollectionExtensions.AddAppNavPages(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<AdamE.AppNav.Maui.MauiRoutePageRegistry!>! configure) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static AdamE.AppNav.Maui.DependencyInjection.AppNavServiceCollectionExtensions.AddAppNavStartup(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<AdamE.AppNav.Maui.AppNavStartupOptions!>? configure = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static AdamE.AppNav.Maui.MauiRoutePageUpdateContext.operator !=(AdamE.AppNav.Maui.MauiRoutePageUpdateContext left, AdamE.AppNav.Maui.MauiRoutePageUpdateContext right) -> bool
+static AdamE.AppNav.Maui.MauiRoutePageUpdateContext.operator ==(AdamE.AppNav.Maui.MauiRoutePageUpdateContext left, AdamE.AppNav.Maui.MauiRoutePageUpdateContext right) -> bool
+static AdamE.AppNav.Maui.MauiRoutePresentationPageOptions.operator !=(AdamE.AppNav.Maui.MauiRoutePresentationPageOptions? left, AdamE.AppNav.Maui.MauiRoutePresentationPageOptions? right) -> bool
+static AdamE.AppNav.Maui.MauiRoutePresentationPageOptions.operator ==(AdamE.AppNav.Maui.MauiRoutePresentationPageOptions? left, AdamE.AppNav.Maui.MauiRoutePresentationPageOptions? right) -> bool
+~override AdamE.AppNav.Maui.MauiRoutePageUpdateContext.Equals(object obj) -> bool
+~override AdamE.AppNav.Maui.MauiRoutePageUpdateContext.ToString() -> string

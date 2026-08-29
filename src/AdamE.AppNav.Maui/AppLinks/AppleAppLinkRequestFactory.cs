@@ -6,18 +6,26 @@ namespace AdamE.AppNav.Maui.AppLinks;
 
 internal static class AppleAppLinkRequestFactory
 {
-    public static RouterNavigationRequest? FromOpenUrl(NSUrl? url)
+    public static MauiExternalNavigationIngress FromOpenUrl(
+        NSUrl? url,
+        MauiExternalNavigationOptions options)
     {
-        return MauiAppLinkRequestFactory.TryFromUriString(
+        ArgumentNullException.ThrowIfNull(options);
+        return MauiAppLinkRequestFactory.ParseUriString(
             url?.AbsoluteString,
-            MauiAppLinkProvenanceProviders.IosOpenUrl);
+            MauiAppLinkProvenanceProviders.IosOpenUrl,
+            options.MaximumUriLength);
     }
 
-    public static RouterNavigationRequest? FromUserActivity(NSUserActivity? activity)
+    public static MauiExternalNavigationIngress FromUserActivity(
+        NSUserActivity? activity,
+        MauiExternalNavigationOptions options)
     {
-        return MauiAppLinkRequestFactory.TryFromUriString(
+        ArgumentNullException.ThrowIfNull(options);
+        return MauiAppLinkRequestFactory.ParseUriString(
             activity?.WebPageUrl?.AbsoluteString,
-            MauiAppLinkProvenanceProviders.IosUserActivity);
+            MauiAppLinkProvenanceProviders.IosUserActivity,
+            options.MaximumUriLength);
     }
 }
 #endif

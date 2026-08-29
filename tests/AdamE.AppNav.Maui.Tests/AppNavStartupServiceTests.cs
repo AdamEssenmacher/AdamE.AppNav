@@ -56,6 +56,73 @@ public sealed class AppNavStartupServiceTests
     }
 
     [Fact]
+    public async Task StartAsync_TypedFallbackCreatesCanonicalInAppRequestForStartupWindow()
+    {
+        var navigator = new RecordingRouterNavigator();
+        using var services = new ServiceCollection()
+            .AddSingleton<IRouterNavigator>(navigator)
+            .AddSingleton(new NavigationDiagnostics())
+            .BuildServiceProvider();
+        using var dispatcher = new MauiExternalNavigationDispatcher(
+            services,
+            services.GetRequiredService<NavigationDiagnostics>());
+        var startup = new AppNavStartupService(
+            navigator,
+            new RecordingWindowAttachment(),
+            dispatcher,
+            new AppNavStartupOptions
+            {
+                AppLinkGracePeriod = TimeSpan.Zero,
+                FallbackRouteFactory = static (_, _) =>
+                    ValueTask.FromResult<AppRoute?>(new TestRoute("typed-fallback"))
+            },
+            services,
+            services.GetRequiredService<NavigationDiagnostics>());
+
+        var result = await StartOnMainThreadAsync(startup, new Window(new ContentPage()));
+
+        Assert.Equal(AppNavStartupOutcome.FallbackNavigated, result.Outcome);
+        RouterNavigationRequest request = Assert.Single(navigator.NavigateCalls);
+        Assert.Equal("typed-fallback", Assert.IsType<TestRoute>(request.Route).Id);
+        Assert.Equal(NavigationRequestSource.InAppCommand, request.Source);
+        Assert.Equal(RouterNavigationDisposition.Canonical, request.Disposition);
+        Assert.Equal("main", request.WindowId);
+        Assert.Null(request.Uri);
+    }
+
+    [Fact]
+    public void StartupFallbackFactoriesAreMutuallyExclusive()
+    {
+        var navigator = new RecordingRouterNavigator();
+        using var services = new ServiceCollection()
+            .AddSingleton<IRouterNavigator>(navigator)
+            .AddSingleton(new NavigationDiagnostics())
+            .BuildServiceProvider();
+        using var dispatcher = new MauiExternalNavigationDispatcher(
+            services,
+            services.GetRequiredService<NavigationDiagnostics>());
+        var options = new AppNavStartupOptions
+        {
+            FallbackRouteFactory = static (_, _) => ValueTask.FromResult<AppRoute?>(new TestRoute("route")),
+            FallbackRequestFactory = static (_, _) => ValueTask.FromResult<RouterNavigationRequest?>(
+                RouterNavigationRequest.FromRoute(
+                    new TestRoute("request"),
+                    NavigationRequestSource.InAppCommand))
+        };
+
+        var exception = Assert.Throws<InvalidOperationException>(() => new AppNavStartupService(
+            navigator,
+            new RecordingWindowAttachment(),
+            dispatcher,
+            options,
+            services,
+            services.GetRequiredService<NavigationDiagnostics>()));
+
+        Assert.Contains(nameof(AppNavStartupOptions.FallbackRouteFactory), exception.Message, StringComparison.Ordinal);
+        Assert.Contains(nameof(AppNavStartupOptions.FallbackRequestFactory), exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task StartAsync_PendingAppLink_SkipsFallbackAndAttachesWindow()
     {
         var diagnostics = new NavigationDiagnostics();
@@ -65,7 +132,8 @@ public sealed class AppNavStartupServiceTests
             .AddSingleton(diagnostics)
             .BuildServiceProvider();
         using var dispatcher = new MauiExternalNavigationDispatcher(services, diagnostics);
-        dispatcher.Dispatch(RouterNavigationRequest.FromRoute(new TestRoute("pending"), NavigationRequestSource.AppLink));
+        Assert.True(dispatcher.TryDispatch(
+            RouterNavigationRequest.FromRoute(new TestRoute("pending"), NavigationRequestSource.AppLink)));
 
         var windowAttachment = new RecordingWindowAttachment();
         var startup = new AppNavStartupService(
@@ -255,7 +323,6 @@ public sealed class AppNavStartupServiceTests
 
     [Theory]
     [InlineData(1)]
-    [InlineData(3)]
     public async Task StartAsync_UnsupportedDeferredRequestSchema_ClearsStoreAndRunsFallback(int schemaVersion)
     {
         var diagnostics = new NavigationDiagnostics();
@@ -275,7 +342,11 @@ public sealed class AppNavStartupServiceTests
             {
                 SchemaVersion = schemaVersion
             };
-            await File.WriteAllTextAsync(path, JsonSerializer.Serialize(unsupportedSnapshot));
+            await File.WriteAllTextAsync(
+                path,
+                JsonSerializer.Serialize(
+                    unsupportedSnapshot,
+                    new JsonSerializerOptions(JsonSerializerDefaults.Web)));
             var deferredStore = new MauiFileDeferredNavigationRequestStore(
                 routes,
                 new MauiFileDeferredNavigationRequestStoreOptions
@@ -492,16 +563,6 @@ public sealed class AppNavStartupServiceTests
         public NavigationState CurrentState => NavigationState.Empty;
 
         public NavigationHistory History => NavigationHistory.Empty;
-
-        public ValueTask<NavigationResult> NavigateAsync(Uri uri, NavigationRequestSource source = NavigationRequestSource.InAppCommand, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public ValueTask<NavigationResult> NavigateAsync(Uri uri, NavigationRequestSource source, RouterNavigationDisposition disposition, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public ValueTask<NavigationResult> NavigateAsync(Uri uri, RouterNavigationDisposition disposition, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public ValueTask<NavigationResult> NavigateAsync(AppRoute route, NavigationRequestSource source = NavigationRequestSource.InAppCommand, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public ValueTask<NavigationResult> NavigateAsync(AppRoute route, NavigationRequestSource source, RouterNavigationDisposition disposition, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public ValueTask<NavigationResult> NavigateAsync(AppRoute route, RouterNavigationDisposition disposition, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public ValueTask<NavigationResult> NavigateAsync(AppRouteRequest routeRequest, NavigationRequestSource source = NavigationRequestSource.InAppCommand, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public ValueTask<NavigationResult> NavigateAsync(AppRouteRequest routeRequest, NavigationRequestSource source, RouterNavigationDisposition disposition, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public ValueTask<NavigationResult> NavigateAsync(AppRouteRequest routeRequest, RouterNavigationDisposition disposition, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
         public ValueTask<NavigationResult> NavigateAsync(
             RouterNavigationRequest request,

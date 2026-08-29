@@ -128,6 +128,15 @@ public sealed class StateIdentityValidationTests
     }
 
     [Fact]
+    public void ActiveWindowDoesNotFallBackWhenConfiguredIdIsStale()
+    {
+        var state = new NavigationState(new[] { new WindowNode("main") }, "missing");
+
+        Assert.Null(state.ActiveWindow);
+        Assert.Equal("main", state.FindWindow("main")!.Id);
+    }
+
+    [Fact]
     public void BranchRequiresStableIdentityAndContent()
     {
         Assert.Throws<ArgumentException>(() => new NavigationBranch("", "Home", Stack("stack")));

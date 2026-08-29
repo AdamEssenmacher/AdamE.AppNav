@@ -5,17 +5,29 @@ on:
   push:
     branches:
       - main
-      - master
       - preview
+  schedule:
+    - cron: "0 8 * * *"
+    - cron: "0 9 * * 0"
   workflow_dispatch:
     inputs:
+      release_tag:
+        description: Optional v-prefixed preview tag used to build immutable candidate packages
+        required: false
+        type: string
+        default: ""
       run-ios-platform-tests:
-        description: Run iOS simulator XHarness tests
+        description: Run iOS simulator DeviceRunners tests
         required: false
         type: boolean
         default: false
       run-android-platform-tests:
-        description: Run Android emulator XHarness tests
+        description: Run API 36 compatibility tests; API 37 remains a required intervention gate
+        required: false
+        type: boolean
+        default: false
+      run-android-api28-platform-tests:
+        description: Run Android API 28 emulator DeviceRunners tests
         required: false
         type: boolean
         default: false
@@ -23,75 +35,46 @@ on:
 permissions:
   contents: read
 
+env:
+  CONFIGURATION: Release
+  APPNAV_RELEASE_TAG: ${{ inputs.release_tag || '' }}
+
 jobs:
   unit-api-allocation:
     name: Unit, API, and allocation contracts
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v7
-
       - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 10.0.302
-
-      - name: Install .NET 10 MAUI workload
+          global-json-file: global.json
+      - name: Install pinned MAUI workload set
         run: dotnet workload install maui
-
-      - name: Core and public API tests
-        run: dotnet test tests/AdamE.AppNav.Tests/AdamE.AppNav.Tests.csproj -c Release -p:TreatWarningsAsErrors=true -p:CheckEolTargetFramework=false
-
-      - name: Generator tests
-        run: dotnet test tests/AdamE.AppNav.Generators.Tests/AdamE.AppNav.Generators.Tests.csproj -c Release -p:TreatWarningsAsErrors=true -p:CheckEolTargetFramework=false
-
-      - name: Allocation budgets
-        run: dotnet run -c Release --project benchmarks/AdamE.AppNav.Benchmarks -- --check-budgets
+      - name: Run deterministic contracts
+        run: eng/verify.sh contracts
 
   analyzer-pack:
     name: Supported targets, analyzers, and packages
     runs-on: macos-26
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     steps:
       - uses: actions/checkout@v7
-
       - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 10.0.302
-
-      - name: Install .NET 10 MAUI workload
+          global-json-file: global.json
+      - uses: actions/setup-java@v5
+        with:
+          distribution: microsoft
+          java-version: "21"
+      - name: Install pinned MAUI workload set
         run: dotnet workload install maui
-
-      - name: Build .NET 10 target assets
-        env:
-          DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
-        run: |
-          dotnet build src/AdamE.AppNav/AdamE.AppNav.csproj -c Release -f net10.0 -warnaserror
-          dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net10.0 -p:WarningsNotAsErrors=NU1900 -warnaserror
-          dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net10.0-android -p:WarningsNotAsErrors=NU1900 -warnaserror
-          dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net10.0-ios -p:WarningsNotAsErrors=NU1900 -warnaserror
-          dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net10.0-maccatalyst -p:WarningsNotAsErrors=NU1900 -warnaserror
-
-      - name: .NET 10 trim and AOT analyzer build
-        run: >-
-          dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj
-          -c Release
-          -f net10.0
-          -p:EnableTrimAnalyzer=true
-          -p:EnableAotAnalyzer=true
-          -p:SuppressTrimAnalysisWarnings=false
-          -p:WarningsNotAsErrors=NU1900
-          -warnaserror
-
-      - name: Pack packages
-        run: |
-          dotnet pack src/AdamE.AppNav/AdamE.AppNav.csproj -c Release --no-build -p:CheckEolTargetFramework=false -o artifacts/packages
-          dotnet pack src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release --no-build -p:WarningsNotAsErrors=NU1900 -o artifacts/packages
-
-      - name: Inspect package assets
-        run: eng/verify-package-assets.sh artifacts/packages
-
+      - name: Build, analyze, pack, inspect, and consume
+        run: eng/verify.sh packages
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: packages
+          name: ${{ inputs.release_tag && format('packages-{0}', inputs.release_tag) || 'packages' }}
           path: artifacts/packages
 
   maccatalyst-nativeaot:
@@ -103,50 +86,52 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 10.0.302
+          global-json-file: global.json
       - run: dotnet workload install maui
-      - run: dotnet build samples/Commerce.Sample/Commerce.Sample.csproj -c Release -f net10.0-maccatalyst -warnaserror
-      - run: >-
-          dotnet publish samples/Commerce.Sample/Commerce.Sample.csproj
-          -c Release
-          -f net10.0-maccatalyst
-          -r maccatalyst-arm64
-          -p:PublishAot=true
-          -p:EnableCodeSigning=false
-          -p:CodesignKey=-
-          -p:CodesignProvision=
-          -warnaserror
-          -warnnotaserror:IL2104,IL3053
-          -o artifacts/aot/maccatalyst
+      - run: eng/verify.sh native-maccatalyst
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: maccatalyst-nativeaot
-          path: artifacts/aot/maccatalyst
+          path: artifacts/native/maccatalyst-arm64
 
   android-full-trim:
-    name: Android full trim
+    name: Android arm64 full trim
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 10.0.302
+          global-json-file: global.json
+      - uses: actions/setup-java@v5
+        with:
+          distribution: microsoft
+          java-version: "21"
       - run: dotnet workload install maui
-      - run: >-
-          dotnet publish samples/Commerce.Sample/Commerce.Sample.csproj
-          -c Release
-          -f net10.0-android
-          -r android-arm64
-          -p:PublishTrimmed=true
-          -p:TrimMode=full
-          -p:AndroidLinkMode=Full
-          -o artifacts/aot/android-arm64
+      - run: eng/verify.sh native-android
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: android-full-trim
-          path: artifacts/aot/android-arm64
+          path: artifacts/native/android-arm64
+
+  ios-linked:
+    name: iOS arm64 linked publish
+    runs-on: macos-26
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - run: dotnet workload install maui
+      - run: eng/verify.sh native-ios
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: ios-linked
+          path: artifacts/native/ios-arm64
 
   maccatalyst-platform-tests:
     name: Mac Catalyst platform tests
@@ -157,64 +142,95 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 10.0.302
+          global-json-file: global.json
       - run: dotnet workload install maui
-      - run: |
-          dotnet tool install Microsoft.DotNet.XHarness.CLI --global \
-            --add-source https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet-eng/nuget/v3/index.json \
-            --version "11.0.0-prerelease*"
       - run: eng/run-maui-platform-tests.sh maccatalyst
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: maccatalyst-xharness
-          path: artifacts/xharness
+          name: maccatalyst-device-runners
+          path: artifacts/device-runners
 
   ios-platform-tests:
-    name: iOS simulator platform tests
+    name: iOS latest simulator platform tests
     runs-on: macos-26
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
-    if: github.event_name == 'workflow_dispatch' && inputs.run-ios-platform-tests
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' &&
+       (inputs.run-ios-platform-tests || inputs.release_tag != ''))
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 10.0.302
+          global-json-file: global.json
       - run: dotnet workload install maui
-      - run: |
-          dotnet tool install Microsoft.DotNet.XHarness.CLI --global \
-            --add-source https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet-eng/nuget/v3/index.json \
-            --version "11.0.0-prerelease*"
       - run: eng/run-maui-platform-tests.sh ios
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: ios-xharness-artifacts
-          path: artifacts/xharness
+          name: ios-device-runners-artifacts
+          path: artifacts/device-runners
 
   android-platform-tests:
-    name: Android emulator platform tests
-    runs-on: macos-26
-    if: github.event_name == 'workflow_dispatch' && inputs.run-android-platform-tests
+    name: Android API 36 compatibility (API 37 intervention required)
+    runs-on: macos-26-intel
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' &&
+       (inputs.run-android-platform-tests || inputs.release_tag != ''))
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 10.0.302
-      - run: dotnet workload install maui
-      - run: |
-          dotnet tool install Microsoft.DotNet.XHarness.CLI --global \
-            --add-source https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet-eng/nuget/v3/index.json \
-            --version "11.0.0-prerelease*"
-      - uses: reactivecircus/android-emulator-runner@v2
+          global-json-file: global.json
+      - uses: actions/setup-java@v5
         with:
-          api-level: 35
+          distribution: microsoft
+          java-version: "21"
+      - run: dotnet workload install maui
+      - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          script: eng/run-maui-platform-tests.sh android
+      - name: Require current Android API coverage
+        run: |
+          echo "::error title=Android API 37 intervention required::The current Android API is 37, but the reviewed emulator action release does not yet provide validated API 37 support. This gate cannot be waived or described as latest; validate and pin an upstream release with API 37 support before release."
+          exit 1
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: android-device-runners-artifacts
+          path: artifacts/device-runners
+
+  android-api28-platform-tests:
+    name: Android API 28 platform tests
+    runs-on: macos-26-intel
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '0 9 * * 0') ||
+      (github.event_name == 'workflow_dispatch' &&
+       (inputs.run-android-api28-platform-tests || inputs.release_tag != ''))
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-java@v5
+        with:
+          distribution: microsoft
+          java-version: "21"
+      - run: dotnet workload install maui
+      - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 28
           target: google_apis
           arch: x86_64
           script: eng/run-maui-platform-tests.sh android
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: android-xharness-artifacts
-          path: artifacts/xharness
+          name: android-api28-device-runners-artifacts
+          path: artifacts/device-runners

@@ -2,7 +2,7 @@ namespace AdamE.AppNav.Presentation;
 
 public enum NavigationReconciliationSource
 {
-    NativeBackGesture,
-    ModalDismissed,
-    TabChanged
+    HostBack = 0,
+    ModalDismissed = 1,
+    BranchChanged = 2
 }

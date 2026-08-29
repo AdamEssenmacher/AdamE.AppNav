@@ -5,7 +5,7 @@ This guide walks through one common MAUI integration shape for AppNav. It is a c
 ## Common Flow
 
 1. Define durable semantic destinations as `AppRoute`.
-2. Use `AppRoute`, `AppRouteRequest`, `Uri`, or `RouterNavigationRequest` based on how much route metadata or runtime transport context the caller needs.
+2. Use `AppRoute` or `AppRouteRequest` in app code; construct `RouterNavigationRequest` at runtime or transport boundaries.
 3. Keep route-owned metadata app-defined in a `RouteStateRegistry` when formatting, persistence, or downstream app behavior depend on it.
 4. Register `AddAppNav(...)`, optional persistence or deferred-request services, and `AddAppNavStartup(...)` as needed by the app.
 5. Use `IAppNavStartupService`, `IMauiExternalNavigationDispatcher`, or direct `IRouterNavigator` calls where MAUI lifecycle or transport-aware boundaries need explicit control.
@@ -13,7 +13,7 @@ This guide walks through one common MAUI integration shape for AppNav. It is a c
 ```text
 App code / host code     Boundary / lifecycle        Router runtime
 ---------------------    ---------------------       --------------
-AppRoute / AppRouteRequest / Uri / RouterNavigationRequest
+AppRoute / AppRouteRequest       RouterNavigationRequest
                                               ->    transformers -> match -> policies -> planner -> presenter
 ```
 
@@ -33,7 +33,7 @@ await navigator.NavigateAsync(
     AppRouteRequest
         .For(new ProductDetailRoute("northwind", 123, "blue", "spring"))
         .WithMetadata(new RouteMetadataKey<string>("campaign"), "spring-sale"),
-    NavigationRequestSource.InAppCommand);
+    RouterNavigationDisposition.Contextual);
 ```
 
 Use plain `AppRoute` when no route-owned metadata is involved and the simpler overload is clearer.
@@ -91,7 +91,7 @@ One common MAUI setup uses:
 - optional persistence or deferred-request registration
 - `AddAppNavPages(...)` when page mappings live outside the composition root
 - `AddAppNavStartup(...)`
-- `IAppNavStartupService.StartAsync(window)` from `CreateWindow`
+- `IAppNavStartupService.Start(window, windowId)` from `CreateWindow`
 
 A common cold-start sequence is:
 
@@ -119,10 +119,9 @@ presentation surfaces force runtime creation so DI cannot dispose presenter depe
 
 Deferred replay is lease-based and at-least-once. Acquiring a lease does not remove persisted requests; successful
 navigation is removed only after durable acknowledgement. A crash between presentation and acknowledgement may replay
-once more but cannot lose the request. Persisted deferred data accepts schema 2 exactly. MAUI startup clears unsupported
-schema-1 or future preview data and continues through fallback startup. Malformed JSON and invalid schema-2 content are
-atomically renamed to an adjacent `*.invalid-{utc}-{guid}` file and replaced with an empty queue. A quarantine failure
-preserves the original and fails startup; unexpected custom-store exceptions are never cleared automatically.
+once more but cannot lose the request. Schema 3 persists canonical route-backed requests and safe provider provenance.
+Schema-2 preview data is reset once; future schema data is quarantined byte-for-byte for downgrade safety. Malformed or
+oversized data is quarantined. A quarantine failure preserves the original and fails safely.
 
 Diagnostics use `NavigationDiagnosticDataMode.Safe` by default for observers, logging, and activities. Safe mode emits
 structural types, templates, codes, counts, and timings; it reduces absolute URIs to their origin and omits raw paths,
@@ -132,7 +131,7 @@ Safe output without affecting navigation.
 
 ## Other Public Runtime Seams
 
-`IRouterNavigator` also exposes URI navigation overloads and `ReconcileAsync(...)`. Those are useful for host-owned orchestration, testing, and explicit runtime control.
+`IRouterNavigator` exposes full-envelope navigation, Back, and `ReconcileAsync(...)`. Four typed extension methods cover app-authored routes. Host-owned boundaries construct a complete `RouterNavigationRequest`.
 
 ## Route-Owned Presentation Pages
 
@@ -177,7 +176,7 @@ The active route must be hosted by a router-owned `NavigationPage`. Route-only m
 ## Notes
 
 - Built-in MAUI app-link ingress sets provenance automatically.
-- App-owned external sources should resolve `IMauiExternalNavigationDispatcher`, attach explicit `NavigationRequestProvenance`, and call `Dispatch(...)`.
+- App-owned external sources should resolve `IMauiExternalNavigationDispatcher`, attach explicit `NavigationRequestProvenance`, and call `TryDispatch(...)`.
 - Interactive foreground boundaries may call `IRouterNavigator.NavigateAsync(RouterNavigationRequest)` directly when the caller must observe navigation failure to recover UI state.
 - AppNav does not ship Branch, push, QR scanner, or auth-provider SDK integrations.
 - Raw auth callbacks belong to the auth subsystem; the router should usually see deferred replay or an app-authored post-auth request.

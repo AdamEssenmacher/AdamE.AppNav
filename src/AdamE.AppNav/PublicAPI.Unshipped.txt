@@ -1,0 +1,4 @@
+#nullable enable
+AdamE.AppNav.Navigation.AppNavigationConfigurationException
+AdamE.AppNav.Navigation.AppNavigationConfigurationException.AppNavigationConfigurationException(string! message) -> void
+AdamE.AppNav.Navigation.AppNavigationConfigurationException.AppNavigationConfigurationException(string! message, System.Exception! innerException) -> void

@@ -1,0 +1,115 @@
+name: Publish validated public preview
+
+on:
+  push:
+    tags:
+      - "v0.1.0-preview.*"
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  github-prerelease:
+    name: GitHub prerelease from validated packages
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require the exact current main commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          main_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+          if [[ "$main_sha" != "$GITHUB_SHA" ]]; then
+            echo "Tag commit $GITHUB_SHA is not the current main commit $main_sha." >&2
+            exit 1
+          fi
+
+      - name: Require two successful Release Confidence candidates for the exact tag and commit
+        id: candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          artifact_name="packages-$GITHUB_REF_NAME"
+          workflow_id="$(gh api \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/release-confidence.yml" \
+            --jq '.id')"
+
+          candidate_run_ids=()
+          artifact_ids=()
+          while IFS= read -r run_id; do
+            [[ -n "$run_id" ]] || continue
+            current_artifact_id="$(gh api -X GET \
+              "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts" \
+              -f "name=$artifact_name" \
+              -f per_page=100 \
+              --jq ".artifacts | map(select(.expired == false and .name == \"$artifact_name\")) | first | .id // empty")"
+            if [[ -n "$current_artifact_id" ]]; then
+              if [[ "${#candidate_run_ids[@]}" -lt 2 ]]; then
+                candidate_run_ids+=("$run_id")
+                artifact_ids+=("$current_artifact_id")
+              fi
+            fi
+          done < <(gh api --paginate -X GET \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow_id/runs" \
+            -f event=workflow_dispatch \
+            -f status=completed \
+            -f "head_sha=$GITHUB_SHA" \
+            -f per_page=100 \
+            --jq ".workflow_runs[] | select(.head_sha == \"$GITHUB_SHA\" and .status == \"completed\" and .conclusion == \"success\") | .id")
+
+          if [[ "${#candidate_run_ids[@]}" -lt 2 ]]; then
+            echo "Found ${#candidate_run_ids[@]} successful exact-SHA Release Confidence run(s) with the exact '$artifact_name' tag artifact; two are required." >&2
+            echo "Run Release Confidence manually twice on commit $GITHUB_SHA with release_tag=$GITHUB_REF_NAME before tagging." >&2
+            exit 1
+          fi
+          echo "run-id=${candidate_run_ids[0]}" >> "$GITHUB_OUTPUT"
+          echo "confirmation-run-id=${candidate_run_ids[1]}" >> "$GITHUB_OUTPUT"
+          echo "artifact-id=${artifact_ids[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Download already-validated package artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p artifacts/validated
+          gh api \
+            "repos/$GITHUB_REPOSITORY/actions/artifacts/${{ steps.candidate.outputs.artifact-id }}/zip" \
+            > artifacts/candidate.zip
+          unzip -q artifacts/candidate.zip -d artifacts/validated
+
+      - name: Verify tagged preview assets
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          expected=(
+            "AdamE.AppNav.$version.nupkg"
+            "AdamE.AppNav.$version.snupkg"
+            "AdamE.AppNav.Maui.$version.nupkg"
+            "AdamE.AppNav.Maui.$version.snupkg"
+          )
+          for asset in "${expected[@]}"; do
+            if [[ ! -f "artifacts/validated/$asset" ]]; then
+              echo "Missing validated release asset: $asset" >&2
+              exit 1
+            fi
+          done
+          if [[ "$(find artifacts/validated -maxdepth 1 -type f \( -name '*.nupkg' -o -name '*.snupkg' \) | wc -l | tr -d ' ')" != "4" ]]; then
+            echo "Validated artifact contains an unexpected package count." >&2
+            exit 1
+          fi
+
+      - name: Generate SHA-256 manifest
+        working-directory: artifacts/validated
+        run: sha256sum *.nupkg *.snupkg > SHA256SUMS.txt
+
+      - name: Create GitHub prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME"
+          --repo "$GITHUB_REPOSITORY"
+          --target "$GITHUB_SHA"
+          --verify-tag
+          --prerelease
+          --generate-notes
+          artifacts/validated/*.nupkg
+          artifacts/validated/*.snupkg
+          artifacts/validated/SHA256SUMS.txt

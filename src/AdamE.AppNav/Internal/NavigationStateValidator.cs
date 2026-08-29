@@ -1,4 +1,5 @@
 using AdamE.AppNav.Plans;
+using AdamE.AppNav.Navigation;
 using AdamE.AppNav.State;
 
 namespace AdamE.AppNav.Internal;
@@ -8,7 +9,7 @@ internal static class NavigationStateValidator
     public static void ValidatePlan(NavigationPlan? plan, string source)
     {
         if (plan is null)
-            throw new InvalidOperationException($"{source} produced a null navigation plan.");
+            throw new AppNavigationConfigurationException($"{source} produced a null navigation plan.");
 
         ValidateState(plan.TargetState, $"{source} target state");
     }
@@ -16,7 +17,7 @@ internal static class NavigationStateValidator
     public static void ValidateState(NavigationState? state, string source)
     {
         if (state is null)
-            throw new InvalidOperationException($"{source} cannot be null.");
+            throw new AppNavigationConfigurationException($"{source} cannot be null.");
 
         var windowIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (WindowNode window in RequireListItems(state.Windows, $"{source}.Windows"))
@@ -29,7 +30,12 @@ internal static class NavigationStateValidator
         }
 
         if (state.ActiveWindowId is not null)
+        {
             RequireId(state.ActiveWindowId, $"{source}.ActiveWindowId");
+            if (!windowIds.Contains(state.ActiveWindowId))
+                throw Invalid(
+                    $"{source}.ActiveWindowId '{state.ActiveWindowId}' does not reference an existing window.");
+        }
     }
 
     private static void ValidateWindow(WindowNode window, string path)
@@ -66,6 +72,8 @@ internal static class NavigationStateValidator
             case ModalNode modal:
                 ValidateModal(modal, path);
                 break;
+            default:
+                throw Invalid($"{path} has unsupported node type '{node.GetType().FullName}'.");
         }
     }
 
@@ -149,8 +157,8 @@ internal static class NavigationStateValidator
             throw Invalid($"{path} cannot be null, empty, or whitespace.");
     }
 
-    private static InvalidOperationException Invalid(string message)
+    private static AppNavigationConfigurationException Invalid(string message)
     {
-        return new InvalidOperationException($"Invalid navigation state: {message}");
+        return new AppNavigationConfigurationException($"Invalid navigation state: {message}");
     }
 }

@@ -1,7 +1,6 @@
 using System.Reflection;
 using AdamE.AppNav.Diagnostics;
 using AdamE.AppNav.History;
-using AdamE.AppNav.Maui;
 using AdamE.AppNav.Navigation;
 using AdamE.AppNav.Plans;
 using AdamE.AppNav.Policies;
@@ -37,11 +36,13 @@ public sealed class PublicApiContractTests
                 "AdamE.AppNav.Diagnostics.NavigationDiagnosticsOptions",
                 "AdamE.AppNav.History.NavigationHistory",
                 "AdamE.AppNav.History.NavigationHistoryEntry",
+                "AdamE.AppNav.Navigation.AppNavigationConfigurationException",
                 "AdamE.AppNav.Navigation.BackNavigationResult",
                 "AdamE.AppNav.Navigation.IRouterNavigator",
                 "AdamE.AppNav.Navigation.NavigationFallbackContext",
                 "AdamE.AppNav.Navigation.NavigationResult",
                 "AdamE.AppNav.Navigation.RouteRedirectLoopException",
+                "AdamE.AppNav.Navigation.RouterNavigatorExtensions",
                 "AdamE.AppNav.Navigation.RouterNavigatorFactory",
                 "AdamE.AppNav.Navigation.RouterNavigatorFactoryOptions",
                 "AdamE.AppNav.Planning.BranchHostNavigationModelBuilder`1",
@@ -50,6 +51,8 @@ public sealed class PublicApiContractTests
                 "AdamE.AppNav.Planning.ContextualStackEligibility",
                 "AdamE.AppNav.Planning.ContextualStackMutationKind",
                 "AdamE.AppNav.Planning.ContextualStackPushBehavior",
+                "AdamE.AppNav.Planning.INavigationModel`1",
+                "AdamE.AppNav.Planning.NavigationModelPlanner`1",
                 "AdamE.AppNav.Planning.StackNavigationModelBuilder`1",
                 "AdamE.AppNav.Planning.StackNavigationModel`1",
                 "AdamE.AppNav.Planning.StackRouteRecipeBuilder`2",
@@ -186,51 +189,11 @@ public sealed class PublicApiContractTests
     {
         Assert.Equal(
             [
-                nameof(NavigationReconciliationSource.NativeBackGesture),
+                nameof(NavigationReconciliationSource.HostBack),
                 nameof(NavigationReconciliationSource.ModalDismissed),
-                nameof(NavigationReconciliationSource.TabChanged)
+                nameof(NavigationReconciliationSource.BranchChanged)
             ],
             Enum.GetNames<NavigationReconciliationSource>());
-    }
-
-    [Fact]
-    public void MauiAssemblyPublicApiMatchesAllowlist()
-    {
-        AssertPublicApi(
-            typeof(MauiRoutePageRegistry).Assembly,
-            [
-                "AdamE.AppNav.Maui.AppLinks.AppNavAppLinkBuilderExtensions",
-                "AdamE.AppNav.Maui.AppLinks.AppNavAppLinkOptions",
-                "AdamE.AppNav.Maui.AppLinks.IMauiExternalNavigationDispatcher",
-                "AdamE.AppNav.Maui.AppLinks.MauiAppLinkProvenanceProviders",
-                "AdamE.AppNav.Maui.AppNavStartupOptions",
-                "AdamE.AppNav.Maui.AppNavStartupOutcome",
-                "AdamE.AppNav.Maui.AppNavStartupResult",
-                "AdamE.AppNav.Maui.DependencyInjection.AppNavServiceCollectionExtensions",
-                "AdamE.AppNav.Maui.IAppNavStartupService",
-                "AdamE.AppNav.Maui.IMauiPresentationState",
-                "AdamE.AppNav.Maui.IMauiRoutePageLifecycleHook",
-                "AdamE.AppNav.Maui.IMauiRoutePageModule",
-                "AdamE.AppNav.Maui.IMauiRoutePresentationNavigator",
-                "AdamE.AppNav.Maui.MauiPresentationConsistencyException",
-                "AdamE.AppNav.Maui.MauiRoutePageAttribute",
-                "AdamE.AppNav.Maui.MauiRoutePageRegistry",
-                "AdamE.AppNav.Maui.MauiRoutePageReuseKind",
-                "AdamE.AppNav.Maui.MauiRoutePageUpdateContext",
-                "AdamE.AppNav.Maui.MauiRoutePresentationPageOptions",
-                "AdamE.AppNav.Maui.Requests.MauiFileDeferredNavigationRequestStoreOptions"
-            ]);
-    }
-
-    [Fact]
-    public void MauiRoutePageAttributeIncludesPageModelTypeApi()
-    {
-        var property = typeof(MauiRoutePageAttribute).GetProperty(nameof(MauiRoutePageAttribute.PageModelType));
-
-        Assert.NotNull(property);
-        Assert.Equal(typeof(Type), property.PropertyType);
-        Assert.True(property.CanRead);
-        Assert.True(property.CanWrite);
     }
 
     [Fact]
@@ -252,11 +215,19 @@ public sealed class PublicApiContractTests
         Assert.DoesNotContain(methods, static method => method.Name == "RestoreAsync");
         Assert.DoesNotContain(methods, static method => method.Name == "RestoreFromStoreAsync");
 
-        Assert.Equal(
-            3,
-            methods.Count(static method =>
-                method.Name == nameof(IRouterNavigator.NavigateAsync) &&
-                method.GetParameters().FirstOrDefault()?.ParameterType == typeof(Uri)));
+        var navigate = Assert.Single(
+            methods,
+            static method => method.Name == nameof(IRouterNavigator.NavigateAsync));
+        Assert.Equal(typeof(RouterNavigationRequest), navigate.GetParameters()[0].ParameterType);
+
+        var typedExtensions = typeof(RouterNavigatorExtensions)
+            .GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .Where(static method => method.Name == nameof(IRouterNavigator.NavigateAsync))
+            .ToArray();
+        Assert.Equal(4, typedExtensions.Length);
+        Assert.DoesNotContain(
+            typedExtensions,
+            static method => method.GetParameters().Any(parameter => parameter.ParameterType == typeof(Uri)));
     }
 
     [Fact]
@@ -276,6 +247,9 @@ public sealed class PublicApiContractTests
         Assert.Equal(63, (int)NavigationDiagnosticEventKind.PresentationRollbackFailed);
         Assert.Equal(64, (int)NavigationDiagnosticEventKind.PresentationPageReleaseFailed);
         Assert.Equal(65, (int)NavigationDiagnosticEventKind.DeferredRequestStoreQuarantined);
+        Assert.Equal(72, (int)NavigationDiagnosticEventKind.DeferredRequestStoreReset);
+        Assert.Equal(73, (int)NavigationDiagnosticEventKind.DeferredRequestStorePruned);
+        Assert.Equal(74, (int)NavigationDiagnosticEventKind.DeferredRequestStoreOverflowed);
         Assert.Equal(40, (int)NavigationDiagnosticEventKind.StartupDeferredRequestPending);
         Assert.Equal(11, (int)NavigationDiagnosticPhase.Persistence);
     }

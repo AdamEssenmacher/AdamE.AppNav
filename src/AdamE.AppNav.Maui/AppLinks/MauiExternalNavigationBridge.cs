@@ -1,4 +1,5 @@
 using AdamE.AppNav.Requests;
+using AdamE.AppNav.Diagnostics;
 
 namespace AdamE.AppNav.Maui.AppLinks;
 
@@ -8,9 +9,11 @@ internal static class MauiExternalNavigationBridge
     private static readonly Queue<RouterNavigationRequest> BootstrapPending = new();
     private static readonly HashSet<RouterNavigationRequest> BootstrapDeduped =
         new(MauiNavigationRequestEquivalenceComparer.Instance);
+    private static readonly Queue<MauiExternalNavigationBootstrapDiagnostic> BootstrapDiagnostics = new();
+    private const int MaximumBootstrapDiagnostics = 32;
     private static WeakReference<MauiExternalNavigationDispatcher>? _current;
 
-    public static RouterNavigationRequest[] Register(MauiExternalNavigationDispatcher dispatcher)
+    public static MauiExternalNavigationBridgeRegistration Register(MauiExternalNavigationDispatcher dispatcher)
     {
         ArgumentNullException.ThrowIfNull(dispatcher);
 
@@ -19,9 +22,11 @@ internal static class MauiExternalNavigationBridge
             _current = new WeakReference<MauiExternalNavigationDispatcher>(dispatcher);
 
             RouterNavigationRequest[] requests = BootstrapPending.ToArray();
+            MauiExternalNavigationBootstrapDiagnostic[] diagnostics = BootstrapDiagnostics.ToArray();
             BootstrapPending.Clear();
             BootstrapDeduped.Clear();
-            return requests;
+            BootstrapDiagnostics.Clear();
+            return new MauiExternalNavigationBridgeRegistration(requests, diagnostics);
         }
     }
 
@@ -39,10 +44,12 @@ internal static class MauiExternalNavigationBridge
         }
     }
 
-    public static void Submit(RouterNavigationRequest? request)
+    public static bool Submit(
+        RouterNavigationRequest? request,
+        MauiExternalNavigationOptions? options = null)
     {
         if (request is null)
-            return;
+            return false;
 
         while (true)
         {
@@ -50,14 +57,12 @@ internal static class MauiExternalNavigationBridge
             lock (Gate)
             {
                 if (!TryGetCurrent(out current))
-                {
-                    Buffer(request);
-                    return;
-                }
+                    return TryValidateAndBuffer(request, options);
             }
 
-            if (current!.TryDispatchFromBridge(request))
-                return;
+            MauiExternalNavigationBridgeDispatchResult result = current!.TryDispatchFromBridge(request);
+            if (result != MauiExternalNavigationBridgeDispatchResult.Unavailable)
+                return result == MauiExternalNavigationBridgeDispatchResult.Accepted;
 
             lock (Gate)
             {
@@ -68,12 +73,82 @@ internal static class MauiExternalNavigationBridge
                 }
 
                 if (!TryGetCurrent(out _))
+                    return TryValidateAndBuffer(request, options);
+            }
+        }
+    }
+
+    public static bool Submit(
+        MauiExternalNavigationIngress ingress,
+        MauiExternalNavigationOptions? options = null)
+    {
+        if (ingress.Request is not null)
+            return Submit(ingress.Request, options);
+        if (ingress.RejectionReason == MauiExternalNavigationRejectionReason.None)
+            return false;
+
+        while (true)
+        {
+            MauiExternalNavigationDispatcher? current;
+            lock (Gate)
+            {
+                if (!TryGetCurrent(out current))
                 {
-                    Buffer(request);
-                    return;
+                    RecordBootstrapDiagnostic(
+                        NavigationDiagnosticEventKind.ExternalNavigationRejected,
+                        ingress.RejectionReason.ToString(),
+                        BootstrapPending.Count);
+                    return false;
+                }
+            }
+
+            MauiExternalNavigationBridgeDispatchResult result =
+                current!.RejectIngressFromBridge(ingress.RejectionReason);
+            if (result != MauiExternalNavigationBridgeDispatchResult.Unavailable)
+                return false;
+
+            lock (Gate)
+            {
+                if (TryGetCurrent(out MauiExternalNavigationDispatcher? registered) &&
+                    ReferenceEquals(registered, current))
+                {
+                    _current = null;
                 }
             }
         }
+    }
+
+    private static bool TryValidateAndBuffer(
+        RouterNavigationRequest request,
+        MauiExternalNavigationOptions? options)
+    {
+        options ??= new MauiExternalNavigationOptions();
+        try
+        {
+            if (!options.TryAccept(
+                    request,
+                    DateTimeOffset.UtcNow,
+                    out MauiExternalNavigationRejectionReason rejectionReason))
+            {
+                RecordBootstrapDiagnostic(
+                    rejectionReason == MauiExternalNavigationRejectionReason.Expired
+                        ? NavigationDiagnosticEventKind.ExternalNavigationExpired
+                        : NavigationDiagnosticEventKind.ExternalNavigationRejected,
+                    rejectionReason.ToString(),
+                    BootstrapPending.Count);
+                return false;
+            }
+        }
+        catch
+        {
+            RecordBootstrapDiagnostic(
+                NavigationDiagnosticEventKind.ExternalNavigationRejected,
+                MauiExternalNavigationRejectionReason.ApplicationFilter.ToString(),
+                BootstrapPending.Count);
+            return false;
+        }
+
+        return Buffer(request, options.MaximumPendingRequests);
     }
 
     private static bool TryGetCurrent(out MauiExternalNavigationDispatcher? dispatcher)
@@ -86,11 +161,57 @@ internal static class MauiExternalNavigationBridge
         return false;
     }
 
-    private static void Buffer(RouterNavigationRequest request)
+    private static bool Buffer(RouterNavigationRequest request, int maximumPendingRequests)
     {
-        if (BootstrapDeduped.Add(request))
-            BootstrapPending.Enqueue(request);
+        if (!BootstrapDeduped.Add(request))
+        {
+            RecordBootstrapDiagnostic(
+                NavigationDiagnosticEventKind.ExternalNavigationDeduplicated,
+                "EquivalentRequest",
+                BootstrapPending.Count);
+            return false;
+        }
+
+        while (BootstrapPending.Count >= maximumPendingRequests)
+        {
+            RouterNavigationRequest dropped = BootstrapPending.Dequeue();
+            BootstrapDeduped.Remove(dropped);
+            RecordBootstrapDiagnostic(
+                NavigationDiagnosticEventKind.ExternalNavigationOverflowed,
+                "PendingLimit",
+                BootstrapPending.Count);
+        }
+
+        BootstrapPending.Enqueue(request);
+        return true;
     }
+
+    private static void RecordBootstrapDiagnostic(
+        NavigationDiagnosticEventKind kind,
+        string reason,
+        int pendingCount)
+    {
+        while (BootstrapDiagnostics.Count >= MaximumBootstrapDiagnostics)
+            BootstrapDiagnostics.Dequeue();
+
+        BootstrapDiagnostics.Enqueue(new MauiExternalNavigationBootstrapDiagnostic(kind, reason, pendingCount));
+    }
+}
+
+internal sealed record MauiExternalNavigationBridgeRegistration(
+    IReadOnlyList<RouterNavigationRequest> Requests,
+    IReadOnlyList<MauiExternalNavigationBootstrapDiagnostic> Diagnostics);
+
+internal sealed record MauiExternalNavigationBootstrapDiagnostic(
+    NavigationDiagnosticEventKind Kind,
+    string Reason,
+    int PendingCount);
+
+internal enum MauiExternalNavigationBridgeDispatchResult
+{
+    Accepted,
+    Ignored,
+    Unavailable
 }
 
 internal sealed class MauiNavigationRequestEquivalenceComparer : IEqualityComparer<RouterNavigationRequest>

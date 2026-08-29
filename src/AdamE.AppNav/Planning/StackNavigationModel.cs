@@ -1,3 +1,4 @@
+using AdamE.AppNav.Navigation;
 using AdamE.AppNav.State;
 
 namespace AdamE.AppNav.Planning;
@@ -5,7 +6,7 @@ namespace AdamE.AppNav.Planning;
 /// <summary>
 /// Provides canonical stack creation and contextual stack mutation for an application's semantic routes.
 /// </summary>
-public sealed class StackNavigationModel<TRoute>
+public sealed class StackNavigationModel<TRoute> : INavigationModel<TRoute>
     where TRoute : AppRoute
 {
     private readonly IReadOnlyDictionary<Type, StackRouteRecipe<TRoute>> _recipes;
@@ -140,7 +141,7 @@ public sealed class StackNavigationModel<TRoute>
         {
             ArgumentNullException.ThrowIfNull(step);
             if (!_recipes.ContainsKey(step.Route.GetType()))
-                throw new InvalidOperationException(
+                throw new AppNavigationConfigurationException(
                     $"Stack route step '{step.Route.GetType().FullName}' must be registered before it can participate in stack planning.");
 
             entries.Add(CreateEntry(step.Route, step.Metadata));
@@ -257,7 +258,7 @@ public sealed class StackNavigationModel<TRoute>
     private StackRouteRecipe<TRoute> GetRecipe(TRoute route)
     {
         if (!_recipes.TryGetValue(route.GetType(), out StackRouteRecipe<TRoute>? recipe))
-            throw new InvalidOperationException(
+            throw new AppNavigationConfigurationException(
                 $"Route '{route.GetType().FullName}' is not registered in this stack navigation model.");
 
         return recipe;

@@ -109,6 +109,7 @@ public sealed class RepositoryContractTests
         Assert.DoesNotContain("windows", mauiProject, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("netstandard", coreProject, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("tests/AdamE.AppNav.Maui.Tests/AdamE.AppNav.Maui.Tests.csproj", solution, StringComparison.Ordinal);
+        Assert.Contains(">28.0</SupportedOSPlatformVersion>", mauiProject, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -147,13 +148,13 @@ public sealed class RepositoryContractTests
     [Fact]
     public void ReleaseConfidenceRunsGeneratorTests()
     {
+        var root = RepositoryRoot();
         var workflow = File.ReadAllText(
-            Path.Combine(RepositoryRoot(), ".github", "workflows", "release-confidence.yml"));
+            Path.Combine(root, ".github", "workflows", "release-confidence.yml"));
+        var verifier = File.ReadAllText(Path.Combine(root, "eng", "verify.sh"));
 
-        Assert.Contains(
-            "tests/AdamE.AppNav.Generators.Tests/AdamE.AppNav.Generators.Tests.csproj",
-            workflow,
-            StringComparison.Ordinal);
+        Assert.Contains("eng/verify.sh contracts", workflow, StringComparison.Ordinal);
+        Assert.Contains("tests/AdamE.AppNav.Generators.Tests/AdamE.AppNav.Generators.Tests.csproj", verifier, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -162,14 +163,14 @@ public sealed class RepositoryContractTests
         var appLinksDirectory = Path.Combine(RepositoryRoot(), "src", "AdamE.AppNav.Maui");
         var appLinkSource = string.Join(
             Environment.NewLine,
-            Directory.EnumerateFiles(appLinksDirectory, "*AppLink*.cs", SearchOption.AllDirectories)
+            Directory.EnumerateFiles(appLinksDirectory, "*.cs", SearchOption.AllDirectories)
                 .Select(File.ReadAllText));
 
         Assert.Contains("NavigationRequestSource.AppLink", appLinkSource, StringComparison.Ordinal);
         Assert.Contains("FromIntent", appLinkSource, StringComparison.Ordinal);
         Assert.Contains("FromOpenUrl", appLinkSource, StringComparison.Ordinal);
         Assert.Contains("FromUserActivity", appLinkSource, StringComparison.Ordinal);
-        Assert.Contains("UseAppNavAppLinks", appLinkSource, StringComparison.Ordinal);
+        Assert.Contains("UseAppNavExternalNavigation", appLinkSource, StringComparison.Ordinal);
         Assert.Contains("NavigationRequestProvenance", appLinkSource, StringComparison.Ordinal);
         Assert.Contains("MauiAppLinkProvenanceProviders", appLinkSource, StringComparison.Ordinal);
         Assert.Contains("android-intent", appLinkSource, StringComparison.Ordinal);
@@ -195,7 +196,7 @@ public sealed class RepositoryContractTests
             Path.Combine(root, "src", "AdamE.AppNav.Maui", "AppLinks", "MauiAppLinkRequestFactory.cs"));
 
         Assert.Contains("MauiAppLinkProvenanceProviders.MauiAppLink", genericFactorySource, StringComparison.Ordinal);
-        Assert.Contains("MauiAppLinkRequestFactory.TryFromUriString", platformFactorySource, StringComparison.Ordinal);
+        Assert.Contains("MauiAppLinkRequestFactory.ParseUriString", platformFactorySource, StringComparison.Ordinal);
         Assert.Contains("MauiAppLinkProvenanceProviders.IosOpenUrl", platformFactorySource, StringComparison.Ordinal);
         Assert.Contains("MauiAppLinkProvenanceProviders.IosUserActivity", platformFactorySource, StringComparison.Ordinal);
         Assert.Contains("MauiAppLinkProvenanceProviders.AndroidIntent", platformFactorySource, StringComparison.Ordinal);
@@ -217,14 +218,14 @@ public sealed class RepositoryContractTests
                 .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
                 .Select(File.ReadAllText));
 
-        Assert.Contains("AddAppNav<CommerceNavigationPlanner>", source, StringComparison.Ordinal);
-        Assert.Contains("AddAppNavFileDeferredNavigationRequests", source, StringComparison.Ordinal);
+        Assert.Contains("CommerceNavigationModel.Create()", source, StringComparison.Ordinal);
+        Assert.Contains("BranchHostNavigationModel<AppRoute>", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("AddAppNavFileDeferredNavigationRequests", source, StringComparison.Ordinal);
         Assert.Contains("AddAppNavStartup", source, StringComparison.Ordinal);
-        Assert.Contains("UseAppNavAppLinks", source, StringComparison.Ordinal);
+        Assert.Contains("UseAppNavExternalNavigation", source, StringComparison.Ordinal);
         Assert.Contains("IAppNavStartupService", source, StringComparison.Ordinal);
-        Assert.Contains("StartAsync(window)", source, StringComparison.Ordinal);
-        Assert.Contains("FallbackRequestFactory", source, StringComparison.Ordinal);
-        Assert.Contains("CommerceRouteMetadata.RouteStateRegistry", source, StringComparison.Ordinal);
+        Assert.Contains("Start(window, \"main\")", source, StringComparison.Ordinal);
+        Assert.Contains("FallbackRouteFactory", source, StringComparison.Ordinal);
         Assert.Contains("AppRouteRequest", source, StringComparison.Ordinal);
         Assert.Contains("IRouterNavigator", source, StringComparison.Ordinal);
         Assert.Contains("CommerceNotFoundRoute", source, StringComparison.Ordinal);
@@ -235,6 +236,56 @@ public sealed class RepositoryContractTests
         Assert.DoesNotContain("RestoreFromStoreAsync", source, StringComparison.Ordinal);
         Assert.DoesNotContain(".AttachWindow", source, StringComparison.Ordinal);
         Assert.DoesNotContain("CurrentPage", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CommerceSampleDeclaresRunnableDebugExternalIngress()
+    {
+        var sampleDirectory = Path.Combine(RepositoryRoot(), "samples", "Commerce.Sample");
+        var androidActivity = File.ReadAllText(
+            Path.Combine(sampleDirectory, "Platforms", "Android", "MainActivity.cs"));
+        var appleManifest = File.ReadAllText(
+            Path.Combine(sampleDirectory, "Platforms", "Apple", "DebugUrlScheme.plist"));
+        var project = File.ReadAllText(Path.Combine(sampleDirectory, "Commerce.Sample.csproj"));
+        var readme = File.ReadAllText(Path.Combine(sampleDirectory, "README.md"));
+
+        Assert.Contains("#if DEBUG", androidActivity, StringComparison.Ordinal);
+        Assert.Contains("IntentFilter", androidActivity, StringComparison.Ordinal);
+        Assert.Contains("DataScheme = \"appnav-commerce\"", androidActivity, StringComparison.Ordinal);
+        Assert.Contains("DataHost = \"shop\"", androidActivity, StringComparison.Ordinal);
+        Assert.Contains("'$(Configuration)' == 'Debug'", project, StringComparison.Ordinal);
+        Assert.Contains("PartialAppManifest", project, StringComparison.Ordinal);
+        Assert.Contains("<string>appnav-commerce</string>", appleManifest, StringComparison.Ordinal);
+
+        Assert.Contains("BranchHostNavigationModel<AppRoute>", readme, StringComparison.Ordinal);
+        Assert.Contains("FallbackRouteFactory", readme, StringComparison.Ordinal);
+        Assert.Contains("independent tab stacks", readme, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("`Auto`", readme, StringComparison.Ordinal);
+        Assert.Contains("`Contextual`", readme, StringComparison.Ordinal);
+        Assert.Contains("`ReplaceCurrent`", readme, StringComparison.Ordinal);
+        Assert.Contains("`Canonical`", readme, StringComparison.Ordinal);
+        Assert.Contains("adb shell am start", readme, StringComparison.Ordinal);
+        Assert.Contains("xcrun simctl openurl", readme, StringComparison.Ordinal);
+        Assert.Contains("campaign=warm", readme, StringComparison.Ordinal);
+        Assert.Contains("HostBack", readme, StringComparison.Ordinal);
+        Assert.Contains("BranchChanged", readme, StringComparison.Ordinal);
+        Assert.Contains("HostReconciliation", readme, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Routes.cs", "getting-started-routes")]
+    [InlineData("NavigationModel.cs", "getting-started-model")]
+    [InlineData("Pages.cs", "getting-started-typed-navigation")]
+    [InlineData("MauiProgram.cs", "getting-started-registration-services")]
+    [InlineData("App.cs", "getting-started-window-start")]
+    public void ReadmeSnippetsComeFromBuildableGettingStartedRegions(string fileName, string regionName)
+    {
+        var root = RepositoryRoot();
+        var readme = File.ReadAllText(Path.Combine(root, "README.md"));
+        var sample = File.ReadAllText(
+            Path.Combine(root, "samples", "GettingStarted.Sample", fileName));
+
+        Assert.Contains(ReadRegion(sample, regionName), readme, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -257,11 +308,10 @@ public sealed class RepositoryContractTests
         Assert.DoesNotContain("RouterNavigationRequest", pageSource, StringComparison.Ordinal);
         Assert.DoesNotMatch(@"(?<![A-Za-z0-9_])RouterNavigator(?![A-Za-z0-9_])", pageSource);
         Assert.Contains("AppNavQueryMetadata(typeof(CommerceRouteMetadata), nameof(CommerceRouteMetadata.Campaign))", sampleSource, StringComparison.Ordinal);
-        Assert.Contains("CommerceRouteMetadata.RouteStateRegistry", sampleSource, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void CommerceIsTheOnlySample()
+    public void RepositoryContainsMinimalAndAdvancedMauiSamples()
     {
         var root = RepositoryRoot();
         var sampleDirectories = Directory
@@ -271,9 +321,9 @@ public sealed class RepositoryContractTests
             .ToArray();
         var solution = File.ReadAllText(Path.Combine(root, "AdamE.AppNav.slnx"));
 
-        Assert.Equal(new[] { "Commerce.Sample" }, sampleDirectories);
+        Assert.Equal(new[] { "Commerce.Sample", "GettingStarted.Sample" }, sampleDirectories);
         Assert.Contains("samples/Commerce.Sample/Commerce.Sample.csproj", solution, StringComparison.Ordinal);
-        Assert.DoesNotContain("Learning.Sample", solution, StringComparison.Ordinal);
+        Assert.Contains("samples/GettingStarted.Sample/GettingStarted.Sample.csproj", solution, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -282,8 +332,8 @@ public sealed class RepositoryContractTests
         var root = RepositoryRoot();
         var readme = File.ReadAllText(Path.Combine(root, "README.md"));
 
-        Assert.Contains("Native user-driven back remains native-first", readme, StringComparison.Ordinal);
-        Assert.Contains("Android predictive back is not implemented in v1", readme, StringComparison.Ordinal);
+        Assert.Contains("Native user actions reconcile", readme, StringComparison.Ordinal);
+        Assert.Contains("transition or shared-element system", readme, StringComparison.Ordinal);
         Assert.DoesNotContain("NavigationTransition", readme, StringComparison.Ordinal);
         Assert.DoesNotContain("SharedElementNavigationTransition", readme, StringComparison.Ordinal);
         Assert.DoesNotContain("AppNavTransition", readme, StringComparison.Ordinal);
@@ -302,16 +352,11 @@ public sealed class RepositoryContractTests
         var root = RepositoryRoot();
         var readme = File.ReadAllText(Path.Combine(root, "README.md"));
 
+        Assert.Contains("FallbackRouteFactory", readme, StringComparison.Ordinal);
         Assert.Contains("FallbackRequestFactory", readme, StringComparison.Ordinal);
-        Assert.Contains("RouterNavigationRequest.FromUri(uri, NavigationRequestSource.Test)", readme, StringComparison.Ordinal);
-        Assert.Contains("Planner and navigator tests:", readme, StringComparison.Ordinal);
-        Assert.Contains("Use the public route table, planner, navigator factory, diagnostics, and state types directly from app tests.", readme, StringComparison.Ordinal);
-        Assert.Contains("test fixtures and assertion helpers app-owned", readme, StringComparison.Ordinal);
-        Assert.Contains("RouterNavigatorFactory.Create(", readme, StringComparison.Ordinal);
-        Assert.Contains("NavigateAsync(Uri|AppRoute|AppRouteRequest|RouterNavigationRequest)", readme, StringComparison.Ordinal);
-        Assert.Contains("`NavigateAsync(Uri...)` starts from a URL directly.", readme, StringComparison.Ordinal);
-        Assert.Contains("`ReconcileAsync(...)` accepts an explicit `NavigationReconciliation`", readme, StringComparison.Ordinal);
-        Assert.Contains("Deferred request serializer coverage:", readme, StringComparison.Ordinal);
+        Assert.Contains("There are no URI/source convenience overloads", readme, StringComparison.Ordinal);
+        Assert.Contains("RouterNavigatorExtensions", readme, StringComparison.Ordinal);
+        Assert.Contains("ReconcileAsync", File.ReadAllText(Path.Combine(root, "docs", "adapter-contract.md")), StringComparison.Ordinal);
         Assert.DoesNotContain("AdamE.AppNav.Testing", readme, StringComparison.Ordinal);
         Assert.DoesNotContain("RouterTestNavigator", readme, StringComparison.Ordinal);
         Assert.DoesNotContain("NavigationSnapshotTestSerializer", readme, StringComparison.Ordinal);
@@ -329,23 +374,47 @@ public sealed class RepositoryContractTests
         var checklist = File.ReadAllText(Path.Combine(root, "docs", "release-checklist.md"));
         var runner = File.ReadAllText(Path.Combine(root, "eng", "run-maui-platform-tests.sh"));
         var packageVerifier = File.ReadAllText(Path.Combine(root, "eng", "verify-package-assets.sh"));
+        var releaseVerifier = File.ReadAllText(Path.Combine(root, "eng", "verify.sh"));
+        var consumerVerifier = File.ReadAllText(Path.Combine(root, "eng", "verify-package-consumer.sh"));
+        var releaseNotes = File.ReadAllText(Path.Combine(root, "docs", "release-notes", "0.1.0-preview.1.md"));
         var mauiTestsProject = File.ReadAllText(Path.Combine(root, "tests", "AdamE.AppNav.Maui.Tests", "AdamE.AppNav.Maui.Tests.csproj"));
 
         Assert.Contains("docs/release-checklist.md", readme, StringComparison.Ordinal);
         Assert.Contains("eng/run-maui-platform-tests.sh android", checklist, StringComparison.Ordinal);
-        Assert.Contains("dotnet pack src/AdamE.AppNav/AdamE.AppNav.csproj", checklist, StringComparison.Ordinal);
+        Assert.Contains("eng/verify.sh release", checklist, StringComparison.Ordinal);
         Assert.DoesNotContain("AdamE.AppNav.Testing", checklist, StringComparison.Ordinal);
-        Assert.Contains("xharness android test", runner, StringComparison.Ordinal);
-        Assert.Contains("xharness apple test", runner, StringComparison.Ordinal);
-        Assert.Contains("--instrumentation", runner, StringComparison.Ordinal);
+        Assert.Contains("dotnet pack", releaseVerifier, StringComparison.Ordinal);
+        Assert.Contains("samples/GettingStarted.Sample/GettingStarted.Sample.csproj", releaseVerifier, StringComparison.Ordinal);
+        Assert.Contains("verify-package-assets.sh", releaseVerifier, StringComparison.Ordinal);
+        Assert.Contains("verify-package-consumer.sh", releaseVerifier, StringComparison.Ordinal);
+        Assert.Contains("NUGET_PACKAGES", consumerVerifier, StringComparison.Ordinal);
+        Assert.Contains("--no-restore", consumerVerifier, StringComparison.Ordinal);
+        Assert.Contains("dotnet test", runner, StringComparison.Ordinal);
+        Assert.Contains("--logger \"trx;LogFileName=test-results.trx\"", runner, StringComparison.Ordinal);
+        Assert.Contains("-p:TreatWarningsAsErrors=true", runner, StringComparison.Ordinal);
+        Assert.Contains("DeviceRunnersDevice", runner, StringComparison.Ordinal);
         Assert.Contains("require_test_results", runner, StringComparison.Ordinal);
-        Assert.Contains("fail_on_unhandled_exceptions", runner, StringComparison.Ordinal);
+        Assert.Contains("fail_on_runtime_markers", runner, StringComparison.Ordinal);
         Assert.Contains("grep -Eq", packageVerifier, StringComparison.Ordinal);
         Assert.DoesNotContain("rg --quiet", packageVerifier, StringComparison.Ordinal);
+        Assert.Contains("unzip -tq", packageVerifier, StringComparison.Ordinal);
+        Assert.Contains("BSJB", packageVerifier, StringComparison.Ordinal);
+        Assert.Contains("RouterNavigator.cs", packageVerifier, StringComparison.Ordinal);
+        Assert.Contains("MauiNavigationPresenter.cs", packageVerifier, StringComparison.Ordinal);
         Assert.Contains("net10.0-android", mauiTestsProject, StringComparison.Ordinal);
         Assert.Contains("net10.0-ios", mauiTestsProject, StringComparison.Ordinal);
         Assert.Contains("net10.0-maccatalyst", mauiTestsProject, StringComparison.Ordinal);
-        Assert.Contains("Microsoft.DotNet.XHarness.TestRunners.Xunit", mauiTestsProject, StringComparison.Ordinal);
+        Assert.Contains("DeviceRunners.Testing.Targets", mauiTestsProject, StringComparison.Ordinal);
+        Assert.Contains("DeviceRunners.VisualRunners.Maui", mauiTestsProject, StringComparison.Ordinal);
+        Assert.Contains("DeviceRunners.VisualRunners.Xunit", mauiTestsProject, StringComparison.Ordinal);
+        Assert.Contains("0.1.0-preview.12", mauiTestsProject, StringComparison.Ordinal);
+        Assert.DoesNotContain("Microsoft.DotNet.XHarness", mauiTestsProject, StringComparison.Ordinal);
+        Assert.Contains("schema 3", releaseNotes, StringComparison.Ordinal);
+        Assert.Contains("Breaking preview changes", releaseNotes, StringComparison.Ordinal);
+        Assert.Contains("`NativeBackGesture`, `TabChanged`, and `NativeReconciliation`", releaseNotes, StringComparison.Ordinal);
+        Assert.DoesNotContain("HostPopped", releaseNotes, StringComparison.Ordinal);
+        Assert.DoesNotContain("BranchSelectionChanged", releaseNotes, StringComparison.Ordinal);
+        Assert.Contains("does not rebuild packages or publish to NuGet.org", releaseNotes, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -353,25 +422,27 @@ public sealed class RepositoryContractTests
     {
         var root = RepositoryRoot();
         var workflow = File.ReadAllText(Path.Combine(root, ".github", "workflows", "release-confidence.yml"));
+        var verifier = File.ReadAllText(Path.Combine(root, "eng", "verify.sh"));
 
         Assert.Contains("unit-api-allocation:", workflow, StringComparison.Ordinal);
         Assert.Contains("analyzer-pack:", workflow, StringComparison.Ordinal);
         Assert.Contains("maccatalyst-nativeaot:", workflow, StringComparison.Ordinal);
         Assert.Contains("android-full-trim:", workflow, StringComparison.Ordinal);
+        Assert.Contains("ios-linked:", workflow, StringComparison.Ordinal);
         Assert.Contains("maccatalyst-platform-tests:", workflow, StringComparison.Ordinal);
-        Assert.Contains("dotnet test tests/AdamE.AppNav.Tests/AdamE.AppNav.Tests.csproj", workflow, StringComparison.Ordinal);
-        Assert.Contains("dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj", workflow, StringComparison.Ordinal);
-        Assert.Contains("dotnet build samples/Commerce.Sample/Commerce.Sample.csproj -c Release -f net10.0-maccatalyst", workflow, StringComparison.Ordinal);
-        Assert.Contains("dotnet pack src/AdamE.AppNav/AdamE.AppNav.csproj", workflow, StringComparison.Ordinal);
-        Assert.Contains("eng/verify-package-assets.sh artifacts/packages", workflow, StringComparison.Ordinal);
-        Assert.Contains("-f net10.0-android", workflow, StringComparison.Ordinal);
+        Assert.Contains("eng/verify.sh contracts", workflow, StringComparison.Ordinal);
+        Assert.Contains("eng/verify.sh packages", workflow, StringComparison.Ordinal);
+        Assert.Contains("eng/verify.sh native-maccatalyst", workflow, StringComparison.Ordinal);
+        Assert.Contains("eng/verify.sh native-android", workflow, StringComparison.Ordinal);
+        Assert.Contains("eng/verify.sh native-ios", workflow, StringComparison.Ordinal);
         Assert.Contains("eng/run-maui-platform-tests.sh maccatalyst", workflow, StringComparison.Ordinal);
         Assert.Contains("run-ios-platform-tests", workflow, StringComparison.Ordinal);
         Assert.Contains("run-android-platform-tests", workflow, StringComparison.Ordinal);
+        Assert.Contains("run-android-api28-platform-tests", workflow, StringComparison.Ordinal);
         Assert.Contains("reactivecircus/android-emulator-runner", workflow, StringComparison.Ordinal);
         Assert.Contains("runs-on: macos-26", workflow, StringComparison.Ordinal);
         Assert.DoesNotContain("runs-on: macos-latest", workflow, StringComparison.Ordinal);
-        Assert.Contains("10.0.302", workflow, StringComparison.Ordinal);
+        Assert.Contains("global-json-file: global.json", workflow, StringComparison.Ordinal);
         Assert.Contains(
             "DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer",
             workflow,
@@ -379,7 +450,29 @@ public sealed class RepositoryContractTests
         Assert.Contains("actions/checkout@v7", workflow, StringComparison.Ordinal);
         Assert.Contains("actions/setup-dotnet@v5", workflow, StringComparison.Ordinal);
         Assert.Contains("actions/upload-artifact@v7", workflow, StringComparison.Ordinal);
-        Assert.Contains("-warnnotaserror:IL2104,IL3053", workflow, StringComparison.Ordinal);
+        Assert.Contains("-warnnotaserror:IL2104,IL3053", verifier, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PublicPreviewReleasePublishesOnlyPreviouslyValidatedArtifacts()
+    {
+        var root = RepositoryRoot();
+        var confidenceWorkflow = File.ReadAllText(Path.Combine(root, ".github", "workflows", "release-confidence.yml"));
+        var releaseWorkflow = File.ReadAllText(Path.Combine(root, ".github", "workflows", "public-preview-release.yml"));
+
+        Assert.Contains("release_tag:", confidenceWorkflow, StringComparison.Ordinal);
+        Assert.Contains("packages-{0}", confidenceWorkflow, StringComparison.Ordinal);
+        Assert.Contains("v0.1.0-preview.*", releaseWorkflow, StringComparison.Ordinal);
+        Assert.Contains("Require the exact current main commit", releaseWorkflow, StringComparison.Ordinal);
+        Assert.Contains("packages-$GITHUB_REF_NAME", releaseWorkflow, StringComparison.Ordinal);
+        Assert.Contains("select(.head_sha == \\\"$GITHUB_SHA\\\"", releaseWorkflow, StringComparison.Ordinal);
+        Assert.Contains(".conclusion == \\\"success\\\"", releaseWorkflow, StringComparison.Ordinal);
+        Assert.Contains("SHA256SUMS.txt", releaseWorkflow, StringComparison.Ordinal);
+        Assert.Contains("gh release create", releaseWorkflow, StringComparison.Ordinal);
+        Assert.Contains("--prerelease", releaseWorkflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("dotnet ", releaseWorkflow, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("nuget push", releaseWorkflow, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("dotnet pack", releaseWorkflow, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -389,14 +482,33 @@ public sealed class RepositoryContractTests
         var buildProps = File.ReadAllText(Path.Combine(root, "Directory.Build.props"));
         var coreProject = File.ReadAllText(Path.Combine(root, "src", "AdamE.AppNav", "AdamE.AppNav.csproj"));
         var mauiProject = File.ReadAllText(Path.Combine(root, "src", "AdamE.AppNav.Maui", "AdamE.AppNav.Maui.csproj"));
+        var coreApi = File.ReadAllText(Path.Combine(root, "src", "AdamE.AppNav", "PublicAPI.Shipped.txt"));
+        var mauiApi = File.ReadAllText(Path.Combine(root, "src", "AdamE.AppNav.Maui", "PublicAPI.Shipped.txt"));
 
         Assert.Contains("<PackageLicenseExpression>MIT</PackageLicenseExpression>", buildProps, StringComparison.Ordinal);
         Assert.Contains("<RepositoryUrl>https://github.com/AdamEssenmacher/AdamE.AppNav.git</RepositoryUrl>", buildProps, StringComparison.Ordinal);
         Assert.Contains("<PackageReadmeFile>README.md</PackageReadmeFile>", buildProps, StringComparison.Ordinal);
         Assert.Contains("<IncludeSymbols>true</IncludeSymbols>", buildProps, StringComparison.Ordinal);
         Assert.Contains("Microsoft.SourceLink.GitHub", buildProps, StringComparison.Ordinal);
+        Assert.Contains("<AppNavDefaultVersion>0.1.0-preview.local</AppNavDefaultVersion>", buildProps, StringComparison.Ordinal);
+        Assert.Contains("Stable AppNav packages require AppNavStableRelease=true", buildProps, StringComparison.Ordinal);
         Assert.Contains("<GenerateDocumentationFile>true</GenerateDocumentationFile>", coreProject, StringComparison.Ordinal);
         Assert.Contains("<GenerateDocumentationFile>true</GenerateDocumentationFile>", mauiProject, StringComparison.Ordinal);
+        Assert.Contains("Microsoft.CodeAnalysis.PublicApiAnalyzers\" Version=\"5.6.0", coreProject, StringComparison.Ordinal);
+        Assert.Contains("Microsoft.CodeAnalysis.PublicApiAnalyzers\" Version=\"5.6.0", mauiProject, StringComparison.Ordinal);
+        Assert.Contains("AdamE.AppNav.Navigation.IRouterNavigator", coreApi, StringComparison.Ordinal);
+        Assert.Contains("AdamE.AppNav.Maui.AppLinks.MauiExternalNavigationOptions", mauiApi, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GlobalJsonPinsTheValidatedSdkAndWorkloadSet()
+    {
+        var globalJson = File.ReadAllText(Path.Combine(RepositoryRoot(), "global.json"));
+
+        Assert.Contains("\"version\": \"10.0.400\"", globalJson, StringComparison.Ordinal);
+        Assert.Contains("\"rollForward\": \"latestFeature\"", globalJson, StringComparison.Ordinal);
+        Assert.Contains("\"version\": \"10.0.302.1\"", globalJson, StringComparison.Ordinal);
+        Assert.False(File.Exists(Path.Combine(RepositoryRoot(), "eng", "sdk", "net9", "global.json")));
     }
 
     private static string RepositoryRoot()
@@ -413,5 +525,27 @@ public sealed class RepositoryContractTests
         }
 
         throw new InvalidOperationException("Could not locate repository root.");
+    }
+
+    private static string ReadRegion(string source, string regionName)
+    {
+        string startMarker = $"// #region {regionName}";
+        string endMarker = $"// #endregion {regionName}";
+        int start = source.IndexOf(startMarker, StringComparison.Ordinal);
+        int end = source.IndexOf(endMarker, StringComparison.Ordinal);
+        Assert.True(start >= 0, $"Region '{regionName}' start marker was not found.");
+        Assert.True(end > start, $"Region '{regionName}' end marker was not found.");
+
+        string body = source[(start + startMarker.Length)..end].Trim('\r', '\n');
+        string[] lines = body.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+        int indentation = lines
+            .Where(static line => !string.IsNullOrWhiteSpace(line))
+            .Select(static line => line.TakeWhile(char.IsWhiteSpace).Count())
+            .DefaultIfEmpty(0)
+            .Min();
+
+        return string.Join(
+            Environment.NewLine,
+            lines.Select(line => line.Length >= indentation ? line[indentation..] : line));
     }
 }

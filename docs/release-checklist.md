@@ -1,62 +1,51 @@
-# Release Checklist
+# Public Preview Release Checklist
 
-This checklist is for validating a production release candidate before publishing packages.
+This checklist validates a `0.1.0-preview.*` candidate. Stable qualification and NuGet.org publication are separate
+work. The supported baseline is .NET 10, Android API 28+, iOS 15+, and Mac Catalyst 15+.
 
-## Platform Matrix
+## Pinned toolchain
 
-- Android: build adapter, build Commerce sample, run `eng/run-maui-platform-tests.sh android` against an attached emulator or device, launch Commerce, and verify catalog-to-product navigation without crashes.
-- iOS: build Commerce for simulator, run `eng/run-maui-platform-tests.sh ios`, launch Commerce in a simulator, verify app-link startup, stack navigation, swipe-back, and modal dismissal.
-- Mac Catalyst: build adapter, build Commerce, run `eng/run-maui-platform-tests.sh maccatalyst`, and verify startup, restore, stack navigation, and modal behavior.
-
-## Required Commands
-
-Install the MAUI workload with the pinned .NET 10 SDK before running the validation commands.
+The repository root `global.json` pins SDK `10.0.400`, workload set `10.0.302.1`, and `latestFeature` roll-forward.
+Android builds require JDK 21; CI pins Microsoft's JDK 21 distribution.
+Run commands from the repository root so the pin is honored. Install the matching workload set once:
 
 ```bash
 dotnet workload install maui
-
-dotnet test tests/AdamE.AppNav.Tests/AdamE.AppNav.Tests.csproj -c Release -p:TreatWarningsAsErrors=true
-dotnet test tests/AdamE.AppNav.Generators.Tests/AdamE.AppNav.Generators.Tests.csproj -c Release -p:TreatWarningsAsErrors=true
-dotnet build tests/AdamE.AppNav.Maui.Tests/AdamE.AppNav.Maui.Tests.csproj -f net10.0-maccatalyst
-
-dotnet build src/AdamE.AppNav/AdamE.AppNav.csproj -c Release -f net10.0 -warnaserror
-dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net10.0 -warnaserror
-dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net10.0-android -warnaserror
-dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net10.0-ios -warnaserror
-dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net10.0-maccatalyst -warnaserror
-dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net10.0 -p:EnableTrimAnalyzer=true -p:EnableAotAnalyzer=true -p:SuppressTrimAnalysisWarnings=false -p:WarningsNotAsErrors=NU1900 -warnaserror
-dotnet build src/AdamE.AppNav/AdamE.AppNav.csproj -c Release -f net10.0 -warnaserror
-dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net10.0 -warnaserror
-dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net10.0-android -warnaserror
-dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net10.0-ios -warnaserror
-dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net10.0-maccatalyst -warnaserror
-dotnet build src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release -f net10.0 -p:EnableTrimAnalyzer=true -p:EnableAotAnalyzer=true -p:SuppressTrimAnalysisWarnings=false -p:WarningsNotAsErrors=NU1900 -warnaserror
-
-dotnet build samples/Commerce.Sample/Commerce.Sample.csproj -c Release -f net10.0-maccatalyst -warnaserror
-dotnet publish samples/Commerce.Sample/Commerce.Sample.csproj -c Release -f net10.0-maccatalyst -r maccatalyst-arm64 -p:PublishAot=true -p:EnableCodeSigning=false -p:CodesignKey=- -p:CodesignProvision= -warnaserror -warnnotaserror:IL2104,IL3053 -o artifacts/aot/maccatalyst
-dotnet publish samples/Commerce.Sample/Commerce.Sample.csproj -c Release -f net10.0-android -r android-arm64 -p:PublishTrimmed=true -p:TrimMode=full -p:AndroidLinkMode=Full -o artifacts/aot/android-arm64
-dotnet build benchmarks/AdamE.AppNav.Benchmarks/AdamE.AppNav.Benchmarks.csproj -c Release
-dotnet run -c Release --project benchmarks/AdamE.AppNav.Benchmarks -- --check-budgets
-dotnet pack src/AdamE.AppNav/AdamE.AppNav.csproj -c Release --no-build -p:CheckEolTargetFramework=false -o artifacts/packages
-dotnet pack src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj -c Release --no-build -o artifacts/packages
-eng/verify-package-assets.sh artifacts/packages
 ```
 
-.NET 9 remains supported by AppNav compatibility policy. The MAUI adapter scopes `CheckEolTargetFramework=false` and
-`CheckEolWorkloads=false` to its exact .NET 9 TFMs; compiler, trim, AOT, and package checks remain warning-as-error
-gates. This compatibility commitment does not extend Microsoft's platform servicing or security-update window.
+## Deterministic non-device gate
 
-## XHarness
-
-Install XHarness before running platform tests:
+Run the canonical gate twice from a clean working tree:
 
 ```bash
-dotnet tool install Microsoft.DotNet.XHarness.CLI --global \
-  --add-source https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet-eng/nuget/v3/index.json \
-  --version "11.0.0-prerelease*"
+eng/verify.sh release
+eng/verify.sh release
 ```
 
-Run one platform:
+The gate runs unit and API contracts, route and MAUI generator tests when present, adapter-contract tests when present,
+allocation budgets, all supported target builds, trim/AOT analyzers, Android arm64 full trimming, iOS arm64 linked
+publishing, Mac Catalyst arm64 NativeAOT publishing, package inspection, and an isolated package-consumer build.
+
+The consumer fixture references only the locally packed `AdamE.AppNav.Maui` package. It restores into an empty temporary
+global-packages and HTTP-cache directory, then compiles an attributed route, a generated route module, an attributed
+MAUI page, and a generated MAUI page module. A project reference or a warm global-package cache cannot mask missing
+package assets.
+
+Useful focused gates are:
+
+```bash
+eng/verify.sh contracts
+eng/verify.sh packages
+eng/verify.sh native
+```
+
+Local packages default to `0.1.0-preview.local`. Set `APPNAV_RELEASE_TAG=v0.1.0-preview.1` to validate a tagged preview
+version. Stable package versions are rejected unless `AppNavStableRelease=true` is explicitly supplied; the public
+preview workflow does not set it.
+
+## Runtime platform gate
+
+The runtime project pins DeviceRunners and its `dotnet test` integration, so no global test tool is required. Run:
 
 ```bash
 eng/run-maui-platform-tests.sh android
@@ -64,42 +53,32 @@ eng/run-maui-platform-tests.sh ios
 eng/run-maui-platform-tests.sh maccatalyst
 ```
 
-Artifacts are written under `artifacts/xharness/`. A valid platform pass requires all of the following:
+Artifacts are written under `artifacts/device-runners/`. A pass requires a TRX result, at least one executed test, no
+failures or unexpected skips, no unhandled exception/native crash/consistency-fault markers, and a successful
+DeviceRunners exit.
 
-- XHarness exits successfully.
-- A test result XML/TRX artifact is present.
-- The result artifact reports zero failed tests.
-- Logs contain no unhandled exception or native crash marker.
+Pull requests compile all supported targets and run Mac Catalyst tests in Release. Nightly CI adds current Android and
+iOS simulator runs. Weekly CI also runs Android API 28. If simulator or emulator infrastructure is unavailable, stop
+and record the required local command; do not waive the gate.
 
-The runner fails if XHarness launches the app but does not produce test results.
+## Package and publication checks
 
-## CI
+The API and schema changes for this candidate are recorded in
+[`docs/release-notes/0.1.0-preview.1.md`](release-notes/0.1.0-preview.1.md).
 
-The release-confidence workflow exposes independent required jobs for unit/API/allocation contracts, supported-target
-and analyzer/package checks, Mac Catalyst NativeAOT, Android full trimming, and Mac Catalyst XHarness tests. A failure
-in one gate does not suppress the others. iOS simulator and Android emulator platform jobs remain manual
-`workflow_dispatch` gates for runners with stable simulator/emulator support. Hosted jobs pin `macos-26`, .NET SDKs
-`10.0.302`, and Xcode 26.6 for .NET 10 Apple lanes; update those pins together when advancing the
-validated release toolchain. The NativeAOT publish keeps warnings as errors except for framework-owned aggregate
-`IL2104` and `IL3053` diagnostics currently emitted by `Microsoft.Maui`; AppNav's dedicated trim/AOT analyzer lanes
-remain unexceptioned warning-as-error gates.
+- Exactly one `.nupkg` and `.snupkg` exist for both `AdamE.AppNav` and `AdamE.AppNav.Maui`.
+- Packages contain only the documented .NET 10 target assets and their assigned source generators.
+- Package metadata points to `AdamEssenmacher/AdamE.AppNav`.
+- Public API and schema baselines match the release notes.
+- The exact green `main` commit is tagged `v0.1.0-preview.1`.
+- The tag workflow reuses already-validated packages, emits SHA-256 hashes, and creates a GitHub prerelease.
+- No workflow pushes to NuGet.org for this preview.
 
-## Manual Smoke Checks
+## Known preview limits
 
-- No Shell or Prism dependency appears in source or samples.
-- Commerce uses app-link startup, fallback routing, deferred request persistence, and pre-match URL transformation.
-- App-link cold start prefers the incoming link over fallback startup navigation.
-- Schema 1/future deferred data is cleared; malformed schema-2 data is quarantined byte-for-byte and never partially replayed.
-- Safe diagnostics expose no URI credentials, query/fragment values, provenance values, or exception messages.
-- Async DI shutdown waits for presenter rollback, page release, lifecycle hooks, and async scope disposal.
-- Optional release-candidate performance review: run `dotnet run -c Release --project benchmarks/AdamE.AppNav.Benchmarks -- --filter "*" --join`.
-- Logs contain no unhandled exceptions, failed native operations, consistency faults, or missing cleanup diagnostics.
-
-## Known V1 Limits
-
-- No Shell integration.
+- No Shell or Prism integration.
 - No Windows MAUI adapter target.
-- No MVU presenter.
-- No complete multi-window orchestration.
-- No full trie-based route matcher; the current literal-prefix candidate index has benchmark and allocation-budget coverage across 10, 100, and 1000 routes.
-- No custom tab selection animation.
+- No production Blazor adapter.
+- No full MAUI multi-window orchestration.
+- No transition system.
+- Android predictive back is not implemented.

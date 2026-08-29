@@ -1,3 +1,4 @@
+using AdamE.AppNav.Navigation;
 using AdamE.AppNav.State;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Maui.Controls;
@@ -103,7 +104,7 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
                 return page;
             }
 
-            throw new InvalidOperationException(
+            throw new AppNavigationConfigurationException(
                 $"No MAUI page factory is registered for route type '{entry.Route.GetType().FullName}'.");
         }
         catch (Exception creationException)
@@ -152,7 +153,7 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
             cancellationToken.ThrowIfCancellationRequested();
             if (services.GetRequiredService(pageType) is not Page resolvedPage)
             {
-                throw new InvalidOperationException(
+                throw new AppNavigationConfigurationException(
                     $"Registered presentation page service '{pageType.FullName}' did not resolve to a MAUI Page.");
             }
 

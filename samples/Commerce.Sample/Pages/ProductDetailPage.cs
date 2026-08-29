@@ -59,19 +59,19 @@ public sealed class ProductDetailPage : ContentPage
                     {
                         await _navigator.NavigateAsync(
                             CommerceRouteFactory.ProductDetail(_route.StoreId, 456, "black", "spring", "cross-sell"),
-                            NavigationRequestSource.InAppCommand);
+                            RouterNavigationDisposition.ReplaceCurrent);
                     }),
                     Button("Back to catalog", async () =>
                     {
                         await _navigator.NavigateAsync(
                             CommerceRouteFactory.StoreCatalog(_route.StoreId),
-                            NavigationRequestSource.InAppCommand);
+                            RouterNavigationDisposition.Canonical);
                     }),
                     Button("Add to cart", async () =>
                     {
                         await _navigator.NavigateAsync(
                             CommerceRouteFactory.Cart(_route.StoreId),
-                            NavigationRequestSource.InAppCommand);
+                            RouterNavigationDisposition.Contextual);
                     })
                 }
             }

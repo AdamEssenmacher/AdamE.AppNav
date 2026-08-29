@@ -101,7 +101,7 @@ public sealed class StoreCatalogPage : ContentPage
             {
                 await _navigator.NavigateAsync(
                     CommerceRouteFactory.ProductDetail(_route.StoreId, productId, variant, promo, campaign),
-                    NavigationRequestSource.InAppCommand);
+                    RouterNavigationDisposition.Contextual);
             })
         });
         return tile;

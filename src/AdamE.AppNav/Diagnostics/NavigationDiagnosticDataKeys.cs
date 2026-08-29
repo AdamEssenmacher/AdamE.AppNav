@@ -11,6 +11,21 @@ namespace AdamE.AppNav.Diagnostics;
 public static class NavigationDiagnosticDataKeys
 {
     /// <summary>
+    /// Number of items affected by an operation.
+    /// </summary>
+    public const string Count = "count";
+
+    /// <summary>
+    /// Stable structural reason for an event.
+    /// </summary>
+    public const string Reason = "reason";
+
+    /// <summary>
+    /// Persistence schema version associated with an event.
+    /// </summary>
+    public const string SchemaVersion = "schemaVersion";
+
+    /// <summary>
     /// Elapsed duration for an operation or phase, in milliseconds.
     /// </summary>
     public const string DurationMs = "durationMs";
@@ -224,4 +239,29 @@ public static class NavigationDiagnosticDataKeys
     /// App-link grace period used during startup, in milliseconds.
     /// </summary>
     public const string AppLinkGraceMs = "appLinkGraceMs";
+
+    /// <summary>
+    /// Structural reason for rejecting, retrying, expiring, or dropping an external request.
+    /// </summary>
+    public const string ExternalNavigationReason = "externalNavigationReason";
+
+    /// <summary>
+    /// One-based dispatch attempt number for an external request.
+    /// </summary>
+    public const string DispatchAttempt = "dispatchAttempt";
+
+    /// <summary>
+    /// Configured maximum number of dispatch attempts for an external request.
+    /// </summary>
+    public const string MaximumDispatchAttempts = "maximumDispatchAttempts";
+
+    /// <summary>
+    /// Number of external requests waiting for dispatch.
+    /// </summary>
+    public const string PendingRequestCount = "pendingRequestCount";
+
+    /// <summary>
+    /// Delay before the next external navigation dispatch attempt, in milliseconds.
+    /// </summary>
+    public const string RetryDelayMs = "retryDelayMs";
 }

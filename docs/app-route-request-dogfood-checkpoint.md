@@ -1,6 +1,7 @@
 # AppRouteRequest Dogfood Checkpoint
 
-Revisit this after another Scavos dogfooding cycle, before adding source generators or treating the public API as broadly frozen.
+Source generators are now part of the preview package contract. Revisit this API split during Scavos public-preview
+dogfooding and before declaring the API stable.
 
 Re-open the API question only if one or more of these pressures appear:
 
@@ -13,4 +14,5 @@ If those pressures do not appear, keep the current split:
 - `AppRouteRequest` is the app-facing abstraction for semantic route plus route-owned metadata
 - `RouterNavigationRequest` remains the runtime transport shape for URI ingress, source, window targeting, policy, persistence, and reconciliation
 
-This documentation/sample pass intentionally codified that split in the README, the MAUI integration guide, the sample app, and repository guardrails without adding a new facade.
+The public-preview API keeps one `IRouterNavigator` surface and typed route extension methods. External boundaries still
+construct the full `RouterNavigationRequest` envelope; no second navigator facade is planned for the preview.

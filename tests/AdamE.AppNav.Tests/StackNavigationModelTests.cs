@@ -1,3 +1,4 @@
+using AdamE.AppNav.Navigation;
 using AdamE.AppNav.Planning;
 using AdamE.AppNav.State;
 
@@ -95,7 +96,7 @@ public sealed class StackNavigationModelTests
                 ]));
         });
 
-        var error = Assert.Throws<InvalidOperationException>(() =>
+        var error = Assert.Throws<AppNavigationConfigurationException>(() =>
             model.CreateCanonicalState(new BrokenRoute("scope-1")));
 
         Assert.Contains("must be registered", error.Message, StringComparison.Ordinal);

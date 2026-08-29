@@ -20,6 +20,7 @@ public sealed class ConventionRouteBuilder<
 
     internal IReadOnlyList<ConventionMetadataQueryBinding> MetadataQueryBindings => _metadataQueryBindings;
 
+#pragma warning disable RS0026 // The name-inferred and explicitly named query forms are an intentional pair.
     public ConventionRouteBuilder<TRoute> Query<TValue>(
         Expression<Func<TRoute, TValue>> member,
         bool omitWhenNull = true)
@@ -41,6 +42,7 @@ public sealed class ConventionRouteBuilder<
         PropertyInfo property = GetProperty(member);
         return AddQuery(property, name, omitWhenNull);
     }
+#pragma warning restore RS0026
 
     public ConventionRouteBuilder<TRoute> QueryMetadata<TValue>(
         RouteMetadataKey<TValue> key,

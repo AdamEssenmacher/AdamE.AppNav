@@ -13,6 +13,9 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
     private readonly DeferredNavigationRequestSerializer _serializer;
     private readonly NavigationDiagnostics _diagnostics;
     private readonly IMauiDeferredNavigationFileOperations _fileOperations;
+    private readonly int _maximumPendingRequests;
+    private readonly long _maximumFileSize;
+    private readonly TimeSpan _maximumRequestAge;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly SemaphoreSlim _replayGate = new(1, 1);
     private readonly List<StoredRequest> _requests = [];
@@ -29,9 +32,20 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
         ArgumentNullException.ThrowIfNull(options);
 
         ArgumentException.ThrowIfNullOrWhiteSpace(options.Path);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaximumPendingRequests, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaximumFileSize, 1);
+        if (options.MaximumRequestAge <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(
+                nameof(options.MaximumRequestAge),
+                options.MaximumRequestAge,
+                "The maximum deferred request age must be greater than zero.");
+
         _path = options.Path;
         _diagnostics = diagnostics ?? NavigationDiagnostics.None;
         _fileOperations = fileOperations ?? MauiDeferredNavigationFileOperations.Instance;
+        _maximumPendingRequests = options.MaximumPendingRequests;
+        _maximumFileSize = options.MaximumFileSize;
+        _maximumRequestAge = options.MaximumRequestAge;
         _serializer = new DeferredNavigationRequestSerializer(routes, new DeferredNavigationRequestPersistenceOptions
         {
             BaseUri = options.BaseUri,
@@ -46,6 +60,7 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
         try
         {
             await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false);
+            await PruneExpiredAsync(cancellationToken).ConfigureAwait(false);
             return _requests.Count > 0;
         }
         finally
@@ -64,19 +79,18 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
         try
         {
             await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false);
-            if (_deduped.Contains(request))
+            RouterNavigationRequest canonicalRequest = Canonicalize(request);
+            if (_deduped.Contains(canonicalRequest))
             {
                 return;
             }
 
-            var entry = new StoredRequest(Guid.NewGuid(), request);
-            RouterNavigationRequest[] projected = _requests
-                .Select(static stored => stored.Request)
-                .Append(request)
+            var entry = new StoredRequest(Guid.NewGuid(), canonicalRequest);
+            StoredRequest[] projected = _requests
+                .Append(entry)
                 .ToArray();
-            await PersistAsync(projected, cancellationToken).ConfigureAwait(false);
-            _requests.Add(entry);
-            _deduped.Add(request);
+            PersistResult persisted = await PersistAsync(projected, cancellationToken).ConfigureAwait(false);
+            ReplaceInMemory(persisted.Requests);
         }
         finally
         {
@@ -94,6 +108,7 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
             try
             {
                 await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false);
+                await PruneExpiredAsync(cancellationToken).ConfigureAwait(false);
                 return new ReplayLease(this, _requests.ToArray());
             }
             finally
@@ -150,6 +165,16 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
             return;
         }
 
+        if (new FileInfo(_path).Length > _maximumFileSize)
+        {
+            QuarantineInvalidData(
+                new InvalidDataException("Deferred navigation request data exceeds the configured file-size limit."),
+                "file-too-large");
+            ResetInMemory();
+            _loaded = true;
+            return;
+        }
+
         IReadOnlyList<RouterNavigationRequest> restoredRequests;
         try
         {
@@ -159,29 +184,27 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
         }
         catch (Exception ex) when (ex is JsonException or InvalidDeferredNavigationRequestDataException)
         {
-            QuarantineInvalidData(ex);
-            _requests.Clear();
-            _deduped.Clear();
+            QuarantineInvalidData(ex, "invalid-data");
+            ResetInMemory();
             _loaded = true;
             return;
         }
+
         var dedupedRequests = new HashSet<RouterNavigationRequest>(MauiNavigationRequestEquivalenceComparer.Instance);
-        var pendingRequests = new List<RouterNavigationRequest>(restoredRequests.Count);
+        var pendingRequests = new List<StoredRequest>(restoredRequests.Count);
         foreach (var request in restoredRequests)
         {
             if (dedupedRequests.Add(request))
             {
-                pendingRequests.Add(request);
+                pendingRequests.Add(new StoredRequest(Guid.NewGuid(), request));
             }
         }
 
-        _requests.Clear();
-        _deduped.Clear();
-        foreach (var request in pendingRequests)
-        {
-            _requests.Add(new StoredRequest(Guid.NewGuid(), request));
-            _deduped.Add(request);
-        }
+        // Rewrite every successfully restored schema-3 document through the current serializer.
+        // This removes unknown legacy fields (including raw transport/provenance values) instead
+        // of leaving them on disk merely because the known request data was otherwise valid.
+        PersistResult persisted = await PersistAsync(pendingRequests, cancellationToken).ConfigureAwait(false);
+        ReplaceInMemory(persisted.Requests);
 
         _loaded = true;
     }
@@ -189,16 +212,46 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
     private async Task<DeferredNavigationRequestStoreSnapshot> ReadSnapshotAsync(
         CancellationToken cancellationToken)
     {
-        await using var stream = File.OpenRead(_path);
-        using JsonDocument document = await JsonDocument.ParseAsync(
-            stream,
-            cancellationToken: cancellationToken).ConfigureAwait(false);
-        JsonElement root = document.RootElement;
+        JsonElement root;
+        await using (var stream = File.OpenRead(_path))
+        using (JsonDocument document = await JsonDocument.ParseAsync(
+                   stream,
+                   cancellationToken: cancellationToken).ConfigureAwait(false))
+        {
+            root = document.RootElement.Clone();
+        }
+
         if (root.ValueKind != JsonValueKind.Object ||
             !root.TryGetProperty("schemaVersion", out JsonElement schemaElement) ||
             !schemaElement.TryGetInt32(out int schemaVersion))
         {
             throw new JsonException("Deferred navigation request data has no valid schema version.");
+        }
+
+        if (schemaVersion == 2)
+        {
+            File.Delete(_path);
+            WriteMaintenanceDiagnostic(
+                NavigationDiagnosticEventKind.DeferredRequestStoreReset,
+                "Legacy deferred navigation request data was reset for the schema-3 preview.",
+                count: null,
+                reason: "schema-2-preview-reset",
+                schemaVersion);
+            return new DeferredNavigationRequestStoreSnapshot
+            {
+                SchemaVersion = DeferredNavigationRequestStoreSnapshot.CurrentSchemaVersion,
+                Requests = []
+            };
+        }
+
+        if (schemaVersion > DeferredNavigationRequestStoreSnapshot.CurrentSchemaVersion)
+        {
+            QuarantineFutureData(schemaVersion);
+            return new DeferredNavigationRequestStoreSnapshot
+            {
+                SchemaVersion = DeferredNavigationRequestStoreSnapshot.CurrentSchemaVersion,
+                Requests = []
+            };
         }
 
         if (schemaVersion != DeferredNavigationRequestStoreSnapshot.CurrentSchemaVersion)
@@ -216,7 +269,7 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
         return snapshot;
     }
 
-    private void QuarantineInvalidData(Exception exception)
+    private void QuarantineInvalidData(Exception exception, string reason)
     {
         string quarantinePath = $"{_path}.invalid-{DateTimeOffset.UtcNow:yyyyMMdd'T'HHmmssfffffff'Z'}-{Guid.NewGuid():N}";
         _fileOperations.Move(_path, quarantinePath);
@@ -228,32 +281,76 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
             {
                 [NavigationDiagnosticDataKeys.Path] = System.IO.Path.GetFileName(quarantinePath),
                 [NavigationDiagnosticDataKeys.ExceptionType] = exception.GetType().FullName,
-                [NavigationDiagnosticDataKeys.ExceptionMessage] = exception.Message
+                [NavigationDiagnosticDataKeys.Reason] = reason
             },
             phase: NavigationDiagnosticPhase.Persistence);
     }
 
-    private async Task PersistAsync(
-        IReadOnlyList<RouterNavigationRequest> requests,
+    private void QuarantineFutureData(int schemaVersion)
+    {
+        string quarantinePath =
+            $"{_path}.future-{DateTimeOffset.UtcNow:yyyyMMdd'T'HHmmssfffffff'Z'}-{Guid.NewGuid():N}";
+        _fileOperations.Move(_path, quarantinePath);
+        _diagnostics.Write(
+            NavigationDiagnosticEventKind.DeferredRequestStoreQuarantined,
+            Guid.NewGuid().ToString("N"),
+            "Deferred navigation request data from a future schema was quarantined without modification.",
+            new Dictionary<string, object?>
+            {
+                [NavigationDiagnosticDataKeys.Path] = System.IO.Path.GetFileName(quarantinePath),
+                [NavigationDiagnosticDataKeys.SchemaVersion] = schemaVersion,
+                [NavigationDiagnosticDataKeys.Reason] = "future-schema"
+            },
+            phase: NavigationDiagnosticPhase.Persistence);
+    }
+
+    private async Task<PersistResult> PersistAsync(
+        IReadOnlyList<StoredRequest> requests,
         CancellationToken cancellationToken)
     {
-        if (requests.Count == 0)
+        cancellationToken.ThrowIfCancellationRequested();
+        PersistSelection selection = SelectForPersistence(requests, DateTimeOffset.UtcNow);
+        var retained = selection.Requests.ToList();
+        var fileOverflowCount = 0;
+
+        for (int index = retained.Count - 1; index >= 0; index--)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (SerializeRequests([retained[index]]).LongLength <= _maximumFileSize)
+                continue;
+
+            retained.RemoveAt(index);
+            fileOverflowCount++;
+        }
+
+        byte[]? serialized = retained.Count == 0 ? null : SerializeRequests(retained);
+        while (serialized is not null && serialized.LongLength > _maximumFileSize)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            retained.RemoveAt(0);
+            fileOverflowCount++;
+            serialized = retained.Count == 0 ? null : SerializeRequests(retained);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        if (retained.Count == 0)
         {
             if (File.Exists(_path))
             {
                 File.Delete(_path);
             }
 
-            return;
+            WritePersistenceSelectionDiagnostics(selection, fileOverflowCount);
+            return new PersistResult([]);
         }
 
+        System.Diagnostics.Debug.Assert(serialized is not null);
         var directory = System.IO.Path.GetDirectoryName(_path);
         if (!string.IsNullOrWhiteSpace(directory))
         {
             Directory.CreateDirectory(directory);
         }
 
-        var snapshot = _serializer.CreateSnapshot(requests);
         var tempPath = $"{_path}.{Guid.NewGuid():N}.tmp";
 
         try
@@ -266,14 +363,11 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
                              bufferSize: 81920,
                              FileOptions.Asynchronous | FileOptions.WriteThrough))
             {
-                await JsonSerializer.SerializeAsync(
-                    stream,
-                    snapshot,
-                    AppNavJsonSerializerContext.Default.DeferredNavigationRequestStoreSnapshot,
-                    cancellationToken).ConfigureAwait(false);
+                await stream.WriteAsync(serialized, cancellationToken).ConfigureAwait(false);
                 await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
             File.Move(tempPath, _path, overwrite: true);
         }
         finally
@@ -283,6 +377,18 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
                 File.Delete(tempPath);
             }
         }
+
+        WritePersistenceSelectionDiagnostics(selection, fileOverflowCount);
+        return new PersistResult(retained.ToArray());
+    }
+
+    private byte[] SerializeRequests(IReadOnlyList<StoredRequest> requests)
+    {
+        DeferredNavigationRequestStoreSnapshot snapshot = _serializer.CreateSnapshot(
+            requests.Select(static stored => stored.Request).ToArray());
+        return JsonSerializer.SerializeToUtf8Bytes(
+            snapshot,
+            AppNavJsonSerializerContext.Default.DeferredNavigationRequestStoreSnapshot);
     }
 
     private async ValueTask AcknowledgeAsync(Guid id, CancellationToken cancellationToken)
@@ -293,21 +399,128 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
             await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false);
             int index = _requests.FindIndex(entry => entry.Id == id);
             if (index < 0)
-                throw new InvalidOperationException("The deferred request is no longer present in the store.");
+            {
+                // A bounded concurrent enqueue may already have durably evicted this leased
+                // request. Treat acknowledgement as idempotent because there is nothing left
+                // that could replay after a restart.
+                return;
+            }
 
-            RouterNavigationRequest request = _requests[index].Request;
-            RouterNavigationRequest[] projected = _requests
+            StoredRequest[] projected = _requests
                 .Where(entry => entry.Id != id)
-                .Select(static entry => entry.Request)
                 .ToArray();
-            await PersistAsync(projected, cancellationToken).ConfigureAwait(false);
-            _requests.RemoveAt(index);
-            _deduped.Remove(request);
+            PersistResult persisted = await PersistAsync(projected, cancellationToken).ConfigureAwait(false);
+            ReplaceInMemory(persisted.Requests);
         }
         finally
         {
             _gate.Release();
         }
+    }
+
+    private RouterNavigationRequest Canonicalize(RouterNavigationRequest request)
+    {
+        DeferredNavigationRequestStoreSnapshot snapshot = _serializer.CreateSnapshot([request]);
+        return AssertSingle(_serializer.Restore(snapshot));
+
+        static RouterNavigationRequest AssertSingle(IReadOnlyList<RouterNavigationRequest> requests)
+        {
+            if (requests.Count != 1)
+                throw new InvalidOperationException("Canonical deferred navigation request serialization failed.");
+
+            return requests[0];
+        }
+    }
+
+    private async Task PruneExpiredAsync(CancellationToken cancellationToken)
+    {
+        PersistSelection selection = SelectForPersistence(_requests, DateTimeOffset.UtcNow);
+        if (selection.ExpiredCount == 0 && selection.OverflowCount == 0)
+            return;
+
+        PersistResult persisted = await PersistAsync(_requests, cancellationToken).ConfigureAwait(false);
+        ReplaceInMemory(persisted.Requests);
+    }
+
+    private PersistSelection SelectForPersistence(
+        IReadOnlyList<StoredRequest> requests,
+        DateTimeOffset now)
+    {
+        DateTimeOffset oldestAllowed = _maximumRequestAge >= now - DateTimeOffset.MinValue
+            ? DateTimeOffset.MinValue
+            : now - _maximumRequestAge;
+        StoredRequest[] fresh = requests
+            .Where(stored => stored.Request.Timestamp >= oldestAllowed && stored.Request.Timestamp <= now)
+            .ToArray();
+        int expiredCount = requests.Count - fresh.Length;
+        int overflowCount = Math.Max(0, fresh.Length - _maximumPendingRequests);
+        StoredRequest[] retained = overflowCount == 0
+            ? fresh
+            : fresh[overflowCount..];
+
+        return new PersistSelection(retained, expiredCount, overflowCount);
+    }
+
+    private void ReplaceInMemory(IReadOnlyList<StoredRequest> requests)
+    {
+        ResetInMemory();
+        foreach (StoredRequest stored in requests)
+        {
+            _requests.Add(stored);
+            _deduped.Add(stored.Request);
+        }
+    }
+
+    private void ResetInMemory()
+    {
+        _requests.Clear();
+        _deduped.Clear();
+    }
+
+    private void WritePersistenceSelectionDiagnostics(PersistSelection selection, int fileOverflowCount)
+    {
+        if (selection.ExpiredCount > 0)
+        {
+            WriteMaintenanceDiagnostic(
+                NavigationDiagnosticEventKind.DeferredRequestStorePruned,
+                "Expired deferred navigation requests were pruned.",
+                selection.ExpiredCount,
+                "request-expired");
+        }
+
+        int overflowCount = selection.OverflowCount + fileOverflowCount;
+        if (overflowCount > 0)
+        {
+            WriteMaintenanceDiagnostic(
+                NavigationDiagnosticEventKind.DeferredRequestStoreOverflowed,
+                "Deferred navigation requests were dropped to preserve store bounds.",
+                overflowCount,
+                fileOverflowCount > 0 ? "file-size-or-count-limit" : "request-count-limit");
+        }
+    }
+
+    private void WriteMaintenanceDiagnostic(
+        NavigationDiagnosticEventKind kind,
+        string message,
+        int? count,
+        string reason,
+        int? schemaVersion = null)
+    {
+        var data = new Dictionary<string, object?>
+        {
+            [NavigationDiagnosticDataKeys.Reason] = reason
+        };
+        if (count is not null)
+            data[NavigationDiagnosticDataKeys.Count] = count.Value;
+        if (schemaVersion is not null)
+            data[NavigationDiagnosticDataKeys.SchemaVersion] = schemaVersion.Value;
+
+        _diagnostics.Write(
+            kind,
+            Guid.NewGuid().ToString("N"),
+            message,
+            data,
+            phase: NavigationDiagnosticPhase.Persistence);
     }
 
     private void ReleaseReplayLease()
@@ -316,6 +529,13 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
     }
 
     private sealed record StoredRequest(Guid Id, RouterNavigationRequest Request);
+
+    private sealed record PersistSelection(
+        StoredRequest[] Requests,
+        int ExpiredCount,
+        int OverflowCount);
+
+    private sealed record PersistResult(StoredRequest[] Requests);
 
     private sealed class ReplayLease : IDeferredNavigationRequestLease
     {
