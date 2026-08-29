@@ -487,6 +487,51 @@ public sealed class AppNavSourceGeneratorTests
         Assert.Contains(result.GeneratorDiagnostics, static diagnostic => diagnostic.Id == "APPNAV010");
     }
 
+    [Theory]
+    [InlineData("int", "guid")]
+    [InlineData("guid", "int")]
+    [InlineData("long", "guid")]
+    [InlineData("guid", "long")]
+    [InlineData("decimal", "guid")]
+    [InlineData("guid", "decimal")]
+    public void NumericAndGuidRouteConstraintsReportAmbiguity(string leftConstraint, string rightConstraint)
+    {
+        string source = CreateConstrainedRoutePairSource(leftConstraint, rightConstraint);
+
+        GeneratorResult result = RunGenerator(source);
+        string leftTemplate = $"/values/{{value:{leftConstraint}}}";
+        string rightTemplate = $"/values/{{value:{rightConstraint}}}";
+        string expectedMessage = $"Route templates '{leftTemplate}' and '{rightTemplate}' can match the same URI path";
+        Diagnostic? diagnostic = result.GeneratorDiagnostics.FirstOrDefault(
+            item => item.Id == "APPNAV010" &&
+                    item.Severity == DiagnosticSeverity.Error &&
+                    StringComparer.Ordinal.Equals(item.GetMessage(), expectedMessage));
+
+        Assert.NotNull(diagnostic);
+        Assert.Contains(
+            rightTemplate,
+            diagnostic!.Location.SourceTree!.GetText().ToString(diagnostic.Location.SourceSpan),
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(result.GeneratorDiagnostics, static item => item.Id == "APPNAV009");
+    }
+
+    [Theory]
+    [InlineData("int", "alpha")]
+    [InlineData("alpha", "int")]
+    [InlineData("decimal", "bool")]
+    [InlineData("bool", "decimal")]
+    [InlineData("guid", "bool")]
+    [InlineData("bool", "guid")]
+    public void DisjointRouteConstraintsDoNotReportAmbiguity(string leftConstraint, string rightConstraint)
+    {
+        string source = CreateConstrainedRoutePairSource(leftConstraint, rightConstraint);
+
+        GeneratorResult result = RunGenerator(source);
+
+        Assert.DoesNotContain(result.GeneratorDiagnostics, static diagnostic => diagnostic.Id == "APPNAV010");
+        AssertCompileClean(result.Compilation);
+    }
+
     [Fact]
     public void DuplicatePublicRoutePropertiesIgnoringCaseReportDiagnostic()
     {
@@ -1114,6 +1159,22 @@ public sealed class AppNavSourceGeneratorTests
             outputCompilation,
             diagnostics,
             generatedSource);
+    }
+
+    private static string CreateConstrainedRoutePairSource(string leftConstraint, string rightConstraint)
+    {
+        return $$"""
+            using AdamE.AppNav;
+            using AdamE.AppNav.Routing;
+
+            namespace Commerce.Sample;
+
+            [AppNavRoute("/values/{value:{{leftConstraint}}}")]
+            public sealed record LeftValueRoute(string Value) : AppRoute;
+
+            [AppNavRoute("/values/{value:{{rightConstraint}}}")]
+            public sealed record RightValueRoute(string Value) : AppRoute;
+            """;
     }
 
     private static ImmutableArray<Diagnostic> RunFluentAnalyzer(string source)

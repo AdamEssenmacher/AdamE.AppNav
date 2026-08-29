@@ -125,6 +125,10 @@ public sealed class RouteTableTests
     [InlineData("/values/true", "/values/{value:bool}")]
     [InlineData("/values/19.95", "/values/{value:decimal}")]
     [InlineData("/values/Northwind", "/values/{value:alpha}")]
+    [InlineData("/values/00000000000000000000000000000001", "/values/{value:int}")]
+    [InlineData("/values/00000000000000000000000000000001", "/values/{value:long}")]
+    [InlineData("/values/00000000000000000000000000000001", "/values/{value:decimal}")]
+    [InlineData("/values/00000000000000000000000000000001", "/values/{value:guid}")]
     public void BuiltInConstraintsAcceptMatchingValues(string path, string template)
     {
         var table = RouteTable.Create(routes => routes.Map(
@@ -899,9 +903,15 @@ public sealed class RouteTableTests
     [InlineData("long", "decimal")]
     [InlineData("bool", "alpha")]
     [InlineData("alpha", "guid")]
+    [InlineData("int", "guid")]
+    [InlineData("guid", "int")]
+    [InlineData("long", "guid")]
+    [InlineData("guid", "long")]
+    [InlineData("decimal", "guid")]
+    [InlineData("guid", "decimal")]
     public void OverlappingConstrainedTemplatesAreRejected(string leftConstraint, string rightConstraint)
     {
-        Assert.Throws<InvalidOperationException>(() => RouteTable.Create(routes => routes
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => RouteTable.Create(routes => routes
             .Map(
                 $"/values/{{value:{leftConstraint}}}",
                 match => new LeftConstrainedRoute(match.Path("value")),
@@ -910,6 +920,10 @@ public sealed class RouteTableTests
                 $"/values/{{value:{rightConstraint}}}",
                 match => new RightConstrainedRoute(match.Path("value")),
                 format => format.PathParam("value", route => route.Value))));
+
+        Assert.Equal(
+            $"Route templates '/values/{{value:{leftConstraint}}}' and '/values/{{value:{rightConstraint}}}' are ambiguous.",
+            exception.Message);
     }
 
     [Fact]
@@ -926,21 +940,35 @@ public sealed class RouteTableTests
                 format => format.PathParam("id", route => route.ProductId))));
     }
 
-    [Fact]
-    public void DisjointConstrainedTemplatesCanCoexist()
+    [Theory]
+    [InlineData("int", "alpha", "123", "northwind")]
+    [InlineData("alpha", "int", "northwind", "123")]
+    [InlineData("decimal", "bool", "1.5", "true")]
+    [InlineData("bool", "decimal", "true", "1.5")]
+    [InlineData("guid", "bool", "00000000-0000-0000-0000-000000000001", "true")]
+    [InlineData("bool", "guid", "true", "00000000-0000-0000-0000-000000000001")]
+    public void DisjointConstrainedTemplatesCanCoexist(
+        string leftConstraint,
+        string rightConstraint,
+        string leftValue,
+        string rightValue)
     {
         var table = RouteTable.Create(routes => routes
             .Map(
-                "/values/{value:int}",
+                $"/values/{{value:{leftConstraint}}}",
                 match => new LeftConstrainedRoute(match.Path("value")),
                 format => format.PathParam("value", route => route.Value))
             .Map(
-                "/values/{value:alpha}",
+                $"/values/{{value:{rightConstraint}}}",
                 match => new RightConstrainedRoute(match.Path("value")),
                 format => format.PathParam("value", route => route.Value)));
 
-        Assert.Equal(new LeftConstrainedRoute("123"), table.Match(new Uri("/values/123", UriKind.Relative)).Route);
-        Assert.Equal(new RightConstrainedRoute("northwind"), table.Match(new Uri("/values/northwind", UriKind.Relative)).Route);
+        Assert.Equal(
+            new LeftConstrainedRoute(leftValue),
+            table.Match(new Uri($"/values/{leftValue}", UriKind.Relative)).Route);
+        Assert.Equal(
+            new RightConstrainedRoute(rightValue),
+            table.Match(new Uri($"/values/{rightValue}", UriKind.Relative)).Route);
     }
 
     [Fact]
