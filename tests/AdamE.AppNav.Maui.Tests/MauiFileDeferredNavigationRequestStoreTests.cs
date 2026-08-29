@@ -552,6 +552,69 @@ public sealed class MauiFileDeferredNavigationRequestStoreTests
     }
 
     [Fact]
+    public async Task Enqueue_PrunesExpiredEquivalentBeforeDeduplicatingFreshRequest()
+    {
+        var routes = RouteTable.Create(builder => builder.MapRoute<TestRoute>("/stores/{id}"));
+        var directory = CreateStoreDirectory();
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "deferred-requests.json");
+        var maximumRequestAge = TimeSpan.FromHours(1);
+        var timeProvider = new ManualTimeProvider(
+            new DateTimeOffset(2026, 8, 29, 12, 0, 0, TimeSpan.Zero));
+        var options = new MauiFileDeferredNavigationRequestStoreOptions
+        {
+            Path = path,
+            BaseUri = BaseUri,
+            MaximumRequestAge = maximumRequestAge
+        };
+
+        try
+        {
+            var diagnostics = new NavigationDiagnostics();
+            var events = new List<NavigationDiagnosticEvent>();
+            diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+            var store = new MauiFileDeferredNavigationRequestStore(
+                routes,
+                options,
+                diagnostics,
+                timeProvider: timeProvider);
+            RouterNavigationRequest original = RouterNavigationRequest.FromRoute(
+                new TestRoute("northwind"),
+                NavigationRequestSource.AppLink) with
+            {
+                Timestamp = timeProvider.GetUtcNow()
+            };
+            await store.EnqueueAsync(original);
+
+            timeProvider.Advance(maximumRequestAge + TimeSpan.FromTicks(1));
+            RouterNavigationRequest fresh = original with { Timestamp = timeProvider.GetUtcNow() };
+            await store.EnqueueAsync(fresh);
+
+            NavigationDiagnosticEvent pruned = Assert.Single(events, diagnosticEvent =>
+                diagnosticEvent.Kind == NavigationDiagnosticEventKind.DeferredRequestStorePruned);
+            Assert.Equal(NavigationDiagnosticPhase.Persistence, pruned.Phase);
+            Assert.Equal("request-expired", pruned.Data[NavigationDiagnosticDataKeys.Reason]);
+            Assert.Equal(1, pruned.Data[NavigationDiagnosticDataKeys.Count]);
+
+            timeProvider.Advance(TimeSpan.FromMinutes(1));
+            await store.EnqueueAsync(fresh with { Timestamp = timeProvider.GetUtcNow() });
+
+            var reloaded = new MauiFileDeferredNavigationRequestStore(
+                routes,
+                options,
+                timeProvider: timeProvider);
+            await using IDeferredNavigationRequestLease lease = await reloaded.AcquireReplayLeaseAsync();
+            RouterNavigationRequest persisted = Assert.Single(lease.Requests);
+            Assert.Equal(fresh.Timestamp, persisted.Timestamp);
+            Assert.Equal(fresh.Route, persisted.Route);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Load_PrunesExpiredRequestsAndRewritesRemainingSnapshot()
     {
         var routes = RouteTable.Create(builder => builder.MapRoute<TestRoute>("/stores/{id}"));
@@ -871,6 +934,15 @@ public sealed class MauiFileDeferredNavigationRequestStoreTests
     }
 
     private sealed record TestRoute(string Id) : AppRoute;
+
+    private sealed class ManualTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        private DateTimeOffset _utcNow = utcNow;
+
+        public override DateTimeOffset GetUtcNow() => _utcNow;
+
+        public void Advance(TimeSpan elapsed) => _utcNow += elapsed;
+    }
 
     private sealed class PassThroughMetadataSerializer : INavigationRequestMetadataSerializer
     {
