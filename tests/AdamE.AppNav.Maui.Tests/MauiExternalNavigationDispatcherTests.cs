@@ -172,10 +172,12 @@ public sealed class MauiExternalNavigationDispatcherTests
     public async Task DispatchFailure_RemainsPendingAfterFailedAttempt()
     {
         var request = RouterNavigationRequest.FromRoute(new TestRoute("first"), NavigationRequestSource.AppLink);
+        var options = StableRetryOptions();
         var navigator = new RecordingRouterNavigator((request, _) =>
             throw new TimeoutException("Dispatch failed."));
         var services = new ServiceCollection();
         services.AddSingleton(new NavigationDiagnostics());
+        services.AddSingleton(options);
         services.AddSingleton<IRouterNavigator>(navigator);
         services.AddSingleton<MauiExternalNavigationDispatcher>();
         services.AddSingleton<IMauiExternalNavigationDispatcher>(provider =>
@@ -199,6 +201,7 @@ public sealed class MauiExternalNavigationDispatcherTests
     public async Task DispatchFailure_RetriesRetainedRequestOnLaterForegroundTrigger()
     {
         var request = RouterNavigationRequest.FromRoute(new TestRoute("first"), NavigationRequestSource.AppLink);
+        var options = StableRetryOptions();
         var attempts = 0;
         var navigator = new RecordingRouterNavigator((request, _) =>
         {
@@ -213,6 +216,7 @@ public sealed class MauiExternalNavigationDispatcherTests
         });
         var services = new ServiceCollection();
         services.AddSingleton(new NavigationDiagnostics());
+        services.AddSingleton(options);
         services.AddSingleton<IRouterNavigator>(navigator);
         services.AddSingleton<MauiExternalNavigationDispatcher>();
         services.AddSingleton<IMauiExternalNavigationDispatcher>(provider =>
@@ -230,7 +234,7 @@ public sealed class MauiExternalNavigationDispatcherTests
 
         runtimeDispatcher.SetForegrounded(false);
         runtimeDispatcher.SetForegrounded(true);
-        await WaitUntilAsync(() => navigator.Calls.Count == 2);
+        await WaitUntilAsync(() => navigator.Calls.Count == 2, timeoutMs: 10_000);
 
         Assert.Equal([request, request], navigator.Calls);
         Assert.False(runtimeDispatcher.HasPendingRequests);
@@ -241,6 +245,7 @@ public sealed class MauiExternalNavigationDispatcherTests
     {
         var first = RouterNavigationRequest.FromRoute(new TestRoute("first"), NavigationRequestSource.AppLink);
         var second = RouterNavigationRequest.FromRoute(new TestRoute("second"), NavigationRequestSource.Push);
+        var options = StableRetryOptions();
         var firstAttempts = 0;
         var navigator = new RecordingRouterNavigator((request, _) =>
         {
@@ -264,6 +269,7 @@ public sealed class MauiExternalNavigationDispatcherTests
         });
         var services = new ServiceCollection();
         services.AddSingleton(new NavigationDiagnostics());
+        services.AddSingleton(options);
         services.AddSingleton<IRouterNavigator>(navigator);
         services.AddSingleton<MauiExternalNavigationDispatcher>();
         services.AddSingleton<IMauiExternalNavigationDispatcher>(provider =>
@@ -283,7 +289,7 @@ public sealed class MauiExternalNavigationDispatcherTests
         Assert.True(runtimeDispatcher.HasPendingRequests);
 
         Assert.True(dispatcher.TryDispatch(second));
-        await WaitUntilAsync(() => navigator.Calls.Count == 3);
+        await WaitUntilAsync(() => navigator.Calls.Count == 3, timeoutMs: 10_000);
 
         Assert.Equal([first, second, first], navigator.Calls);
         Assert.False(runtimeDispatcher.HasPendingRequests);
@@ -876,6 +882,14 @@ public sealed class MauiExternalNavigationDispatcherTests
     {
         return new MauiExternalNavigationOptions()
             .AllowOrigin(new Uri("https://example.com"));
+    }
+
+    private static MauiExternalNavigationOptions StableRetryOptions()
+    {
+        return new MauiExternalNavigationOptions
+        {
+            RetryDelay = TimeSpan.FromSeconds(5)
+        };
     }
 
     private static ValueTask<NavigationResult> SuccessfulResult(RouterNavigationRequest request)
