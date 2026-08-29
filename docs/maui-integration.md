@@ -160,7 +160,9 @@ Presentation pages:
 Route pages can implement scoped, asynchronous lifecycle behavior through constructor-injected
 `IMauiRoutePageLifecycleHook` services. Its `OnPageCreatedAsync`, `OnPageUpdatedAsync`, and `OnPageReleasedAsync`
 methods receive cancellation where appropriate and no `IServiceProvider`. A rollback may issue a compensating update
-with the prior route entry, so update hooks must support that call.
+with the prior route entry, so update hooks must support that call. AppNav enters each callback on the MAUI main thread
+and restores main-thread affinity before invoking the next callback or touching the page afterward; hooks remain
+responsible for their own continuation choices.
 
 Logical presentation is transactional. AppNav stages replacements, retains removed pages until commit, suppresses
 transient reconciliation, verifies the target, and only then releases retired pages. Before commit, failure or
