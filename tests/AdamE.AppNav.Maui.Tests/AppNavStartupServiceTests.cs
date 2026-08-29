@@ -11,6 +11,7 @@ using AdamE.AppNav.Requests;
 using AdamE.AppNav.Routing;
 using AdamE.AppNav.State;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Controls;
 
 namespace AdamE.AppNav.Maui.Tests;
@@ -198,6 +199,111 @@ public sealed class AppNavStartupServiceTests
             diagnosticEvent.Kind == NavigationDiagnosticEventKind.StartupDeferredRequestPending &&
             diagnosticEvent.Data.TryGetValue(NavigationDiagnosticDataKeys.StartupDeferredRequestPending, out var pending) &&
             Equals(pending, true));
+    }
+
+    [Theory]
+    [InlineData(false, AppNavStartupOutcome.NoNavigation)]
+    [InlineData(true, AppNavStartupOutcome.FallbackNavigated)]
+    public Task StartAsync_AsynchronousDeferredCheck_PreservesMainThreadForRemainingStartup(
+        bool configureFallback,
+        AppNavStartupOutcome expectedOutcome)
+    {
+        return MainThread.InvokeOnMainThreadAsync(async () =>
+        {
+            Assert.True(MainThread.IsMainThread);
+
+            var navigator = new RecordingRouterNavigator();
+            var deferredStore = new GatedDeferredRequestStore();
+            using var services = new ServiceCollection()
+                .AddSingleton<IRouterNavigator>(navigator)
+                .AddSingleton(new NavigationDiagnostics())
+                .AddSingleton<IDeferredNavigationRequestStore>(deferredStore)
+                .BuildServiceProvider();
+            using var dispatcher = new MauiExternalNavigationDispatcher(
+                services,
+                services.GetRequiredService<NavigationDiagnostics>());
+            var windowAttachment = new RecordingWindowAttachment();
+            var options = new AppNavStartupOptions
+            {
+                AppLinkGracePeriod = TimeSpan.Zero
+            };
+            if (configureFallback)
+            {
+                options.FallbackRequestFactory = static (_, _) =>
+                    ValueTask.FromResult<RouterNavigationRequest?>(RouterNavigationRequest.FromRoute(
+                        new TestRoute("fallback"),
+                        NavigationRequestSource.InAppCommand));
+            }
+
+            var startup = new AppNavStartupService(
+                navigator,
+                windowAttachment,
+                dispatcher,
+                options,
+                services,
+                services.GetRequiredService<NavigationDiagnostics>());
+
+            Task<AppNavStartupResult> startupTask = startup
+                .StartAsync(new Window(new ContentPage()))
+                .AsTask();
+            await deferredStore.CheckStarted;
+            await Task.Run(() => deferredStore.Complete(hasDeferredRequests: false));
+            AppNavStartupResult result = await startupTask;
+
+            Assert.Equal(expectedOutcome, result.Outcome);
+            Assert.True(Assert.Single(windowAttachment.AttachMainThreadChecks));
+            if (configureFallback)
+            {
+                Assert.Single(navigator.NavigateCalls);
+                Assert.True(Assert.Single(navigator.NavigateMainThreadChecks));
+            }
+            else
+            {
+                Assert.Empty(navigator.NavigateCalls);
+                Assert.Empty(navigator.NavigateMainThreadChecks);
+            }
+        });
+    }
+
+    [Fact]
+    public Task StartAsync_AsynchronousDeferredCheckFailure_AttachesWindowOnMainThread()
+    {
+        return MainThread.InvokeOnMainThreadAsync(async () =>
+        {
+            Assert.True(MainThread.IsMainThread);
+
+            var navigator = new RecordingRouterNavigator();
+            var deferredStore = new GatedDeferredRequestStore();
+            using var services = new ServiceCollection()
+                .AddSingleton<IRouterNavigator>(navigator)
+                .AddSingleton(new NavigationDiagnostics())
+                .AddSingleton<IDeferredNavigationRequestStore>(deferredStore)
+                .BuildServiceProvider();
+            using var dispatcher = new MauiExternalNavigationDispatcher(
+                services,
+                services.GetRequiredService<NavigationDiagnostics>());
+            var windowAttachment = new RecordingWindowAttachment();
+            var startup = new AppNavStartupService(
+                navigator,
+                windowAttachment,
+                dispatcher,
+                new AppNavStartupOptions { AppLinkGracePeriod = TimeSpan.Zero },
+                services,
+                services.GetRequiredService<NavigationDiagnostics>());
+            var expectedException = new IOException("Deferred request check failed.");
+
+            Task<AppNavStartupResult> startupTask = startup
+                .StartAsync(new Window(new ContentPage()))
+                .AsTask();
+            await deferredStore.CheckStarted;
+            await Task.Run(() => deferredStore.Fail(expectedException));
+            AppNavStartupResult result = await startupTask;
+
+            Assert.Equal(AppNavStartupOutcome.Failed, result.Outcome);
+            Assert.Same(expectedException, result.Exception);
+            Assert.Empty(navigator.NavigateCalls);
+            Assert.True(Assert.Single(windowAttachment.AttachMainThreadChecks));
+        });
     }
 
     [Fact]
@@ -500,11 +606,58 @@ public sealed class AppNavStartupServiceTests
     {
         public int AttachCalls { get; private set; }
 
+        public List<bool> AttachMainThreadChecks { get; } = [];
+
         public void AttachWindow(Window window, string windowId)
         {
             Assert.NotNull(window);
             Assert.Equal("main", windowId);
             AttachCalls++;
+            AttachMainThreadChecks.Add(MainThread.IsMainThread);
+        }
+    }
+
+    private sealed class GatedDeferredRequestStore : IDeferredNavigationRequestStore
+    {
+        private readonly TaskCompletionSource _checkStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> _result =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task CheckStarted => _checkStarted.Task;
+
+        public void Complete(bool hasDeferredRequests)
+        {
+            _result.SetResult(hasDeferredRequests);
+        }
+
+        public void Fail(Exception exception)
+        {
+            _result.SetException(exception);
+        }
+
+        public ValueTask<bool> HasDeferredRequestsAsync(CancellationToken cancellationToken = default)
+        {
+            _checkStarted.SetResult();
+            return new ValueTask<bool>(_result.Task.WaitAsync(cancellationToken));
+        }
+
+        public ValueTask EnqueueAsync(
+            RouterNavigationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
+        public ValueTask<IDeferredNavigationRequestLease> AcquireReplayLeaseAsync(
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
+        public ValueTask ClearAsync(CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
         }
     }
 
@@ -560,6 +713,8 @@ public sealed class AppNavStartupServiceTests
     {
         public List<RouterNavigationRequest> NavigateCalls { get; } = [];
 
+        public List<bool> NavigateMainThreadChecks { get; } = [];
+
         public NavigationState CurrentState => NavigationState.Empty;
 
         public NavigationHistory History => NavigationHistory.Empty;
@@ -569,6 +724,7 @@ public sealed class AppNavStartupServiceTests
             CancellationToken cancellationToken = default)
         {
             NavigateCalls.Add(request);
+            NavigateMainThreadChecks.Add(MainThread.IsMainThread);
             return ValueTask.FromResult(new NavigationResult(
                 request.Route!,
                 new NavigationPlan(NavigationState.Empty),
