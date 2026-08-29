@@ -382,11 +382,13 @@ public sealed class AppNavSourceGeneratorTests
             "format.PathParam<global::Commerce.Sample.IRouteValue>",
             result.GeneratedSource);
         Assert.Contains(
-            "format.QueryParam<global::Commerce.Sample.IRouteValue",
+            "format.QueryParam<global::Commerce.Sample.IRouteValue?>",
             result.GeneratedSource);
         Assert.Contains(
-            "format.QueryParam<global::System.Collections.Generic.IReadOnlyList<global::Commerce.Sample.IRouteValue>",
+            "format.QueryParam<global::System.Collections.Generic.IReadOnlyList<global::Commerce.Sample.IRouteValue>?>",
             result.GeneratedSource);
+        Assert.Empty(result.Compilation.GetDiagnostics()
+            .Where(static diagnostic => diagnostic.Severity is DiagnosticSeverity.Warning or DiagnosticSeverity.Error));
         Assembly assembly = Emit(result.Compilation);
         Type generatedType = assembly.GetRequiredType("Commerce.Sample.AppNavGenerated");
         var table = Assert.IsType<RouteTable>(
