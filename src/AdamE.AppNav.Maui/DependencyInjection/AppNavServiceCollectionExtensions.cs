@@ -44,6 +44,7 @@ public static class AppNavServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(routes);
+        EnsureRouterNavigatorIsAvailable(services);
 
         services.AddAppNavCoreServices(routes);
         if (configurePages is not null)
@@ -70,6 +71,7 @@ public static class AppNavServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(routes);
         ArgumentNullException.ThrowIfNull(model);
+        EnsureRouterNavigatorIsAvailable(services);
 
         services.AddAppNavCoreServices(routes);
         if (configurePages is not null)
@@ -169,11 +171,24 @@ public static class AppNavServiceCollectionExtensions
                 options);
             return new AppNavRuntime(navigator, presenter);
         });
-        services.TryAddSingleton<IRouterNavigator>(provider => provider.GetRequiredService<IAppNavRuntime>());
+        services.AddSingleton<IRouterNavigator>(provider => provider.GetRequiredService<IAppNavRuntime>());
         services.TryAddSingleton<IMauiWindowAttachment>(provider =>
             (IMauiWindowAttachment)provider.GetRequiredService<IAppNavRuntime>());
 
         return services;
+    }
+
+    private static void EnsureRouterNavigatorIsAvailable(IServiceCollection services)
+    {
+        if (services.Any(static descriptor =>
+                descriptor.ServiceType == typeof(IRouterNavigator) &&
+                !descriptor.IsKeyedService))
+        {
+            throw new AppNavigationConfigurationException(
+                $"{nameof(AddAppNav)} owns the unkeyed {nameof(IRouterNavigator)} registration so the navigator and " +
+                "MAUI presenter cannot diverge. Remove the existing registration, or compose a complete " +
+                $"navigator and presenter with {nameof(RouterNavigatorFactory)} instead of calling {nameof(AddAppNav)}.");
+        }
     }
 
     private static IServiceCollection AddAppNavBoundaryServices(this IServiceCollection services)

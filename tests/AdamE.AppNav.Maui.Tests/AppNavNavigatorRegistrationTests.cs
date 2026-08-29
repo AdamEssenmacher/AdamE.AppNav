@@ -96,21 +96,65 @@ public sealed class AppNavNavigatorRegistrationTests
     }
 
     [Fact]
-    public void AddAppNavPreservesPreRegisteredRouterNavigatorOverride()
+    public void AddAppNavRejectsPreRegisteredRouterNavigatorBeforeMutatingServices()
     {
         var services = new ServiceCollection();
         var navigator = new RecordingRouterNavigator();
         services.AddSingleton<IRouterNavigator>(navigator);
+        int initialRegistrationCount = services.Count;
+
+        var exception = Assert.Throws<AppNavigationConfigurationException>(() =>
+            services.AddAppNav<ThrowingPlanner>(
+                Routes(),
+                pages => pages.MapPage<TestRoute>((_, _) => new TestPage())));
+
+        Assert.Equal(initialRegistrationCount, services.Count);
+        Assert.Contains(nameof(IRouterNavigator), exception.Message, StringComparison.Ordinal);
+        Assert.Contains(nameof(RouterNavigatorFactory), exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AddAppNavModelOverloadRejectsPreRegisteredRouterNavigatorBeforeMutatingServices()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<IRouterNavigator>(new RecordingRouterNavigator());
+        int initialRegistrationCount = services.Count;
+        var model = StackNavigationModel<TestRoute>.Create(builder =>
+        {
+            builder.CanonicalSurface("main", "main-stack");
+            builder.Map<TestRoute>(route => route.EntryId(value => value.Id));
+        });
+
+        var exception = Assert.Throws<AppNavigationConfigurationException>(() =>
+            services.AddAppNav(
+                Routes(),
+                model,
+                pages => pages.MapPage<TestRoute>((_, _) => new TestPage())));
+
+        Assert.Equal(initialRegistrationCount, services.Count);
+        Assert.Contains(nameof(IRouterNavigator), exception.Message, StringComparison.Ordinal);
+        Assert.Contains(nameof(RouterNavigatorFactory), exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AddAppNavAllowsKeyedRouterNavigatorAlongsideOwnedRuntime()
+    {
+        var services = new ServiceCollection();
+        var keyedNavigator = new RecordingRouterNavigator();
+        services.AddKeyedSingleton<IRouterNavigator>("alternate", keyedNavigator);
 
         services.AddAppNav<ThrowingPlanner>(
             Routes(),
             pages => pages.MapPage<TestRoute>((_, _) => new TestPage()));
 
         using var provider = services.BuildServiceProvider();
+        IAppNavRuntime runtime = provider.GetRequiredService<IAppNavRuntime>();
 
-        Assert.Same(navigator, provider.GetRequiredService<IRouterNavigator>());
-        Assert.NotNull(provider.GetRequiredService<IAppNavRuntime>());
-        Assert.NotNull(provider.GetRequiredService<IMauiWindowAttachment>());
+        Assert.Same(runtime, provider.GetRequiredService<IRouterNavigator>());
+        Assert.Same(runtime, provider.GetRequiredService<IMauiWindowAttachment>());
+        Assert.Same(
+            keyedNavigator,
+            provider.GetRequiredKeyedService<IRouterNavigator>("alternate"));
     }
 
     [Fact]

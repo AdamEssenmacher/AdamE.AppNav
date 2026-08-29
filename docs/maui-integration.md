@@ -105,6 +105,11 @@ platform callbacks. Disposing that host cancels its in-flight external navigatio
 callbacks arriving after disposal remain buffered until a replacement host is created. Disposing an older host does
 not unregister a newer one.
 
+`AddAppNav(...)` owns the unkeyed `IRouterNavigator` registration because that navigator must share the runtime's
+built-in MAUI presenter. Do not register or replace an unkeyed navigator when using `AddAppNav(...)`; keyed navigators
+may coexist for unrelated flows. Advanced hosts that need a custom navigator must instead own the complete
+navigator/presenter pair through `RouterNavigatorFactory` and skip the MAUI `AddAppNav(...)` composition helper.
+
 `AddAppNav(...)` discovers `INavigationRequestTransformer` and `INavigationRequestPolicy` registrations in order.
 Transformers run before route matching, including for unmatched and redirected targets. Policies run after matching and
 use `NavigationRequestPolicyContext.Route` for the resolved route and `RouteMetadata` for metadata produced by the
