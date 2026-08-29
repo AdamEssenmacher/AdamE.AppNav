@@ -115,6 +115,46 @@ public sealed class StateIdentityValidationTests
     }
 
     [Fact]
+    public void ReplaceWindowPreservesImplicitActiveWindowWhenReplacingSecondaryWindow()
+    {
+        var replacement = new WindowNode("secondary", Stack("replacement-stack"));
+        var state = new NavigationState(new[]
+        {
+            new WindowNode("main"),
+            new WindowNode("secondary")
+        });
+
+        NavigationState updated = state.ReplaceWindow(replacement);
+
+        Assert.Null(updated.ActiveWindowId);
+        Assert.Equal("main", updated.ActiveWindow!.Id);
+        Assert.Equal(new[] { "main", "secondary" }, updated.Windows.Select(window => window.Id));
+        Assert.Same(replacement, updated.FindWindow("secondary"));
+    }
+
+    [Fact]
+    public void ReplaceWindowPreservesImplicitActiveWindowWhenAppendingWindow()
+    {
+        var state = new NavigationState(new[] { new WindowNode("main") });
+
+        NavigationState updated = state.ReplaceWindow(new WindowNode("secondary"));
+
+        Assert.Null(updated.ActiveWindowId);
+        Assert.Equal("main", updated.ActiveWindow!.Id);
+        Assert.Equal(new[] { "main", "secondary" }, updated.Windows.Select(window => window.Id));
+    }
+
+    [Fact]
+    public void ReplaceWindowPreservesImplicitActiveWindowWhenAppendingFirstWindow()
+    {
+        NavigationState updated = NavigationState.Empty.ReplaceWindow(new WindowNode("main"));
+
+        Assert.Null(updated.ActiveWindowId);
+        Assert.Equal("main", updated.ActiveWindow!.Id);
+        Assert.Single(updated.Windows);
+    }
+
+    [Fact]
     public void WindowNodeRejectsDuplicateModalIds()
     {
         Assert.Throws<ArgumentException>(() => new WindowNode(
