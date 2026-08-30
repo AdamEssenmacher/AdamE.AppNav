@@ -234,6 +234,7 @@ public sealed class RepositoryContractTests
         Assert.Contains("options.FallbackRouteFactory = context", program, StringComparison.Ordinal);
         Assert.Contains("new CommerceNotFoundRoute", program, StringComparison.Ordinal);
         Assert.Contains("context.Request.Uri", program, StringComparison.Ordinal);
+        Assert.Contains(".EntryId(route => $\"not-found:{route.Uri}\")", source, StringComparison.Ordinal);
         Assert.DoesNotContain("SharedElementNavigationTransition", source, StringComparison.Ordinal);
         Assert.DoesNotContain("AppNavTransition.SetSharedElementId", source, StringComparison.Ordinal);
         Assert.DoesNotContain("HasPendingRequests", source, StringComparison.Ordinal);

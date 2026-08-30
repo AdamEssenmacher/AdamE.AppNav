@@ -33,14 +33,38 @@ public static class AppNavServiceCollectionExtensions
         return services.AddAppNavDiagnosticsServices();
     }
 
-#pragma warning disable RS0026 // Advanced-planner and standard-model registration are intentional preview overloads.
+#pragma warning disable RS0026, RS0027 // Shipped forwarding and configurable overloads are intentional.
     public static IServiceCollection AddAppNav<
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
     TPlanner>(
         this IServiceCollection services,
         RouteTable routes,
-        Action<MauiRoutePageRegistry>? configurePages = null,
-        Action<AppNavNavigatorOptions>? configureNavigator = null)
+        Action<MauiRoutePageRegistry>? configurePages = null)
+        where TPlanner : class, IAppNavigationPlanner
+    {
+        return AddAppNavCore<TPlanner>(services, routes, configurePages, configureNavigator: null);
+    }
+
+    public static IServiceCollection AddAppNav<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
+    TPlanner>(
+        this IServiceCollection services,
+        RouteTable routes,
+        Action<MauiRoutePageRegistry>? configurePages,
+        Action<AppNavNavigatorOptions> configureNavigator)
+        where TPlanner : class, IAppNavigationPlanner
+    {
+        ArgumentNullException.ThrowIfNull(configureNavigator);
+        return AddAppNavCore<TPlanner>(services, routes, configurePages, configureNavigator);
+    }
+
+    private static IServiceCollection AddAppNavCore<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
+    TPlanner>(
+        IServiceCollection services,
+        RouteTable routes,
+        Action<MauiRoutePageRegistry>? configurePages,
+        Action<AppNavNavigatorOptions>? configureNavigator)
         where TPlanner : class, IAppNavigationPlanner
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -67,8 +91,30 @@ public static class AppNavServiceCollectionExtensions
         this IServiceCollection services,
         RouteTable routes,
         INavigationModel<TRoute> model,
-        Action<MauiRoutePageRegistry>? configurePages = null,
-        Action<AppNavNavigatorOptions>? configureNavigator = null)
+        Action<MauiRoutePageRegistry>? configurePages = null)
+        where TRoute : AppRoute
+    {
+        return AddAppNavCore(services, routes, model, configurePages, configureNavigator: null);
+    }
+
+    public static IServiceCollection AddAppNav<TRoute>(
+        this IServiceCollection services,
+        RouteTable routes,
+        INavigationModel<TRoute> model,
+        Action<MauiRoutePageRegistry>? configurePages,
+        Action<AppNavNavigatorOptions> configureNavigator)
+        where TRoute : AppRoute
+    {
+        ArgumentNullException.ThrowIfNull(configureNavigator);
+        return AddAppNavCore(services, routes, model, configurePages, configureNavigator);
+    }
+
+    private static IServiceCollection AddAppNavCore<TRoute>(
+        IServiceCollection services,
+        RouteTable routes,
+        INavigationModel<TRoute> model,
+        Action<MauiRoutePageRegistry>? configurePages,
+        Action<AppNavNavigatorOptions>? configureNavigator)
         where TRoute : AppRoute
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -89,7 +135,7 @@ public static class AppNavServiceCollectionExtensions
 
         return services;
     }
-#pragma warning restore RS0026
+#pragma warning restore RS0026, RS0027
 
     public static IServiceCollection AddAppNavPages(
         this IServiceCollection services,

@@ -199,6 +199,7 @@ public sealed class AppNavNavigatorRegistrationTests
         ArgumentOutOfRangeException redirectsException = Assert.Throws<ArgumentOutOfRangeException>(() =>
             plannerServices.AddAppNav<ThrowingPlanner>(
                 Routes(),
+                configurePages: null,
                 configureNavigator: options => options.MaxRedirects = -1));
 
         Assert.Equal(nameof(AppNavNavigatorOptions.MaxRedirects), redirectsException.ParamName);
@@ -216,6 +217,7 @@ public sealed class AppNavNavigatorRegistrationTests
             modelServices.AddAppNav(
                 Routes(),
                 model,
+                configurePages: null,
                 configureNavigator: options => options.MaxHistoryEntries = -1));
 
         Assert.Equal(nameof(AppNavNavigatorOptions.MaxHistoryEntries), historyException.ParamName);
