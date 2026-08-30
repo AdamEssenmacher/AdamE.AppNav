@@ -880,6 +880,110 @@ public sealed class MauiFileDeferredNavigationRequestStoreTests
     }
 
     [Fact]
+    public async Task ReplayLease_EquivalentEnqueueIsDurablyRenewedBeforeOldAcknowledgement()
+    {
+        var routes = RouteTable.Create(builder => builder.MapRoute<TestRoute>("/stores/{id}"));
+        var directory = CreateStoreDirectory();
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "deferred-requests.json");
+        var options = new MauiFileDeferredNavigationRequestStoreOptions
+        {
+            Path = path,
+            BaseUri = BaseUri
+        };
+        var timeProvider = new ManualTimeProvider(
+            new DateTimeOffset(2026, 8, 30, 12, 0, 0, TimeSpan.Zero));
+        RouterNavigationRequest first = RouterNavigationRequest.FromRoute(
+            new TestRoute("first"),
+            NavigationRequestSource.AppLink) with { Timestamp = timeProvider.GetUtcNow() };
+        RouterNavigationRequest second = RouterNavigationRequest.FromRoute(
+            new TestRoute("second"),
+            NavigationRequestSource.Push) with { Timestamp = timeProvider.GetUtcNow() };
+
+        try
+        {
+            var store = new MauiFileDeferredNavigationRequestStore(
+                routes,
+                options,
+                timeProvider: timeProvider);
+            await store.EnqueueAsync(first);
+            await store.EnqueueAsync(second);
+
+            timeProvider.Advance(TimeSpan.FromMinutes(1));
+            RouterNavigationRequest renewed = first with { Timestamp = timeProvider.GetUtcNow() };
+            await using (IDeferredNavigationRequestLease lease = await store.AcquireReplayLeaseAsync())
+            {
+                await store.EnqueueAsync(renewed);
+                timeProvider.Advance(TimeSpan.FromMinutes(1));
+                await store.EnqueueAsync(renewed with { Timestamp = timeProvider.GetUtcNow() });
+                await lease.AcknowledgeAsync(0);
+                await lease.AcknowledgeAsync(1);
+            }
+
+            Assert.Empty(Directory.GetFiles(directory, "*.tmp"));
+            var reopened = new MauiFileDeferredNavigationRequestStore(
+                routes,
+                options,
+                timeProvider: timeProvider);
+            await using IDeferredNavigationRequestLease remaining = await reopened.AcquireReplayLeaseAsync();
+            RouterNavigationRequest persisted = Assert.Single(remaining.Requests);
+            Assert.Equal("first", Assert.IsType<TestRoute>(persisted.Route).Id);
+            Assert.Equal(renewed.Timestamp, persisted.Timestamp);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ReplayLease_RenewalRetainsFifoAndBoundedEvictionSemantics()
+    {
+        var routes = RouteTable.Create(builder => builder.MapRoute<TestRoute>("/stores/{id}"));
+        var directory = CreateStoreDirectory();
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "deferred-requests.json");
+        var options = new MauiFileDeferredNavigationRequestStoreOptions
+        {
+            Path = path,
+            BaseUri = BaseUri,
+            MaximumPendingRequests = 2
+        };
+        RouterNavigationRequest first = RouterNavigationRequest.FromRoute(
+            new TestRoute("first"),
+            NavigationRequestSource.AppLink);
+        RouterNavigationRequest second = RouterNavigationRequest.FromRoute(
+            new TestRoute("second"),
+            NavigationRequestSource.Push);
+        RouterNavigationRequest third = RouterNavigationRequest.FromRoute(
+            new TestRoute("third"),
+            NavigationRequestSource.Push);
+
+        try
+        {
+            var store = new MauiFileDeferredNavigationRequestStore(routes, options);
+            await store.EnqueueAsync(first);
+            await store.EnqueueAsync(second);
+
+            await using (IDeferredNavigationRequestLease lease = await store.AcquireReplayLeaseAsync())
+            {
+                await store.EnqueueAsync(first with { Timestamp = first.Timestamp.AddTicks(1) });
+                await store.EnqueueAsync(third);
+                await lease.AcknowledgeAsync(0);
+                await lease.AcknowledgeAsync(1);
+            }
+
+            var reopened = new MauiFileDeferredNavigationRequestStore(routes, options);
+            await using IDeferredNavigationRequestLease remaining = await reopened.AcquireReplayLeaseAsync();
+            Assert.Equal("third", Assert.IsType<TestRoute>(Assert.Single(remaining.Requests).Route).Id);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task ReplayLeaseAcknowledgement_IsIdempotentAfterConcurrentBoundedEviction()
     {
         var routes = RouteTable.Create(builder => builder.MapRoute<TestRoute>("/stores/{id}"));

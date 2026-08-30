@@ -54,6 +54,52 @@ public sealed class DeferredNavigationRequestStoreTests
     }
 
     [Fact]
+    public async Task ReplayLease_EquivalentEnqueueRenewsLeasedRequestBeforeAcknowledgement()
+    {
+        var store = new InMemoryDeferredNavigationRequestStore();
+        RouterNavigationRequest original = Request("first", NavigationRequestSource.AppLink);
+        RouterNavigationRequest second = Request("second", NavigationRequestSource.Push);
+        await store.EnqueueAsync(original);
+        await store.EnqueueAsync(second);
+
+        RouterNavigationRequest renewed = original with { Timestamp = original.Timestamp.AddMinutes(1) };
+        await using (IDeferredNavigationRequestLease lease = await store.AcquireReplayLeaseAsync())
+        {
+            await store.EnqueueAsync(renewed);
+            await store.EnqueueAsync(renewed with { Timestamp = renewed.Timestamp.AddMinutes(1) });
+            await lease.AcknowledgeAsync(0);
+            await lease.AcknowledgeAsync(1);
+        }
+
+        await using IDeferredNavigationRequestLease nextLease = await store.AcquireReplayLeaseAsync();
+        RouterNavigationRequest remaining = Assert.Single(nextLease.Requests);
+        Assert.Equal(renewed, remaining);
+    }
+
+    [Fact]
+    public async Task ReplayLease_RenewalPreservesFifoPositionAheadOfLaterRequest()
+    {
+        var store = new InMemoryDeferredNavigationRequestStore();
+        RouterNavigationRequest original = Request("first", NavigationRequestSource.AppLink);
+        RouterNavigationRequest second = Request("second", NavigationRequestSource.Push);
+        await store.EnqueueAsync(original);
+
+        await using (IDeferredNavigationRequestLease lease = await store.AcquireReplayLeaseAsync())
+        {
+            await store.EnqueueAsync(original with { Timestamp = original.Timestamp.AddMinutes(1) });
+            await store.EnqueueAsync(second);
+            await lease.AcknowledgeAsync(0);
+        }
+
+        await using IDeferredNavigationRequestLease nextLease = await store.AcquireReplayLeaseAsync();
+        Assert.Equal(
+            ["first", "second"],
+            nextLease.Requests
+                .Select(static request => Assert.IsType<TestRoutes.StoreRoute>(request.Route).StoreId)
+                .ToArray());
+    }
+
+    [Fact]
     public async Task ReplayLease_AcknowledgedLaterRequestLeavesFailedOlderRequestBeforeNewEnqueue()
     {
         var store = new InMemoryDeferredNavigationRequestStore();

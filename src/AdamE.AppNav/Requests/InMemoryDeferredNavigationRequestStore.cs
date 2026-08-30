@@ -6,6 +6,7 @@ public sealed class InMemoryDeferredNavigationRequestStore : IDeferredNavigation
     private readonly SemaphoreSlim _replayGate = new(1, 1);
     private readonly List<StoredRequest> _requests = [];
     private readonly HashSet<RouterNavigationRequest> _deduped = new(NavigationRequestEquivalenceComparer.Instance);
+    private readonly HashSet<Guid> _activeReplayRequestIds = [];
 
     public ValueTask<bool> HasDeferredRequestsAsync(CancellationToken cancellationToken = default)
     {
@@ -26,9 +27,24 @@ public sealed class InMemoryDeferredNavigationRequestStore : IDeferredNavigation
 
         lock (_gate)
         {
-            if (!_deduped.Add(request))
-                return ValueTask.CompletedTask;
+            if (_deduped.Contains(request))
+            {
+                int existingIndex = _requests.FindIndex(entry =>
+                    NavigationRequestEquivalenceComparer.Instance.Equals(entry.Request, request));
+                System.Diagnostics.Debug.Assert(existingIndex >= 0);
+                StoredRequest existing = _requests[existingIndex];
+                if (_activeReplayRequestIds.Contains(existing.Id))
+                {
+                    _deduped.Remove(existing.Request);
+                    _requests[existingIndex] = new StoredRequest(Guid.NewGuid(), request);
+                    _deduped.Add(request);
+                }
 
+                return ValueTask.CompletedTask;
+            }
+
+            bool added = _deduped.Add(request);
+            System.Diagnostics.Debug.Assert(added);
             _requests.Add(new StoredRequest(Guid.NewGuid(), request));
         }
 
@@ -45,9 +61,10 @@ public sealed class InMemoryDeferredNavigationRequestStore : IDeferredNavigation
             lock (_gate)
             {
                 snapshot = _requests.ToArray();
+                var lease = new ReplayLease(this, snapshot);
+                _activeReplayRequestIds.UnionWith(snapshot.Select(static entry => entry.Id));
+                return lease;
             }
-
-            return new ReplayLease(this, snapshot);
         }
         catch
         {
@@ -81,7 +98,14 @@ public sealed class InMemoryDeferredNavigationRequestStore : IDeferredNavigation
         {
             int index = _requests.FindIndex(entry => entry.Id == id);
             if (index < 0)
+            {
+                // An equivalent enqueue can renew a request while its prior identity is leased.
+                // Acknowledging that snapshot must not remove the renewed request.
+                if (_activeReplayRequestIds.Contains(id))
+                    return ValueTask.CompletedTask;
+
                 throw new InvalidOperationException("The deferred request is no longer present in the store.");
+            }
 
             RouterNavigationRequest request = _requests[index].Request;
             _requests.RemoveAt(index);
@@ -93,6 +117,11 @@ public sealed class InMemoryDeferredNavigationRequestStore : IDeferredNavigation
 
     private void ReleaseReplayLease()
     {
+        lock (_gate)
+        {
+            _activeReplayRequestIds.Clear();
+        }
+
         _replayGate.Release();
     }
 

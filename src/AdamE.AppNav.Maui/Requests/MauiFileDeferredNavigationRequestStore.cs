@@ -21,6 +21,7 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
     private readonly SemaphoreSlim _replayGate = new(1, 1);
     private readonly List<StoredRequest> _requests = [];
     private readonly HashSet<RouterNavigationRequest> _deduped = new(MauiNavigationRequestEquivalenceComparer.Instance);
+    private readonly HashSet<Guid> _activeReplayRequestIds = [];
     private bool _loaded;
 
     public MauiFileDeferredNavigationRequestStore(
@@ -86,6 +87,18 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
             RouterNavigationRequest canonicalRequest = Canonicalize(request);
             if (_deduped.Contains(canonicalRequest))
             {
+                int existingIndex = _requests.FindIndex(entry =>
+                    MauiNavigationRequestEquivalenceComparer.Instance.Equals(entry.Request, canonicalRequest));
+                System.Diagnostics.Debug.Assert(existingIndex >= 0);
+                StoredRequest existing = _requests[existingIndex];
+                if (_activeReplayRequestIds.Contains(existing.Id))
+                {
+                    StoredRequest[] renewed = _requests.ToArray();
+                    renewed[existingIndex] = new StoredRequest(Guid.NewGuid(), canonicalRequest);
+                    PersistResult renewal = await PersistAsync(renewed, cancellationToken).ConfigureAwait(false);
+                    ReplaceInMemory(renewal.Requests);
+                }
+
                 return;
             }
 
@@ -113,7 +126,10 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
             {
                 await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false);
                 await PruneExpiredAsync(cancellationToken).ConfigureAwait(false);
-                return new ReplayLease(this, _requests.ToArray());
+                StoredRequest[] snapshot = _requests.ToArray();
+                var lease = new ReplayLease(this, snapshot);
+                _activeReplayRequestIds.UnionWith(snapshot.Select(static entry => entry.Id));
+                return lease;
             }
             finally
             {
@@ -527,9 +543,18 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
             phase: NavigationDiagnosticPhase.Persistence);
     }
 
-    private void ReleaseReplayLease()
+    private async ValueTask ReleaseReplayLeaseAsync()
     {
-        _replayGate.Release();
+        await _gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            _activeReplayRequestIds.Clear();
+        }
+        finally
+        {
+            _gate.Release();
+            _replayGate.Release();
+        }
     }
 
     private sealed record StoredRequest(Guid Id, RouterNavigationRequest Request);
@@ -589,7 +614,7 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
             await _operationGate.WaitAsync().ConfigureAwait(false);
             try
             {
-                _owner.ReleaseReplayLease();
+                await _owner.ReleaseReplayLeaseAsync().ConfigureAwait(false);
             }
             finally
             {
