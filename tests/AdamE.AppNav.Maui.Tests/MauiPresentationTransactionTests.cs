@@ -50,6 +50,90 @@ public sealed class MauiPresentationTransactionTests
         await presenter.DisposeAsync();
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AttachWindowTransferFailureRestoresBothWindowsAndAttachment(bool faultSourceWindow)
+    {
+        var nativeOperations = new FaultingNativeOperations();
+        var presenter = new MauiNavigationPresenter(
+            new InstrumentedRoutePageFactory(),
+            nativeOperations: nativeOperations);
+        NavigationState state = StackState("home", "detail");
+        await presenter.ApplyAsync(new NavigationPlan(state), Context("detail", NavigationState.Empty));
+        Page currentPage = Assert.IsAssignableFrom<Page>(presenter.CurrentPage);
+        var originalWindow = new Window();
+        presenter.AttachWindow(originalWindow);
+        var replacementPage = new ContentPage();
+        var replacementWindow = new Window(replacementPage);
+        nativeOperations.FailWindowPageAfterMutation(
+            faultSourceWindow ? originalWindow : replacementWindow);
+
+        Assert.Throws<InvalidOperationException>(() => presenter.AttachWindow(replacementWindow));
+
+        Assert.Same(currentPage, originalWindow.Page);
+        Assert.Same(replacementPage, replacementWindow.Page);
+        Assert.Same(currentPage, presenter.CurrentPage);
+        Assert.Same(originalWindow, presenter.AttachedWindow);
+        Assert.Equal("main", presenter.AttachedWindowId);
+
+        await presenter.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task DetachWindowFailureRestoresPageAndAttachment()
+    {
+        var nativeOperations = new FaultingNativeOperations();
+        var presenter = new MauiNavigationPresenter(
+            new InstrumentedRoutePageFactory(),
+            nativeOperations: nativeOperations);
+        NavigationState state = StackState("home", "detail");
+        await presenter.ApplyAsync(new NavigationPlan(state), Context("detail", NavigationState.Empty));
+        Page currentPage = Assert.IsAssignableFrom<Page>(presenter.CurrentPage);
+        var window = new Window();
+        presenter.AttachWindow(window);
+        nativeOperations.FailWindowPageAfterMutation(window);
+
+        Assert.Throws<InvalidOperationException>(() => presenter.DetachWindow(window));
+
+        Assert.Same(currentPage, window.Page);
+        Assert.Same(currentPage, presenter.CurrentPage);
+        Assert.Same(window, presenter.AttachedWindow);
+        Assert.Equal("main", presenter.AttachedWindowId);
+
+        await presenter.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task AttachWindowRollbackFailureFaultsPresenterClosed()
+    {
+        var nativeOperations = new FaultingNativeOperations();
+        var presenter = new MauiNavigationPresenter(
+            new InstrumentedRoutePageFactory(),
+            nativeOperations: nativeOperations);
+        NavigationState state = StackState("home", "detail");
+        await presenter.ApplyAsync(new NavigationPlan(state), Context("detail", NavigationState.Empty));
+        Page currentPage = Assert.IsAssignableFrom<Page>(presenter.CurrentPage);
+        var originalWindow = new Window();
+        presenter.AttachWindow(originalWindow);
+        var replacementPage = new ContentPage();
+        var replacementWindow = new Window(replacementPage);
+        nativeOperations.FailWindowPageAfterMutation(replacementWindow, replacementWindow);
+
+        MauiPresentationConsistencyException failure = Assert.Throws<MauiPresentationConsistencyException>(
+            () => presenter.AttachWindow(replacementWindow));
+        MauiPresentationConsistencyException subsequent = Assert.Throws<MauiPresentationConsistencyException>(
+            () => presenter.AttachWindow(new Window()));
+
+        Assert.Same(failure, subsequent);
+        Assert.Same(currentPage, originalWindow.Page);
+        Assert.Same(replacementPage, replacementWindow.Page);
+        Assert.Same(originalWindow, presenter.AttachedWindow);
+        Assert.Equal("main", presenter.AttachedWindowId);
+
+        await presenter.DisposeAsync();
+    }
+
     [Fact]
     public async Task NativeMutationFailureRestoresExactPreviousStackAndReleasesOnlyNewPages()
     {
@@ -599,6 +683,7 @@ public sealed class MauiPresentationTransactionTests
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _releaseBlockedPush =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly Queue<Window> _windowPageFaultTargets = new();
 
         public int PushFailuresRemaining { get; set; }
 
@@ -611,6 +696,12 @@ public sealed class MauiPresentationTransactionTests
         public NativeMutation? FaultAfterMutation { get; set; }
 
         public Task BlockedPushStarted => _blockedPushStarted.Task;
+
+        public void FailWindowPageAfterMutation(params Window[] windows)
+        {
+            foreach (Window window in windows)
+                _windowPageFaultTargets.Enqueue(window);
+        }
 
         public async Task PushAsync(NavigationPage navigationPage, Page page, bool animated)
         {
@@ -679,6 +770,12 @@ public sealed class MauiPresentationTransactionTests
         public void SetWindowPage(Window window, Page? page)
         {
             MauiNativeNavigationOperations.Instance.SetWindowPage(window, page);
+            if (_windowPageFaultTargets.TryPeek(out Window? faultTarget) && ReferenceEquals(faultTarget, window))
+            {
+                _windowPageFaultTargets.Dequeue();
+                throw new InvalidOperationException("Injected SetWindowPage failure after mutation.");
+            }
+
             ThrowAfterMutation(NativeMutation.SetWindowPage);
         }
 

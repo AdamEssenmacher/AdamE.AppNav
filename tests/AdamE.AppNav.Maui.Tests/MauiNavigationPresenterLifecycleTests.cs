@@ -55,14 +55,86 @@ public sealed class MauiNavigationPresenterLifecycleTests
 
         var currentPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
         var window = new Window();
+        var replacementWindow = new Window();
 
         fixture.Presenter.AttachWindow(window);
+        Assert.Same(currentPage, window.Page);
+
         fixture.Presenter.DetachWindow(window);
 
+        Assert.Null(window.Page);
         Assert.Same(currentPage, fixture.Presenter.CurrentPage);
         Assert.Empty(fixture.Factory.ReleasedPages);
 
+        fixture.Presenter.AttachWindow(replacementWindow);
+
+        Assert.Same(currentPage, replacementWindow.Page);
+        Assert.Same(replacementWindow, fixture.Presenter.AttachedWindow);
+        Assert.Empty(fixture.Factory.ReleasedPages);
+
         fixture.Presenter.Dispose();
+    }
+
+    [Fact]
+    public async Task AttachWindowReplacementTransfersCurrentPageAndLifecycleHandlers()
+    {
+        var fixture = new PresenterFixture();
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("schools", Entry("schools"))),
+            Context(new TestPageRoute("schools")));
+
+        Page currentPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        var originalWindow = new Window();
+        var replacementWindow = new Window();
+        var originalHandlerCounts = WindowLifecycleEventNames.ToDictionary(
+            eventName => eventName,
+            eventName => EventHandlerCount(originalWindow, eventName),
+            StringComparer.Ordinal);
+        var replacementHandlerCounts = WindowLifecycleEventNames.ToDictionary(
+            eventName => eventName,
+            eventName => EventHandlerCount(replacementWindow, eventName),
+            StringComparer.Ordinal);
+
+        fixture.Presenter.AttachWindow(originalWindow);
+        fixture.Presenter.AttachWindow(replacementWindow);
+
+        Assert.Null(originalWindow.Page);
+        Assert.Same(currentPage, replacementWindow.Page);
+        Assert.Same(currentPage, fixture.Presenter.CurrentPage);
+        Assert.Same(replacementWindow, fixture.Presenter.AttachedWindow);
+        Assert.Equal("main", fixture.Presenter.AttachedWindowId);
+        Assert.Empty(fixture.Factory.ReleasedPages);
+        foreach (string eventName in WindowLifecycleEventNames)
+        {
+            Assert.Equal(originalHandlerCounts[eventName], EventHandlerCount(originalWindow, eventName));
+            Assert.Equal(replacementHandlerCounts[eventName] + 1, EventHandlerCount(replacementWindow, eventName));
+        }
+
+        await fixture.Presenter.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task AttachWindowReplacementDoesNotClearPageNotOwnedByPresenter()
+    {
+        var fixture = new PresenterFixture();
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("schools", Entry("schools"))),
+            Context(new TestPageRoute("schools")));
+
+        Page currentPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        var originalWindow = new Window();
+        fixture.Presenter.AttachWindow(originalWindow);
+        var hostOwnedPage = new ContentPage();
+        originalWindow.Page = hostOwnedPage;
+        var replacementWindow = new Window();
+
+        fixture.Presenter.AttachWindow(replacementWindow);
+
+        Assert.Same(hostOwnedPage, originalWindow.Page);
+        Assert.Same(currentPage, replacementWindow.Page);
+        Assert.Same(currentPage, fixture.Presenter.CurrentPage);
+
+        await fixture.Presenter.DisposeAsync();
     }
 
     [Fact]

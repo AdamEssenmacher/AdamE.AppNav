@@ -319,7 +319,7 @@ internal sealed class MauiNavigationPresenter :
 
     public void AttachWindow(Window window, string windowId = "main")
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        ThrowIfUnavailable();
         ArgumentNullException.ThrowIfNull(window);
         ArgumentException.ThrowIfNullOrWhiteSpace(windowId);
 
@@ -331,15 +331,15 @@ internal sealed class MauiNavigationPresenter :
                 $"Presented navigation state window id '{presentedWindow.Id}' does not match the MAUI window id '{windowId}'.");
         }
 
-        if (CurrentPage is not null)
-            _nativeOperations.SetWindowPage(window, CurrentPage);
+        Window? previousWindow = _attachedWindow;
+        TransferCurrentPage(previousWindow, window);
 
-        if (_attachedWindow is not null && !ReferenceEquals(_attachedWindow, window))
+        if (previousWindow is not null && !ReferenceEquals(previousWindow, window))
         {
-            UnsubscribeWindowLifecycle(_attachedWindow);
+            UnsubscribeWindowLifecycle(previousWindow);
         }
 
-        bool alreadyAttached = ReferenceEquals(_attachedWindow, window);
+        bool alreadyAttached = ReferenceEquals(previousWindow, window);
         _attachedWindow = window;
         _attachedWindowId = windowId;
         if (!alreadyAttached)
@@ -351,15 +351,84 @@ internal sealed class MauiNavigationPresenter :
 
     public void DetachWindow(Window window)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        ThrowIfUnavailable();
         ArgumentNullException.ThrowIfNull(window);
 
         if (ReferenceEquals(_attachedWindow, window))
         {
+            TransferCurrentPage(window, null);
             UnsubscribeWindowLifecycle(window);
             _externalNavigationDispatcher?.SetForegrounded(false);
             _attachedWindow = null;
             _attachedWindowId = null;
+        }
+    }
+
+    private void TransferCurrentPage(Window? sourceWindow, Window? destinationWindow)
+    {
+        if (ReferenceEquals(sourceWindow, destinationWindow))
+            sourceWindow = null;
+
+        Page? currentPage = CurrentPage;
+        if (currentPage is null)
+            return;
+
+        Page? sourcePage = sourceWindow?.Page;
+        Page? destinationPage = destinationWindow?.Page;
+        bool clearSource = sourceWindow is not null && ReferenceEquals(sourcePage, currentPage);
+        bool assignDestination = destinationWindow is not null && !ReferenceEquals(destinationPage, currentPage);
+        if (!clearSource && !assignDestination)
+            return;
+
+        try
+        {
+            if (clearSource)
+                _nativeOperations.SetWindowPage(sourceWindow!, null);
+            if (assignDestination)
+                _nativeOperations.SetWindowPage(destinationWindow!, currentPage);
+        }
+        catch (Exception transferException)
+        {
+            var rollbackFailures = new List<Exception>();
+            if (destinationWindow is not null && !ReferenceEquals(destinationWindow.Page, destinationPage))
+            {
+                try
+                {
+                    _nativeOperations.SetWindowPage(destinationWindow, destinationPage);
+                }
+                catch (Exception rollbackException)
+                {
+                    rollbackFailures.Add(rollbackException);
+                }
+            }
+
+            if (sourceWindow is not null && !ReferenceEquals(sourceWindow.Page, sourcePage))
+            {
+                try
+                {
+                    _nativeOperations.SetWindowPage(sourceWindow, sourcePage);
+                }
+                catch (Exception rollbackException)
+                {
+                    rollbackFailures.Add(rollbackException);
+                }
+            }
+
+            if (rollbackFailures.Count == 0)
+                throw;
+
+            var failures = new List<Exception>(rollbackFailures.Count + 1) { transferException };
+            failures.AddRange(rollbackFailures);
+            var consistencyException = new MauiPresentationConsistencyException(
+                "The MAUI presenter could not restore window page ownership after an attachment failure.",
+                new AggregateException("Window page transfer and rollback failed.", failures));
+            lock (_lifetimeGate)
+            {
+                _consistencyFailure ??= consistencyException;
+                consistencyException = _consistencyFailure;
+            }
+
+            throw consistencyException;
         }
     }
 
@@ -2428,6 +2497,17 @@ internal sealed class MauiNavigationPresenter :
     {
         return !string.IsNullOrWhiteSpace(GetPresentationOwnerRouteEntryId(bindableObject)) ||
                !string.IsNullOrWhiteSpace(GetPresentationPageKey(bindableObject));
+    }
+
+    private void ThrowIfUnavailable()
+    {
+        lock (_lifetimeGate)
+        {
+            if (_disposed)
+                throw new ObjectDisposedException(nameof(MauiNavigationPresenter));
+            if (_consistencyFailure is not null)
+                throw _consistencyFailure;
+        }
     }
 
     private void BeginOperation()
