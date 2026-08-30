@@ -1,3 +1,5 @@
+using AdamE.AppNav.Internal;
+
 namespace AdamE.AppNav.Routing;
 
 public sealed record RouteMatchResult(
@@ -8,8 +10,7 @@ public sealed record RouteMatchResult(
     IReadOnlyList<RouteDiagnostic> Diagnostics)
 {
     internal static readonly IReadOnlyDictionary<string, object?> EmptyMetadata =
-        new System.Collections.ObjectModel.ReadOnlyDictionary<string, object?>(
-            new Dictionary<string, object?>(StringComparer.Ordinal));
+        CollectionSnapshot.MetadataDictionary(null);
 
     public static RouteMatchResult Success(
         AppRoute route,

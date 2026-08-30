@@ -24,7 +24,7 @@ internal static class CollectionSnapshot
     public static IReadOnlyDictionary<string, object?> MetadataDictionary(
         IReadOnlyDictionary<string, object?>? source)
     {
-        return source is null
+        return source is null || source.Count == 0
             ? EmptyMetadataDictionary.Value
             : new ReadOnlyDictionary<string, object?>(
                 new Dictionary<string, object?>(source, StringComparer.Ordinal));
