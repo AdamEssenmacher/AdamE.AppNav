@@ -102,16 +102,16 @@ public static class AppNavServiceCollectionExtensions
 
     public static IServiceCollection AddAppNavFileDeferredNavigationRequests(
         this IServiceCollection services,
-        Action<MauiFileDeferredNavigationRequestStoreOptions>? configure = null)
+        Action<MauiFileDeferredNavigationRequestStoreOptions> configure)
     {
         ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(configure);
 
-        services.AddSingleton(provider =>
-        {
-            var options = new MauiFileDeferredNavigationRequestStoreOptions();
-            configure?.Invoke(options);
-            return options;
-        });
+        var options = new MauiFileDeferredNavigationRequestStoreOptions();
+        configure(options);
+        options.Validate();
+
+        services.AddSingleton(options);
         services.TryAddSingleton<MauiFileDeferredNavigationRequestStore>();
         services.TryAddSingleton<IDeferredNavigationRequestStore>(provider =>
             provider.GetRequiredService<MauiFileDeferredNavigationRequestStore>());

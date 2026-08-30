@@ -1,2 +1,4 @@
 #nullable enable
 AdamE.AppNav.Maui.AppNavStartupOutcome.AppLinkNavigated = 4 -> AdamE.AppNav.Maui.AppNavStartupOutcome
+*REMOVED*static AdamE.AppNav.Maui.DependencyInjection.AppNavServiceCollectionExtensions.AddAppNavFileDeferredNavigationRequests(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<AdamE.AppNav.Maui.Requests.MauiFileDeferredNavigationRequestStoreOptions!>? configure = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static AdamE.AppNav.Maui.DependencyInjection.AppNavServiceCollectionExtensions.AddAppNavFileDeferredNavigationRequests(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<AdamE.AppNav.Maui.Requests.MauiFileDeferredNavigationRequestStoreOptions!>! configure) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
