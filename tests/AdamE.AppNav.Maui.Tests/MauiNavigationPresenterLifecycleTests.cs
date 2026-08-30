@@ -1327,6 +1327,79 @@ public sealed class MauiNavigationPresenterLifecycleTests
         fixture.Presenter.Dispose();
     }
 
+    [UIFact]
+    public async Task NativeStackPopInsideRootlessModalContentReconcilesOwningModalState()
+    {
+        var nativeOperations = new CountingNativeNavigationOperations();
+        var fixture = new PresenterFixture(nativeOperations: nativeOperations);
+        var initialState = new NavigationState(
+            new[]
+            {
+                new WindowNode(
+                    "main",
+                    null,
+                    new[]
+                    {
+                        new ModalNode(
+                            "login-modal",
+                            new RouteEntry("login-modal-route", new TestPageRoute("login-shell")),
+                            Stack("login-stack", Entry("login"), Entry("challenge")))
+                    })
+            },
+            "main");
+        var reconciliations = new List<NavigationReconciliation>();
+        fixture.Presenter.ReconciliationRequested += (_, args) => reconciliations.Add(args.Reconciliation);
+
+        await fixture.Presenter.ApplyAsync(
+            new NavigationPlan(initialState),
+            Context(new TestPageRoute("challenge")));
+
+        var rootHost = Assert.IsType<ContentPage>(fixture.Presenter.CurrentPage);
+        var modalNavigationPage = Assert.IsType<NavigationPage>(Assert.Single(rootHost.Navigation.ModalStack));
+        var loginPage = modalNavigationPage.Navigation.NavigationStack[0];
+        var challengePage = modalNavigationPage.Navigation.NavigationStack[1];
+        var createdPageCount = fixture.Factory.CreatedPages.Count;
+        var stackPushCount = nativeOperations.StackPushCount;
+        var modalPushCount = nativeOperations.ModalPushCount;
+
+        var reconciliation = await ReconcileAfterNativeMutationAsync(
+            fixture.Presenter,
+            async () => await modalNavigationPage.Navigation.PopAsync(animated: false));
+
+        Assert.Same(reconciliation, Assert.Single(reconciliations));
+        Assert.Equal(NavigationReconciliationSource.HostBack, reconciliation.Source);
+        Assert.Equal(new TestPageRoute("login"), reconciliation.Route);
+        var updatedWindow = Assert.IsType<WindowNode>(reconciliation.TargetState.ActiveWindow);
+        Assert.Null(updatedWindow.Root);
+        var updatedModal = Assert.Single(updatedWindow.Modals);
+        Assert.Equal("login-modal", updatedModal.Id);
+        var updatedStack = Assert.IsType<StackNode>(updatedModal.Content);
+        Assert.Equal(new[] { "login" }, updatedStack.Entries.Select(entry => entry.Id));
+        Assert.Same(modalNavigationPage, Assert.Single(rootHost.Navigation.ModalStack));
+        Assert.Same(loginPage, Assert.Single(modalNavigationPage.Navigation.NavigationStack));
+        Assert.Equal(1, fixture.Factory.ReleaseCountFor(challengePage));
+
+        await fixture.Presenter.ApplyAsync(
+            new NavigationPlan(reconciliation.TargetState),
+            Context(new TestPageRoute("login"), reconciliation.TargetState));
+
+        Assert.Equal(createdPageCount, fixture.Factory.CreatedPages.Count);
+        Assert.Equal(stackPushCount, nativeOperations.StackPushCount);
+        Assert.Equal(modalPushCount, nativeOperations.ModalPushCount);
+        Assert.Same(rootHost, fixture.Presenter.CurrentPage);
+        Assert.Same(modalNavigationPage, Assert.Single(rootHost.Navigation.ModalStack));
+        Assert.Same(loginPage, Assert.Single(modalNavigationPage.Navigation.NavigationStack));
+        Assert.Single(reconciliations);
+
+        await fixture.Presenter.DisposeAsync();
+
+        Assert.Equal(1, fixture.Factory.ReleaseCountFor(rootHost));
+        Assert.Equal(1, fixture.Factory.ReleaseCountFor(loginPage));
+        Assert.Equal(1, fixture.Factory.ReleaseCountFor(challengePage));
+        Assert.Equal(3, fixture.Factory.ReleasedPages.Count);
+        Assert.Single(reconciliations);
+    }
+
     [Fact]
     public async Task ModalRemovalReleasesDismissedModalPage()
     {
@@ -1667,7 +1740,8 @@ public sealed class MauiNavigationPresenterLifecycleTests
         public PresenterFixture(
             Action<MauiRoutePageRegistry>? configurePages = null,
             Func<RouteEntry, Page>? createPage = null,
-            Action<Page, RouteEntry, MauiRoutePageUpdateContext>? updatePage = null)
+            Action<Page, RouteEntry, MauiRoutePageUpdateContext>? updatePage = null,
+            IMauiNativeNavigationOperations? nativeOperations = null)
         {
             Diagnostics = new NavigationDiagnostics();
             Diagnostics.AddObserver(Observer);
@@ -1677,7 +1751,8 @@ public sealed class MauiNavigationPresenterLifecycleTests
             Presenter = new MauiNavigationPresenter(
                 Factory,
                 diagnostics: Diagnostics,
-                presentationOptions: PresentationOptions);
+                presentationOptions: PresentationOptions,
+                nativeOperations: nativeOperations);
         }
 
         public InstrumentedRoutePageFactory Factory { get; }
@@ -1699,6 +1774,43 @@ public sealed class MauiNavigationPresenterLifecycleTests
                     : new NavigationState(new[] { new WindowNode("main") }, "main");
             }
         }
+    }
+
+    private sealed class CountingNativeNavigationOperations : IMauiNativeNavigationOperations
+    {
+        public int StackPushCount { get; private set; }
+
+        public int ModalPushCount { get; private set; }
+
+        public async Task PushAsync(NavigationPage navigationPage, Page page, bool animated)
+        {
+            StackPushCount++;
+            await MauiNativeNavigationOperations.Instance.PushAsync(navigationPage, page, animated);
+        }
+
+        public Task<Page?> PopAsync(NavigationPage navigationPage, bool animated) =>
+            MauiNativeNavigationOperations.Instance.PopAsync(navigationPage, animated);
+
+        public async Task PushModalAsync(Page host, Page page, bool animated)
+        {
+            ModalPushCount++;
+            await MauiNativeNavigationOperations.Instance.PushModalAsync(host, page, animated);
+        }
+
+        public Task<Page?> PopModalAsync(Page host, bool animated) =>
+            MauiNativeNavigationOperations.Instance.PopModalAsync(host, animated);
+
+        public void InsertTab(TabbedPage tabbedPage, int index, Page page) =>
+            MauiNativeNavigationOperations.Instance.InsertTab(tabbedPage, index, page);
+
+        public void RemoveTab(TabbedPage tabbedPage, Page page) =>
+            MauiNativeNavigationOperations.Instance.RemoveTab(tabbedPage, page);
+
+        public void SetCurrentTab(TabbedPage tabbedPage, Page? page) =>
+            MauiNativeNavigationOperations.Instance.SetCurrentTab(tabbedPage, page);
+
+        public void SetWindowPage(Window window, Page? page) =>
+            MauiNativeNavigationOperations.Instance.SetWindowPage(window, page);
     }
 
     private sealed class ThrowingPlanner : IAppNavigationPlanner

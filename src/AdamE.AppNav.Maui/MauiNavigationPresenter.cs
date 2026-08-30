@@ -1970,7 +1970,7 @@ internal sealed class MauiNavigationPresenter :
         Func<NavigationNode, NavigationNode?> update)
     {
         var window = _lastState.ActiveWindow;
-        if (window?.Root is null)
+        if (window is null)
         {
             return null;
         }
