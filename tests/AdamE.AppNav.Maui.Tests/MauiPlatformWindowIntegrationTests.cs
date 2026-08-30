@@ -1,4 +1,5 @@
 using AdamE.AppNav.History;
+using AdamE.AppNav.Maui;
 using AdamE.AppNav.Maui.DependencyInjection;
 using AdamE.AppNav.Navigation;
 using AdamE.AppNav.Plans;
@@ -26,6 +27,50 @@ public sealed class MauiPlatformWindowIntegrationTests
     public Task RealWindowNavigationAndBackKeepLogicalNativeHistoryAndScopesConsistent()
     {
         return MainThread.InvokeOnMainThreadAsync(RunOnMainThreadAsync);
+    }
+
+    [Fact]
+    public Task OffMainNavigationWhosePageCreatedHookReentersFailsPromptly()
+    {
+        return MainThread.InvokeOnMainThreadAsync(async () =>
+        {
+            Assert.True(MainThread.IsMainThread);
+
+            var window = new Window(new ContentPage());
+            var lifecycleHook = new ReentrantNavigationLifecycleHook();
+            ServiceProvider provider = CreateServices(lifecycleHook);
+
+            try
+            {
+                IAppNavStartupService startup = provider.GetRequiredService<IAppNavStartupService>();
+                IRouterNavigator navigator = provider.GetRequiredService<IRouterNavigator>();
+                lifecycleHook.Navigator = navigator;
+                AppNavStartupResult startupResult = await startup.StartAsync(window, "main");
+                Assert.Equal(AppNavStartupOutcome.FallbackNavigated, startupResult.Outcome);
+                Page? committedPage = window.Page;
+                using var deadlockFuse = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
+                InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                    Task.Run(async () =>
+                    {
+                        Assert.False(MainThread.IsMainThread);
+                        await navigator.NavigateAsync(new PlatformDetailRoute("outer"), deadlockFuse.Token);
+                    }));
+
+                Assert.Contains("Reentrant router operations are not supported", exception.Message,
+                    StringComparison.Ordinal);
+                Assert.Equal(1, lifecycleHook.CreatedCalls);
+                Assert.True(lifecycleHook.CreatedOnMainThread);
+                AssertLogicalStack(navigator, typeof(PlatformHomeRoute));
+                AssertHistory(navigator.History, 1, typeof(PlatformHomeRoute));
+                Assert.Same(committedPage, window.Page);
+            }
+            finally
+            {
+                await provider.DisposeAsync();
+                Assert.True(MainThread.IsMainThread);
+            }
+        });
     }
 
     private static async Task RunOnMainThreadAsync()
@@ -98,10 +143,13 @@ public sealed class MauiPlatformWindowIntegrationTests
         Assert.Equal(1, homeScope?.DisposeCount);
     }
 
-    private static ServiceProvider CreateServices()
+    private static ServiceProvider CreateServices(IMauiRoutePageLifecycleHook? lifecycleHook = null)
     {
         var services = new ServiceCollection();
         services.AddScoped<PlatformPageScope>();
+        if (lifecycleHook is not null)
+            services.AddSingleton(lifecycleHook);
+
         services.AddAppNavStartup(options =>
         {
             options.AppLinkGracePeriod = TimeSpan.Zero;
@@ -190,6 +238,45 @@ public sealed class MauiPlatformWindowIntegrationTests
         public void Dispose()
         {
             DisposeCount++;
+        }
+    }
+
+    private sealed class ReentrantNavigationLifecycleHook : IMauiRoutePageLifecycleHook
+    {
+        private int _createdCalls;
+
+        public IRouterNavigator Navigator { private get; set; } = null!;
+
+        public int CreatedCalls => Volatile.Read(ref _createdCalls);
+
+        public bool CreatedOnMainThread { get; private set; }
+
+        public async ValueTask OnPageCreatedAsync(
+            Page page,
+            RouteEntry entry,
+            CancellationToken cancellationToken = default)
+        {
+            if (entry.Route is not PlatformDetailRoute)
+                return;
+
+            Interlocked.Increment(ref _createdCalls);
+            await Task.Yield();
+            CreatedOnMainThread = MainThread.IsMainThread;
+            await Navigator.NavigateAsync(new PlatformDetailRoute("nested"), cancellationToken);
+        }
+
+        public ValueTask OnPageUpdatedAsync(
+            Page page,
+            RouteEntry entry,
+            MauiRoutePageUpdateContext context,
+            CancellationToken cancellationToken = default)
+        {
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask OnPageReleasedAsync(Page page, CancellationToken cancellationToken = default)
+        {
+            return ValueTask.CompletedTask;
         }
     }
 }

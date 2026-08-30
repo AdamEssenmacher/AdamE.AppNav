@@ -1,4 +1,6 @@
+using System.Runtime.CompilerServices;
 using AdamE.AppNav.Navigation;
+using AdamE.AppNav.Plans;
 using AdamE.AppNav.Presentation;
 using AdamE.AppNav.Requests;
 using AdamE.AppNav.State;
@@ -264,6 +266,107 @@ public sealed class RouterNavigatorReentrancyTests
         Assert.Equal("background", Assert.IsType<TestRoutes.StoreRoute>(navigator.History.Current!.Route).StoreId);
     }
 
+    [Fact]
+    public void DeactivatedCapturedOperationContextDoesNotRetainNavigator()
+    {
+        CapturedOperationContext capture = CreateCapturedOperationContext();
+
+        ForceFullCollection();
+
+        Assert.False(capture.Navigator.IsAlive);
+        GC.KeepAlive(capture.ExecutionContext);
+    }
+
+    [Fact]
+    public async Task CapturedInactiveChildContextStillDetectsActiveParentOperation()
+    {
+        var childContextCaptured = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseChildContext = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task<Exception>? parentReentry = null;
+        RouterNavigator parentNavigator = null!;
+
+        var childPresenter = new RecordingNavigationPresenter
+        {
+            OnApplyAsync = async (_, _, _) =>
+            {
+                parentReentry = Task.Run(async () =>
+                {
+                    childContextCaptured.TrySetResult();
+                    await releaseChildContext.Task;
+                    return await Record.ExceptionAsync(() =>
+                        parentNavigator.NavigateAsync(new TestRoutes.StoreRoute("reentrant")).AsTask());
+                });
+                await childContextCaptured.Task;
+            }
+        };
+        var childNavigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            TestNavigationPlanner.EchoStack(),
+            childPresenter);
+        var parentApplyCount = 0;
+        var parentPresenter = new RecordingNavigationPresenter
+        {
+            OnApplyAsync = async (_, _, _) =>
+            {
+                if (Interlocked.Increment(ref parentApplyCount) != 1)
+                    return;
+
+                await childNavigator.NavigateAsync(new TestRoutes.StoreRoute("child"));
+                releaseChildContext.TrySetResult();
+
+                Exception exception = Assert.IsType<InvalidOperationException>(
+                    await Assert.IsAssignableFrom<Task<Exception>>(parentReentry)
+                        .WaitAsync(TimeSpan.FromSeconds(5)));
+                Assert.Contains("Reentrant router operations are not supported", exception.Message,
+                    StringComparison.Ordinal);
+            }
+        };
+        parentNavigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            TestNavigationPlanner.EchoStack(),
+            parentPresenter);
+
+        await parentNavigator
+            .NavigateAsync(new TestRoutes.StoreRoute("parent"))
+            .AsTask()
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        NavigationResult laterNavigation = await parentNavigator.NavigateAsync(
+            new TestRoutes.StoreRoute("later"));
+
+        Assert.Equal(new TestRoutes.StoreRoute("later"), laterNavigation.Route);
+        Assert.Equal(2, parentApplyCount);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static CapturedOperationContext CreateCapturedOperationContext()
+    {
+        var presenter = new ExecutionContextCapturingPresenter();
+        var navigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            TestNavigationPlanner.EchoStack(),
+            presenter);
+
+        navigator
+            .NavigateAsync(new TestRoutes.StoreRoute("capture"))
+            .AsTask()
+            .GetAwaiter()
+            .GetResult();
+        navigator.DisposeAsync().AsTask().GetAwaiter().GetResult();
+
+        return new CapturedOperationContext(
+            new WeakReference(navigator),
+            Assert.IsType<ExecutionContext>(presenter.CapturedContext));
+    }
+
+    private static void ForceFullCollection()
+    {
+        for (var iteration = 0; iteration < 4; iteration++)
+        {
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+            GC.WaitForPendingFinalizers();
+        }
+    }
+
     private static NavigationState StateFor(AppRoute route)
     {
         return TestNavigationState.State(
@@ -280,5 +383,29 @@ public sealed class RouterNavigatorReentrancyTests
         Navigate,
         Back,
         Reconcile
+    }
+
+    private sealed record CapturedOperationContext(
+        WeakReference Navigator,
+        ExecutionContext ExecutionContext);
+
+    private sealed class ExecutionContextCapturingPresenter : INavigationPresenter
+    {
+        public event EventHandler<NavigationReconciliationRequestedEventArgs>? ReconciliationRequested
+        {
+            add { }
+            remove { }
+        }
+
+        public ExecutionContext? CapturedContext { get; private set; }
+
+        public ValueTask ApplyAsync(
+            NavigationPlan plan,
+            NavigationPresentationContext context,
+            CancellationToken cancellationToken = default)
+        {
+            CapturedContext = ExecutionContext.Capture();
+            return ValueTask.CompletedTask;
+        }
     }
 }

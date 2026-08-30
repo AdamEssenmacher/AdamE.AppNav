@@ -581,7 +581,7 @@ internal sealed class RouterNavigator : IRouterNavigator
         RouterOperationContext? current = CurrentOperationContext.Value;
         for (RouterOperationContext? candidate = current; candidate is not null; candidate = candidate.Parent)
         {
-            if (candidate.IsActive && ReferenceEquals(candidate.Navigator, this))
+            if (ReferenceEquals(candidate.ActiveNavigator, this))
             {
                 throw new InvalidOperationException(
                     "Reentrant router operations are not supported. NavigateAsync, BackAsync, and ReconcileAsync " +
@@ -768,17 +768,15 @@ internal sealed class RouterNavigator : IRouterNavigator
         RouterNavigator navigator,
         RouterOperationContext? parent)
     {
-        private int _active = 1;
+        private RouterNavigator? _activeNavigator = navigator;
 
-        public RouterNavigator Navigator { get; } = navigator;
+        public RouterNavigator? ActiveNavigator => Volatile.Read(ref _activeNavigator);
 
         public RouterOperationContext? Parent { get; } = parent;
 
-        public bool IsActive => Volatile.Read(ref _active) != 0;
-
         public void Deactivate()
         {
-            Volatile.Write(ref _active, 0);
+            Interlocked.Exchange(ref _activeNavigator, null);
             if (ReferenceEquals(CurrentOperationContext.Value, this))
                 CurrentOperationContext.Value = Parent;
         }
