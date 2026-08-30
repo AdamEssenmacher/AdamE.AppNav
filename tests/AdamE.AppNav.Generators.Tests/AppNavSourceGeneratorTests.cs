@@ -334,6 +334,99 @@ public sealed class AppNavSourceGeneratorTests
     }
 
     [Fact]
+    public void GeneratedRouteTableFormatsEveryValueShapeWithItsDeclaredCodecType()
+    {
+        const string source = """
+            #nullable enable
+            using System.Collections.Generic;
+            using AdamE.AppNav;
+            using AdamE.AppNav.Routing;
+
+            namespace Commerce.Sample;
+
+            public interface IRouteValue
+            {
+                string Value { get; }
+            }
+
+            public sealed record RouteValue(string Value) : IRouteValue;
+
+            public static class Metadata
+            {
+                public static RouteMetadataKey<IRouteValue> Context { get; } = new("context");
+            }
+
+            [AppNavRoute("/declared/{id}")]
+            [AppNavQuery(nameof(Filter), Name = "filter")]
+            [AppNavQuery(nameof(Tags), Name = "tag")]
+            [AppNavQueryMetadata(typeof(Metadata), nameof(Metadata.Context))]
+            public sealed record DeclaredCodecRoute(
+                IRouteValue Id,
+                IRouteValue? Filter = null,
+                IReadOnlyList<IRouteValue>? Tags = null) : AppRoute;
+
+            public static partial class AppNavGenerated
+            {
+                public static RouteTable CreateConfiguredRouteTable()
+                {
+                    return CreateRouteTable(routes => routes.AddValueCodec<IRouteValue>(
+                        value => new RouteValue(value.ToUpperInvariant()),
+                        value => value.Value.ToLowerInvariant()));
+                }
+            }
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+        Assert.Empty(result.GeneratorDiagnostics.Where(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assert.Contains(
+            "format.PathParam<global::Commerce.Sample.IRouteValue>",
+            result.GeneratedSource);
+        Assert.Contains(
+            "format.QueryParam<global::Commerce.Sample.IRouteValue?>",
+            result.GeneratedSource);
+        Assert.Contains(
+            "format.QueryParam<global::System.Collections.Generic.IReadOnlyList<global::Commerce.Sample.IRouteValue>?>",
+            result.GeneratedSource);
+        Assert.Empty(result.Compilation.GetDiagnostics()
+            .Where(static diagnostic => diagnostic.Severity is DiagnosticSeverity.Warning or DiagnosticSeverity.Error));
+        Assembly assembly = Emit(result.Compilation);
+        Type generatedType = assembly.GetRequiredType("Commerce.Sample.AppNavGenerated");
+        var table = Assert.IsType<RouteTable>(
+            generatedType.GetMethod("CreateConfiguredRouteTable")!.Invoke(null, null));
+
+        RouteMatchResult match = table.Match(new Uri(
+            "/declared/ONE?filter=TWO&tag=THREE&tag=FOUR&context=FIVE",
+            UriKind.Relative));
+
+        Assert.True(match.IsSuccess);
+        object route = match.Route!;
+        Assert.Equal("ONE", Value(route.GetType().GetProperty("Id")!.GetValue(route)!));
+        Assert.Equal("TWO", Value(route.GetType().GetProperty("Filter")!.GetValue(route)!));
+        Assert.Equal(
+            ["THREE", "FOUR"],
+            Assert.IsAssignableFrom<System.Collections.IEnumerable>(
+                    route.GetType().GetProperty("Tags")!.GetValue(route))
+                .Cast<object>()
+                .Select(Value));
+        Assert.Equal("FIVE", Value(match.Metadata["context"]!));
+        Assert.Equal(
+            "/declared/one?filter=two&tag=three&tag=four&context=five",
+            table.Format(
+                match.Route!,
+                new Dictionary<string, object?> { ["context"] = match.Metadata["context"] }));
+
+        RouteMatchResult withoutOptionalValues = table.Match(new Uri("/declared/ONE", UriKind.Relative));
+        Assert.True(withoutOptionalValues.IsSuccess);
+        Assert.Equal("/declared/one", table.Format(withoutOptionalValues.Route!));
+        return;
+
+        static string Value(object value)
+        {
+            return Assert.IsType<string>(value.GetType().GetProperty("Value")!.GetValue(value));
+        }
+    }
+
+    [Fact]
     public void GeneratedRouteTableRejectsNullableValueTypeCollectionElements()
     {
         const string source = """

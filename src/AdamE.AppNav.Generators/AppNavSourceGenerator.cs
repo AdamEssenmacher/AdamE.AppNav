@@ -291,6 +291,11 @@ internal static class SymbolWalker
 
 internal static class SymbolFacts
 {
+    private static readonly SymbolDisplayFormat FullyQualifiedNullableTypeFormat =
+        SymbolDisplayFormat.FullyQualifiedFormat.WithMiscellaneousOptions(
+            SymbolDisplayFormat.FullyQualifiedFormat.MiscellaneousOptions |
+            SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier);
+
     public static bool InheritsFrom(ITypeSymbol? type, INamedTypeSymbol baseType)
     {
         for (ITypeSymbol? current = type; current is not null; current = current.BaseType)
@@ -365,6 +370,11 @@ internal static class SymbolFacts
     public static string TypeName(ITypeSymbol type)
     {
         return type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+    }
+
+    public static string FormatterTypeName(ITypeSymbol type)
+    {
+        return type.ToDisplayString(FullyQualifiedNullableTypeFormat);
     }
 
     public static string MetadataTypeName(ITypeSymbol type)
@@ -2065,14 +2075,16 @@ internal static class AppNavSourceEmitter
         foreach (TemplateParameter parameter in route.Template.Parameters)
         {
             IPropertySymbol property = route.PathProperties[parameter.Name];
-            builder.AppendLine("                    format.PathParam(" +
+            builder.AppendLine("                    format.PathParam<" +
+                               SymbolFacts.FormatterTypeName(property.Type) + ">(" +
                                SymbolDisplay.FormatLiteral(parameter.Name, quote: true) +
                                ", static route => route." + SymbolFacts.Identifier(property.Name) + ");");
         }
 
         foreach (QueryBinding queryBinding in route.QueryBindings)
         {
-            builder.AppendLine("                    format.QueryParam(" +
+            builder.AppendLine("                    format.QueryParam<" +
+                               SymbolFacts.FormatterTypeName(queryBinding.Property.Type) + ">(" +
                                SymbolDisplay.FormatLiteral(queryBinding.QueryName, quote: true) +
                                ", static route => route." + SymbolFacts.Identifier(queryBinding.Property.Name) +
                                ", omitWhenNull: " + BoolLiteral(queryBinding.OmitWhenNull) + ");");

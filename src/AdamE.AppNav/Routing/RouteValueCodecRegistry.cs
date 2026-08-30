@@ -238,6 +238,16 @@ internal static class RouteValueFormatting
         return value is null ? null : codecs.Format(value, name);
     }
 
+    public static string? Format(
+        object? value,
+        Type declaredType,
+        string name,
+        RouteValueCodecRegistry codecs)
+    {
+        ArgumentNullException.ThrowIfNull(declaredType);
+        return value is null ? null : codecs.Format(value, declaredType, name);
+    }
+
     public static IEnumerable<string?> FormatMany(
         object? value,
         string name,
@@ -275,5 +285,34 @@ internal static class RouteValueFormatting
                 yield return Format(value, name, codecs);
                 yield break;
         }
+    }
+
+    public static IEnumerable<string?> FormatMany(
+        object? value,
+        Type declaredType,
+        string name,
+        RouteValueCodecRegistry codecs,
+        Type? collectionElementType = null)
+    {
+        ArgumentNullException.ThrowIfNull(declaredType);
+
+        if (collectionElementType is null)
+        {
+            yield return Format(value, declaredType, name, codecs);
+            yield break;
+        }
+
+        if (value is null)
+        {
+            yield return null;
+            yield break;
+        }
+
+        if (value is not System.Collections.IEnumerable collection)
+            throw new InvalidOperationException(
+                $"Route query value '{name}' must be a supported collection.");
+
+        foreach (object? item in collection)
+            yield return item is null ? null : codecs.Format(item, collectionElementType, name);
     }
 }
