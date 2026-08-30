@@ -1,4 +1,5 @@
 using AdamE.AppNav.History;
+using AdamE.AppNav.Internal;
 using AdamE.AppNav.Plans;
 using AdamE.AppNav.Requests;
 using AdamE.AppNav.Routing;
@@ -117,6 +118,21 @@ public sealed class StateImmutabilityTests
         Assert.False(diagnostic.Data.ContainsKey("extra"));
         Assert.Throws<NotSupportedException>(() =>
             ((IDictionary<string, object?>)diagnostic.Data)["new"] = "value");
+    }
+
+    [Fact]
+    public void EmptyMetadataDictionariesReuseCanonicalSnapshot()
+    {
+        IReadOnlyDictionary<string, object?> canonical = CollectionSnapshot.MetadataDictionary(null);
+        IReadOnlyDictionary<string, object?> emptySnapshot =
+            CollectionSnapshot.MetadataDictionary(new Dictionary<string, object?>());
+        var diagnostic = new RouteDiagnostic("route.test", "Test diagnostic.");
+
+        Assert.Same(canonical, emptySnapshot);
+        Assert.Same(canonical, diagnostic.Data);
+        Assert.Same(canonical, RouteMatchResult.EmptyMetadata);
+        Assert.Throws<NotSupportedException>(() =>
+            ((IDictionary<string, object?>)canonical)["new"] = "value");
     }
 
     [Fact]
