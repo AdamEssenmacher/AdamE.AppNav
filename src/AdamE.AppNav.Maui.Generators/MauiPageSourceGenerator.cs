@@ -534,8 +534,9 @@ internal static class ConstantEmitter
                        Convert.ToUInt64(value, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture) + suffix;
             }
 
-            return "(" + enumTypeName + ")" +
-                   Convert.ToInt64(value, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture);
+            string literal = Convert.ToInt64(value, CultureInfo.InvariantCulture)
+                .ToString(CultureInfo.InvariantCulture);
+            return "(" + enumTypeName + ")(" + literal + ")";
         }
 
         switch (value)
