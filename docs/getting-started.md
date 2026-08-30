@@ -19,7 +19,7 @@ The root `global.json` pins the SDK and workload set.
 3. Declare MAUI page classes with `[MauiRoutePage]`.
 4. Create a `StackNavigationModel` or `BranchHostNavigationModel`.
 5. Register the generated route and page modules with `AddAppNav`.
-6. Configure a typed `FallbackRouteFactory`.
+6. Configure a typed startup `FallbackRouteFactory`.
 7. Call `IAppNavStartupService.Start(window, windowId)` from `CreateWindow`.
 
 In-app code navigates with one of four typed extensions:

@@ -21,7 +21,7 @@ public static class CommerceNavigationModel
                 .ScopeKey(route => route.StoreId));
 
             builder.Map<CommerceNotFoundRoute>("home", recipe => recipe
-                .EntryId(_ => "not-found")
+                .EntryId(route => $"not-found:{route.Uri}")
                 .ScopeKey(route => route.StoreId)
                 .Canonical((route, metadata) =>
                 [

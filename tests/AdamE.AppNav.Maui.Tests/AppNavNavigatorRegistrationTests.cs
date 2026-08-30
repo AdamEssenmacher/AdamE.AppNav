@@ -97,6 +97,135 @@ public sealed class AppNavNavigatorRegistrationTests
     }
 
     [Fact]
+    public async Task AddAppNavPlannerOverloadAppliesConfiguredFallbackAndHistoryLimit()
+    {
+        var services = new ServiceCollection();
+        AppNavNavigatorOptions? configuredOptions = null;
+        var configureCount = 0;
+
+        services.AddAppNav<CapturingPlanner>(
+            Routes(),
+            pages => pages.MapPage<TestRoute>((_, _) => new TestPage()),
+            options =>
+            {
+                configureCount++;
+                configuredOptions = options;
+                options.FallbackRouteFactory = context =>
+                    new TestRoute($"fallback:{context.Request.Uri!.AbsolutePath}");
+                options.MaxHistoryEntries = 2;
+            });
+
+        Assert.Equal(1, configureCount);
+        Assert.NotNull(configuredOptions);
+
+        using var provider = services.BuildServiceProvider();
+        var navigator = provider.GetRequiredService<IRouterNavigator>();
+        var planner = Assert.IsType<CapturingPlanner>(provider.GetRequiredService<IAppNavigationPlanner>());
+
+        NavigationResult fallbackResult = await navigator.NavigateAsync(RouterNavigationRequest.FromUri(
+            new Uri("https://example.com/missing"),
+            NavigationRequestSource.Test));
+        await navigator.NavigateAsync(RouterNavigationRequest.FromRoute(
+            new TestRoute("one"),
+            NavigationRequestSource.Test));
+        await navigator.NavigateAsync(RouterNavigationRequest.FromRoute(
+            new TestRoute("two"),
+            NavigationRequestSource.Test));
+
+        Assert.Equal(new TestRoute("fallback:/missing"), fallbackResult.Route);
+        Assert.Equal(new TestRoute("two"), planner.LastRoute);
+        Assert.Equal(
+            [new TestRoute("one"), new TestRoute("two")],
+            navigator.History.Entries.Select(entry => entry.Route));
+    }
+
+    [Fact]
+    public async Task AddAppNavModelOverloadAppliesConfiguredRedirectLimit()
+    {
+        var services = new ServiceCollection();
+        var policy = new RedirectingPolicy();
+        services.AddSingleton<INavigationRequestPolicy>(policy);
+        var model = StackNavigationModel<TestRoute>.Create(builder =>
+        {
+            builder.CanonicalSurface("main", "main-stack");
+            builder.Map<TestRoute>(route => route.EntryId(value => value.Id));
+        });
+
+        services.AddAppNav(
+            Routes(),
+            model,
+            pages => pages.MapPage<TestRoute>((_, _) => new TestPage()),
+            options => options.MaxRedirects = 0);
+
+        using var provider = services.BuildServiceProvider();
+        var navigator = provider.GetRequiredService<IRouterNavigator>();
+
+        RouteRedirectLoopException exception = await Assert.ThrowsAsync<RouteRedirectLoopException>(() =>
+            navigator.NavigateAsync(RouterNavigationRequest.FromRoute(
+                new TestRoute("source"),
+                NavigationRequestSource.Test)).AsTask());
+
+        Assert.Contains("MaxRedirects is 0", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(1, policy.ApplyCount);
+    }
+
+    [Fact]
+    public async Task AddAppNavWithoutNavigatorConfigurationUsesDefaultOptions()
+    {
+        var defaults = new AppNavNavigatorOptions();
+        Assert.Null(defaults.FallbackRouteFactory);
+        Assert.Equal(16, defaults.MaxRedirects);
+        Assert.Equal(128, defaults.MaxHistoryEntries);
+
+        var services = new ServiceCollection();
+        services.AddAppNav<ThrowingPlanner>(
+            Routes(),
+            pages => pages.MapPage<TestRoute>((_, _) => new TestPage()));
+
+        using var provider = services.BuildServiceProvider();
+        var navigator = provider.GetRequiredService<IRouterNavigator>();
+
+        await Assert.ThrowsAsync<RouteNotMatchedException>(() => navigator.NavigateAsync(
+            RouterNavigationRequest.FromUri(
+                new Uri("https://example.com/missing"),
+                NavigationRequestSource.Test)).AsTask());
+    }
+
+    [Fact]
+    public void AddAppNavOverloadsRejectNegativeNavigatorLimitsBeforeMutatingServices()
+    {
+        var plannerServices = new ServiceCollection();
+        int plannerRegistrationCount = plannerServices.Count;
+
+        ArgumentOutOfRangeException redirectsException = Assert.Throws<ArgumentOutOfRangeException>(() =>
+            plannerServices.AddAppNav<ThrowingPlanner>(
+                Routes(),
+                configurePages: null,
+                configureNavigator: options => options.MaxRedirects = -1));
+
+        Assert.Equal(nameof(AppNavNavigatorOptions.MaxRedirects), redirectsException.ParamName);
+        Assert.Equal(plannerRegistrationCount, plannerServices.Count);
+
+        var modelServices = new ServiceCollection();
+        var model = StackNavigationModel<TestRoute>.Create(builder =>
+        {
+            builder.CanonicalSurface("main", "main-stack");
+            builder.Map<TestRoute>(route => route.EntryId(value => value.Id));
+        });
+        int modelRegistrationCount = modelServices.Count;
+
+        ArgumentOutOfRangeException historyException = Assert.Throws<ArgumentOutOfRangeException>(() =>
+            modelServices.AddAppNav(
+                Routes(),
+                model,
+                configurePages: null,
+                configureNavigator: options => options.MaxHistoryEntries = -1));
+
+        Assert.Equal(nameof(AppNavNavigatorOptions.MaxHistoryEntries), historyException.ParamName);
+        Assert.Equal(modelRegistrationCount, modelServices.Count);
+    }
+
+    [Fact]
     public void AddAppNavRejectsPreRegisteredRouterNavigatorBeforeMutatingServices()
     {
         var services = new ServiceCollection();
@@ -418,6 +547,19 @@ public sealed class AppNavNavigatorRegistrationTests
         }
     }
 
+    private sealed class CapturingPlanner : IAppNavigationPlanner
+    {
+        public AppRoute? LastRoute { get; private set; }
+
+        public ValueTask<NavigationPlan> CreatePlanAsync(
+            NavigationPlanningContext context,
+            CancellationToken cancellationToken = default)
+        {
+            LastRoute = context.Route;
+            return ValueTask.FromResult(new NavigationPlan(NavigationState.Empty));
+        }
+    }
+
     private sealed class PagePlanner : IAppNavigationPlanner
     {
         public ValueTask<NavigationPlan> CreatePlanAsync(
@@ -457,6 +599,19 @@ public sealed class AppNavNavigatorRegistrationTests
         {
             ApplyCount++;
             throw new InvalidOperationException(ExceptionMessage);
+        }
+    }
+
+    private sealed class RedirectingPolicy : INavigationRequestPolicy
+    {
+        public int ApplyCount { get; private set; }
+
+        public ValueTask<RouterNavigationRequest> ApplyAsync(
+            NavigationRequestPolicyContext context,
+            CancellationToken cancellationToken = default)
+        {
+            ApplyCount++;
+            return ValueTask.FromResult(context.Request.WithTarget(new TestRoute("redirected")));
         }
     }
 

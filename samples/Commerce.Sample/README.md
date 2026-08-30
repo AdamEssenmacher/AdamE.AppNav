@@ -15,8 +15,10 @@ For the minimal onboarding path, start with
 - the generated `AppNavGenerated` route table and MAUI page module;
 - `CommerceNavigationModel.Create()`, which declares the Home, Catalog, Cart, and Orders
   branches;
-- a typed `FallbackRouteFactory` that creates `ProductDetailRoute`; AppNav wraps it in an
+- a typed startup `FallbackRouteFactory` that creates `ProductDetailRoute`; AppNav wraps it in an
   in-app canonical startup request;
+- a router `FallbackRouteFactory` that turns otherwise unmatched URIs into
+  `CommerceNotFoundRoute`;
 - `https://example.com` and `https://legacy.example.com` as trusted production origins;
 - `appnav-commerce://shop` as a Debug-only origin; and
 - `LegacyProductUrlTransformer`, which rewrites `/p/{productId}` before route matching.
