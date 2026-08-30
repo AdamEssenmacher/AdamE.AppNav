@@ -493,13 +493,8 @@ internal sealed class MauiNavigationPresenter :
                 out linkedCancellation);
             await _presentationOperationLock.WaitAsync(operationCancellation).ConfigureAwait(false);
             lockTaken = true;
-            if (MainThread.IsMainThread)
-            {
-                await ApplyOnMainThreadAsync(plan, context, operationCancellation);
-                return;
-            }
-
-            await MainThread.InvokeOnMainThreadAsync(() => ApplyOnMainThreadAsync(plan, context, operationCancellation));
+            await InvokeOnMainThreadPreservingExecutionContextAsync(
+                () => ApplyOnMainThreadAsync(plan, context, operationCancellation));
         }
         finally
         {
@@ -509,6 +504,25 @@ internal sealed class MauiNavigationPresenter :
             linkedCancellation?.Dispose();
             EndOperation();
         }
+    }
+
+    private static Task InvokeOnMainThreadPreservingExecutionContextAsync(Func<Task> callback)
+    {
+        ArgumentNullException.ThrowIfNull(callback);
+        if (MainThread.IsMainThread)
+            return callback();
+
+        ExecutionContext executionContext = ExecutionContext.Capture() ??
+            throw new InvalidOperationException(
+                "MAUI presentation cannot switch to the main thread while execution-context flow is suppressed.");
+
+        return MainThread.InvokeOnMainThreadAsync(() =>
+        {
+            Task? callbackTask = null;
+            ExecutionContext.Run(executionContext, _ => callbackTask = callback(), null);
+            return callbackTask ?? throw new InvalidOperationException(
+                "The main-thread presentation callback did not return a task.");
+        });
     }
 
     private async Task ApplyOnMainThreadAsync(
@@ -1862,6 +1876,9 @@ internal sealed class MauiNavigationPresenter :
         }
         catch (Exception ex)
         {
+            // Retired pages are released only after the target presentation has been verified. Cleanup is
+            // irreversible, so report failures without throwing them into transaction rollback, which could
+            // otherwise reattach a page whose handle or scope has already been released.
             WritePageReleaseFailure(page, ex);
         }
     }

@@ -39,6 +39,15 @@ internal interface IMauiRoutePageFactory
     ValueTask ReleasePresentationPageAsync(Page page);
 }
 
+/// <summary>
+/// Observes the creation, update, and release of router-owned MAUI route pages.
+/// </summary>
+/// <remarks>
+/// Lifecycle callbacks run within the router operation that is presenting the page. They must not synchronously or
+/// asynchronously re-enter <see cref="IRouterNavigator.NavigateAsync"/>, <see cref="IRouterNavigator.BackAsync"/>,
+/// or <see cref="IRouterNavigator.ReconcileAsync"/> on the same navigator. Schedule follow-up navigation to run after
+/// the callback and its owning router operation have completed.
+/// </remarks>
 public interface IMauiRoutePageLifecycleHook
 {
     ValueTask OnPageCreatedAsync(
