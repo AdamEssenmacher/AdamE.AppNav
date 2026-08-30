@@ -29,10 +29,10 @@ public sealed class MauiNavigationPresenterLifecycleTests
         var routePages = fixture.Factory.CreatedPages.ToArray();
         Assert.Equal(2, routePages.Length);
 
-        fixture.Presenter.Dispose();
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
+        _ = fixture.Presenter.StartShutdown();
         Assert.Throws<ObjectDisposedException>(() => fixture.Presenter.AttachWindow(new Window()));
-        await fixture.Presenter.DisposeAsync();
+        await fixture.Presenter.StartShutdown();
 
         Assert.All(routePages, page => Assert.Equal(1, fixture.Factory.ReleaseCountFor(page)));
         Assert.Equal(2, fixture.Factory.ReleasedPages.Count);
@@ -72,7 +72,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.Same(replacementWindow, fixture.Presenter.AttachedWindow);
         Assert.Empty(fixture.Factory.ReleasedPages);
 
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
     }
 
     [Fact]
@@ -110,7 +110,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
             Assert.Equal(replacementHandlerCounts[eventName] + 1, EventHandlerCount(replacementWindow, eventName));
         }
 
-        await fixture.Presenter.DisposeAsync();
+        await fixture.Presenter.StartShutdown();
     }
 
     [Fact]
@@ -134,7 +134,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.Same(currentPage, replacementWindow.Page);
         Assert.Same(currentPage, fixture.Presenter.CurrentPage);
 
-        await fixture.Presenter.DisposeAsync();
+        await fixture.Presenter.StartShutdown();
     }
 
     [Fact]
@@ -167,8 +167,8 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.Null(presentationState.AttachedWindow);
         Assert.Null(presentationState.AttachedWindowId);
 
-        fixture.Presenter.Dispose();
-        await fixture.Presenter.DisposeAsync();
+        _ = fixture.Presenter.StartShutdown();
+        await fixture.Presenter.StartShutdown();
 
         Assert.Null(presentationState.RootPage);
         Assert.Null(presentationState.AttachedWindow);
@@ -200,7 +200,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
             Assert.Equal(initialHandlerCounts[eventName], EventHandlerCount(window, eventName));
         }
 
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
     }
 
     [Theory]
@@ -214,7 +214,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.ThrowsAny<ArgumentException>(() =>
             fixture.Presenter.AttachWindow(new Window(), windowId!));
 
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
     }
 
     [Fact]
@@ -243,8 +243,8 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.Equal(originalActivatedHandlers, EventHandlerCount(originalWindow, "Activated"));
         Assert.Equal(replacementActivatedHandlers, EventHandlerCount(replacementWindow, "Activated"));
 
-        fixture.Presenter.Dispose();
-        await fixture.Presenter.DisposeAsync();
+        _ = fixture.Presenter.StartShutdown();
+        await fixture.Presenter.StartShutdown();
     }
 
     [Fact]
@@ -260,7 +260,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
 
         Assert.Same(originalWindow, fixture.Presenter.AttachedWindow);
         Assert.Equal(originalActivatedHandlers, EventHandlerCount(originalWindow, "Activated"));
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
     }
 
     [Fact]
@@ -355,7 +355,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
 
         Assert.Same(navigationPage.CurrentPage, presentationState.GetTopPresentedPage());
 
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
     }
 
     [Fact]
@@ -383,7 +383,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
 
         Assert.Same(selectedBranch.CurrentPage, presentationState.GetTopPresentedPage());
 
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
     }
 
     [Fact]
@@ -419,7 +419,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.Same(homeIcon, homeBranch.IconImageSource);
         Assert.Same(catalogIcon, catalogBranch.IconImageSource);
 
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
     }
 
     [Fact]
@@ -455,7 +455,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.Equal("Root home", homeBranch.Navigation.NavigationStack[0].Title);
         Assert.Equal("Root catalog", catalogBranch.Navigation.NavigationStack[0].Title);
 
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
     }
 
     [Fact]
@@ -502,7 +502,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.Same(homeBranch, tabbedPage.Children[0]);
         Assert.Same(updatedIcon, homeBranch.IconImageSource);
 
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
     }
 
     [Fact]
@@ -524,7 +524,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
 
         Assert.Same(modalPage, presentationState.GetTopPresentedPage());
 
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
     }
 
     [Fact]
@@ -554,7 +554,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.NotSame(rootPage, modalPage);
         Assert.Same(modalPage, presentationState.GetTopPresentedPage());
 
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
     }
 
     [Fact]
@@ -575,7 +575,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.All(firstStackPages, page => Assert.Equal(1, fixture.Factory.ReleaseCountFor(page)));
         Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
 
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
     }
 
     [Fact]
@@ -603,7 +603,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.Single(fixture.Factory.CreatedPages);
         Assert.Empty(fixture.Factory.ReleasedPages);
 
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
     }
 
     [Fact]
@@ -631,7 +631,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.False(fixture.Factory.LastUpdateContextFor(retainedPage)?.IsNavigationTarget);
         Assert.Equal(MauiRoutePageReuseKind.NonTargetReuse, fixture.Factory.LastUpdateContextFor(retainedPage)?.ReuseKind);
 
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
     }
 
     [Fact]
@@ -672,7 +672,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.True(fixture.Factory.LastUpdateContextFor(retainedPage)?.IsNavigationTarget);
         Assert.Equal(MauiRoutePageReuseKind.ResurfacedTarget, fixture.Factory.LastUpdateContextFor(retainedPage)?.ReuseKind);
 
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
     }
 
     [Fact]
@@ -727,7 +727,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.Equal(MauiRoutePageReuseKind.ExplicitTarget, fixture.Factory.LastUpdateContextFor(retainedModalPage)?.ReuseKind);
         Assert.Equal("cart-updated", Assert.IsType<TestPageRoute>(fixture.Factory.LastUpdatedEntryFor(retainedModalPage)!.Route).Name);
 
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
     }
 
     [Fact]
@@ -780,7 +780,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.NotSame(initialModalPage, updatedModalPage);
         Assert.Equal(1, fixture.Factory.ReleaseCountFor(initialModalPage));
 
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
     }
 
     [Fact]
@@ -837,7 +837,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.True(fixture.Factory.LastUpdateContextFor(retainedModalPage)?.IsNavigationTarget);
         Assert.Equal(MauiRoutePageReuseKind.ResurfacedTarget, fixture.Factory.LastUpdateContextFor(retainedModalPage)?.ReuseKind);
 
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
     }
 
     [Fact]
@@ -903,7 +903,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
             "cart-detail-updated",
             Assert.IsType<TestPageRoute>(fixture.Factory.LastUpdatedEntryFor(retainedDetailPage)!.Route).Name);
 
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
     }
 
     [Fact]
@@ -970,7 +970,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.NotSame(initialModalPage, updatedModalPage);
         Assert.All(releasedPages, page => Assert.Equal(1, fixture.Factory.ReleaseCountFor(page)));
 
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
     }
 
     [Fact]
@@ -996,7 +996,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
 
         Assert.False(presentationState.IsModalPresented(modalPage));
 
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
     }
 
     [UIFact]
@@ -1018,7 +1018,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.Equal(NavigationReconciliationSource.HostBack, reconciliation.Source);
         Assert.Single(fixture.Factory.ReleasedPages);
 
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
     }
 
     [Fact]
@@ -1048,7 +1048,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.Null(reconciliation);
         Assert.Single(fixture.Factory.CreatedPresentationPages);
 
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
     }
 
     [Fact]
@@ -1087,7 +1087,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.Equal(1, page.Marker.DisposeCount);
         Assert.Equal(originalStack, navigationPage.Navigation.NavigationStack.ToArray());
 
-        presenter.Dispose();
+        _ = presenter.StartShutdown();
         Assert.Equal(1, page.Marker.DisposeCount);
     }
 
@@ -1139,7 +1139,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.Same(page, Assert.Single(externalOwner.Navigation.NavigationStack));
         Assert.Equal(originalStack, navigationPage.Navigation.NavigationStack.ToArray());
 
-        presenter.Dispose();
+        _ = presenter.StartShutdown();
         Assert.Equal(1, page.Marker.DisposeCount);
     }
 
@@ -1169,7 +1169,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
             navigationPage.Navigation.NavigationStack.Select(MauiPresentationMetadata.GetRouteEntryId));
         Assert.Contains(presentationPage, fixture.Factory.ReleasedPresentationPages);
 
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
     }
 
     [Fact]
@@ -1203,7 +1203,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.Same(settingPage, navigationPage.Navigation.NavigationStack[^1]);
         Assert.DoesNotContain(settingPage, fixture.Factory.ReleasedPresentationPages);
 
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
     }
 
     [Fact]
@@ -1227,7 +1227,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.Single(navigationPage.Navigation.NavigationStack);
         Assert.Contains(settingPage, fixture.Factory.ReleasedPresentationPages);
 
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
     }
 
     [Fact]
@@ -1249,7 +1249,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
             fixture.Presenter.PushAsync<TestPresentationPage>("setting", options).AsTask());
 
         Assert.Contains("already exists below the top", exception.Message, StringComparison.Ordinal);
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
     }
 
     [Fact]
@@ -1267,7 +1267,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.True(await fixture.Presenter.PopAsync(animated: false));
         Assert.False(await fixture.Presenter.PopAsync(animated: false));
 
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
     }
 
     [UIFact]
@@ -1289,7 +1289,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.Equal(NavigationReconciliationSource.HostBack, reconciliation.Source);
         Assert.Equal(2, fixture.Factory.ReleasedPages.Count);
 
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
     }
 
     [UIFact]
@@ -1324,7 +1324,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.Equal(NavigationReconciliationSource.HostBack, reconciliation.Source);
         Assert.IsType<StackNode>(reconciliation.TargetState.ActiveWindow?.Root);
 
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
     }
 
     [UIFact]
@@ -1391,7 +1391,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.Same(loginPage, Assert.Single(modalNavigationPage.Navigation.NavigationStack));
         Assert.Single(reconciliations);
 
-        await fixture.Presenter.DisposeAsync();
+        await fixture.Presenter.StartShutdown();
 
         Assert.Equal(1, fixture.Factory.ReleaseCountFor(rootHost));
         Assert.Equal(1, fixture.Factory.ReleaseCountFor(loginPage));
@@ -1428,7 +1428,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.False(fixture.Presenter.IsModalPresented(modalPage));
         Assert.Equal(1, fixture.Factory.ReleaseCountFor(modalPage));
 
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
     }
 
     [Fact]
@@ -1465,7 +1465,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.Equal(3, fixture.Factory.CreatedPages.Count);
         Assert.Empty(fixture.Factory.ReleasedPages);
 
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
     }
 
     [Fact]
@@ -1505,7 +1505,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         var selectedBranch = Assert.IsType<NavigationPage>(updatedTabbedPage.CurrentPage);
         Assert.Equal("home", Assert.Single(selectedBranch.Navigation.NavigationStack).Title);
 
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
     }
 
     [UIFact]
@@ -1540,7 +1540,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.Equal("catalog", updatedBranchHost.SelectedBranchId);
         Assert.Equal(NavigationReconciliationSource.BranchChanged, reconciliation.Source);
 
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
     }
 
     [UIFact]
@@ -1589,7 +1589,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.IsType<StackNode>(activeWindow.Root);
         Assert.Equal(NavigationReconciliationSource.BranchChanged, reconciliation.Source);
 
-        fixture.Presenter.Dispose();
+        _ = fixture.Presenter.StartShutdown();
     }
 
     [Fact]

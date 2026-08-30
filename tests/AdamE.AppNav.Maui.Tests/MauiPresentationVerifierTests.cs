@@ -239,7 +239,7 @@ public sealed class MauiPresentationVerifierTests
         Assert.Equal("expected", failure.Data[NavigationDiagnosticDataKeys.PresentationExpected]);
         Assert.Equal("actual", failure.Data[NavigationDiagnosticDataKeys.PresentationActual]);
 
-        presenter.Dispose();
+        _ = presenter.StartShutdown();
     }
 
     [Fact]
@@ -270,7 +270,7 @@ public sealed class MauiPresentationVerifierTests
         Assert.True(observer.Contains(NavigationDiagnosticEventKind.NavigationFailed));
         Assert.False(observer.Contains(NavigationDiagnosticEventKind.PresentationCompleted));
 
-        presenter.Dispose();
+        _ = presenter.StartShutdown();
     }
 
     private static MauiPresentationVerificationMismatch? Verify(

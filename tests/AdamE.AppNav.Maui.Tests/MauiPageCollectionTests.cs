@@ -75,7 +75,7 @@ public sealed class MauiPageCollectionTests
             currentState = targetState;
         }
 
-        await presenter.DisposeAsync();
+        await presenter.StartShutdown();
         return references.ToArray();
     }
 
