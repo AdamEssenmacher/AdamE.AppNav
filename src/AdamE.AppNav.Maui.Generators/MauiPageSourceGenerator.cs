@@ -458,6 +458,9 @@ internal static class PageModelFactory
         if (SymbolEqualityComparer.Default.Equals(routeType, parameterType))
             return 0;
 
+        if (parameterType.SpecialType == SpecialType.System_Object)
+            return 1000;
+
         var distance = 1;
         for (INamedTypeSymbol? current = routeType.BaseType; current is not null; current = current.BaseType)
         {
@@ -466,9 +469,6 @@ internal static class PageModelFactory
 
             distance++;
         }
-
-        if (parameterType.SpecialType == SpecialType.System_Object)
-            return 1000;
 
         return 500;
     }
