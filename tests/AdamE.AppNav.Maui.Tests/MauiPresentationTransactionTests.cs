@@ -1,8 +1,12 @@
 using AdamE.AppNav.Diagnostics;
+using AdamE.AppNav.Navigation;
 using AdamE.AppNav.Plans;
+using AdamE.AppNav.Policies;
 using AdamE.AppNav.Presentation;
 using AdamE.AppNav.Requests;
+using AdamE.AppNav.Routing;
 using AdamE.AppNav.State;
+using DeviceRunners.UITesting.Xunit;
 using Microsoft.Maui.Controls;
 
 namespace AdamE.AppNav.Maui.Tests;
@@ -453,6 +457,262 @@ public sealed class MauiPresentationTransactionTests
         Assert.All(factory.CreatedPages, page => Assert.Equal(1, factory.ReleaseCountFor(page)));
     }
 
+    [UIFact]
+    public async Task PlannedPopThenExternalReplacementPopFoldsIntoEffectiveStateAndReleasesOnce()
+    {
+        var nativeOperations = new FaultingNativeOperations();
+        var factory = new InstrumentedRoutePageFactory();
+        var presenter = new MauiNavigationPresenter(factory, nativeOperations: nativeOperations);
+        NavigationState initialState = StackState("home", "detail");
+        await presenter.ApplyAsync(new NavigationPlan(initialState), Context("detail", NavigationState.Empty));
+        var navigationPage = Assert.IsType<NavigationPage>(presenter.CurrentPage);
+        Page detailPage = navigationPage.Navigation.NavigationStack[^1];
+        var reconciliations = new List<NavigationReconciliation>();
+        var reconciliationPublished = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        presenter.ReconciliationRequested += (_, args) =>
+        {
+            reconciliations.Add(args.Reconciliation);
+            reconciliationPublished.TrySetResult();
+        };
+        nativeOperations.BlockNextPushAfterMutation = true;
+
+        Task apply = presenter.ApplyAsync(
+            new NavigationPlan(StackState("home", "settings")),
+            Context("settings", initialState)).AsTask();
+        await nativeOperations.BlockedPushAfterMutationStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        Page settingsPage = navigationPage.Navigation.NavigationStack[^1];
+
+        await MauiNativeNavigationOperations.Instance.PopAsync(navigationPage, animated: false);
+        nativeOperations.ReleaseBlockedPushAfterMutation();
+
+        await apply.WaitAsync(TimeSpan.FromSeconds(5));
+        await reconciliationPublished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        NavigationReconciliation reconciliation = Assert.Single(reconciliations);
+        var effectiveStack = Assert.IsType<StackNode>(reconciliation.TargetState.ActiveWindow?.Root);
+        Assert.Equal(["home"], effectiveStack.Entries.Select(entry => entry.Id));
+        Assert.Equal(["home"], NativeRouteEntryIds(navigationPage));
+        Assert.Equal(NavigationReconciliationSource.HostBack, reconciliation.Source);
+        Assert.Equal(1, factory.ReleaseCountFor(detailPage));
+        Assert.Equal(1, factory.ReleaseCountFor(settingsPage));
+
+        await presenter.DisposeAsync();
+        Assert.Equal(1, factory.ReleaseCountFor(detailPage));
+        Assert.Equal(1, factory.ReleaseCountFor(settingsPage));
+    }
+
+    [UIFact]
+    public async Task SuppressedPopToRootCoalescesToOneHostBackAndReleasesEveryRemovedPageOnce()
+    {
+        var nativeOperations = new FaultingNativeOperations();
+        var factory = new InstrumentedRoutePageFactory();
+        var presenter = new MauiNavigationPresenter(factory, nativeOperations: nativeOperations);
+        NavigationState initialState = StackState("home", "catalog", "detail");
+        await presenter.ApplyAsync(new NavigationPlan(initialState), Context("detail", NavigationState.Empty));
+        var navigationPage = Assert.IsType<NavigationPage>(presenter.CurrentPage);
+        Page[] existingPages = navigationPage.Navigation.NavigationStack.Skip(1).ToArray();
+        var reconciliations = new List<NavigationReconciliation>();
+        var reconciliationPublished = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        presenter.ReconciliationRequested += (_, args) =>
+        {
+            reconciliations.Add(args.Reconciliation);
+            reconciliationPublished.TrySetResult();
+        };
+        nativeOperations.BlockNextPushAfterMutation = true;
+
+        Task apply = presenter.ApplyAsync(
+            new NavigationPlan(StackState("home", "catalog", "detail", "receipt")),
+            Context("receipt", initialState)).AsTask();
+        await nativeOperations.BlockedPushAfterMutationStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        Page receiptPage = navigationPage.Navigation.NavigationStack[^1];
+
+        await navigationPage.Navigation.PopToRootAsync(animated: false);
+        nativeOperations.ReleaseBlockedPushAfterMutation();
+
+        await apply.WaitAsync(TimeSpan.FromSeconds(5));
+        await reconciliationPublished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        NavigationReconciliation reconciliation = Assert.Single(reconciliations);
+        var effectiveStack = Assert.IsType<StackNode>(reconciliation.TargetState.ActiveWindow?.Root);
+        Assert.Equal(["home"], effectiveStack.Entries.Select(entry => entry.Id));
+        Assert.Equal(["home"], NativeRouteEntryIds(navigationPage));
+        Assert.All(existingPages, page => Assert.Equal(1, factory.ReleaseCountFor(page)));
+        Assert.Equal(1, factory.ReleaseCountFor(receiptPage));
+
+        await presenter.DisposeAsync();
+        Assert.All(existingPages, page => Assert.Equal(1, factory.ReleaseCountFor(page)));
+        Assert.Equal(1, factory.ReleaseCountFor(receiptPage));
+    }
+
+    [UIFact]
+    public async Task DirectPresentationPushAndPopDoNotPublishHostBackOrDoubleRelease()
+    {
+        var factory = new InstrumentedRoutePageFactory();
+        var presenter = new MauiNavigationPresenter(factory);
+        NavigationState state = StackState("home", "detail");
+        await presenter.ApplyAsync(new NavigationPlan(state), Context("detail", NavigationState.Empty));
+        var reconciliations = new List<NavigationReconciliation>();
+        presenter.ReconciliationRequested += (_, args) => reconciliations.Add(args.Reconciliation);
+
+        await presenter.PushAsync<TestPresentationPage>(
+            "settings",
+            new MauiRoutePresentationPageOptions { Animated = false });
+        Page presentationPage = Assert.Single(factory.CreatedPresentationPages);
+
+        Assert.True(await presenter.PopAsync(animated: false));
+
+        Assert.Empty(reconciliations);
+        Assert.Equal(1, factory.ReleaseCountFor(presentationPage));
+        await presenter.DisposeAsync();
+        Assert.Empty(reconciliations);
+        Assert.Equal(1, factory.ReleaseCountFor(presentationPage));
+    }
+
+    [UIFact]
+    public async Task RoutePopDuringCommitIsDrainedAfterSuppressionAndPublishesOneHostBack()
+    {
+        var factory = new CommitPopRoutePageFactory();
+        var presenter = new MauiNavigationPresenter(factory);
+        NavigationState initialState = StackState("home", "detail");
+        await presenter.ApplyAsync(new NavigationPlan(initialState), Context("detail", NavigationState.Empty));
+        var navigationPage = Assert.IsType<NavigationPage>(presenter.CurrentPage);
+        Page detailPage = navigationPage.Navigation.NavigationStack[^1];
+        factory.PopTopWhenReleased(detailPage, navigationPage);
+        var reconciliations = new List<NavigationReconciliation>();
+        var reconciliationPublished = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        presenter.ReconciliationRequested += (_, args) =>
+        {
+            reconciliations.Add(args.Reconciliation);
+            reconciliationPublished.TrySetResult();
+        };
+
+        await presenter.ApplyAsync(
+            new NavigationPlan(StackState("home", "settings")),
+            Context("settings", initialState));
+        await reconciliationPublished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Page settingsPage = factory.CreatedPages[^1];
+        NavigationReconciliation reconciliation = Assert.Single(reconciliations);
+        var effectiveStack = Assert.IsType<StackNode>(reconciliation.TargetState.ActiveWindow?.Root);
+        Assert.Equal(["home"], effectiveStack.Entries.Select(entry => entry.Id));
+        Assert.Equal(["home"], NativeRouteEntryIds(navigationPage));
+        Assert.Equal(1, factory.ReleaseCountFor(detailPage));
+        Assert.Equal(1, factory.ReleaseCountFor(settingsPage));
+
+        await presenter.DisposeAsync();
+        Assert.Equal(1, factory.ReleaseCountFor(detailPage));
+        Assert.Equal(1, factory.ReleaseCountFor(settingsPage));
+    }
+
+    [UIFact]
+    public async Task FailedApplyDiscardsSuppressedPopRecordsAfterRollback()
+    {
+        var nativeOperations = new FaultingNativeOperations();
+        var factory = new InstrumentedRoutePageFactory();
+        var presenter = new MauiNavigationPresenter(factory, nativeOperations: nativeOperations);
+        NavigationState initialState = StackState("home", "detail");
+        await presenter.ApplyAsync(new NavigationPlan(initialState), Context("detail", NavigationState.Empty));
+        var navigationPage = Assert.IsType<NavigationPage>(presenter.CurrentPage);
+        Page[] previousPages = navigationPage.Navigation.NavigationStack.ToArray();
+        var reconciliations = new List<NavigationReconciliation>();
+        presenter.ReconciliationRequested += (_, args) => reconciliations.Add(args.Reconciliation);
+        nativeOperations.BlockNextPushAfterMutation = true;
+        nativeOperations.FaultAfterMutation = NativeMutation.PushStack;
+
+        Task apply = presenter.ApplyAsync(
+            new NavigationPlan(StackState("home", "settings")),
+            Context("settings", initialState)).AsTask();
+        await nativeOperations.BlockedPushAfterMutationStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        await MauiNativeNavigationOperations.Instance.PopAsync(navigationPage, animated: false);
+        nativeOperations.ReleaseBlockedPushAfterMutation();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => apply);
+
+        Assert.Equal(previousPages, navigationPage.Navigation.NavigationStack.ToArray());
+        Assert.Empty(reconciliations);
+        Assert.All(previousPages, page => Assert.Equal(0, factory.ReleaseCountFor(page)));
+        Page failedReplacement = factory.CreatedPages[^1];
+        Assert.Equal(1, factory.ReleaseCountFor(failedReplacement));
+        await presenter.DisposeAsync();
+        Assert.Empty(reconciliations);
+        Assert.Equal(1, factory.ReleaseCountFor(failedReplacement));
+    }
+
+    [UIFact]
+    public async Task DisposalWhileSuppressedExternalPopIsPendingReleasesEveryPageOnce()
+    {
+        var nativeOperations = new FaultingNativeOperations();
+        var factory = new InstrumentedRoutePageFactory();
+        var presenter = new MauiNavigationPresenter(factory, nativeOperations: nativeOperations);
+        NavigationState initialState = StackState("home", "detail");
+        await presenter.ApplyAsync(new NavigationPlan(initialState), Context("detail", NavigationState.Empty));
+        var navigationPage = Assert.IsType<NavigationPage>(presenter.CurrentPage);
+        var reconciliations = new List<NavigationReconciliation>();
+        presenter.ReconciliationRequested += (_, args) => reconciliations.Add(args.Reconciliation);
+        nativeOperations.BlockNextPushAfterMutation = true;
+
+        Task apply = presenter.ApplyAsync(
+            new NavigationPlan(StackState("home", "detail", "settings")),
+            Context("settings", initialState)).AsTask();
+        await nativeOperations.BlockedPushAfterMutationStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        await MauiNativeNavigationOperations.Instance.PopAsync(navigationPage, animated: false);
+
+        Task shutdown = presenter.DisposeAsync().AsTask();
+        nativeOperations.ReleaseBlockedPushAfterMutation();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => apply);
+        await shutdown.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Empty(reconciliations);
+        Assert.All(factory.CreatedPages, page => Assert.Equal(1, factory.ReleaseCountFor(page)));
+    }
+
+    [UIFact]
+    public async Task RealRouterNavigatorProcessesSuppressedHostBackWithoutDeadlock()
+    {
+        var nativeOperations = new FaultingNativeOperations();
+        var presenter = new MauiNavigationPresenter(
+            new InstrumentedRoutePageFactory(),
+            nativeOperations: nativeOperations);
+        var routes = RouteTable.Create(builder => builder.MapRoute<TestRoute>("/tests/{id}"));
+        var navigator = new RouterNavigator(routes, new StackPlanner(), presenter);
+        await navigator.NavigateAsync(RouterNavigationRequest.FromRoute(
+            new TestRoute("detail"),
+            NavigationRequestSource.Test));
+        var navigationPage = Assert.IsType<NavigationPage>(presenter.CurrentPage);
+        var reconciliationPublished = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        presenter.ReconciliationRequested += (_, _) => reconciliationPublished.TrySetResult();
+        nativeOperations.BlockNextPushAfterMutation = true;
+
+        Task navigation = navigator.NavigateAsync(RouterNavigationRequest.FromRoute(
+            new TestRoute("settings"),
+            NavigationRequestSource.Test)).AsTask();
+        await nativeOperations.BlockedPushAfterMutationStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        await MauiNativeNavigationOperations.Instance.PopAsync(navigationPage, animated: false);
+        nativeOperations.ReleaseBlockedPushAfterMutation();
+
+        await navigation.WaitAsync(TimeSpan.FromSeconds(5));
+        await reconciliationPublished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await navigator.WhenReconciliationIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+
+        var reconciledStack = Assert.IsType<StackNode>(navigator.CurrentState.ActiveWindow?.Root);
+        Assert.Equal(["home", "detail"], reconciledStack.Entries.Select(entry => entry.Id));
+        Assert.Equal(["home", "detail"], NativeRouteEntryIds(navigationPage));
+
+        await navigator.DisposeAsync();
+        await presenter.DisposeAsync();
+    }
+
+    private static string[] NativeRouteEntryIds(NavigationPage navigationPage)
+    {
+        return navigationPage.Navigation.NavigationStack
+            .Select(page => Assert.IsType<string>(MauiPresentationMetadata.GetRouteEntryId(page)))
+            .ToArray();
+    }
+
     private static NavigationState StackState(params string[] entryIds)
     {
         return StackStateWithHost("main-stack", entryIds);
@@ -643,6 +903,23 @@ public sealed class MauiPresentationTransactionTests
             Guid.NewGuid().ToString("N"));
     }
 
+    private sealed class StackPlanner : IAppNavigationPlanner
+    {
+        public ValueTask<NavigationPlan> CreatePlanAsync(
+            NavigationPlanningContext context,
+            CancellationToken cancellationToken = default)
+        {
+            var route = Assert.IsType<TestRoute>(context.Route);
+            string[] entryIds = route.Id switch
+            {
+                "detail" => ["home", "detail"],
+                "settings" => ["home", "detail", "settings"],
+                _ => ["home"]
+            };
+            return ValueTask.FromResult(new NavigationPlan(StackState(entryIds)));
+        }
+    }
+
     private sealed record TestRoute(string Id) : AppRoute;
 
     private sealed record NativePresentationSnapshot(
@@ -677,11 +954,76 @@ public sealed class MauiPresentationTransactionTests
         SetWindowPage
     }
 
+    private sealed class CommitPopRoutePageFactory : IMauiRoutePageFactory
+    {
+        private readonly InstrumentedRoutePageFactory _inner = new();
+        private Page? _releaseTrigger;
+        private NavigationPage? _navigationPage;
+
+        public IReadOnlyList<Page> CreatedPages => _inner.CreatedPages;
+
+        public void PopTopWhenReleased(Page releaseTrigger, NavigationPage navigationPage)
+        {
+            _releaseTrigger = releaseTrigger;
+            _navigationPage = navigationPage;
+        }
+
+        public ValueTask<Page> CreatePageAsync(
+            RouteEntry entry,
+            CancellationToken cancellationToken = default)
+        {
+            return _inner.CreatePageAsync(entry, cancellationToken);
+        }
+
+        public ValueTask<Page> CreatePresentationPageAsync(
+            Type pageType,
+            Page ownerRoutePage,
+            bool inheritBindingContext,
+            CancellationToken cancellationToken = default)
+        {
+            return _inner.CreatePresentationPageAsync(
+                pageType,
+                ownerRoutePage,
+                inheritBindingContext,
+                cancellationToken);
+        }
+
+        public ValueTask UpdatePageAsync(
+            Page page,
+            RouteEntry entry,
+            MauiRoutePageUpdateContext context,
+            CancellationToken cancellationToken = default)
+        {
+            return _inner.UpdatePageAsync(page, entry, context, cancellationToken);
+        }
+
+        public async ValueTask ReleasePageAsync(Page page)
+        {
+            await _inner.ReleasePageAsync(page);
+            if (!ReferenceEquals(page, _releaseTrigger) || _navigationPage is null)
+                return;
+
+            _releaseTrigger = null;
+            await _navigationPage.Navigation.PopAsync(animated: false);
+        }
+
+        public ValueTask ReleasePresentationPageAsync(Page page)
+        {
+            return _inner.ReleasePresentationPageAsync(page);
+        }
+
+        public int ReleaseCountFor(Page page) => _inner.ReleaseCountFor(page);
+    }
+
     private sealed class FaultingNativeOperations : IMauiNativeNavigationOperations
     {
         private readonly TaskCompletionSource _blockedPushStarted =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _releaseBlockedPush =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _blockedPushAfterMutationStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _releaseBlockedPushAfterMutation =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly Queue<Window> _windowPageFaultTargets = new();
 
@@ -693,9 +1035,13 @@ public sealed class MauiPresentationTransactionTests
 
         public bool BlockNextPush { get; set; }
 
+        public bool BlockNextPushAfterMutation { get; set; }
+
         public NativeMutation? FaultAfterMutation { get; set; }
 
         public Task BlockedPushStarted => _blockedPushStarted.Task;
+
+        public Task BlockedPushAfterMutationStarted => _blockedPushAfterMutationStarted.Task;
 
         public void FailWindowPageAfterMutation(params Window[] windows)
         {
@@ -720,6 +1066,13 @@ public sealed class MauiPresentationTransactionTests
             }
 
             await MauiNativeNavigationOperations.Instance.PushAsync(navigationPage, page, animated);
+            if (BlockNextPushAfterMutation)
+            {
+                BlockNextPushAfterMutation = false;
+                _blockedPushAfterMutationStarted.TrySetResult();
+                await _releaseBlockedPushAfterMutation.Task;
+            }
+
             ThrowAfterMutation(NativeMutation.PushStack);
         }
 
@@ -780,6 +1133,8 @@ public sealed class MauiPresentationTransactionTests
         }
 
         public void ReleaseBlockedPush() => _releaseBlockedPush.TrySetResult();
+
+        public void ReleaseBlockedPushAfterMutation() => _releaseBlockedPushAfterMutation.TrySetResult();
 
         private void ThrowAfterMutation(NativeMutation mutation)
         {
