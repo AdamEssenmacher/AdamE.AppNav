@@ -1876,6 +1876,9 @@ internal sealed class MauiNavigationPresenter :
         }
         catch (Exception ex)
         {
+            // Retired pages are released only after the target presentation has been verified. Cleanup is
+            // irreversible, so report failures without throwing them into transaction rollback, which could
+            // otherwise reattach a page whose handle or scope has already been released.
             WritePageReleaseFailure(page, ex);
         }
     }

@@ -13,6 +13,50 @@ public sealed class RouterNavigatorReentrancyTests
     [InlineData(ReentrantOperation.Navigate)]
     [InlineData(ReentrantOperation.Back)]
     [InlineData(ReentrantOperation.Reconcile)]
+    public async Task OperationStartedWithExecutionContextFlowSuppressedIsRejectedBeforePresentation(
+        ReentrantOperation operation)
+    {
+        var presenter = new RecordingNavigationPresenter();
+        var navigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            TestNavigationPlanner.EchoStack(),
+            presenter);
+        NavigationState reconciledState = StateFor(new TestRoutes.CatalogRoute("reconciled"));
+
+        Task operationTask;
+        using (ExecutionContext.SuppressFlow())
+        {
+            operationTask = operation switch
+            {
+                ReentrantOperation.Navigate => navigator
+                    .NavigateAsync(new TestRoutes.StoreRoute("suppressed"))
+                    .AsTask(),
+                ReentrantOperation.Back => navigator.BackAsync().AsTask(),
+                ReentrantOperation.Reconcile => navigator
+                    .ReconcileAsync(new NavigationReconciliation(
+                        reconciledState,
+                        NavigationReconciliationSource.HostBack,
+                        new TestRoutes.CatalogRoute("reconciled")))
+                    .AsTask(),
+                _ => throw new ArgumentOutOfRangeException(nameof(operation))
+            };
+        }
+
+        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() => operationTask);
+
+        Assert.Contains("execution-context flow is suppressed", exception.Message, StringComparison.Ordinal);
+        Assert.Empty(presenter.Contexts);
+        Assert.Same(NavigationState.Empty, navigator.CurrentState);
+        Assert.Empty(navigator.History.Entries);
+
+        NavigationResult laterNavigation = await navigator.NavigateAsync(new TestRoutes.StoreRoute("later"));
+        Assert.Equal(new TestRoutes.StoreRoute("later"), laterNavigation.Route);
+    }
+
+    [Theory]
+    [InlineData(ReentrantOperation.Navigate)]
+    [InlineData(ReentrantOperation.Back)]
+    [InlineData(ReentrantOperation.Reconcile)]
     public async Task ReentrantOperationFailsPromptlyWithoutCommittingOuterNavigation(
         ReentrantOperation reentrantOperation)
     {

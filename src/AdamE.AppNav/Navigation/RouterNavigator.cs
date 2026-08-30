@@ -578,6 +578,13 @@ internal sealed class RouterNavigator : IRouterNavigator
 
     private RouterOperationContext EnterOperationContext()
     {
+        if (ExecutionContext.IsFlowSuppressed())
+        {
+            throw new InvalidOperationException(
+                "Router operations cannot be started while execution-context flow is suppressed because " +
+                "reentrancy detection must flow across asynchronous callbacks.");
+        }
+
         RouterOperationContext? current = CurrentOperationContext.Value;
         for (RouterOperationContext? candidate = current; candidate is not null; candidate = candidate.Parent)
         {

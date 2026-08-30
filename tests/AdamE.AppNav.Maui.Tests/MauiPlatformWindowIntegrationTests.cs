@@ -73,6 +73,57 @@ public sealed class MauiPlatformWindowIntegrationTests
         });
     }
 
+    [Fact]
+    public Task PageReleasedHookReentryDoesNotRollbackTheCommittedPresentation()
+    {
+        return MainThread.InvokeOnMainThreadAsync(async () =>
+        {
+            Assert.True(MainThread.IsMainThread);
+
+            var window = new Window(new ContentPage());
+            var lifecycleHook = new ReentrantReleaseNavigationLifecycleHook();
+            ServiceProvider provider = CreateServices(lifecycleHook);
+
+            try
+            {
+                IAppNavStartupService startup = provider.GetRequiredService<IAppNavStartupService>();
+                IRouterNavigator navigator = provider.GetRequiredService<IRouterNavigator>();
+                lifecycleHook.Navigator = navigator;
+                AppNavStartupResult startupResult = await startup.StartAsync(window, "main");
+                Assert.Equal(AppNavStartupOutcome.FallbackNavigated, startupResult.Outcome);
+
+                await navigator.NavigateAsync(new PlatformDetailRoute("retired"));
+                var navigationPage = Assert.IsType<NavigationPage>(window.Page);
+                var retiredPage = Assert.IsType<PlatformDetailPage>(navigationPage.CurrentPage);
+
+                NavigationResult result = await navigator
+                    .NavigateAsync(new PlatformHomeRoute())
+                    .AsTask()
+                    .WaitAsync(TimeSpan.FromSeconds(5));
+
+                InvalidOperationException reentryFailure = Assert.IsType<InvalidOperationException>(
+                    lifecycleHook.ReentryFailure);
+                Assert.Contains("Reentrant router operations are not supported", reentryFailure.Message,
+                    StringComparison.Ordinal);
+                Assert.Equal(1, lifecycleHook.ReleaseCalls);
+                Assert.Equal(new PlatformHomeRoute(), result.Route);
+                AssertLogicalStack(navigator, typeof(PlatformHomeRoute));
+                AssertHistory(navigator.History, 3, typeof(PlatformHomeRoute));
+                Assert.Single(navigationPage.Navigation.NavigationStack);
+                Assert.DoesNotContain(retiredPage, navigationPage.Navigation.NavigationStack);
+                Assert.Equal(1, retiredPage.Scope.DisposeCount);
+
+                await navigator.NavigateAsync(new PlatformDetailRoute("later"));
+                Assert.NotSame(retiredPage, Assert.IsType<PlatformDetailPage>(navigationPage.CurrentPage));
+            }
+            finally
+            {
+                await provider.DisposeAsync();
+                Assert.True(MainThread.IsMainThread);
+            }
+        });
+    }
+
     private static async Task RunOnMainThreadAsync()
     {
         Assert.True(MainThread.IsMainThread);
@@ -277,6 +328,51 @@ public sealed class MauiPlatformWindowIntegrationTests
         public ValueTask OnPageReleasedAsync(Page page, CancellationToken cancellationToken = default)
         {
             return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class ReentrantReleaseNavigationLifecycleHook : IMauiRoutePageLifecycleHook
+    {
+        private int _releaseCalls;
+
+        public IRouterNavigator Navigator { private get; set; } = null!;
+
+        public int ReleaseCalls => Volatile.Read(ref _releaseCalls);
+
+        public Exception? ReentryFailure { get; private set; }
+
+        public ValueTask OnPageCreatedAsync(
+            Page page,
+            RouteEntry entry,
+            CancellationToken cancellationToken = default)
+        {
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask OnPageUpdatedAsync(
+            Page page,
+            RouteEntry entry,
+            MauiRoutePageUpdateContext context,
+            CancellationToken cancellationToken = default)
+        {
+            return ValueTask.CompletedTask;
+        }
+
+        public async ValueTask OnPageReleasedAsync(Page page, CancellationToken cancellationToken = default)
+        {
+            if (page is not PlatformDetailPage || Interlocked.Increment(ref _releaseCalls) != 1)
+                return;
+
+            try
+            {
+                await Task.Yield();
+                await Navigator.NavigateAsync(new PlatformDetailRoute("nested"), cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                ReentryFailure = ex;
+                throw;
+            }
         }
     }
 }
