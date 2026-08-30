@@ -1,1 +1,2 @@
 #nullable enable
+AdamE.AppNav.Maui.AppNavStartupOutcome.AppLinkNavigated = 4 -> AdamE.AppNav.Maui.AppNavStartupOutcome

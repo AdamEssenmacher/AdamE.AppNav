@@ -49,7 +49,8 @@ public enum AppNavStartupOutcome
     AppLinkPending,
     FallbackNavigated,
     NoNavigation,
-    Failed
+    Failed,
+    AppLinkNavigated = 4
 }
 
 public sealed record AppNavStartupResult(
@@ -148,21 +149,27 @@ internal sealed class AppNavStartupService : IAppNavStartupService
 
         try
         {
-            var hasPendingAppLink = await _externalNavigationDispatcher
-                .WaitForPendingRequestAsync(_options.AppLinkGracePeriod, cancellationToken);
+            MauiExternalNavigationPendingEpoch? pendingAppLinkEpoch = await _externalNavigationDispatcher
+                .WaitForPendingEpochAsync(_options.AppLinkGracePeriod, cancellationToken);
 
-            if (hasPendingAppLink)
+            if (pendingAppLinkEpoch is not null)
             {
                 _diagnostics.Write(
                     NavigationDiagnosticEventKind.StartupAppLinkPending,
                     operationId,
-                    "A buffered app-link request is pending; fallback navigation was skipped.",
+                    "A buffered app-link request is pending; startup will observe its dispatch outcome.",
                     StartupData(
                         windowId,
                         (NavigationDiagnosticDataKeys.StartupOutcome, AppNavStartupOutcome.AppLinkPending.ToString())));
 
                 Attach(window, windowId, ref attached);
-                return Complete(operationId, windowId, AppNavStartupOutcome.AppLinkPending);
+                MauiExternalNavigationPendingEpochOutcome appLinkOutcome = await pendingAppLinkEpoch
+                    .Completion
+                    .WaitAsync(cancellationToken);
+                if (appLinkOutcome == MauiExternalNavigationPendingEpochOutcome.Navigated)
+                {
+                    return Complete(operationId, windowId, AppNavStartupOutcome.AppLinkNavigated);
+                }
             }
 
             var hasDeferredRequests = false;
@@ -343,6 +350,9 @@ internal sealed class AppNavStartupService : IAppNavStartupService
 
     private void Attach(Window window, string windowId, ref bool attached)
     {
+        if (attached)
+            return;
+
         _windowAttachment.AttachWindow(window, windowId);
         attached = true;
     }
