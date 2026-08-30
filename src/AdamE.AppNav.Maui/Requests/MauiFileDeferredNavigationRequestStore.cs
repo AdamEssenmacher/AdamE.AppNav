@@ -13,6 +13,7 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
     private readonly DeferredNavigationRequestSerializer _serializer;
     private readonly NavigationDiagnostics _diagnostics;
     private readonly IMauiDeferredNavigationFileOperations _fileOperations;
+    private readonly TimeProvider _timeProvider;
     private readonly int _maximumPendingRequests;
     private readonly long _maximumFileSize;
     private readonly TimeSpan _maximumRequestAge;
@@ -26,7 +27,8 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
         RouteTable routes,
         MauiFileDeferredNavigationRequestStoreOptions options,
         NavigationDiagnostics? diagnostics = null,
-        IMauiDeferredNavigationFileOperations? fileOperations = null)
+        IMauiDeferredNavigationFileOperations? fileOperations = null,
+        TimeProvider? timeProvider = null)
     {
         ArgumentNullException.ThrowIfNull(routes);
         ArgumentNullException.ThrowIfNull(options);
@@ -43,6 +45,7 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
         _path = options.Path;
         _diagnostics = diagnostics ?? NavigationDiagnostics.None;
         _fileOperations = fileOperations ?? MauiDeferredNavigationFileOperations.Instance;
+        _timeProvider = timeProvider ?? TimeProvider.System;
         _maximumPendingRequests = options.MaximumPendingRequests;
         _maximumFileSize = options.MaximumFileSize;
         _maximumRequestAge = options.MaximumRequestAge;
@@ -79,6 +82,7 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
         try
         {
             await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false);
+            await PruneExpiredAsync(cancellationToken).ConfigureAwait(false);
             RouterNavigationRequest canonicalRequest = Canonicalize(request);
             if (_deduped.Contains(canonicalRequest))
             {
@@ -309,7 +313,7 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        PersistSelection selection = SelectForPersistence(requests, DateTimeOffset.UtcNow);
+        PersistSelection selection = SelectForPersistence(requests, _timeProvider.GetUtcNow());
         var retained = selection.Requests.ToList();
         var fileOverflowCount = 0;
 
@@ -434,7 +438,7 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
 
     private async Task PruneExpiredAsync(CancellationToken cancellationToken)
     {
-        PersistSelection selection = SelectForPersistence(_requests, DateTimeOffset.UtcNow);
+        PersistSelection selection = SelectForPersistence(_requests, _timeProvider.GetUtcNow());
         if (selection.ExpiredCount == 0 && selection.OverflowCount == 0)
             return;
 
