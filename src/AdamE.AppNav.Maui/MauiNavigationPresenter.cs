@@ -21,13 +21,13 @@ internal sealed class MauiNavigationPresenter :
     private readonly IMauiNativeNavigationOperations _nativeOperations;
     private readonly MauiExternalNavigationDispatcher? _externalNavigationDispatcher;
     private readonly NavigationDiagnostics _diagnostics;
-    private readonly Dictionary<NavigationPage, string> _navigationPageStackIds = new(PageReferenceComparer<NavigationPage>.Instance);
+    private readonly Dictionary<NavigationPage, string> _navigationPageStackIds = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<NavigationPage, IReadOnlyList<Page>> _navigationPageKnownPages =
-        new(PageReferenceComparer<NavigationPage>.Instance);
+        new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<NavigationPage, SuppressedNavigationPop> _suppressedNavigationPops =
-        new(PageReferenceComparer<NavigationPage>.Instance);
-    private readonly HashSet<TabbedPage> _trackedTabbedPages = new(PageReferenceComparer<TabbedPage>.Instance);
-    private readonly HashSet<Page> _trackedModalPages = new(PageReferenceComparer<Page>.Instance);
+        new(ReferenceEqualityComparer.Instance);
+    private readonly HashSet<TabbedPage> _trackedTabbedPages = new(ReferenceEqualityComparer.Instance);
+    private readonly HashSet<Page> _trackedModalPages = new(ReferenceEqualityComparer.Instance);
     private readonly ConditionalWeakTable<Page, ReleasedPageMarker> _releasedPages = new();
     private readonly Lock _releaseGate = new();
     private readonly SemaphoreSlim _presentationOperationLock = new(1, 1);
@@ -280,7 +280,7 @@ internal sealed class MauiNavigationPresenter :
         _activeOperationId = null;
 
         Page? currentPage = CurrentPage;
-        var detachedCandidates = new HashSet<Page>(PageReferenceComparer<Page>.Instance);
+        var detachedCandidates = new HashSet<Page>(ReferenceEqualityComparer.Instance);
         detachedCandidates.UnionWith(_trackedModalPages);
         foreach (IReadOnlyList<Page> knownPages in _navigationPageKnownPages.Values)
             detachedCandidates.UnionWith(knownPages);
@@ -1564,7 +1564,7 @@ internal sealed class MauiNavigationPresenter :
     private async ValueTask ReleaseNavigationPagesRemovedFromNativeStackAsync(NavigationPage navigationPage)
     {
         var currentPages = navigationPage.Navigation.NavigationStack
-            .ToHashSet(PageReferenceComparer<Page>.Instance);
+            .ToHashSet(ReferenceEqualityComparer.Instance);
 
         if (_navigationPageKnownPages.TryGetValue(navigationPage, out var knownPages))
         {
@@ -1619,11 +1619,10 @@ internal sealed class MauiNavigationPresenter :
 
     private void TrackTabbedPage(TabbedPage tabbedPage)
     {
-        var wasTracked = _trackedTabbedPages.Contains(tabbedPage);
         tabbedPage.CurrentPageChanged -= OnTabbedPageCurrentPageChanged;
         tabbedPage.CurrentPageChanged += OnTabbedPageCurrentPageChanged;
 
-        if (_trackedTabbedPages.Add(tabbedPage) && !wasTracked)
+        if (_trackedTabbedPages.Add(tabbedPage))
         {
             WriteHandlerLifecycle(
                 NavigationDiagnosticEventKind.PresentationHandlerAttached,
@@ -1649,11 +1648,10 @@ internal sealed class MauiNavigationPresenter :
 
     private void TrackModalPage(Page modalPage)
     {
-        var wasTracked = _trackedModalPages.Contains(modalPage);
         modalPage.Disappearing -= OnModalPageDisappearing;
         modalPage.Disappearing += OnModalPageDisappearing;
 
-        if (_trackedModalPages.Add(modalPage) && !wasTracked)
+        if (_trackedModalPages.Add(modalPage))
         {
             WriteHandlerLifecycle(
                 NavigationDiagnosticEventKind.PresentationHandlerAttached,
@@ -1693,7 +1691,7 @@ internal sealed class MauiNavigationPresenter :
         var failures = new List<Exception>();
         await DetachPageTreeAsync(
             page,
-            new HashSet<Page>(PageReferenceComparer<Page>.Instance),
+            new HashSet<Page>(ReferenceEqualityComparer.Instance),
             failures);
         if (failures.Count > 0)
             throw new AggregateException("One or more pages could not be fully released.", failures);
@@ -1877,7 +1875,7 @@ internal sealed class MauiNavigationPresenter :
                 cancellationToken.ThrowIfCancellationRequested();
 
                 var remainingPages = pendingPop.RemainingPages
-                    .ToHashSet(PageReferenceComparer<Page>.Instance);
+                    .ToHashSet(ReferenceEqualityComparer.Instance);
                 Page[] removedPages = pendingPop.KnownPages
                     .Where(page => !remainingPages.Contains(page))
                     .Reverse()
@@ -2654,7 +2652,7 @@ internal sealed class MauiNavigationPresenter :
 
     private HashSet<Page> CollectLivePages(Page? root)
     {
-        var pages = new HashSet<Page>(PageReferenceComparer<Page>.Instance);
+        var pages = new HashSet<Page>(ReferenceEqualityComparer.Instance);
         if (root is null)
             return pages;
 
@@ -2691,7 +2689,7 @@ internal sealed class MauiNavigationPresenter :
         foreach (Page modalPage in _trackedModalPages.ToArray())
             UntrackModalPage(modalPage);
 
-        var visited = new HashSet<Page>(PageReferenceComparer<Page>.Instance);
+        var visited = new HashSet<Page>(ReferenceEqualityComparer.Instance);
         if (CurrentPage is null)
             return;
 
@@ -3009,16 +3007,16 @@ internal sealed class MauiNavigationPresenter :
         private readonly Page? _previousWindowPage;
         private readonly Page[] _previousModals;
         private readonly Dictionary<NavigationPage, Page[]> _navigationStacks =
-            new(PageReferenceComparer<NavigationPage>.Instance);
+            new(ReferenceEqualityComparer.Instance);
         private readonly Dictionary<TabbedPage, TabSnapshot> _tabs =
-            new(PageReferenceComparer<TabbedPage>.Instance);
+            new(ReferenceEqualityComparer.Instance);
         private readonly Dictionary<Page, PageSnapshot> _pageSnapshots =
-            new(PageReferenceComparer<Page>.Instance);
+            new(ReferenceEqualityComparer.Instance);
         private readonly Dictionary<Page, RouteEntry> _updatedPages =
-            new(PageReferenceComparer<Page>.Instance);
+            new(ReferenceEqualityComparer.Instance);
         private readonly Dictionary<string, RouteEntry> _previousEntries;
-        private readonly HashSet<Page> _createdPages = new(PageReferenceComparer<Page>.Instance);
-        private readonly HashSet<Page> _retiredPages = new(PageReferenceComparer<Page>.Instance);
+        private readonly HashSet<Page> _createdPages = new(ReferenceEqualityComparer.Instance);
+        private readonly HashSet<Page> _retiredPages = new(ReferenceEqualityComparer.Instance);
         private bool _rootChanged;
 
         public MauiPresentationTransaction(MauiNavigationPresenter presenter)
@@ -3030,7 +3028,7 @@ internal sealed class MauiNavigationPresenter :
             _previousModals = _previousCurrentPage?.Navigation.ModalStack.ToArray() ?? [];
             _previousEntries = CreateRouteEntryMap(PreviousState);
 
-            var visited = new HashSet<Page>(PageReferenceComparer<Page>.Instance);
+            var visited = new HashSet<Page>(ReferenceEqualityComparer.Instance);
             if (_previousCurrentPage is not null)
                 CapturePage(_previousCurrentPage, visited);
             foreach (Page modal in _previousModals)
@@ -3060,7 +3058,7 @@ internal sealed class MauiNavigationPresenter :
         public async ValueTask CommitAsync()
         {
             HashSet<Page> livePages = _presenter.CollectLivePages(_presenter.CurrentPage);
-            var releaseCandidates = new HashSet<Page>(_retiredPages, PageReferenceComparer<Page>.Instance);
+            var releaseCandidates = new HashSet<Page>(_retiredPages, ReferenceEqualityComparer.Instance);
             foreach (Page createdPage in _createdPages)
                 if (!livePages.Contains(createdPage))
                     releaseCandidates.Add(createdPage);
@@ -3161,7 +3159,7 @@ internal sealed class MauiNavigationPresenter :
         public async ValueTask ReleaseAllNonLivePagesAsync()
         {
             HashSet<Page> livePages = _presenter.CollectLivePages(_presenter.CurrentPage);
-            var candidates = new HashSet<Page>(_pageSnapshots.Keys, PageReferenceComparer<Page>.Instance);
+            var candidates = new HashSet<Page>(_pageSnapshots.Keys, ReferenceEqualityComparer.Instance);
             candidates.UnionWith(_retiredPages);
             candidates.UnionWith(_createdPages);
             foreach (Page page in candidates)
@@ -3250,19 +3248,4 @@ internal sealed class MauiNavigationPresenter :
     {
     }
 
-    private sealed class PageReferenceComparer<TPage> : IEqualityComparer<TPage>
-        where TPage : Page
-    {
-        public static PageReferenceComparer<TPage> Instance { get; } = new();
-
-        public bool Equals(TPage? x, TPage? y)
-        {
-            return ReferenceEquals(x, y);
-        }
-
-        public int GetHashCode(TPage obj)
-        {
-            return RuntimeHelpers.GetHashCode(obj);
-        }
-    }
 }
