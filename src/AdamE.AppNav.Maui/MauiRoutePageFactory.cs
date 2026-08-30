@@ -99,7 +99,7 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
                 SetPageHandle(page, handle);
                 scope = null;
                 foreach (IMauiRoutePageLifecycleHook hook in handle.Hooks)
-                    await hook.OnPageCreatedAsync(page, entry, cancellationToken).ConfigureAwait(false);
+                    await hook.OnPageCreatedAsync(page, entry, cancellationToken);
 
                 return page;
             }
@@ -193,7 +193,7 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
         PageHandle handle = GetPageHandle(page) ??
             throw new InvalidOperationException("The route page is not owned by this page factory.");
         foreach (IMauiRoutePageLifecycleHook hook in handle.Hooks)
-            await hook.OnPageUpdatedAsync(page, entry, context, cancellationToken).ConfigureAwait(false);
+            await hook.OnPageUpdatedAsync(page, entry, context, cancellationToken);
     }
 
     public ValueTask ReleasePageAsync(Page page)
@@ -265,7 +265,7 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
         {
             try
             {
-                await hook.OnPageReleasedAsync(page, CancellationToken.None).ConfigureAwait(false);
+                await hook.OnPageReleasedAsync(page, CancellationToken.None);
             }
             catch (Exception ex)
             {

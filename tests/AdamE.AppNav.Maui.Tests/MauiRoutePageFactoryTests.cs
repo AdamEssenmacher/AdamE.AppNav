@@ -1,5 +1,6 @@
 using AdamE.AppNav.State;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Controls;
 
 namespace AdamE.AppNav.Maui.Tests;
@@ -94,6 +95,76 @@ public sealed class MauiRoutePageFactoryTests
         Assert.Equal(
             ["async-created:async", "async-released:0"],
             provider.GetRequiredService<LifecycleTracker>().Events);
+    }
+
+    [Fact]
+    public Task AsyncCreateHookCompletion_RestoresMainThreadBeforeNextHook()
+    {
+        return MainThread.InvokeOnMainThreadAsync(async () =>
+        {
+            Assert.True(MainThread.IsMainThread);
+            var gate = new GatedLifecycleHook(LifecyclePhase.Created);
+            var recorder = new MainThreadRecordingLifecycleHook();
+            using ServiceProvider provider = CreateThreadAffinityProvider(gate, recorder);
+            MauiRoutePageFactory factory = CreateThreadAffinityFactory(provider);
+
+            Task<Page> createTask = factory.CreatePageAsync(Entry("create-thread-affinity")).AsTask();
+            await CompleteGateFromWorkerAsync(gate);
+            await createTask;
+
+            Assert.True(recorder.CreatedOnMainThread);
+        });
+    }
+
+    [Fact]
+    public Task AsyncUpdateHookCompletion_RestoresMainThreadBeforeNextHook()
+    {
+        return MainThread.InvokeOnMainThreadAsync(async () =>
+        {
+            Assert.True(MainThread.IsMainThread);
+            var gate = new GatedLifecycleHook(LifecyclePhase.Updated);
+            var recorder = new MainThreadRecordingLifecycleHook();
+            using ServiceProvider provider = CreateThreadAffinityProvider(gate, recorder);
+            MauiRoutePageFactory factory = CreateThreadAffinityFactory(provider);
+            Page page = await factory.CreatePageAsync(Entry("update-thread-affinity"));
+
+            Task updateTask = factory.UpdatePageAsync(
+                page,
+                Entry("updated-thread-affinity"),
+                new MauiRoutePageUpdateContext(MauiRoutePageReuseKind.ExplicitTarget)).AsTask();
+            await CompleteGateFromWorkerAsync(gate);
+            await updateTask;
+
+            Assert.True(recorder.UpdatedOnMainThread);
+        });
+    }
+
+    [Fact]
+    public Task AsyncReleaseHookCompletion_RestoresMainThreadBeforeNextHookAndBindingContextCleanup()
+    {
+        return MainThread.InvokeOnMainThreadAsync(async () =>
+        {
+            Assert.True(MainThread.IsMainThread);
+            var gate = new GatedLifecycleHook(LifecyclePhase.Released);
+            var recorder = new MainThreadRecordingLifecycleHook();
+            using ServiceProvider provider = CreateThreadAffinityProvider(gate, recorder);
+            MauiRoutePageFactory factory = CreateThreadAffinityFactory(provider);
+            Page page = await factory.CreatePageAsync(Entry("release-thread-affinity"));
+            page.BindingContext = new object();
+            bool? bindingContextClearedOnMainThread = null;
+            page.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(BindableObject.BindingContext) && page.BindingContext is null)
+                    bindingContextClearedOnMainThread = MainThread.IsMainThread;
+            };
+
+            Task releaseTask = factory.ReleasePageAsync(page).AsTask();
+            await CompleteGateFromWorkerAsync(gate);
+            await releaseTask;
+
+            Assert.True(recorder.ReleasedOnMainThread);
+            Assert.True(bindingContextClearedOnMainThread);
+        });
     }
 
     [Fact]
@@ -198,6 +269,35 @@ public sealed class MauiRoutePageFactoryTests
     private static RouteEntry Entry(string id)
     {
         return new RouteEntry(id, new TestPageRoute(id));
+    }
+
+    private static ServiceProvider CreateThreadAffinityProvider(
+        GatedLifecycleHook gate,
+        MainThreadRecordingLifecycleHook recorder)
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<IMauiRoutePageLifecycleHook>(gate);
+        services.AddSingleton<IMauiRoutePageLifecycleHook>(recorder);
+        return services.BuildServiceProvider();
+    }
+
+    private static MauiRoutePageFactory CreateThreadAffinityFactory(ServiceProvider provider)
+    {
+        var options = new MauiRoutePresentationOptions();
+        options.Pages.MapPage<TestPageRoute>((_, _) => new ContentPage());
+        return new MauiRoutePageFactory(provider, options);
+    }
+
+    private static async Task CompleteGateFromWorkerAsync(GatedLifecycleHook gate)
+    {
+        await gate.Entered;
+        bool completedOnMainThread = true;
+        await Task.Run(() =>
+        {
+            completedOnMainThread = MainThread.IsMainThread;
+            gate.Complete();
+        });
+        Assert.False(completedOnMainThread);
     }
 
     private record BaseMappedRoute : AppRoute;
@@ -358,6 +458,93 @@ public sealed class MauiRoutePageFactoryTests
         public ValueTask OnPageReleasedAsync(Page page, CancellationToken cancellationToken = default)
         {
             tracker.Add($"async-released:{marker.DisposeCount}");
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private enum LifecyclePhase
+    {
+        Created,
+        Updated,
+        Released
+    }
+
+    private sealed class GatedLifecycleHook(LifecyclePhase gatedPhase) : IMauiRoutePageLifecycleHook
+    {
+        private readonly TaskCompletionSource _entered =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _completion =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task Entered => _entered.Task;
+
+        public void Complete()
+        {
+            _completion.TrySetResult();
+        }
+
+        public ValueTask OnPageCreatedAsync(
+            Page page,
+            RouteEntry entry,
+            CancellationToken cancellationToken = default)
+        {
+            return InvokeAsync(LifecyclePhase.Created);
+        }
+
+        public ValueTask OnPageUpdatedAsync(
+            Page page,
+            RouteEntry entry,
+            MauiRoutePageUpdateContext context,
+            CancellationToken cancellationToken = default)
+        {
+            return InvokeAsync(LifecyclePhase.Updated);
+        }
+
+        public ValueTask OnPageReleasedAsync(Page page, CancellationToken cancellationToken = default)
+        {
+            return InvokeAsync(LifecyclePhase.Released);
+        }
+
+        private ValueTask InvokeAsync(LifecyclePhase phase)
+        {
+            if (phase != gatedPhase)
+                return ValueTask.CompletedTask;
+
+            _entered.TrySetResult();
+            return new ValueTask(_completion.Task);
+        }
+    }
+
+    private sealed class MainThreadRecordingLifecycleHook : IMauiRoutePageLifecycleHook
+    {
+        public bool CreatedOnMainThread { get; private set; }
+
+        public bool UpdatedOnMainThread { get; private set; }
+
+        public bool ReleasedOnMainThread { get; private set; }
+
+        public ValueTask OnPageCreatedAsync(
+            Page page,
+            RouteEntry entry,
+            CancellationToken cancellationToken = default)
+        {
+            CreatedOnMainThread = MainThread.IsMainThread;
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask OnPageUpdatedAsync(
+            Page page,
+            RouteEntry entry,
+            MauiRoutePageUpdateContext context,
+            CancellationToken cancellationToken = default)
+        {
+            UpdatedOnMainThread = MainThread.IsMainThread;
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask OnPageReleasedAsync(Page page, CancellationToken cancellationToken = default)
+        {
+            ReleasedOnMainThread = MainThread.IsMainThread;
             return ValueTask.CompletedTask;
         }
     }
