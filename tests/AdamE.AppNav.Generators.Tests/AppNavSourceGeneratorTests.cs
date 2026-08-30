@@ -98,6 +98,51 @@ public sealed class AppNavSourceGeneratorTests
     }
 
     [Fact]
+    public void GeneratedRouteTableEmitsCompileCleanSignedEnumDefaults()
+    {
+        const string source = """
+            using AdamE.AppNav;
+            using AdamE.AppNav.Routing;
+
+            namespace Commerce.Sample;
+
+            public enum SignedValue : long
+            {
+                Minimum = long.MinValue,
+                Negative = -1,
+                Positive = 1
+            }
+
+            public enum BigValue : ulong
+            {
+                Maximum = ulong.MaxValue
+            }
+
+            [AppNavRoute("/defaults")]
+            [AppNavQuery(nameof(Negative))]
+            [AppNavQuery(nameof(NullableNegative))]
+            [AppNavQuery(nameof(Minimum))]
+            [AppNavQuery(nameof(Positive))]
+            [AppNavQuery(nameof(Maximum))]
+            public sealed record DefaultsRoute(
+                SignedValue Negative = SignedValue.Negative,
+                SignedValue? NullableNegative = SignedValue.Negative,
+                SignedValue Minimum = SignedValue.Minimum,
+                SignedValue Positive = SignedValue.Positive,
+                BigValue Maximum = BigValue.Maximum) : AppRoute;
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+
+        Assert.Empty(result.GeneratorDiagnostics.Where(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assert.Contains("(global::Commerce.Sample.SignedValue)(-1)", result.GeneratedSource);
+        Assert.Contains("(global::Commerce.Sample.SignedValue)(-9223372036854775808)", result.GeneratedSource);
+        Assert.Contains("(global::Commerce.Sample.SignedValue)(1)", result.GeneratedSource);
+        Assert.Contains("(global::Commerce.Sample.BigValue)18446744073709551615UL", result.GeneratedSource);
+        _ = Emit(result.Compilation);
+    }
+
+    [Fact]
     public void GeneratedRouteTableReturnsFailedMatchForNumericOverflows()
     {
         const string source = """

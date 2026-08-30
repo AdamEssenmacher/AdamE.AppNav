@@ -59,6 +59,13 @@ public sealed class MauiPageSourceGeneratorTests
 
             namespace Commerce.Sample;
 
+            public enum SignedValue : long
+            {
+                Minimum = long.MinValue,
+                Negative = -1,
+                Positive = 1
+            }
+
             public enum BigValue : ulong { Max = ulong.MaxValue }
 
             [AppNavRoute("/stores/{storeId}")]
@@ -72,6 +79,10 @@ public sealed class MauiPageSourceGeneratorTests
                     IRouterNavigator navigator,
                     string title = "Details",
                     CancellationToken cancellationToken = default,
+                    SignedValue negative = SignedValue.Negative,
+                    SignedValue? nullableNegative = SignedValue.Negative,
+                    SignedValue minimum = SignedValue.Minimum,
+                    SignedValue positive = SignedValue.Positive,
                     BigValue value = BigValue.Max,
                     double scale = double.NaN) { }
             }
@@ -83,6 +94,9 @@ public sealed class MauiPageSourceGeneratorTests
         Assert.Empty(Errors(result));
         Assert.Contains("GetRequiredService<global::AdamE.AppNav.Navigation.IRouterNavigator>(services)", generated);
         Assert.Contains("\"Details\", default(global::System.Threading.CancellationToken)", generated);
+        Assert.Contains("(global::Commerce.Sample.SignedValue)(-1)", generated);
+        Assert.Contains("(global::Commerce.Sample.SignedValue)(-9223372036854775808)", generated);
+        Assert.Contains("(global::Commerce.Sample.SignedValue)(1)", generated);
         Assert.Contains("(global::Commerce.Sample.BigValue)18446744073709551615UL", generated);
         Assert.Contains("global::System.Double.NaN", generated);
         AssertCompileClean(result.Compilation);
