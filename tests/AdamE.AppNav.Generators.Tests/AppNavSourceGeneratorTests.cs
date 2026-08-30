@@ -755,6 +755,43 @@ public sealed class AppNavSourceGeneratorTests
     }
 
     [Fact]
+    public void ShadowedBaseRoutePropertiesDoNotReportDuplicateDiagnostic()
+    {
+        const string source = """
+            using AdamE.AppNav;
+            using AdamE.AppNav.Routing;
+
+            namespace Commerce.Sample;
+
+            public abstract record EntityRoute : AppRoute
+            {
+                protected EntityRoute(string id)
+                {
+                    Id = id;
+                }
+
+                public string Id { get; }
+            }
+
+            [AppNavRoute("/items/{id}")]
+            public sealed record ItemRoute : EntityRoute
+            {
+                public ItemRoute(string id) : base(id)
+                {
+                }
+
+                public new string Id => base.Id;
+            }
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+
+        Assert.DoesNotContain(result.GeneratorDiagnostics, static diagnostic => diagnostic.Id == "APPNAV013");
+        Assert.Empty(result.GeneratorDiagnostics.Where(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        AssertCompileClean(result.Compilation);
+    }
+
+    [Fact]
     public void GeneratedRouteTableIgnoresAttributedRoutesFromReferencedAssemblies()
     {
         MetadataReference routeReference = EmitReference(
