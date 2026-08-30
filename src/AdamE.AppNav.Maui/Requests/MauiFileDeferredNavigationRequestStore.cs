@@ -463,7 +463,7 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
             ? DateTimeOffset.MinValue
             : now - _maximumRequestAge;
         StoredRequest[] fresh = requests
-            .Where(stored => stored.Request.Timestamp >= oldestAllowed && stored.Request.Timestamp <= now)
+            .Where(stored => stored.Request.Timestamp >= oldestAllowed)
             .ToArray();
         int expiredCount = requests.Count - fresh.Length;
         int overflowCount = Math.Max(0, fresh.Length - _maximumPendingRequests);
