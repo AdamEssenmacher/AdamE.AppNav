@@ -29,6 +29,39 @@ public sealed class MauiFileDeferredNavigationRequestStoreTests
     }
 
     [Fact]
+    public void Constructor_UsesSharedOptionsValidation()
+    {
+        var routes = RouteTable.Create(builder => builder.MapRoute<TestRoute>("/stores/{id}"));
+        Func<MauiFileDeferredNavigationRequestStoreOptions>[] invalidOptions =
+        [
+            () => new MauiFileDeferredNavigationRequestStoreOptions(),
+            () => CreateOptions(options => options.Path = " "),
+            () => CreateOptions(options => options.MaximumPendingRequests = 0),
+            () => CreateOptions(options => options.MaximumFileSize = 0),
+            () => CreateOptions(options => options.MaximumRequestAge = TimeSpan.Zero)
+        ];
+
+        foreach (Func<MauiFileDeferredNavigationRequestStoreOptions> createOptions in invalidOptions)
+        {
+            MauiFileDeferredNavigationRequestStoreOptions options = createOptions();
+            Exception validationException = Assert.ThrowsAny<Exception>(options.Validate);
+            Exception constructorException = Assert.ThrowsAny<Exception>(() =>
+                new MauiFileDeferredNavigationRequestStore(routes, options));
+
+            Assert.Equal(validationException.GetType(), constructorException.GetType());
+            Assert.Equal(validationException.Message, constructorException.Message);
+        }
+
+        static MauiFileDeferredNavigationRequestStoreOptions CreateOptions(
+            Action<MauiFileDeferredNavigationRequestStoreOptions> makeInvalid)
+        {
+            var options = new MauiFileDeferredNavigationRequestStoreOptions { BaseUri = BaseUri };
+            makeInvalid(options);
+            return options;
+        }
+    }
+
+    [Fact]
     public async Task Load_RewritesValidSchemaThreeToRemoveUnknownSecretFields()
     {
         var routes = RouteTable.Create(builder => builder.MapRoute<TestRoute>("/stores/{id}"));

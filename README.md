@@ -345,7 +345,8 @@ services.AddAppNavFileDeferredNavigationRequests(options =>
 });
 ```
 
-`BaseUri` is explicit and required. Schema 3 stores only:
+The configuration callback and its explicit absolute `BaseUri` are required. Invalid options fail immediately during
+service registration. Schema 3 stores only:
 
 - canonical route URI;
 - request source and disposition;

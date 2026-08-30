@@ -3,6 +3,7 @@ using AdamE.AppNav.Diagnostics;
 using AdamE.AppNav.History;
 using AdamE.AppNav.Maui.AppLinks;
 using AdamE.AppNav.Maui.DependencyInjection;
+using AdamE.AppNav.Maui.Requests;
 using AdamE.AppNav.Navigation;
 using AdamE.AppNav.Plans;
 using AdamE.AppNav.Planning;
@@ -282,23 +283,92 @@ public sealed class AppNavNavigatorRegistrationTests
     }
 
     [Fact]
+    public void AddAppNavFileDeferredNavigationRequestsRequiresNonNullConfiguration()
+    {
+        System.Reflection.MethodInfo method = typeof(AppNavServiceCollectionExtensions)
+            .GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+            .Single(candidate => candidate.Name == nameof(
+                AppNavServiceCollectionExtensions.AddAppNavFileDeferredNavigationRequests));
+        System.Reflection.ParameterInfo configure = method.GetParameters()[1];
+
+        Assert.False(configure.IsOptional);
+        Assert.False(configure.HasDefaultValue);
+        Assert.Equal(
+            System.Reflection.NullabilityState.NotNull,
+            new System.Reflection.NullabilityInfoContext().Create(configure).ReadState);
+
+        var exception = Assert.Throws<ArgumentNullException>(() =>
+            new ServiceCollection().AddAppNavFileDeferredNavigationRequests(null!));
+
+        Assert.Equal("configure", exception.ParamName);
+    }
+
+    [Fact]
+    public void AddAppNavFileDeferredNavigationRequestsValidatesConfigurationImmediately()
+    {
+        var missingBaseUri = Assert.Throws<InvalidOperationException>(() =>
+            new ServiceCollection().AddAppNavFileDeferredNavigationRequests(_ => { }));
+        Assert.Contains("BaseUri must be configured explicitly", missingBaseUri.Message, StringComparison.Ordinal);
+
+        Assert.Equal(
+            "value",
+            Assert.Throws<ArgumentException>(() =>
+                new ServiceCollection().AddAppNavFileDeferredNavigationRequests(options =>
+                    options.BaseUri = new Uri("/relative", UriKind.Relative))).ParamName);
+        Assert.Equal(
+            "Path",
+            AssertInvalidFileStoreRegistration<ArgumentException>(options => options.Path = " ").ParamName);
+        Assert.Equal(
+            "MaximumPendingRequests",
+            AssertInvalidFileStoreRegistration<ArgumentOutOfRangeException>(
+                options => options.MaximumPendingRequests = 0).ParamName);
+        Assert.Equal(
+            "MaximumFileSize",
+            AssertInvalidFileStoreRegistration<ArgumentOutOfRangeException>(
+                options => options.MaximumFileSize = 0).ParamName);
+        Assert.Equal(
+            "MaximumRequestAge",
+            AssertInvalidFileStoreRegistration<ArgumentOutOfRangeException>(
+                options => options.MaximumRequestAge = TimeSpan.Zero).ParamName);
+    }
+
+    [Fact]
     public void AddAppNavFileDeferredNavigationRequestsRegistersStoreAndReplayer()
     {
         var services = new ServiceCollection();
         var path = Path.Combine(Path.GetTempPath(), $"appnav-deferred-{Guid.NewGuid():N}.json");
+        MauiFileDeferredNavigationRequestStoreOptions? configuredOptions = null;
+        var configureCalls = 0;
         services.AddAppNav<ThrowingPlanner>(
             Routes(),
             pages => pages.MapPage<TestRoute>((_, _) => new TestPage()));
         services.AddAppNavFileDeferredNavigationRequests(options =>
         {
+            configureCalls++;
             options.Path = path;
             options.BaseUri = new Uri("https://example.com/");
+            configuredOptions = options;
         });
+        Assert.Equal(1, configureCalls);
 
         using var provider = services.BuildServiceProvider();
 
+        Assert.Same(configuredOptions, provider.GetRequiredService<MauiFileDeferredNavigationRequestStoreOptions>());
         Assert.NotNull(provider.GetRequiredService<IDeferredNavigationRequestStore>());
         Assert.NotNull(provider.GetRequiredService<IDeferredNavigationRequestReplayer>());
+        Assert.Equal(1, configureCalls);
+    }
+
+    private static TException AssertInvalidFileStoreRegistration<TException>(
+        Action<MauiFileDeferredNavigationRequestStoreOptions> makeInvalid)
+        where TException : Exception
+    {
+        return Assert.Throws<TException>(() =>
+            new ServiceCollection().AddAppNavFileDeferredNavigationRequests(options =>
+            {
+                options.BaseUri = new Uri("https://example.com/");
+                makeInvalid(options);
+            }));
     }
 
     private static RouteTable Routes()

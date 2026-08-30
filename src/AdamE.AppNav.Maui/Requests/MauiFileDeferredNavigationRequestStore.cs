@@ -34,14 +34,7 @@ internal sealed class MauiFileDeferredNavigationRequestStore : IDeferredNavigati
         ArgumentNullException.ThrowIfNull(routes);
         ArgumentNullException.ThrowIfNull(options);
 
-        ArgumentException.ThrowIfNullOrWhiteSpace(options.Path);
-        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaximumPendingRequests, 1);
-        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaximumFileSize, 1);
-        if (options.MaximumRequestAge <= TimeSpan.Zero)
-            throw new ArgumentOutOfRangeException(
-                nameof(options.MaximumRequestAge),
-                options.MaximumRequestAge,
-                "The maximum deferred request age must be greater than zero.");
+        options.Validate();
 
         _path = options.Path;
         _diagnostics = diagnostics ?? NavigationDiagnostics.None;
