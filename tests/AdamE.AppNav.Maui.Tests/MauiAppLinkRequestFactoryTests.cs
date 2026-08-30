@@ -2,6 +2,10 @@ using AdamE.AppNav.Maui.AppLinks;
 using AdamE.AppNav.Requests;
 using AdamE.AppNav.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
+#if ANDROID
+using Android.Content;
+using Android.OS;
+#endif
 
 namespace AdamE.AppNav.Maui.Tests;
 
@@ -153,6 +157,205 @@ public sealed class MauiAppLinkRequestFactoryTests
             [NavigationDiagnosticDataKeys.ExternalNavigationReason, NavigationDiagnosticDataKeys.PendingRequestCount],
             rejected.Data.Keys.Order(StringComparer.Ordinal));
     }
+
+#if ANDROID
+    [Fact]
+    public void FreshAndroidIntentIsAcceptedWithProvenanceAndMarkedConsumed()
+    {
+        var incoming = new Uri("https://example.com/stores/northwind");
+        using var intent = CreateAndroidIntent(incoming.ToString());
+        var options = new MauiExternalNavigationOptions();
+
+        MauiExternalNavigationIngress ingress = AndroidAppLinkRequestFactory.FromIntent(intent, options);
+
+        AssertProvenance(ingress.Request, MauiAppLinkProvenanceProviders.AndroidIntent, incoming);
+        Assert.Equal(MauiExternalNavigationRejectionReason.None, ingress.RejectionReason);
+        Assert.True(intent.HasCategory(AndroidAppLinkRequestFactory.ConsumedCategoryName));
+    }
+
+    [Fact]
+    public void SameAndroidIntentIsConsumedOnceWithoutDuplicateDiagnostics()
+    {
+        using var intent = CreateAndroidIntent("https://example.com/stores/northwind");
+        var diagnostics = new NavigationDiagnostics();
+        var events = new List<NavigationDiagnosticEvent>();
+        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+        var options = new MauiExternalNavigationOptions();
+        options.AllowOrigin(new Uri("https://example.com"));
+        using var provider = CreateAppLinkDispatcherProvider(options, diagnostics);
+        _ = provider.GetRequiredService<MauiExternalNavigationDispatcher>();
+
+        MauiExternalNavigationIngress first = AndroidAppLinkRequestFactory.FromIntent(intent, options);
+        MauiExternalNavigationIngress replay = AndroidAppLinkRequestFactory.FromIntent(intent, options);
+
+        Assert.True(AppNavExternalNavigationBuilderExtensions.Dispatch(first, options));
+        Assert.False(AppNavExternalNavigationBuilderExtensions.Dispatch(replay, options));
+        Assert.Null(replay.Request);
+        Assert.Equal(MauiExternalNavigationRejectionReason.None, replay.RejectionReason);
+        Assert.Single(events, diagnosticEvent =>
+            diagnosticEvent.Kind == NavigationDiagnosticEventKind.AppLinkReceived);
+    }
+
+    [Fact]
+    public void AndroidIntentLaunchedFromHistoryIsIgnoredOnFirstConsumption()
+    {
+        using var intent = CreateAndroidIntent("https://example.com/stores/northwind");
+        intent.AddFlags(ActivityFlags.LaunchedFromHistory);
+        var options = new MauiExternalNavigationOptions();
+
+        MauiExternalNavigationIngress ingress = AndroidAppLinkRequestFactory.FromIntent(intent, options);
+
+        Assert.Null(ingress.Request);
+        Assert.Equal(MauiExternalNavigationRejectionReason.None, ingress.RejectionReason);
+        Assert.False(intent.HasCategory(AndroidAppLinkRequestFactory.ConsumedCategoryName));
+    }
+
+    [Fact]
+    public void DistinctAndroidIntentsWithSameUriAreSeparateBoundaryActivations()
+    {
+        const string incoming = "https://example.com/stores/northwind";
+        using var firstIntent = CreateAndroidIntent(incoming);
+        using var secondIntent = CreateAndroidIntent(incoming);
+        var options = new MauiExternalNavigationOptions();
+
+        MauiExternalNavigationIngress first = AndroidAppLinkRequestFactory.FromIntent(firstIntent, options);
+        MauiExternalNavigationIngress second = AndroidAppLinkRequestFactory.FromIntent(secondIntent, options);
+
+        Assert.NotNull(first.Request);
+        Assert.NotNull(second.Request);
+        Assert.NotSame(first.Request, second.Request);
+        Assert.True(firstIntent.HasCategory(AndroidAppLinkRequestFactory.ConsumedCategoryName));
+        Assert.True(secondIntent.HasCategory(AndroidAppLinkRequestFactory.ConsumedCategoryName));
+    }
+
+    [Theory]
+    [InlineData("stores/northwind", 2048, "RelativeUri")]
+    [InlineData("https://example.com/stores/northwind", 12, "UriTooLong")]
+    public void RejectedAndroidIntentIsConsumedOnceThenIgnored(
+        string incoming,
+        int maximumUriLength,
+        string expectedReason)
+    {
+        using var intent = CreateAndroidIntent(incoming);
+        var diagnostics = new NavigationDiagnostics();
+        var events = new List<NavigationDiagnosticEvent>();
+        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+        var options = new MauiExternalNavigationOptions
+        {
+            MaximumUriLength = maximumUriLength
+        };
+        using var provider = CreateAppLinkDispatcherProvider(options, diagnostics);
+        _ = provider.GetRequiredService<MauiExternalNavigationDispatcher>();
+
+        MauiExternalNavigationIngress rejected = AndroidAppLinkRequestFactory.FromIntent(intent, options);
+        MauiExternalNavigationIngress replay = AndroidAppLinkRequestFactory.FromIntent(intent, options);
+
+        Assert.False(AppNavExternalNavigationBuilderExtensions.Dispatch(rejected, options));
+        Assert.False(AppNavExternalNavigationBuilderExtensions.Dispatch(replay, options));
+        Assert.Null(rejected.Request);
+        Assert.Equal(expectedReason, rejected.RejectionReason.ToString());
+        Assert.True(intent.HasCategory(AndroidAppLinkRequestFactory.ConsumedCategoryName));
+        Assert.Null(replay.Request);
+        Assert.Equal(MauiExternalNavigationRejectionReason.None, replay.RejectionReason);
+        NavigationDiagnosticEvent diagnostic = Assert.Single(events, diagnosticEvent =>
+            diagnosticEvent.Kind == NavigationDiagnosticEventKind.ExternalNavigationRejected);
+        Assert.Equal(expectedReason, diagnostic.Data[NavigationDiagnosticDataKeys.ExternalNavigationReason]);
+        Assert.DoesNotContain(events, diagnosticEvent =>
+            diagnosticEvent.Kind == NavigationDiagnosticEventKind.AppLinkReceived);
+    }
+
+    [Fact]
+    public void AndroidIntentWithoutDataIsConsumedOnce()
+    {
+        using var intent = new Intent();
+        var options = new MauiExternalNavigationOptions();
+
+        MauiExternalNavigationIngress first = AndroidAppLinkRequestFactory.FromIntent(intent, options);
+        MauiExternalNavigationIngress replay = AndroidAppLinkRequestFactory.FromIntent(intent, options);
+
+        Assert.Null(first.Request);
+        Assert.Equal(MauiExternalNavigationRejectionReason.None, first.RejectionReason);
+        Assert.True(intent.HasCategory(AndroidAppLinkRequestFactory.ConsumedCategoryName));
+        Assert.Null(replay.Request);
+        Assert.Equal(MauiExternalNavigationRejectionReason.None, replay.RejectionReason);
+    }
+
+    [Fact]
+    public void ConsumedAndroidIntentRemainsConsumedAfterParcelRoundTrip()
+    {
+        using var intent = CreateAndroidIntent("https://example.com/stores/northwind");
+        var options = new MauiExternalNavigationOptions();
+
+        MauiExternalNavigationIngress first = AndroidAppLinkRequestFactory.FromIntent(intent, options);
+        using Intent restored = RoundTrip(intent);
+        MauiExternalNavigationIngress replay = AndroidAppLinkRequestFactory.FromIntent(restored, options);
+
+        Assert.NotNull(first.Request);
+        Assert.True(restored.HasCategory(AndroidAppLinkRequestFactory.ConsumedCategoryName));
+        Assert.Null(replay.Request);
+        Assert.Equal(MauiExternalNavigationRejectionReason.None, replay.RejectionReason);
+    }
+
+    [Fact]
+    public void AndroidIntentWithUnavailableParcelableExtraIsAcceptedWithoutInspectingExtras()
+    {
+        var incoming = new Uri("https://example.com/stores/northwind");
+        using var intent = CreateAndroidIntent(incoming.ToString());
+        using Bundle extras = CreateBundleWithUnavailableParcelable();
+        intent.ReplaceExtras(extras);
+        var options = new MauiExternalNavigationOptions();
+
+        MauiExternalNavigationIngress ingress = AndroidAppLinkRequestFactory.FromIntent(intent, options);
+
+        AssertProvenance(ingress.Request, MauiAppLinkProvenanceProviders.AndroidIntent, incoming);
+        Assert.Equal(MauiExternalNavigationRejectionReason.None, ingress.RejectionReason);
+        Assert.True(intent.HasCategory(AndroidAppLinkRequestFactory.ConsumedCategoryName));
+    }
+
+    [Fact]
+    public void NullAndroidIntentIsIgnored()
+    {
+        var options = new MauiExternalNavigationOptions();
+
+        MauiExternalNavigationIngress ingress = AndroidAppLinkRequestFactory.FromIntent(null, options);
+
+        Assert.Null(ingress.Request);
+        Assert.Equal(MauiExternalNavigationRejectionReason.None, ingress.RejectionReason);
+    }
+
+    private static Intent CreateAndroidIntent(string value)
+    {
+        return new Intent(Intent.ActionView, global::Android.Net.Uri.Parse(value));
+    }
+
+    private static Intent RoundTrip(Intent intent)
+    {
+        using Parcel parcel = Parcel.Obtain();
+        intent.WriteToParcel(parcel, ParcelableWriteFlags.None);
+        parcel.SetDataPosition(0);
+        return (Intent)Intent.Creator!.CreateFromParcel(parcel)!;
+    }
+
+    private static Bundle CreateBundleWithUnavailableParcelable()
+    {
+        const int bundleMagic = 0x4C444E42;
+        const int parcelableValueType = 4;
+
+        using Parcel parcel = Parcel.Obtain();
+        parcel.WriteInt(0);
+        parcel.WriteInt(bundleMagic);
+        int payloadStart = parcel.DataPosition();
+        parcel.WriteInt(1);
+        parcel.WriteString("untrusted");
+        parcel.WriteInt(parcelableValueType);
+        parcel.WriteString("com.example.appnav.UnavailableParcelable");
+        int payloadEnd = parcel.DataPosition();
+        parcel.SetDataPosition(0);
+        parcel.WriteInt(payloadEnd - payloadStart);
+        parcel.SetDataPosition(0);
+        return (Bundle)Bundle.Creator!.CreateFromParcel(parcel)!;
+    }
+#endif
 
     private static void AssertProvenance(
         RouterNavigationRequest? request,
