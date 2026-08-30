@@ -377,11 +377,6 @@ internal static class SymbolFacts
         return type.ToDisplayString(FullyQualifiedNullableTypeFormat);
     }
 
-    public static string MetadataTypeName(ITypeSymbol type)
-    {
-        return type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-    }
-
     public static string Identifier(string name)
     {
         return SyntaxFacts.IsValidIdentifier(name) &&
@@ -484,8 +479,7 @@ internal static class RouteModelFactory
         ParsedRouteTemplate template,
         Location? location,
         AppNavSymbols symbols,
-        Action<Diagnostic> reportDiagnostic,
-        bool includeAttributeQueries = true)
+        Action<Diagnostic> reportDiagnostic)
     {
         var hasErrors = false;
         Dictionary<string, IPropertySymbol> properties = GetPublicProperties(
@@ -513,13 +507,11 @@ internal static class RouteModelFactory
             ReportUnsupportedValueType(routeType, property.Type, parameter.Name, location, reportDiagnostic);
         }
 
-        IReadOnlyList<QueryBinding> queryBindings = includeAttributeQueries
-            ? BuildQueryBindings(routeType, properties, pathProperties, location, reportDiagnostic, ref hasErrors)
-            : Array.Empty<QueryBinding>();
+        IReadOnlyList<QueryBinding> queryBindings =
+            BuildQueryBindings(routeType, properties, pathProperties, location, reportDiagnostic, ref hasErrors);
 
-        IReadOnlyList<MetadataQueryBinding> metadataBindings = includeAttributeQueries
-            ? BuildMetadataBindings(routeType, symbols, queryBindings, reportDiagnostic, ref hasErrors)
-            : Array.Empty<MetadataQueryBinding>();
+        IReadOnlyList<MetadataQueryBinding> metadataBindings =
+            BuildMetadataBindings(routeType, symbols, queryBindings, reportDiagnostic, ref hasErrors);
 
         IMethodSymbol? constructor = SelectConstructor(routeType, template, queryBindings, location, reportDiagnostic, ref hasErrors);
         if (constructor is not null)
@@ -950,7 +942,7 @@ internal static class RouteModelFactory
                 continue;
             }
 
-            if (IsMissingSafeQueryParameter(parameter))
+            if (IsMissingSafeParameter(parameter))
                 continue;
 
             reportDiagnostic(Diagnostic.Create(
@@ -961,11 +953,6 @@ internal static class RouteModelFactory
                 parameter.Name));
             hasErrors = true;
         }
-    }
-
-    private static bool IsMissingSafeQueryParameter(IParameterSymbol parameter)
-    {
-        return IsMissingSafeParameter(parameter);
     }
 
     private static void ValidateOptionalPathConstructorParameters(
@@ -1319,12 +1306,6 @@ internal sealed class ParsedRouteTemplate
         }
 
         return Segments.Count.CompareTo(other.Segments.Count);
-    }
-
-    public bool IsOptionalParameter(string name)
-    {
-        return Parameters.Any(parameter =>
-            parameter.IsOptional && StringComparer.OrdinalIgnoreCase.Equals(parameter.Name, name));
     }
 
     private static bool TryParseSegment(
