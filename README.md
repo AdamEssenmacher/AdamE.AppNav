@@ -241,6 +241,10 @@ window. `FallbackRequestFactory` remains available for advanced consumers that
 need to construct the complete envelope; the two factories are mutually
 exclusive.
 
+An optional final `AddAppNav(...)` callback separately configures router-level
+fallback for unmatched URIs plus redirect and history limits. See the Commerce
+sample for a typed not-found route wired through that callback.
+
 ### 5. Start from the MAUI window
 
 The following snippet is sourced from the buildable sample region

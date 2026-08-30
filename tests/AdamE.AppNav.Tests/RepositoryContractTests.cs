@@ -211,6 +211,7 @@ public sealed class RepositoryContractTests
     public void SampleUsesProductionAppNavWiring()
     {
         var sampleDirectory = Path.Combine(RepositoryRoot(), "samples", "Commerce.Sample");
+        var program = File.ReadAllText(Path.Combine(sampleDirectory, "MauiProgram.cs"));
         var source = string.Join(
             Environment.NewLine,
             Directory.EnumerateFiles(sampleDirectory, "*.cs", SearchOption.AllDirectories)
@@ -230,6 +231,9 @@ public sealed class RepositoryContractTests
         Assert.Contains("IRouterNavigator", source, StringComparison.Ordinal);
         Assert.Contains("CommerceNotFoundRoute", source, StringComparison.Ordinal);
         Assert.Contains("CommerceNotFoundPage", source, StringComparison.Ordinal);
+        Assert.Contains("options.FallbackRouteFactory = context", program, StringComparison.Ordinal);
+        Assert.Contains("new CommerceNotFoundRoute", program, StringComparison.Ordinal);
+        Assert.Contains("context.Request.Uri", program, StringComparison.Ordinal);
         Assert.DoesNotContain("SharedElementNavigationTransition", source, StringComparison.Ordinal);
         Assert.DoesNotContain("AppNavTransition.SetSharedElementId", source, StringComparison.Ordinal);
         Assert.DoesNotContain("HasPendingRequests", source, StringComparison.Ordinal);

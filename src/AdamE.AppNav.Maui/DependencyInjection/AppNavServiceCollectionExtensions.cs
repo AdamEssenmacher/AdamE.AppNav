@@ -39,12 +39,14 @@ public static class AppNavServiceCollectionExtensions
     TPlanner>(
         this IServiceCollection services,
         RouteTable routes,
-        Action<MauiRoutePageRegistry>? configurePages = null)
+        Action<MauiRoutePageRegistry>? configurePages = null,
+        Action<AppNavNavigatorOptions>? configureNavigator = null)
         where TPlanner : class, IAppNavigationPlanner
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(routes);
         EnsureRouterNavigatorIsAvailable(services);
+        AppNavNavigatorOptions navigatorOptions = CreateNavigatorOptions(configureNavigator);
 
         services.AddAppNavCoreServices(routes);
         if (configurePages is not null)
@@ -53,7 +55,7 @@ public static class AppNavServiceCollectionExtensions
         }
 
         services.AddSingleton<IAppNavigationPlanner, TPlanner>();
-        services.AddAppNavRuntime();
+        services.AddAppNavRuntime(navigatorOptions);
 
         return services;
     }
@@ -65,13 +67,15 @@ public static class AppNavServiceCollectionExtensions
         this IServiceCollection services,
         RouteTable routes,
         INavigationModel<TRoute> model,
-        Action<MauiRoutePageRegistry>? configurePages = null)
+        Action<MauiRoutePageRegistry>? configurePages = null,
+        Action<AppNavNavigatorOptions>? configureNavigator = null)
         where TRoute : AppRoute
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(routes);
         ArgumentNullException.ThrowIfNull(model);
         EnsureRouterNavigatorIsAvailable(services);
+        AppNavNavigatorOptions navigatorOptions = CreateNavigatorOptions(configureNavigator);
 
         services.AddAppNavCoreServices(routes);
         if (configurePages is not null)
@@ -81,7 +85,7 @@ public static class AppNavServiceCollectionExtensions
 
         services.AddSingleton(model);
         services.AddSingleton<IAppNavigationPlanner>(new NavigationModelPlanner<TRoute>(model));
-        services.AddAppNavRuntime();
+        services.AddAppNavRuntime(navigatorOptions);
 
         return services;
     }
@@ -148,8 +152,15 @@ public static class AppNavServiceCollectionExtensions
         return services;
     }
 
-    private static IServiceCollection AddAppNavRuntime(this IServiceCollection services)
+    private static IServiceCollection AddAppNavRuntime(
+        this IServiceCollection services,
+        AppNavNavigatorOptions navigatorOptions)
     {
+        Func<NavigationFallbackContext, AppRoute?>? fallbackRouteFactory =
+            navigatorOptions.FallbackRouteFactory;
+        int maxRedirects = navigatorOptions.MaxRedirects;
+        int maxHistoryEntries = navigatorOptions.MaxHistoryEntries;
+
         services.AddAppNavBoundaryServices();
         services.AddAppNavPresentationServices();
         services.TryAddSingleton<IAppNavRuntime>(provider =>
@@ -160,7 +171,10 @@ public static class AppNavServiceCollectionExtensions
                 BackNavigator = provider.GetRequiredService<IBackNavigator>(),
                 LoggerFactory = provider.GetService<ILoggerFactory>(),
                 RequestTransformers = provider.GetServices<INavigationRequestTransformer>().ToArray(),
-                RequestPolicies = provider.GetServices<INavigationRequestPolicy>().ToArray()
+                RequestPolicies = provider.GetServices<INavigationRequestPolicy>().ToArray(),
+                FallbackRouteFactory = fallbackRouteFactory,
+                MaxRedirects = maxRedirects,
+                MaxHistoryEntries = maxHistoryEntries
             };
 
             MauiNavigationPresenter presenter = provider.GetRequiredService<MauiNavigationPresenter>();
@@ -176,6 +190,15 @@ public static class AppNavServiceCollectionExtensions
             (IMauiWindowAttachment)provider.GetRequiredService<IAppNavRuntime>());
 
         return services;
+    }
+
+    private static AppNavNavigatorOptions CreateNavigatorOptions(
+        Action<AppNavNavigatorOptions>? configureNavigator)
+    {
+        var options = new AppNavNavigatorOptions();
+        configureNavigator?.Invoke(options);
+        options.Validate();
+        return options;
     }
 
     private static void EnsureRouterNavigatorIsAvailable(IServiceCollection services)

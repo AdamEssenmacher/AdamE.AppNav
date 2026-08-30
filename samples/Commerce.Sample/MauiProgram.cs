@@ -51,7 +51,9 @@ public static class MauiProgram
 			CommerceNavigationModel.Create(),
 			options => options
 				.AddModule(AppNavGenerated.MauiPageModule)
-				.MapPage<CommerceNotFoundRoute, CommerceNotFoundPage>());
+				.MapPage<CommerceNotFoundRoute, CommerceNotFoundPage>(),
+			options => options.FallbackRouteFactory = context =>
+				new CommerceNotFoundRoute("northwind", context.Request.Uri!));
 
 		return builder.Build();
 	}

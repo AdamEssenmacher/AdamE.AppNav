@@ -15,6 +15,7 @@ public sealed class MauiPublicApiContractTests
                 "AdamE.AppNav.Maui.AppLinks.MauiAppLinkProvenanceProviders",
                 "AdamE.AppNav.Maui.AppLinks.MauiExternalNavigationFailureDisposition",
                 "AdamE.AppNav.Maui.AppLinks.MauiExternalNavigationOptions",
+                "AdamE.AppNav.Maui.AppNavNavigatorOptions",
                 "AdamE.AppNav.Maui.AppNavStartupOptions",
                 "AdamE.AppNav.Maui.AppNavStartupOutcome",
                 "AdamE.AppNav.Maui.AppNavStartupResult",

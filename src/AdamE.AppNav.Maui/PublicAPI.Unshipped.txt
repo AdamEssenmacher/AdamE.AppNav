@@ -1,1 +1,13 @@
 #nullable enable
+*REMOVED*static AdamE.AppNav.Maui.DependencyInjection.AppNavServiceCollectionExtensions.AddAppNav<TPlanner>(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, AdamE.AppNav.Routing.RouteTable! routes, System.Action<AdamE.AppNav.Maui.MauiRoutePageRegistry!>? configurePages = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+*REMOVED*static AdamE.AppNav.Maui.DependencyInjection.AppNavServiceCollectionExtensions.AddAppNav<TRoute>(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, AdamE.AppNav.Routing.RouteTable! routes, AdamE.AppNav.Planning.INavigationModel<TRoute!>! model, System.Action<AdamE.AppNav.Maui.MauiRoutePageRegistry!>? configurePages = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+AdamE.AppNav.Maui.AppNavNavigatorOptions
+AdamE.AppNav.Maui.AppNavNavigatorOptions.AppNavNavigatorOptions() -> void
+AdamE.AppNav.Maui.AppNavNavigatorOptions.FallbackRouteFactory.get -> System.Func<AdamE.AppNav.Navigation.NavigationFallbackContext!, AdamE.AppNav.AppRoute?>?
+AdamE.AppNav.Maui.AppNavNavigatorOptions.FallbackRouteFactory.set -> void
+AdamE.AppNav.Maui.AppNavNavigatorOptions.MaxHistoryEntries.get -> int
+AdamE.AppNav.Maui.AppNavNavigatorOptions.MaxHistoryEntries.set -> void
+AdamE.AppNav.Maui.AppNavNavigatorOptions.MaxRedirects.get -> int
+AdamE.AppNav.Maui.AppNavNavigatorOptions.MaxRedirects.set -> void
+static AdamE.AppNav.Maui.DependencyInjection.AppNavServiceCollectionExtensions.AddAppNav<TPlanner>(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, AdamE.AppNav.Routing.RouteTable! routes, System.Action<AdamE.AppNav.Maui.MauiRoutePageRegistry!>? configurePages = null, System.Action<AdamE.AppNav.Maui.AppNavNavigatorOptions!>? configureNavigator = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static AdamE.AppNav.Maui.DependencyInjection.AppNavServiceCollectionExtensions.AddAppNav<TRoute>(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, AdamE.AppNav.Routing.RouteTable! routes, AdamE.AppNav.Planning.INavigationModel<TRoute!>! model, System.Action<AdamE.AppNav.Maui.MauiRoutePageRegistry!>? configurePages = null, System.Action<AdamE.AppNav.Maui.AppNavNavigatorOptions!>? configureNavigator = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!

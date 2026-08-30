@@ -110,6 +110,27 @@ built-in MAUI presenter. Do not register or replace an unkeyed navigator when us
 may coexist for unrelated flows. Advanced hosts that need a custom navigator must instead own the complete
 navigator/presenter pair through `RouterNavigatorFactory` and skip the MAUI `AddAppNav(...)` composition helper.
 
+The final `AddAppNav(...)` callback configures the three app-owned router settings. Its
+`FallbackRouteFactory` runs only when a URI has no matching route; `MaxRedirects` and
+`MaxHistoryEntries` default to 16 and 128. Startup fallback remains a separate concern configured through
+`AddAppNavStartup(...)`:
+
+```csharp
+services.AddAppNav(
+    routes,
+    model,
+    pages => pages.AddModule(AppNavGenerated.MauiPageModule),
+    navigator =>
+    {
+        navigator.FallbackRouteFactory = context => new NotFoundRoute(context.Request.Uri!);
+        navigator.MaxRedirects = 16;
+        navigator.MaxHistoryEntries = 128;
+    });
+```
+
+Diagnostics, logging, request transformers, request policies, back navigation, presenter ownership, and initial state
+remain owned by the MAUI composition root and are not replaceable through this callback.
+
 `AddAppNav(...)` discovers `INavigationRequestTransformer` and `INavigationRequestPolicy` registrations in order.
 Transformers run before route matching, including for unmatched and redirected targets. Policies run after matching and
 use `NavigationRequestPolicyContext.Route` for the resolved route and `RouteMetadata` for metadata produced by the
