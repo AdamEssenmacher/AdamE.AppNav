@@ -8,6 +8,7 @@ public sealed class RouteFormatBuilder<TRoute>
     private readonly Dictionary<string, PathFormatter<TRoute>> _pathParams = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<QueryFormatter<TRoute>> _queryParams = [];
     private readonly List<MetadataQueryFormatter> _metadataQueryParams = [];
+    private readonly HashSet<string> _queryNames = new(StringComparer.OrdinalIgnoreCase);
 
     public RouteFormatBuilder<TRoute> PathParam(string name, Func<TRoute, object?> value)
     {
@@ -57,6 +58,10 @@ public sealed class RouteFormatBuilder<TRoute>
         bool omitWhenNull = true)
     {
         ArgumentNullException.ThrowIfNull(key);
+
+        if (!_queryNames.Add(key.Name))
+            throw new InvalidOperationException(
+                $"Query binding for query parameter '{key.Name}' is already registered for route type '{typeof(TRoute).FullName}'.");
 
         _metadataQueryParams.Add(
             new MetadataQueryFormatter(key.Name, key.Name, RouteMetadataKey<TValue>.ValueType, omitWhenNull));
@@ -141,7 +146,10 @@ public sealed class RouteFormatBuilder<TRoute>
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentNullException.ThrowIfNull(value);
 
-        _pathParams[name] = new PathFormatter<TRoute>(value, declaredType);
+        if (!_pathParams.TryAdd(name, new PathFormatter<TRoute>(value, declaredType)))
+            throw new InvalidOperationException(
+                $"Path formatter for path parameter '{name}' is already registered for route type '{typeof(TRoute).FullName}'.");
+
         return this;
     }
 
@@ -154,6 +162,10 @@ public sealed class RouteFormatBuilder<TRoute>
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentNullException.ThrowIfNull(value);
+
+        if (!_queryNames.Add(name))
+            throw new InvalidOperationException(
+                $"Query binding for query parameter '{name}' is already registered for route type '{typeof(TRoute).FullName}'.");
 
         _queryParams.Add(
             new QueryFormatter<TRoute>(name, value, omitWhenNull, declaredType, collectionElementType));
