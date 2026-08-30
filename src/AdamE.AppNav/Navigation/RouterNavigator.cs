@@ -15,6 +15,8 @@ namespace AdamE.AppNav.Navigation;
 
 internal sealed class RouterNavigator : IRouterNavigator
 {
+    private static readonly AsyncLocal<RouterOperationContext?> CurrentOperationContext = new();
+
     private readonly IAppNavigationPlanner _planner;
     private readonly INavigationPresenter _presenter;
     private readonly IBackNavigator _backNavigator;
@@ -79,12 +81,16 @@ internal sealed class RouterNavigator : IRouterNavigator
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        BeginOperation();
 
+        RouterOperationContext? operationContext = null;
+        var operationAdmitted = false;
         var lockTaken = false;
         CancellationTokenSource? linkedCancellation = null;
         try
         {
+            operationContext = EnterOperationContext();
+            BeginOperation();
+            operationAdmitted = true;
             CancellationToken operationCancellation = CreateOperationCancellation(
                 cancellationToken,
                 out linkedCancellation);
@@ -94,11 +100,7 @@ internal sealed class RouterNavigator : IRouterNavigator
         }
         finally
         {
-            if (lockTaken)
-                _operationLock.Release();
-
-            linkedCancellation?.Dispose();
-            EndOperation();
+            ExitOperation(operationContext, lockTaken, linkedCancellation, operationAdmitted);
         }
     }
 
@@ -106,12 +108,15 @@ internal sealed class RouterNavigator : IRouterNavigator
         string? windowId = null,
         CancellationToken cancellationToken = default)
     {
-        BeginOperation();
-
+        RouterOperationContext? operationContext = null;
+        var operationAdmitted = false;
         var lockTaken = false;
         CancellationTokenSource? linkedCancellation = null;
         try
         {
+            operationContext = EnterOperationContext();
+            BeginOperation();
+            operationAdmitted = true;
             CancellationToken operationCancellation = CreateOperationCancellation(
                 cancellationToken,
                 out linkedCancellation);
@@ -121,11 +126,7 @@ internal sealed class RouterNavigator : IRouterNavigator
         }
         finally
         {
-            if (lockTaken)
-                _operationLock.Release();
-
-            linkedCancellation?.Dispose();
-            EndOperation();
+            ExitOperation(operationContext, lockTaken, linkedCancellation, operationAdmitted);
         }
     }
 
@@ -134,12 +135,16 @@ internal sealed class RouterNavigator : IRouterNavigator
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(reconciliation);
-        BeginOperation();
 
+        RouterOperationContext? operationContext = null;
+        var operationAdmitted = false;
         var lockTaken = false;
         CancellationTokenSource? linkedCancellation = null;
         try
         {
+            operationContext = EnterOperationContext();
+            BeginOperation();
+            operationAdmitted = true;
             CancellationToken operationCancellation = CreateOperationCancellation(
                 cancellationToken,
                 out linkedCancellation);
@@ -149,11 +154,7 @@ internal sealed class RouterNavigator : IRouterNavigator
         }
         finally
         {
-            if (lockTaken)
-                _operationLock.Release();
-
-            linkedCancellation?.Dispose();
-            EndOperation();
+            ExitOperation(operationContext, lockTaken, linkedCancellation, operationAdmitted);
         }
     }
 
@@ -494,21 +495,24 @@ internal sealed class RouterNavigator : IRouterNavigator
                             (RouterNavigator navigator, NavigationReconciliation nextReconciliation) =
                                 ((RouterNavigator, NavigationReconciliation))state!;
                             var lockTaken = false;
+                            RouterOperationContext? operationContext = null;
                             try
                             {
                                 await navigator._operationLock.WaitAsync(
                                     navigator._shutdownCancellation.Token).ConfigureAwait(false);
                                 lockTaken = true;
+                                operationContext = navigator.EnterOperationContext();
                                 await navigator.ReconcileAdmittedAsync(
                                     nextReconciliation,
                                     navigator._shutdownCancellation.Token).ConfigureAwait(false);
                             }
                             finally
                             {
-                                if (lockTaken)
-                                    navigator._operationLock.Release();
-
-                                navigator.EndOperation();
+                                navigator.ExitOperation(
+                                    operationContext,
+                                    lockTaken,
+                                    linkedCancellation: null,
+                                    operationAdmitted: true);
                             }
                         },
                         (this, reconciliation),
@@ -570,6 +574,52 @@ internal sealed class RouterNavigator : IRouterNavigator
     {
         if (!TryBeginOperation())
             throw new ObjectDisposedException(nameof(RouterNavigator));
+    }
+
+    private RouterOperationContext EnterOperationContext()
+    {
+        RouterOperationContext? current = CurrentOperationContext.Value;
+        for (RouterOperationContext? candidate = current; candidate is not null; candidate = candidate.Parent)
+        {
+            if (candidate.IsActive && ReferenceEquals(candidate.Navigator, this))
+            {
+                throw new InvalidOperationException(
+                    "Reentrant router operations are not supported. NavigateAsync, BackAsync, and ReconcileAsync " +
+                    "cannot be called on the same RouterNavigator until its current operation has completed.");
+            }
+        }
+
+        var context = new RouterOperationContext(this, current);
+        CurrentOperationContext.Value = context;
+        return context;
+    }
+
+    private void ExitOperation(
+        RouterOperationContext? operationContext,
+        bool lockTaken,
+        CancellationTokenSource? linkedCancellation,
+        bool operationAdmitted)
+    {
+        // A waiter may have captured this execution context. Mark its token inactive before waking the waiter so the
+        // completed operation is not mistaken for reentrancy in that continuation.
+        operationContext?.Deactivate();
+        try
+        {
+            if (lockTaken)
+                _operationLock.Release();
+        }
+        finally
+        {
+            try
+            {
+                linkedCancellation?.Dispose();
+            }
+            finally
+            {
+                if (operationAdmitted)
+                    EndOperation();
+            }
+        }
     }
 
     private bool TryBeginOperation()
@@ -712,6 +762,26 @@ internal sealed class RouterNavigator : IRouterNavigator
             callerCancellation,
             _shutdownCancellation.Token);
         return linkedCancellation.Token;
+    }
+
+    private sealed class RouterOperationContext(
+        RouterNavigator navigator,
+        RouterOperationContext? parent)
+    {
+        private int _active = 1;
+
+        public RouterNavigator Navigator { get; } = navigator;
+
+        public RouterOperationContext? Parent { get; } = parent;
+
+        public bool IsActive => Volatile.Read(ref _active) != 0;
+
+        public void Deactivate()
+        {
+            Volatile.Write(ref _active, 0);
+            if (ReferenceEquals(CurrentOperationContext.Value, this))
+                CurrentOperationContext.Value = Parent;
+        }
     }
 
     private sealed record ReconciledRoute : AppRoute;
