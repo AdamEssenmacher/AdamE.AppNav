@@ -222,7 +222,7 @@ public sealed class DeferredNavigationRequestSerializer(
         IReadOnlyDictionary<string, object?>? deserializedCustomMetadata =
             _options.MetadataSerializer.Deserialize(customMetadata);
         if (deserializedCustomMetadata is not { Count: > 0 })
-            throw new InvalidOperationException("The custom metadata serializer did not restore persisted metadata.");
+            return restored;
 
         restored ??= new Dictionary<string, object?>(StringComparer.Ordinal);
         foreach (KeyValuePair<string, object?> pair in deserializedCustomMetadata)

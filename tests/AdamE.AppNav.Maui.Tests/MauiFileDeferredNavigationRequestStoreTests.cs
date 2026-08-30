@@ -171,6 +171,99 @@ public sealed class MauiFileDeferredNavigationRequestStoreTests
         }
     }
 
+    [Theory]
+    [InlineData(DroppedMetadataResult.Null)]
+    [InlineData(DroppedMetadataResult.Empty)]
+    public async Task Load_CustomMetadataDeserializerDropsValuesWithoutQuarantineAndPreservesFifo(
+        DroppedMetadataResult droppedMetadataResult)
+    {
+        var draftId = new RouteMetadataKey<string>("draftId");
+        var routes = RouteTable.Create(builder => builder.MapRoute<TestRoute>("/stores/{id}"));
+        var registry = RouteStateRegistry.Create(builder => builder.Restorable(draftId));
+        var directory = CreateStoreDirectory();
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "deferred-requests.json");
+        var now = new DateTimeOffset(2026, 8, 1, 12, 0, 0, TimeSpan.Zero);
+        var timeProvider = new ManualTimeProvider(now);
+
+        try
+        {
+            var initial = new MauiFileDeferredNavigationRequestStore(
+                routes,
+                new MauiFileDeferredNavigationRequestStoreOptions
+                {
+                    Path = path,
+                    BaseUri = BaseUri,
+                    MetadataSerializer = new PassThroughMetadataSerializer(),
+                    RouteStateRegistry = registry
+                },
+                timeProvider: timeProvider);
+            await initial.EnqueueAsync(RouterNavigationRequest.FromRoute(
+                new TestRoute("first"),
+                NavigationRequestSource.AppLink,
+                metadata: new Dictionary<string, object?>
+                {
+                    [draftId.Name] = "draft-first",
+                    ["tracking-id"] = "tracking-first"
+                }) with
+            {
+                Timestamp = now - TimeSpan.FromMinutes(2)
+            });
+            await initial.EnqueueAsync(RouterNavigationRequest.FromRoute(
+                new TestRoute("second"),
+                NavigationRequestSource.AppLink,
+                metadata: new Dictionary<string, object?>
+                {
+                    [draftId.Name] = "draft-second",
+                    ["tracking-id"] = "tracking-second"
+                }) with
+            {
+                Timestamp = now - TimeSpan.FromMinutes(1)
+            });
+            Assert.Contains("tracking-id", await File.ReadAllTextAsync(path), StringComparison.Ordinal);
+
+            var diagnostics = new NavigationDiagnostics();
+            var events = new List<NavigationDiagnosticEvent>();
+            diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+            var reopened = new MauiFileDeferredNavigationRequestStore(
+                routes,
+                new MauiFileDeferredNavigationRequestStoreOptions
+                {
+                    Path = path,
+                    BaseUri = BaseUri,
+                    MetadataSerializer = new DroppingMetadataSerializer(droppedMetadataResult),
+                    RouteStateRegistry = registry
+                },
+                diagnostics,
+                timeProvider: timeProvider);
+
+            await using IDeferredNavigationRequestLease lease = await reopened.AcquireReplayLeaseAsync();
+
+            Assert.Equal(
+                ["first", "second"],
+                lease.Requests.Select(static request => Assert.IsType<TestRoute>(request.Route).Id).ToArray());
+            Assert.Equal("draft-first", lease.Requests[0].Metadata[draftId.Name]);
+            Assert.Equal("draft-second", lease.Requests[1].Metadata[draftId.Name]);
+            Assert.All(lease.Requests, request => Assert.False(request.Metadata.ContainsKey("tracking-id")));
+            Assert.DoesNotContain(events, diagnosticEvent =>
+                diagnosticEvent.Kind == NavigationDiagnosticEventKind.DeferredRequestStoreQuarantined);
+            Assert.Empty(Directory.GetFiles(directory, "deferred-requests.json.invalid-*"));
+            Assert.Empty(Directory.GetFiles(directory, "deferred-requests.json.future-*"));
+
+            DeferredNavigationRequestStoreSnapshot rewritten = JsonSerializer.Deserialize(
+                await File.ReadAllTextAsync(path),
+                AppNavJsonSerializerContext.Default.DeferredNavigationRequestStoreSnapshot)!;
+            Assert.Equal(2, rewritten.Requests.Count);
+            Assert.Equal("draft-first", rewritten.Requests[0].Metadata![draftId.Name].Value);
+            Assert.Equal("draft-second", rewritten.Requests[1].Metadata![draftId.Name].Value);
+            Assert.All(rewritten.Requests, request => Assert.False(request.Metadata!.ContainsKey("tracking-id")));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task HasDeferredRequestsAsync_MalformedJson_QuarantinesOriginalBytesAndContinuesEmpty()
     {
@@ -1086,6 +1179,23 @@ public sealed class MauiFileDeferredNavigationRequestStoreTests
         public IReadOnlyDictionary<string, object?>? Serialize(IReadOnlyDictionary<string, object?> metadata) => metadata;
 
         public IReadOnlyDictionary<string, object?>? Deserialize(IReadOnlyDictionary<string, object?> metadata) => metadata;
+    }
+
+    private sealed class DroppingMetadataSerializer(DroppedMetadataResult result)
+        : INavigationRequestMetadataSerializer
+    {
+        public IReadOnlyDictionary<string, object?>? Serialize(IReadOnlyDictionary<string, object?> metadata) => metadata;
+
+        public IReadOnlyDictionary<string, object?>? Deserialize(IReadOnlyDictionary<string, object?> metadata) =>
+            result == DroppedMetadataResult.Null
+                ? null
+                : new Dictionary<string, object?>(StringComparer.Ordinal);
+    }
+
+    public enum DroppedMetadataResult
+    {
+        Null,
+        Empty
     }
 
     private sealed class ThrowingMoveOperations : IMauiDeferredNavigationFileOperations
