@@ -85,6 +85,26 @@ public sealed class DeferredNavigationRequestSerializerTests
         Assert.Equal("mission-1", restored.Metadata[missionId.Name]);
     }
 
+    [Fact]
+    public void CreateSnapshot_RejectsRouteWithAnOptionalPathHole()
+    {
+        var routes = RouteTable.Create(builder => builder.MapRoute<OptionalReportRoute>(
+            "/reports/{year?}/{month?}"));
+        var serializer = new DeferredNavigationRequestSerializer(routes, new DeferredNavigationRequestPersistenceOptions
+        {
+            BaseUri = BaseUri
+        });
+        var request = RouterNavigationRequest.FromRoute(
+            new OptionalReportRoute(null, "august"),
+            NavigationRequestSource.InAppCommand);
+
+        var exception = Assert.Throws<InvalidOperationException>(() => serializer.CreateSnapshot([request]));
+
+        Assert.Contains("/reports/{year?}/{month?}", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("year", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("month", exception.Message, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(1)]
@@ -389,4 +409,6 @@ public sealed class DeferredNavigationRequestSerializerTests
     }
 
     private readonly record struct DraftId(Guid Value);
+
+    private sealed record OptionalReportRoute(string? Year, string? Month) : AppRoute;
 }

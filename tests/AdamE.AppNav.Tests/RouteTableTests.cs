@@ -191,6 +191,96 @@ public sealed class RouteTableTests
     }
 
     [Fact]
+    public void RouteTemplateFormatRejectsPathDataAfterTheFirstMissingOptionalParameter()
+    {
+        RouteTemplate template = RouteTemplate.Parse("/reports/{year?}/{month?}");
+
+        var exception = Assert.Throws<InvalidOperationException>(() => template.Format(
+            new Dictionary<string, string> { ["month"] = "august" }));
+
+        Assert.Equal(
+            "Route template '/reports/{year?}/{month?}' cannot format path parameter 'month' " +
+            "because optional path parameter 'year' was omitted.",
+            exception.Message);
+    }
+
+    [Fact]
+    public void RouteTemplateFormatRejectsNonemptyCatchAllAfterAnOptionalHole()
+    {
+        RouteTemplate template = RouteTemplate.Parse("/reports/{year?}/{*path}");
+
+        var exception = Assert.Throws<InvalidOperationException>(() => template.Format(
+            new Dictionary<string, string> { ["path"] = "monthly/august" }));
+
+        Assert.Equal(
+            "Route template '/reports/{year?}/{*path}' cannot format path parameter 'path' " +
+            "because optional path parameter 'year' was omitted.",
+            exception.Message);
+        Assert.Equal(
+            "/reports",
+            template.Format(new Dictionary<string, string> { ["path"] = "///" }));
+    }
+
+    [Fact]
+    public void RouteTemplateFormatPreservesContiguousOptionalPrefixesAndRoundTrips()
+    {
+        RouteTemplate template = RouteTemplate.Parse("/reports/{year?}/{month?}/{*path}");
+        IReadOnlyDictionary<string, string>[] values =
+        [
+            new Dictionary<string, string>(),
+            new Dictionary<string, string> { ["year"] = "2026" },
+            new Dictionary<string, string> { ["year"] = "2026", ["month"] = "august" },
+            new Dictionary<string, string>
+            {
+                ["year"] = "2026",
+                ["month"] = "august",
+                ["path"] = "daily/30"
+            }
+        ];
+
+        foreach (IReadOnlyDictionary<string, string> pathValues in values)
+        {
+            string path = template.Format(pathValues);
+            IReadOnlyDictionary<string, string> matched = Assert.IsAssignableFrom<IReadOnlyDictionary<string, string>>(
+                template.Match(path));
+
+            Assert.Equal(path, template.Format(matched));
+        }
+    }
+
+    [Fact]
+    public void ExplicitRouteBinderRejectsAnOptionalPathHole()
+    {
+        var table = RouteTable.Create(routes => routes.Map(
+            "/reports/{year?}/{month?}",
+            match => new OptionalReportRoute(match.PathOptional("year"), match.PathOptional("month")),
+            format => format
+                .PathParam("year", route => route.Year)
+                .PathParam("month", route => route.Month)));
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            table.Format(new OptionalReportRoute(null, "august")));
+
+        Assert.Contains("/reports/{year?}/{month?}", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("year", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("month", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ConventionRouteBinderRejectsAnOptionalPathHole()
+    {
+        var table = RouteTable.Create(routes => routes.MapRoute<OptionalReportRoute>(
+            "/reports/{year?}/{month?}"));
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            table.Format(new OptionalReportRoute(null, "august")));
+
+        Assert.Contains("/reports/{year?}/{month?}", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("year", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("month", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ConstrainedOptionalRoutesBeatUnconstrainedRequiredRoutes()
     {
         var table = RouteTable.Create(routes => routes
@@ -1230,6 +1320,8 @@ public sealed class RouteTableTests
     private sealed record StoreSectionRoute(string StoreId, string? Section) : AppRoute;
 
     private sealed record OptionalProductRoute(int? ProductId) : AppRoute;
+
+    private sealed record OptionalReportRoute(string? Year, string? Month) : AppRoute;
 
     private sealed record RequiredProductIdRoute(int ProductId) : AppRoute;
 
