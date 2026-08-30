@@ -24,6 +24,8 @@ internal sealed class MauiNavigationPresenter :
     private readonly Dictionary<NavigationPage, string> _navigationPageStackIds = new(PageReferenceComparer<NavigationPage>.Instance);
     private readonly Dictionary<NavigationPage, IReadOnlyList<Page>> _navigationPageKnownPages =
         new(PageReferenceComparer<NavigationPage>.Instance);
+    private readonly Dictionary<NavigationPage, SuppressedNavigationPop> _suppressedNavigationPops =
+        new(PageReferenceComparer<NavigationPage>.Instance);
     private readonly HashSet<TabbedPage> _trackedTabbedPages = new(PageReferenceComparer<TabbedPage>.Instance);
     private readonly HashSet<Page> _trackedModalPages = new(PageReferenceComparer<Page>.Instance);
     private readonly ConditionalWeakTable<Page, ReleasedPageMarker> _releasedPages = new();
@@ -39,6 +41,9 @@ internal sealed class MauiNavigationPresenter :
     private string _lifecycleOperationId = CreateOperationId();
     private string? _activeOperationId;
     private bool _suppressReconciliation;
+    private bool _suppressedNavigationPopDrainQueued;
+    private bool _hostBackReconciliationPending;
+    private AppRoute? _pendingHostBackRoute;
     private bool _disposed;
     private bool _shutdownSignalIssued;
     private bool _shutdownCancellationCompleted;
@@ -279,6 +284,8 @@ internal sealed class MauiNavigationPresenter :
         detachedCandidates.UnionWith(_trackedModalPages);
         foreach (IReadOnlyList<Page> knownPages in _navigationPageKnownPages.Values)
             detachedCandidates.UnionWith(knownPages);
+        foreach (SuppressedNavigationPop pendingPop in _suppressedNavigationPops.Values)
+            detachedCandidates.UnionWith(pendingPop.KnownPages);
         CurrentPage = null;
         try
         {
@@ -312,6 +319,9 @@ internal sealed class MauiNavigationPresenter :
         _attachedWindowId = null;
         _navigationPageStackIds.Clear();
         _navigationPageKnownPages.Clear();
+        _suppressedNavigationPops.Clear();
+        _hostBackReconciliationPending = false;
+        _pendingHostBackRoute = null;
         _trackedTabbedPages.Clear();
         _trackedModalPages.Clear();
         _lastState = NavigationState.Empty;
@@ -493,13 +503,8 @@ internal sealed class MauiNavigationPresenter :
                 out linkedCancellation);
             await _presentationOperationLock.WaitAsync(operationCancellation).ConfigureAwait(false);
             lockTaken = true;
-            if (MainThread.IsMainThread)
-            {
-                await ApplyOnMainThreadAsync(plan, context, operationCancellation);
-                return;
-            }
-
-            await MainThread.InvokeOnMainThreadAsync(() => ApplyOnMainThreadAsync(plan, context, operationCancellation));
+            await InvokeOnMainThreadPreservingExecutionContextAsync(
+                () => ApplyOnMainThreadAsync(plan, context, operationCancellation));
         }
         finally
         {
@@ -511,6 +516,25 @@ internal sealed class MauiNavigationPresenter :
         }
     }
 
+    private static Task InvokeOnMainThreadPreservingExecutionContextAsync(Func<Task> callback)
+    {
+        ArgumentNullException.ThrowIfNull(callback);
+        if (MainThread.IsMainThread)
+            return callback();
+
+        ExecutionContext executionContext = ExecutionContext.Capture() ??
+            throw new InvalidOperationException(
+                "MAUI presentation cannot switch to the main thread while execution-context flow is suppressed.");
+
+        return MainThread.InvokeOnMainThreadAsync(() =>
+        {
+            Task? callbackTask = null;
+            ExecutionContext.Run(executionContext, _ => callbackTask = callback(), null);
+            return callbackTask ?? throw new InvalidOperationException(
+                "The main-thread presentation callback did not return a task.");
+        });
+    }
+
     private async Task ApplyOnMainThreadAsync(
         NavigationPlan plan,
         NavigationPresentationContext context,
@@ -518,6 +542,7 @@ internal sealed class MauiNavigationPresenter :
     {
         cancellationToken.ThrowIfCancellationRequested();
         ValidatePlanForMaui(plan);
+        bool previousSuppressReconciliation = _suppressReconciliation;
         _suppressReconciliation = true;
         _activeOperationId = context.OperationId;
         var transaction = new MauiPresentationTransaction(this);
@@ -545,22 +570,37 @@ internal sealed class MauiNavigationPresenter :
             }
 
             cancellationToken.ThrowIfCancellationRequested();
-            VerifyPresentation(plan.TargetState, context.OperationId);
-            _lastState = plan.TargetState;
+            SuppressedNavigationPopFold popFold = await FoldSuppressedNavigationPopsAsync(
+                plan.TargetState,
+                transaction,
+                cancellationToken);
+            VerifyPresentation(popFold.EffectiveState, context.OperationId);
+            _lastState = popFold.EffectiveState;
             _activeTransaction = null;
             await transaction.CommitAsync();
+            if (popFold.LogicalStateChanged)
+                MarkHostBackReconciliationPending(popFold.Route);
         }
         catch (Exception presentationException)
         {
             _activeTransaction = null;
-            await RollbackOrRecoverAsync(transaction, context.OperationId, presentationException);
+            try
+            {
+                await RollbackOrRecoverAsync(transaction, context.OperationId, presentationException);
+            }
+            finally
+            {
+                DiscardSuppressedNavigationPops();
+            }
 
             throw;
         }
         finally
         {
             _activeOperationId = null;
-            _suppressReconciliation = false;
+            _suppressReconciliation = previousSuppressReconciliation;
+            if (!previousSuppressReconciliation)
+                ScheduleSuppressedNavigationPopDrain();
         }
     }
 
@@ -767,15 +807,32 @@ internal sealed class MauiNavigationPresenter :
             cancellationToken.ThrowIfCancellationRequested();
             await _nativeOperations.PushAsync(navigationPage, page, options.Animated);
             cancellationToken.ThrowIfCancellationRequested();
-            VerifyPresentationPush(navigationPage, previousStack, page);
+            SuppressedNavigationPopFold popFold = await FoldSuppressedNavigationPopsAsync(
+                _lastState,
+                transaction,
+                cancellationToken);
+            if (popFold.HadExternalPop)
+                VerifyPresentation(popFold.EffectiveState, operationId);
+            else
+                VerifyPresentationPush(navigationPage, previousStack, page);
             UpdateKnownNavigationPages(navigationPage);
+            _lastState = popFold.EffectiveState;
             _activeTransaction = null;
             await transaction.CommitAsync();
+            if (popFold.LogicalStateChanged)
+                MarkHostBackReconciliationPending(popFold.Route);
         }
         catch (Exception presentationException)
         {
             _activeTransaction = null;
-            await RollbackOrRecoverAsync(transaction, operationId, presentationException);
+            try
+            {
+                await RollbackOrRecoverAsync(transaction, operationId, presentationException);
+            }
+            finally
+            {
+                DiscardSuppressedNavigationPops();
+            }
             throw;
         }
         finally
@@ -783,6 +840,8 @@ internal sealed class MauiNavigationPresenter :
             _activeTransaction = null;
             _activeOperationId = previousOperationId;
             _suppressReconciliation = previousSuppressReconciliation;
+            if (!previousSuppressReconciliation)
+                ScheduleSuppressedNavigationPopDrain();
         }
     }
 
@@ -818,16 +877,33 @@ internal sealed class MauiNavigationPresenter :
         {
             Page? removed = await _nativeOperations.PopAsync(navigationPage, animated);
             cancellationToken.ThrowIfCancellationRequested();
-            VerifyPresentationPop(navigationPage, previousStack, expectedPage, removed);
+            SuppressedNavigationPopFold popFold = await FoldSuppressedNavigationPopsAsync(
+                _lastState,
+                transaction,
+                cancellationToken);
+            if (popFold.HadExternalPop)
+                VerifyPresentation(popFold.EffectiveState, operationId);
+            else
+                VerifyPresentationPop(navigationPage, previousStack, expectedPage, removed);
             UpdateKnownNavigationPages(navigationPage);
+            _lastState = popFold.EffectiveState;
             _activeTransaction = null;
             await transaction.CommitAsync();
+            if (popFold.LogicalStateChanged)
+                MarkHostBackReconciliationPending(popFold.Route);
             return true;
         }
         catch (Exception presentationException)
         {
             _activeTransaction = null;
-            await RollbackOrRecoverAsync(transaction, operationId, presentationException);
+            try
+            {
+                await RollbackOrRecoverAsync(transaction, operationId, presentationException);
+            }
+            finally
+            {
+                DiscardSuppressedNavigationPops();
+            }
             throw;
         }
         finally
@@ -835,6 +911,8 @@ internal sealed class MauiNavigationPresenter :
             _activeTransaction = null;
             _activeOperationId = previousOperationId;
             _suppressReconciliation = previousSuppressReconciliation;
+            if (!previousSuppressReconciliation)
+                ScheduleSuppressedNavigationPopDrain();
         }
     }
 
@@ -1708,13 +1786,19 @@ internal sealed class MauiNavigationPresenter :
 
     private void OnNavigationPagePopped(object? sender, NavigationEventArgs e)
     {
-        if (_suppressReconciliation || sender is not NavigationPage navigationPage)
+        if (sender is not NavigationPage navigationPage)
         {
             return;
         }
 
         if (!_navigationPageStackIds.TryGetValue(navigationPage, out var stackId))
         {
+            return;
+        }
+
+        if (_suppressReconciliation)
+        {
+            CaptureSuppressedNavigationPop(navigationPage, stackId, e.Page);
             return;
         }
 
@@ -1728,6 +1812,317 @@ internal sealed class MauiNavigationPresenter :
     private void OnNavigationPagePoppedToRoot(object? sender, NavigationEventArgs e)
     {
         OnNavigationPagePopped(sender, e);
+    }
+
+    private void CaptureSuppressedNavigationPop(
+        NavigationPage navigationPage,
+        string stackId,
+        Page poppedPage)
+    {
+        Page[] remainingPages = navigationPage.Navigation.NavigationStack.ToArray();
+        if (_suppressedNavigationPops.TryGetValue(navigationPage, out SuppressedNavigationPop? existing) &&
+            StringComparer.Ordinal.Equals(existing.StackId, stackId))
+        {
+            Page[] updatedKnownPages = existing.KnownPages.Any(page => ReferenceEquals(page, poppedPage))
+                ? existing.KnownPages.ToArray()
+                : [.. existing.KnownPages, poppedPage];
+            _suppressedNavigationPops[navigationPage] = existing with
+            {
+                KnownPages = updatedKnownPages,
+                RemainingPages = remainingPages
+            };
+            return;
+        }
+
+        Page[] knownPages;
+        if (_navigationPageKnownPages.TryGetValue(navigationPage, out IReadOnlyList<Page>? known))
+        {
+            knownPages = known.ToArray();
+        }
+        else
+        {
+            knownPages = [.. remainingPages, poppedPage];
+        }
+
+        if (!knownPages.Any(page => ReferenceEquals(page, poppedPage)))
+            knownPages = [.. knownPages, poppedPage];
+
+        _suppressedNavigationPops[navigationPage] = new SuppressedNavigationPop(
+            navigationPage,
+            _attachedWindowId ?? _lastState.ActiveWindowId,
+            stackId,
+            FindOwningModalId(navigationPage),
+            ReferenceEquals(ResolveTopNavigationPage(CurrentPage), navigationPage),
+            knownPages,
+            remainingPages);
+    }
+
+    private async Task<SuppressedNavigationPopFold> FoldSuppressedNavigationPopsAsync(
+        NavigationState initialState,
+        MauiPresentationTransaction? transaction,
+        CancellationToken cancellationToken)
+    {
+        NavigationState effectiveState = initialState;
+        var hadExternalPop = false;
+        var logicalStateChanged = false;
+        AppRoute? route = null;
+
+        while (_suppressedNavigationPops.Count > 0)
+        {
+            SuppressedNavigationPop[] pendingPops = _suppressedNavigationPops.Values.ToArray();
+            _suppressedNavigationPops.Clear();
+
+            foreach (SuppressedNavigationPop pendingPop in pendingPops)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var remainingPages = pendingPop.RemainingPages
+                    .ToHashSet(PageReferenceComparer<Page>.Instance);
+                Page[] removedPages = pendingPop.KnownPages
+                    .Where(page => !remainingPages.Contains(page))
+                    .Reverse()
+                    .ToArray();
+                if (removedPages.Length == 0)
+                    continue;
+
+                bool accountedByTransaction = transaction is not null &&
+                    removedPages.All(transaction.IsRetired);
+                if (accountedByTransaction)
+                    continue;
+
+                hadExternalPop = true;
+                if (transaction is not null)
+                {
+                    foreach (Page removedPage in removedPages)
+                        transaction.Retire(removedPage);
+                }
+                else
+                {
+                    foreach (Page removedPage in removedPages)
+                        await ReleaseAndDiagnoseAsync(removedPage);
+                }
+
+                if (!TryResolveCapturedNavigationHost(
+                        effectiveState,
+                        pendingPop,
+                        out WindowNode? window,
+                        out StackNode? targetStack))
+                {
+                    continue;
+                }
+
+                MauiNavigationStackProjection remainingProjection =
+                    MauiNavigationStackProjection.Create(pendingPop.RemainingPages);
+                if (remainingProjection.Error is { } projectionError)
+                {
+                    WriteSuppressedPopProjectionFailure(projectionError);
+                    continue;
+                }
+
+                string[] remainingRouteEntryIds = remainingProjection.Segments
+                    .Select(static segment => segment.RouteEntryId)
+                    .ToArray();
+                string[] targetRouteEntryIds = targetStack.Entries
+                    .Select(static entry => entry.Id)
+                    .ToArray();
+                bool changesLogicalState = !targetRouteEntryIds.SequenceEqual(
+                    remainingRouteEntryIds,
+                    StringComparer.Ordinal);
+
+                WindowNode effectiveWindow = window;
+                if (changesLogicalState)
+                {
+                    WindowNode? updatedWindow = UpdateWindowContent(
+                        window,
+                        pendingPop.OwnerModalId,
+                        node => UpdateStackFromNative(node, pendingPop.StackId, remainingRouteEntryIds));
+                    if (updatedWindow is null)
+                        continue;
+
+                    effectiveWindow = updatedWindow;
+                }
+
+                StackNode? effectiveStack = FindStack(
+                    effectiveWindow,
+                    pendingPop.OwnerModalId,
+                    pendingPop.StackId);
+                if (effectiveStack is null)
+                    continue;
+
+                await RestoreNavigationStackToPopSnapshotAsync(
+                    pendingPop,
+                    effectiveStack,
+                    cancellationToken);
+
+                if (changesLogicalState)
+                {
+                    effectiveState = effectiveState.ReplaceWindow(effectiveWindow);
+                    logicalStateChanged = true;
+                    route = FindTopRouteForPresentedNode(effectiveWindow, pendingPop.OwnerModalId);
+                }
+            }
+        }
+
+        return new SuppressedNavigationPopFold(
+            effectiveState,
+            hadExternalPop,
+            logicalStateChanged,
+            route);
+    }
+
+    private bool TryResolveCapturedNavigationHost(
+        NavigationState state,
+        SuppressedNavigationPop pendingPop,
+        out WindowNode window,
+        out StackNode targetStack)
+    {
+        window = null!;
+        targetStack = null!;
+
+        if (!_navigationPageStackIds.TryGetValue(
+                pendingPop.NavigationPage,
+                out string? currentStackId) ||
+            !StringComparer.Ordinal.Equals(currentStackId, pendingPop.StackId))
+        {
+            return false;
+        }
+
+        HashSet<Page> livePages = CollectLivePages(CurrentPage);
+        if (!livePages.Contains(pendingPop.NavigationPage))
+            return false;
+
+        string? currentOwnerModalId = FindOwningModalId(pendingPop.NavigationPage);
+        if (!StringComparer.Ordinal.Equals(currentOwnerModalId, pendingPop.OwnerModalId))
+            return false;
+
+        WindowNode? capturedWindow = string.IsNullOrWhiteSpace(pendingPop.WindowId)
+            ? state.ActiveWindow
+            : state.FindWindow(pendingPop.WindowId);
+        if (capturedWindow is null)
+            return false;
+
+        StackNode? capturedStack = FindStack(
+            capturedWindow,
+            pendingPop.OwnerModalId,
+            pendingPop.StackId);
+        if (capturedStack is null)
+            return false;
+
+        window = capturedWindow;
+        targetStack = capturedStack;
+        return true;
+    }
+
+    private async Task RestoreNavigationStackToPopSnapshotAsync(
+        SuppressedNavigationPop pendingPop,
+        StackNode effectiveStack,
+        CancellationToken cancellationToken)
+    {
+        NavigationPage navigationPage = pendingPop.NavigationPage;
+        IReadOnlyList<Page> currentStack = navigationPage.Navigation.NavigationStack;
+        bool capturedStackIsPrefix = currentStack.Count >= pendingPop.RemainingPages.Count &&
+            StackPrefixMatches(currentStack, pendingPop.RemainingPages);
+
+        if (capturedStackIsPrefix && pendingPop.RemainingPages.Count > 0)
+        {
+            while (navigationPage.Navigation.NavigationStack.Count > pendingPop.RemainingPages.Count)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                Page? removed = await _nativeOperations.PopAsync(navigationPage, animated: false);
+                if (removed is null)
+                    throw new InvalidOperationException("Native stack pop did not return the removed page.");
+
+                await DetachPageTreeAsync(removed);
+            }
+
+            UpdateKnownNavigationPages(navigationPage);
+            return;
+        }
+
+        await ReconcileNavigationStackAsync(
+            navigationPage,
+            effectiveStack,
+            pendingPop.IsNavigationTarget,
+            cancellationToken);
+    }
+
+    private void WriteSuppressedPopProjectionFailure(MauiNavigationStackProjectionError error)
+    {
+        _diagnostics.Write(
+            NavigationDiagnosticEventKind.PresentationVerificationFailed,
+            LifecycleOperationId(),
+            $"Suppressed native navigation pop produced an invalid stack at page index {error.PageIndex}: {error.Message}",
+            new Dictionary<string, object?>
+            {
+                [NavigationDiagnosticDataKeys.PresentationPath] = $"$.nativeStack[{error.PageIndex}]",
+                [NavigationDiagnosticDataKeys.PresentationExpected] = "valid route-owned page segment",
+                [NavigationDiagnosticDataKeys.PresentationActual] = error.Message
+            });
+    }
+
+    private void MarkHostBackReconciliationPending(AppRoute? route)
+    {
+        _hostBackReconciliationPending = true;
+        _pendingHostBackRoute = route;
+    }
+
+    private void DiscardSuppressedNavigationPops()
+    {
+        _suppressedNavigationPops.Clear();
+    }
+
+    private void ScheduleSuppressedNavigationPopDrain()
+    {
+        if (_suppressedNavigationPopDrainQueued ||
+            (_suppressedNavigationPops.Count == 0 && !_hostBackReconciliationPending))
+        {
+            return;
+        }
+
+        _suppressedNavigationPopDrainQueued = true;
+        if (!QueueNativeCleanup(DrainSuppressedNavigationPopsAsync))
+            _suppressedNavigationPopDrainQueued = false;
+    }
+
+    private async Task DrainSuppressedNavigationPopsAsync()
+    {
+        bool publishHostBack = _hostBackReconciliationPending;
+        AppRoute? route = _pendingHostBackRoute;
+        _hostBackReconciliationPending = false;
+        _pendingHostBackRoute = null;
+
+        bool previousSuppressReconciliation = _suppressReconciliation;
+        _suppressReconciliation = true;
+        try
+        {
+            SuppressedNavigationPopFold popFold = await FoldSuppressedNavigationPopsAsync(
+                _lastState,
+                transaction: null,
+                CancellationToken.None);
+            if (popFold.LogicalStateChanged)
+            {
+                VerifyPresentation(popFold.EffectiveState, LifecycleOperationId());
+                _lastState = popFold.EffectiveState;
+                publishHostBack = true;
+                route = popFold.Route;
+            }
+        }
+        finally
+        {
+            _suppressReconciliation = previousSuppressReconciliation;
+            _suppressedNavigationPopDrainQueued = false;
+        }
+
+        if (publishHostBack && !_disposed)
+        {
+            RequestReconciliation(
+                _lastState,
+                NavigationReconciliationSource.HostBack,
+                "Native stack pop changed.",
+                route);
+        }
+
+        ScheduleSuppressedNavigationPopDrain();
     }
 
     private void OnTabbedPageCurrentPageChanged(object? sender, EventArgs e)
@@ -1807,12 +2202,13 @@ internal sealed class MauiNavigationPresenter :
         RequestReconciliation(updatedState, NavigationReconciliationSource.ModalDismissed, "Native modal dismissal changed.");
     }
 
-    private void QueueNativeCleanup(Func<Task> cleanup)
+    private bool QueueNativeCleanup(Func<Task> cleanup)
     {
         if (!TryBeginOperation())
-            return;
+            return false;
 
         _ = RunQueuedNativeCleanupAsync(cleanup);
+        return true;
     }
 
     private async Task RunQueuedNativeCleanupAsync(Func<Task> cleanup)
@@ -1862,6 +2258,9 @@ internal sealed class MauiNavigationPresenter :
         }
         catch (Exception ex)
         {
+            // Retired pages are released only after the target presentation has been verified. Cleanup is
+            // irreversible, so report failures without throwing them into transaction rollback, which could
+            // otherwise reattach a page whose handle or scope has already been released.
             WritePageReleaseFailure(page, ex);
         }
     }
@@ -1958,11 +2357,21 @@ internal sealed class MauiNavigationPresenter :
         return node switch
         {
             StackNode stack when StringComparer.Ordinal.Equals(stack.Id, stackId) => stack,
-            BranchHostNode branchHost when branchHost.SelectedBranch is not null =>
-                FindStack(branchHost.SelectedBranch.Content, stackId),
+            BranchHostNode branchHost => FindStack(branchHost, stackId),
             ModalNode modal when modal.Content is not null => FindStack(modal.Content, stackId),
             _ => null
         };
+    }
+
+    private static StackNode? FindStack(BranchHostNode branchHost, string stackId)
+    {
+        foreach (NavigationBranch branch in branchHost.Branches)
+        {
+            if (FindStack(branch.Content, stackId) is { } stack)
+                return stack;
+        }
+
+        return null;
     }
 
     private WindowNode? UpdateWindowForPresentedNode(
@@ -1970,7 +2379,7 @@ internal sealed class MauiNavigationPresenter :
         Func<NavigationNode, NavigationNode?> update)
     {
         var window = _lastState.ActiveWindow;
-        if (window?.Root is null)
+        if (window is null)
         {
             return null;
         }
@@ -2115,13 +2524,34 @@ internal sealed class MauiNavigationPresenter :
         {
             StackNode stack when StringComparer.Ordinal.Equals(stack.Id, stackId) =>
                 UpdateStackEntriesFromNative(stack, remainingRouteEntryIds),
-            BranchHostNode branchHost => UpdateSelectedBranch(branchHost, child => UpdateStackFromNative(child, stackId, remainingRouteEntryIds)),
+            BranchHostNode branchHost => UpdateBranchContainingStack(
+                branchHost,
+                stackId,
+                remainingRouteEntryIds),
             ModalNode modal when modal.Content is not null =>
                 UpdateStackFromNative(modal.Content, stackId, remainingRouteEntryIds) is { } updated
                     ? modal with { Content = updated }
                     : null,
             _ => null
         };
+    }
+
+    private static BranchHostNode? UpdateBranchContainingStack(
+        BranchHostNode branchHost,
+        string stackId,
+        IReadOnlyList<string> remainingRouteEntryIds)
+    {
+        foreach (NavigationBranch branch in branchHost.Branches)
+        {
+            NavigationNode? updatedContent = UpdateStackFromNative(
+                branch.Content,
+                stackId,
+                remainingRouteEntryIds);
+            if (updatedContent is not null)
+                return branchHost.ReplaceBranch(branch with { Content = updatedContent });
+        }
+
+        return null;
     }
 
     private static StackNode? UpdateStackEntriesFromNative(
@@ -2613,6 +3043,8 @@ internal sealed class MauiNavigationPresenter :
 
         public void Retire(Page page) => _retiredPages.Add(page);
 
+        public bool IsRetired(Page page) => _retiredPages.Contains(page);
+
         public void RecordRootChange() => _rootChanged = true;
 
         public void RecordUpdate(Page page)
@@ -2798,6 +3230,21 @@ internal sealed class MauiNavigationPresenter :
             }
         }
     }
+
+    private sealed record SuppressedNavigationPop(
+        NavigationPage NavigationPage,
+        string? WindowId,
+        string StackId,
+        string? OwnerModalId,
+        bool IsNavigationTarget,
+        IReadOnlyList<Page> KnownPages,
+        IReadOnlyList<Page> RemainingPages);
+
+    private sealed record SuppressedNavigationPopFold(
+        NavigationState EffectiveState,
+        bool HadExternalPop,
+        bool LogicalStateChanged,
+        AppRoute? Route);
 
     private sealed class ReleasedPageMarker
     {

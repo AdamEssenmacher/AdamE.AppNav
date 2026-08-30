@@ -114,6 +114,31 @@ public sealed class DeferredNavigationRequestReplayerTests
     }
 
     [Fact]
+    public async Task ReplayAsync_SuccessfulRequestThatRedefersItselfRemainsForNextReplay()
+    {
+        var store = new InMemoryDeferredNavigationRequestStore();
+        RouterNavigationRequest request = RouterNavigationRequest.FromRoute(
+            new TestRoutes.StoreRoute("access-gated"),
+            NavigationRequestSource.AppLink);
+        await store.EnqueueAsync(request);
+        var navigator = new RecordingRouterNavigator(async (replayed, cancellationToken) =>
+        {
+            await store.EnqueueAsync(replayed, cancellationToken);
+            return new NavigationResult(
+                replayed.Route!,
+                new NavigationPlan(NavigationState.Empty),
+                NavigationState.Empty,
+                Presented: true);
+        });
+        var replayer = new DeferredNavigationRequestReplayer(store, navigator);
+
+        DeferredNavigationReplayResult result = await replayer.ReplayAsync();
+
+        Assert.Equal(new DeferredNavigationReplayResult(1, 1, 0), result);
+        Assert.Equal([request], await SnapshotAsync(store));
+    }
+
+    [Fact]
     public async Task ReplayAsync_CancellationRequeuesFailedAndUnattemptedRequestsInOrder()
     {
         var store = new InMemoryDeferredNavigationRequestStore();

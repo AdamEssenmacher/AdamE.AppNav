@@ -1,3 +1,5 @@
+using AdamE.AppNav.Requests;
+
 namespace AdamE.AppNav.Diagnostics;
 
 internal static class NavigationDiagnosticSanitizer
@@ -118,7 +120,7 @@ internal static class NavigationDiagnosticSanitizer
         if (string.IsNullOrWhiteSpace(value))
             return value;
 
-        int envelopeStart = value.IndexOf(" [", StringComparison.Ordinal);
+        int envelopeStart = value.LastIndexOf(" [", StringComparison.Ordinal);
         string target = envelopeStart < 0 ? value : value[..envelopeStart];
         string envelope = envelopeStart < 0 ? string.Empty : value[envelopeStart..];
 
@@ -140,10 +142,40 @@ internal static class NavigationDiagnosticSanitizer
 
     private static string SanitizeEnvelope(string envelope)
     {
-        if (string.IsNullOrEmpty(envelope))
+        if (string.IsNullOrEmpty(envelope) ||
+            !envelope.StartsWith(" [", StringComparison.Ordinal) ||
+            !envelope.EndsWith(']'))
             return string.Empty;
 
-        int windowStart = envelope.IndexOf(", window=", StringComparison.Ordinal);
-        return windowStart < 0 ? envelope : $"{envelope[..windowStart]}]";
+        ReadOnlySpan<char> contents = envelope.AsSpan(2, envelope.Length - 3);
+        const string dispositionMarker = ", disposition=";
+        int dispositionStart = contents.IndexOf(dispositionMarker, StringComparison.Ordinal);
+        if (dispositionStart <= 0)
+            return string.Empty;
+
+        ReadOnlySpan<char> sourceText = contents[..dispositionStart];
+        ReadOnlySpan<char> dispositionAndWindow = contents[(dispositionStart + dispositionMarker.Length)..];
+        int windowStart = dispositionAndWindow.IndexOf(", window=", StringComparison.Ordinal);
+        ReadOnlySpan<char> dispositionText = windowStart < 0
+            ? dispositionAndWindow
+            : dispositionAndWindow[..windowStart];
+
+        if (!TryParseDefinedEnum(sourceText, out NavigationRequestSource source) ||
+            !TryParseDefinedEnum(dispositionText, out RouterNavigationDisposition disposition))
+        {
+            return string.Empty;
+        }
+
+        return $" [{source}, disposition={disposition}]";
+    }
+
+    private static bool TryParseDefinedEnum<TEnum>(
+        ReadOnlySpan<char> text,
+        out TEnum value)
+        where TEnum : struct, Enum
+    {
+        return Enum.TryParse(text, ignoreCase: false, out value) &&
+               Enum.IsDefined(value) &&
+               text.Equals(value.ToString(), StringComparison.Ordinal);
     }
 }

@@ -122,9 +122,9 @@ public sealed class DiagnosticsTests
                 [NavigationDiagnosticDataKeys.RedirectFrom] =
                     "uri=https://example.com/redirect-secret?token=redirect-query-secret [Test, disposition=Auto, window=window-secret]",
                 [NavigationDiagnosticDataKeys.RedirectTo] =
-                    "route=SecretRoute:route-value-secret [Test, disposition=Replace, window=window-secret]",
+                    "route=SecretRoute:route-value-secret [Test, disposition=ReplaceCurrent, window=window-secret]",
                 [NavigationDiagnosticDataKeys.RedirectTrace] =
-                    "uri=/relative-secret [Test, disposition=Auto] -> route=SecretRoute:trace-secret [Test, disposition=Replace]",
+                    "uri=/relative-secret [Test, disposition=Auto] -> route=SecretRoute:trace-secret [Test, disposition=ReplaceCurrent]",
                 [NavigationDiagnosticDataKeys.WindowId] = "window-secret",
                 [NavigationDiagnosticDataKeys.HostId] = "host-secret",
                 [NavigationDiagnosticDataKeys.BranchId] = "branch-secret",
@@ -144,10 +144,10 @@ public sealed class DiagnosticsTests
             "uri=https://example.com [Test, disposition=Auto]",
             observed.Data[NavigationDiagnosticDataKeys.RedirectFrom]);
         Assert.Equal(
-            "route=SecretRoute [Test, disposition=Replace]",
+            "route=SecretRoute [Test, disposition=ReplaceCurrent]",
             observed.Data[NavigationDiagnosticDataKeys.RedirectTo]);
         Assert.Equal(
-            "uri=<relative-uri> [Test, disposition=Auto] -> route=SecretRoute [Test, disposition=Replace]",
+            "uri=<relative-uri> [Test, disposition=Auto] -> route=SecretRoute [Test, disposition=ReplaceCurrent]",
             observed.Data[NavigationDiagnosticDataKeys.RedirectTrace]);
         Assert.False(observed.Data.ContainsKey(NavigationDiagnosticDataKeys.ExceptionMessage));
         Assert.False(observed.Data.ContainsKey(NavigationDiagnosticDataKeys.RouteDiagnosticMessage));
@@ -195,6 +195,133 @@ public sealed class DiagnosticsTests
     }
 
     [Fact]
+    public void SafeModeSanitizesAdversarialRedirectTargetsAcrossEverySink()
+    {
+        RouterNavigationRequest redirectFrom = RouterNavigationRequest.FromRoute(
+            new SensitiveRedirectRoute("a [b]", "from-secret"),
+            NavigationRequestSource.AppLink,
+            "from-window-secret, window=injected-from-secret",
+            disposition: RouterNavigationDisposition.Contextual);
+        RouterNavigationRequest redirectTo = RouterNavigationRequest.FromRoute(
+            new SensitiveRedirectRoute("a [Push, disposition=Canonical]", "to-secret"),
+            NavigationRequestSource.InAppCommand,
+            "to-window-secret",
+            disposition: RouterNavigationDisposition.ReplaceCurrent);
+        RouterNavigationRequest traceTail = RouterNavigationRequest.FromUri(
+            new Uri("https://user:password@example.org/trace-secret?token=trace-query-secret"),
+            NavigationRequestSource.QrCode,
+            "trace-window-secret, window=injected-trace-secret",
+            disposition: RouterNavigationDisposition.Canonical);
+        string rawFrom = RouterNavigationDiagnostics.DescribeRedirectTarget(redirectFrom);
+        string rawTo = RouterNavigationDiagnostics.DescribeRedirectTarget(redirectTo);
+        string rawTrace = RouterNavigationDiagnostics.BuildRedirectTrace(
+            redirectFrom,
+            [redirectTo, traceTail]);
+
+        var logger = new CapturingLogger();
+        var diagnostics = new NavigationDiagnostics(logger);
+        NavigationDiagnosticEvent? observed = null;
+        diagnostics.EventWritten += (_, diagnosticEvent) => observed = diagnosticEvent;
+        var observer = new CapturingObserver();
+        diagnostics.AddObserver(observer);
+        using var activity = new Activity("adversarial-safe-redirects").Start();
+
+        diagnostics.Write(
+            NavigationDiagnosticEventKind.RequestRedirected,
+            "operation",
+            "redirect-message-secret",
+            new Dictionary<string, object?>
+            {
+                [NavigationDiagnosticDataKeys.RedirectFrom] = rawFrom,
+                [NavigationDiagnosticDataKeys.RedirectTo] = rawTo,
+                [NavigationDiagnosticDataKeys.RedirectTrace] = rawTrace
+            });
+
+        Assert.NotNull(observed);
+        Assert.Same(observed, observer.Event);
+        Assert.Equal(
+            "route=SensitiveRedirectRoute [AppLink, disposition=Contextual]",
+            observed!.Data[NavigationDiagnosticDataKeys.RedirectFrom]);
+        Assert.Equal(
+            "route=SensitiveRedirectRoute [InAppCommand, disposition=ReplaceCurrent]",
+            observed.Data[NavigationDiagnosticDataKeys.RedirectTo]);
+        Assert.Equal(
+            "route=SensitiveRedirectRoute [AppLink, disposition=Contextual] -> " +
+            "route=SensitiveRedirectRoute [InAppCommand, disposition=ReplaceCurrent] -> " +
+            "uri=https://example.org [QrCode, disposition=Canonical]",
+            observed.Data[NavigationDiagnosticDataKeys.RedirectTrace]);
+
+        IReadOnlyDictionary<string, object?> loggedData = Assert.Single(logger.Data);
+        Assert.Equal(observed.Data, loggedData);
+        Assert.Equal(
+            observed.Data[NavigationDiagnosticDataKeys.RedirectFrom],
+            activity.GetTagItem($"navigation.{NavigationDiagnosticDataKeys.RedirectFrom}"));
+        Assert.Equal(
+            observed.Data[NavigationDiagnosticDataKeys.RedirectTo],
+            activity.GetTagItem($"navigation.{NavigationDiagnosticDataKeys.RedirectTo}"));
+        Assert.Equal(
+            observed.Data[NavigationDiagnosticDataKeys.RedirectTrace],
+            activity.GetTagItem($"navigation.{NavigationDiagnosticDataKeys.RedirectTrace}"));
+
+        string emitted = string.Join("|", logger.Entries.Select(static entry => entry.Message)) +
+                         string.Join("|", loggedData.Select(static pair => $"{pair.Key}:{pair.Value}")) +
+                         string.Join("|", activity.TagObjects.Select(static tag => $"{tag.Key}:{tag.Value}")) +
+                         string.Join("|", activity.Events.SelectMany(static activityEvent =>
+                             activityEvent.Tags.Select(tag => $"{tag.Key}:{tag.Value}"))) +
+                         observed + observer.Event;
+        foreach (string secret in new[]
+                 {
+                     "from-secret", "to-secret", "trace-secret", "trace-query-secret", "password",
+                     "from-window-secret", "injected-from-secret", "to-window-secret", "trace-window-secret",
+                     "injected-trace-secret", "redirect-message-secret", "Value = a [b]", "Token ="
+                 })
+        {
+            Assert.DoesNotContain(secret, emitted, StringComparison.Ordinal);
+        }
+    }
+
+    [Theory]
+    [InlineData(
+        "route=SensitiveRedirectRoute:SensitiveRedirectRoute { Value = a [b], Token = secret } [UnknownSource, disposition=Auto]",
+        "route=SensitiveRedirectRoute")]
+    [InlineData(
+        "route=SensitiveRedirectRoute:SensitiveRedirectRoute { Value = a [b], Token = secret } [Test, disposition=UnknownDisposition]",
+        "route=SensitiveRedirectRoute")]
+    [InlineData(
+        "route=SensitiveRedirectRoute:SensitiveRedirectRoute { Value = a [b], Token = secret } [test, disposition=Auto]",
+        "route=SensitiveRedirectRoute")]
+    [InlineData(
+        "route=SensitiveRedirectRoute:SensitiveRedirectRoute { Value = a [Test, disposition=Auto], Token = secret } [Push, disposition=Canonical, injected=secret]",
+        "route=SensitiveRedirectRoute")]
+    [InlineData(
+        "uri=https://example.com/path-secret?token=secret [Test, disposition=1]",
+        "uri=https://example.com")]
+    [InlineData(
+        "target-secret [Test, disposition=Auto]",
+        "target=redacted")]
+    public void SafeModeOmitsFakeOrMalformedRedirectEnvelopes(string rawTarget, string expected)
+    {
+        var diagnostics = new NavigationDiagnostics();
+        NavigationDiagnosticEvent? observed = null;
+        diagnostics.EventWritten += (_, diagnosticEvent) => observed = diagnosticEvent;
+
+        diagnostics.Write(
+            NavigationDiagnosticEventKind.RequestRedirected,
+            "operation",
+            "message",
+            new Dictionary<string, object?>
+            {
+                [NavigationDiagnosticDataKeys.RedirectFrom] = rawTarget
+            });
+
+        Assert.NotNull(observed);
+        string sanitized = Assert.IsType<string>(
+            observed!.Data[NavigationDiagnosticDataKeys.RedirectFrom]);
+        Assert.Equal(expected, sanitized);
+        Assert.DoesNotContain("secret", sanitized, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void FullModeExposesRawEventAndRedactorFailureFallsBackToSafeData()
     {
         var capturingRedactor = new CapturingRedactor();
@@ -230,6 +357,47 @@ public sealed class DiagnosticsTests
         Assert.NotNull(fallback);
         Assert.Equal("https://example.com", fallback!.Data[NavigationDiagnosticDataKeys.Uri]);
         Assert.DoesNotContain("raw-secret", fallback.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FullModePreservesRawRedirectDiagnosticsAcrossEverySink()
+    {
+        RouterNavigationRequest request = RouterNavigationRequest.FromRoute(
+            new SensitiveRedirectRoute("a [b]", "full-secret"),
+            NavigationRequestSource.Test,
+            "full-window-secret, window=injected-full-secret",
+            disposition: RouterNavigationDisposition.ReplaceCurrent);
+        string rawTarget = RouterNavigationDiagnostics.DescribeRedirectTarget(request);
+        var logger = new CapturingLogger();
+        var diagnostics = new NavigationDiagnostics(
+            logger,
+            new NavigationDiagnosticsOptions { DataMode = NavigationDiagnosticDataMode.Full });
+        NavigationDiagnosticEvent? observed = null;
+        diagnostics.EventWritten += (_, diagnosticEvent) => observed = diagnosticEvent;
+        var observer = new CapturingObserver();
+        diagnostics.AddObserver(observer);
+        using var activity = new Activity("full-redirects").Start();
+
+        diagnostics.Write(
+            NavigationDiagnosticEventKind.RequestRedirected,
+            "operation",
+            "full-message-secret",
+            new Dictionary<string, object?>
+            {
+                [NavigationDiagnosticDataKeys.RedirectFrom] = rawTarget,
+                [NavigationDiagnosticDataKeys.RedirectTo] = rawTarget,
+                [NavigationDiagnosticDataKeys.RedirectTrace] = $"{rawTarget} -> {rawTarget}"
+            });
+
+        Assert.NotNull(observed);
+        Assert.Same(observed, observer.Event);
+        Assert.Equal(rawTarget, observed!.Data[NavigationDiagnosticDataKeys.RedirectFrom]);
+        Assert.Equal(rawTarget, activity.GetTagItem($"navigation.{NavigationDiagnosticDataKeys.RedirectFrom}"));
+        Assert.Equal(observed.Data, Assert.Single(logger.Data));
+        string observedFrom = Assert.IsType<string>(observed.Data[NavigationDiagnosticDataKeys.RedirectFrom]);
+        Assert.Contains("full-secret", observedFrom, StringComparison.Ordinal);
+        Assert.Contains("full-window-secret", observedFrom, StringComparison.Ordinal);
+        Assert.Equal("full-message-secret", observed.Message);
     }
 
     [Fact]
@@ -526,6 +694,8 @@ public sealed class DiagnosticsTests
 
     private sealed record InvalidProductRoute(int ProductId) : AppRoute;
 
+    private sealed record SensitiveRedirectRoute(string Value, string Token) : AppRoute;
+
     private static NavigationDiagnostics FullDiagnostics() => new(
         options: new NavigationDiagnosticsOptions { DataMode = NavigationDiagnosticDataMode.Full });
 
@@ -565,6 +735,8 @@ public sealed class DiagnosticsTests
     {
         public List<LogEntry> Entries { get; } = new();
 
+        public List<IReadOnlyDictionary<string, object?>> Data { get; } = new();
+
         public IDisposable? BeginScope<TState>(TState state)
             where TState : notnull
         {
@@ -584,6 +756,12 @@ public sealed class DiagnosticsTests
             Func<TState, Exception?, string> formatter)
         {
             Entries.Add(new LogEntry(logLevel, formatter(state, exception)));
+            if (state is IEnumerable<KeyValuePair<string, object?>> properties &&
+                properties.FirstOrDefault(static pair => pair.Key is "Data" or "@Data").Value is
+                    IReadOnlyDictionary<string, object?> data)
+            {
+                Data.Add(data);
+            }
         }
     }
 

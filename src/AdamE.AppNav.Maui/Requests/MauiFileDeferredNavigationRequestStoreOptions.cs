@@ -46,4 +46,19 @@ public sealed class MauiFileDeferredNavigationRequestStoreOptions
     public INavigationRequestMetadataSerializer? MetadataSerializer { get; set; }
 
     public RouteStateRegistry? RouteStateRegistry { get; set; }
+
+    internal void Validate()
+    {
+        _ = BaseUri;
+        ArgumentException.ThrowIfNullOrWhiteSpace(Path);
+        ArgumentOutOfRangeException.ThrowIfLessThan(MaximumPendingRequests, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(MaximumFileSize, 1);
+        if (MaximumRequestAge <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(MaximumRequestAge),
+                MaximumRequestAge,
+                "The maximum deferred request age must be greater than zero.");
+        }
+    }
 }

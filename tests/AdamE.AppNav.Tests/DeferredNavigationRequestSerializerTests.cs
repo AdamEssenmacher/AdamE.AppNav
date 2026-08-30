@@ -85,6 +85,26 @@ public sealed class DeferredNavigationRequestSerializerTests
         Assert.Equal("mission-1", restored.Metadata[missionId.Name]);
     }
 
+    [Fact]
+    public void CreateSnapshot_RejectsRouteWithAnOptionalPathHole()
+    {
+        var routes = RouteTable.Create(builder => builder.MapRoute<OptionalReportRoute>(
+            "/reports/{year?}/{month?}"));
+        var serializer = new DeferredNavigationRequestSerializer(routes, new DeferredNavigationRequestPersistenceOptions
+        {
+            BaseUri = BaseUri
+        });
+        var request = RouterNavigationRequest.FromRoute(
+            new OptionalReportRoute(null, "august"),
+            NavigationRequestSource.InAppCommand);
+
+        var exception = Assert.Throws<InvalidOperationException>(() => serializer.CreateSnapshot([request]));
+
+        Assert.Contains("/reports/{year?}/{month?}", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("year", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("month", exception.Message, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(1)]
@@ -158,6 +178,38 @@ public sealed class DeferredNavigationRequestSerializerTests
         Assert.Equal("int32", persisted.Type);
         Assert.Equal("3", persisted.Value);
         Assert.Equal(3, restored.Metadata["attempt"]);
+    }
+
+    [Theory]
+    [InlineData(DroppedMetadataResult.Null)]
+    [InlineData(DroppedMetadataResult.Empty)]
+    public void Restore_CustomMetadataDeserializerCanDropValuesWhilePreservingRegisteredState(
+        DroppedMetadataResult droppedMetadataResult)
+    {
+        var draftId = new RouteMetadataKey<string>("draftId");
+        var serializer = new DeferredNavigationRequestSerializer(
+            TestRoutes.CreateTable(),
+            new DeferredNavigationRequestPersistenceOptions
+            {
+                BaseUri = BaseUri,
+                MetadataSerializer = new DroppingMetadataSerializer(droppedMetadataResult),
+                RouteStateRegistry = RouteStateRegistry.Create(builder => builder.Restorable(draftId))
+            });
+        DeferredNavigationRequestStoreSnapshot snapshot = serializer.CreateSnapshot(
+            [RouterNavigationRequest.FromRoute(
+                new TestRoutes.StoreRoute("northwind"),
+                NavigationRequestSource.InAppCommand,
+                metadata: new Dictionary<string, object?>
+                {
+                    [draftId.Name] = "draft-1",
+                    ["request-id"] = "abc-123"
+                })]);
+
+        var restored = Assert.Single(serializer.Restore(snapshot));
+
+        Assert.True(Assert.Single(snapshot.Requests).Metadata!.ContainsKey("request-id"));
+        Assert.Equal("draft-1", restored.Metadata[draftId.Name]);
+        Assert.False(restored.Metadata.ContainsKey("request-id"));
     }
 
     [Theory]
@@ -388,5 +440,24 @@ public sealed class DeferredNavigationRequestSerializerTests
         public IReadOnlyDictionary<string, object?>? Deserialize(IReadOnlyDictionary<string, object?> metadata) => metadata;
     }
 
+    private sealed class DroppingMetadataSerializer(DroppedMetadataResult result)
+        : INavigationRequestMetadataSerializer
+    {
+        public IReadOnlyDictionary<string, object?>? Serialize(IReadOnlyDictionary<string, object?> metadata) => metadata;
+
+        public IReadOnlyDictionary<string, object?>? Deserialize(IReadOnlyDictionary<string, object?> metadata) =>
+            result == DroppedMetadataResult.Null
+                ? null
+                : new Dictionary<string, object?>(StringComparer.Ordinal);
+    }
+
+    public enum DroppedMetadataResult
+    {
+        Null,
+        Empty
+    }
+
     private readonly record struct DraftId(Guid Value);
+
+    private sealed record OptionalReportRoute(string? Year, string? Month) : AppRoute;
 }

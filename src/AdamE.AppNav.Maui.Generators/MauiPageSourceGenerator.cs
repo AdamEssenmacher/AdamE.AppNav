@@ -458,6 +458,9 @@ internal static class PageModelFactory
         if (SymbolEqualityComparer.Default.Equals(routeType, parameterType))
             return 0;
 
+        if (parameterType.SpecialType == SpecialType.System_Object)
+            return 1000;
+
         var distance = 1;
         for (INamedTypeSymbol? current = routeType.BaseType; current is not null; current = current.BaseType)
         {
@@ -466,9 +469,6 @@ internal static class PageModelFactory
 
             distance++;
         }
-
-        if (parameterType.SpecialType == SpecialType.System_Object)
-            return 1000;
 
         return 500;
     }
@@ -534,8 +534,9 @@ internal static class ConstantEmitter
                        Convert.ToUInt64(value, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture) + suffix;
             }
 
-            return "(" + enumTypeName + ")" +
-                   Convert.ToInt64(value, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture);
+            string literal = Convert.ToInt64(value, CultureInfo.InvariantCulture)
+                .ToString(CultureInfo.InvariantCulture);
+            return "(" + enumTypeName + ")(" + literal + ")";
         }
 
         switch (value)

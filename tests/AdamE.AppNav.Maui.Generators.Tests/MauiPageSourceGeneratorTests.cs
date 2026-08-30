@@ -59,6 +59,13 @@ public sealed class MauiPageSourceGeneratorTests
 
             namespace Commerce.Sample;
 
+            public enum SignedValue : long
+            {
+                Minimum = long.MinValue,
+                Negative = -1,
+                Positive = 1
+            }
+
             public enum BigValue : ulong { Max = ulong.MaxValue }
 
             [AppNavRoute("/stores/{storeId}")]
@@ -72,6 +79,10 @@ public sealed class MauiPageSourceGeneratorTests
                     IRouterNavigator navigator,
                     string title = "Details",
                     CancellationToken cancellationToken = default,
+                    SignedValue negative = SignedValue.Negative,
+                    SignedValue? nullableNegative = SignedValue.Negative,
+                    SignedValue minimum = SignedValue.Minimum,
+                    SignedValue positive = SignedValue.Positive,
                     BigValue value = BigValue.Max,
                     double scale = double.NaN) { }
             }
@@ -83,6 +94,9 @@ public sealed class MauiPageSourceGeneratorTests
         Assert.Empty(Errors(result));
         Assert.Contains("GetRequiredService<global::AdamE.AppNav.Navigation.IRouterNavigator>(services)", generated);
         Assert.Contains("\"Details\", default(global::System.Threading.CancellationToken)", generated);
+        Assert.Contains("(global::Commerce.Sample.SignedValue)(-1)", generated);
+        Assert.Contains("(global::Commerce.Sample.SignedValue)(-9223372036854775808)", generated);
+        Assert.Contains("(global::Commerce.Sample.SignedValue)(1)", generated);
         Assert.Contains("(global::Commerce.Sample.BigValue)18446744073709551615UL", generated);
         Assert.Contains("global::System.Double.NaN", generated);
         AssertCompileClean(result.Compilation);
@@ -116,6 +130,108 @@ public sealed class MauiPageSourceGeneratorTests
         Assert.Empty(Errors(result));
         Assert.Contains("new global::Commerce.Sample.StorePage(route, null)", generated);
         Assert.DoesNotContain("StorePage(route, route)", generated);
+    }
+
+    [Fact]
+    public void GeneratedModulePrefersRouteInterfaceOverObjectParameter()
+    {
+        const string source = """
+            using AdamE.AppNav;
+            using AdamE.AppNav.Maui;
+            using AdamE.AppNav.Routing;
+            using Microsoft.Maui.Controls;
+
+            namespace Commerce.Sample;
+
+            public interface IStoreRoute { }
+
+            [AppNavRoute("/stores/{storeId}")]
+            public sealed record StoreRoute(string StoreId) : AppRoute, IStoreRoute;
+
+            [MauiRoutePage(typeof(StoreRoute))]
+            public sealed class StorePage : ContentPage
+            {
+                public StorePage(IStoreRoute routeInfo, object state) { }
+            }
+            """;
+
+        GeneratorResult result = RunGenerators(source);
+        string generated = Assert.Single(result.GeneratedSources).Value;
+
+        Assert.Empty(Errors(result));
+        Assert.Contains(
+            "new global::Commerce.Sample.StorePage(route, global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<object>(services))",
+            generated);
+        Assert.DoesNotContain(
+            "GetRequiredService<global::Commerce.Sample.IStoreRoute>(services)",
+            generated);
+        AssertCompileClean(result.Compilation);
+    }
+
+    [Fact]
+    public void GeneratedModuleUsesObjectWhenItIsOnlyRouteParameter()
+    {
+        const string source = """
+            using AdamE.AppNav;
+            using AdamE.AppNav.Maui;
+            using AdamE.AppNav.Routing;
+            using Microsoft.Maui.Controls;
+
+            namespace Commerce.Sample;
+
+            [AppNavRoute("/stores/{storeId}")]
+            public sealed record StoreRoute(string StoreId) : AppRoute;
+
+            [MauiRoutePage(typeof(StoreRoute))]
+            public sealed class StorePage : ContentPage
+            {
+                public StorePage(object route) { }
+            }
+            """;
+
+        GeneratorResult result = RunGenerators(source);
+        string generated = Assert.Single(result.GeneratedSources).Value;
+
+        Assert.Empty(Errors(result));
+        Assert.Contains("new global::Commerce.Sample.StorePage(route)", generated);
+        AssertCompileClean(result.Compilation);
+    }
+
+    [Fact]
+    public void GeneratedModulePreservesDeclarationOrderForTiedRouteInterfaces()
+    {
+        const string source = """
+            using AdamE.AppNav;
+            using AdamE.AppNav.Maui;
+            using AdamE.AppNav.Routing;
+            using Microsoft.Maui.Controls;
+
+            namespace Commerce.Sample;
+
+            public interface IPrimaryRoute { }
+            public interface ISecondaryRoute { }
+
+            [AppNavRoute("/stores/{storeId}")]
+            public sealed record StoreRoute(string StoreId) : AppRoute, IPrimaryRoute, ISecondaryRoute;
+
+            [MauiRoutePage(typeof(StoreRoute))]
+            public sealed class StorePage : ContentPage
+            {
+                public StorePage(IPrimaryRoute primary, ISecondaryRoute secondary) { }
+            }
+            """;
+
+        GeneratorResult result = RunGenerators(source);
+        string generated = Assert.Single(result.GeneratedSources).Value;
+
+        Assert.Empty(Errors(result));
+        Assert.Contains(
+            "new global::Commerce.Sample.StorePage(route, global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<global::Commerce.Sample.ISecondaryRoute>(services))",
+            generated);
+        Assert.DoesNotContain(
+            "GetRequiredService<global::Commerce.Sample.IPrimaryRoute>(services)",
+            generated);
+        AssertCompileClean(result.Compilation);
     }
 
     [Fact]

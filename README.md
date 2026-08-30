@@ -260,7 +260,10 @@ protected override Window CreateWindow(IActivationState? activationState)
 ```
 
 `Start` schedules and observes startup internally. `StartAsync` remains public
-for tests and advanced coordination.
+for tests and advanced coordination. When startup observes a buffered app link,
+it waits for that pending dispatch epoch: a successful navigation returns
+`AppLinkNavigated`, while terminal exhaustion continues through deferred-request
+recovery and the configured startup fallback.
 
 ## Navigation dispositions
 
@@ -346,7 +349,8 @@ services.AddAppNavFileDeferredNavigationRequests(options =>
 });
 ```
 
-`BaseUri` is explicit and required. Schema 3 stores only:
+The configuration callback and its explicit absolute `BaseUri` are required. Invalid options fail immediately during
+service registration. Schema 3 stores only:
 
 - canonical route URI;
 - request source and disposition;

@@ -8,6 +8,7 @@ public sealed class RouteFormatBuilder<TRoute>
     private readonly Dictionary<string, PathFormatter<TRoute>> _pathParams = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<QueryFormatter<TRoute>> _queryParams = [];
     private readonly List<MetadataQueryFormatter> _metadataQueryParams = [];
+    private readonly HashSet<string> _queryNames = new(StringComparer.OrdinalIgnoreCase);
 
     public RouteFormatBuilder<TRoute> PathParam(string name, Func<TRoute, object?> value)
     {
@@ -58,6 +59,10 @@ public sealed class RouteFormatBuilder<TRoute>
     {
         ArgumentNullException.ThrowIfNull(key);
 
+        if (!_queryNames.Add(key.Name))
+            throw new InvalidOperationException(
+                $"Query binding for query parameter '{key.Name}' is already registered for route type '{typeof(TRoute).FullName}'.");
+
         _metadataQueryParams.Add(
             new MetadataQueryFormatter(key.Name, key.Name, RouteMetadataKey<TValue>.ValueType, omitWhenNull));
         return this;
@@ -76,9 +81,12 @@ public sealed class RouteFormatBuilder<TRoute>
                 throw new InvalidOperationException($"No formatter was registered for path parameter '{parameter}'.");
 
             object? routeValue = formatter.Value(route);
-            string? value = formatter.DeclaredType is null
+            Type? formattingType = formatter.DeclaredType is not null && codecs.Contains(formatter.DeclaredType)
+                ? formatter.DeclaredType
+                : null;
+            string? value = formattingType is null
                 ? RouteValueFormatting.Format(routeValue, parameter, codecs)
-                : RouteValueFormatting.Format(routeValue, formatter.DeclaredType, parameter, codecs);
+                : RouteValueFormatting.Format(routeValue, formattingType, parameter, codecs);
             if (string.IsNullOrEmpty(value))
             {
                 if (template.IsOptionalParameter(parameter) || template.IsCatchAllParameter(parameter))
@@ -95,14 +103,36 @@ public sealed class RouteFormatBuilder<TRoute>
         foreach (QueryFormatter<TRoute> queryParam in _queryParams)
         {
             object? queryValue = queryParam.Value(route);
-            IEnumerable<string?> formattedValues = queryParam.DeclaredType is null
-                ? RouteValueFormatting.FormatMany(queryValue, queryParam.Name, codecs)
-                : RouteValueFormatting.FormatMany(
+            IEnumerable<string?> formattedValues;
+            if (queryParam.DeclaredType is null)
+            {
+                formattedValues = RouteValueFormatting.FormatMany(queryValue, queryParam.Name, codecs);
+            }
+            else if (queryParam.CollectionElementType is null)
+            {
+                Type formattingType = codecs.Contains(queryParam.DeclaredType) || queryValue is null
+                    ? queryParam.DeclaredType
+                    : queryValue.GetType();
+                formattedValues = RouteValueFormatting.FormatMany(
+                    queryValue,
+                    formattingType,
+                    queryParam.Name,
+                    codecs);
+            }
+            else if (codecs.Contains(queryParam.CollectionElementType))
+            {
+                formattedValues = RouteValueFormatting.FormatMany(
                     queryValue,
                     queryParam.DeclaredType,
                     queryParam.Name,
                     codecs,
                     queryParam.CollectionElementType);
+            }
+            else
+            {
+                formattedValues = FormatRuntimeCollection(queryValue, queryParam.Name, codecs);
+            }
+
             query.AddRange(from value in formattedValues
                            where value is not null || !queryParam.OmitWhenNull
                            select $"{Uri.EscapeDataString(queryParam.Name)}={Uri.EscapeDataString(value ?? string.Empty)}");
@@ -125,6 +155,25 @@ public sealed class RouteFormatBuilder<TRoute>
         return query.Count == 0 ? path : $"{path}?{string.Join("&", query)}";
     }
 
+    private static IEnumerable<string?> FormatRuntimeCollection(
+        object? value,
+        string name,
+        RouteValueCodecRegistry codecs)
+    {
+        if (value is null)
+        {
+            yield return null;
+            yield break;
+        }
+
+        if (value is not System.Collections.IEnumerable collection)
+            throw new InvalidOperationException(
+                $"Route query value '{name}' must be a supported collection.");
+
+        foreach (object? item in collection)
+            yield return RouteValueFormatting.Format(item, name, codecs);
+    }
+
     internal void Validate(RouteTemplate template)
     {
         foreach (string parameter in template.ParameterNames)
@@ -141,7 +190,10 @@ public sealed class RouteFormatBuilder<TRoute>
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentNullException.ThrowIfNull(value);
 
-        _pathParams[name] = new PathFormatter<TRoute>(value, declaredType);
+        if (!_pathParams.TryAdd(name, new PathFormatter<TRoute>(value, declaredType)))
+            throw new InvalidOperationException(
+                $"Path formatter for path parameter '{name}' is already registered for route type '{typeof(TRoute).FullName}'.");
+
         return this;
     }
 
@@ -154,6 +206,10 @@ public sealed class RouteFormatBuilder<TRoute>
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentNullException.ThrowIfNull(value);
+
+        if (!_queryNames.Add(name))
+            throw new InvalidOperationException(
+                $"Query binding for query parameter '{name}' is already registered for route type '{typeof(TRoute).FullName}'.");
 
         _queryParams.Add(
             new QueryFormatter<TRoute>(name, value, omitWhenNull, declaredType, collectionElementType));

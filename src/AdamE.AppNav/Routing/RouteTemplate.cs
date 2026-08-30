@@ -127,6 +127,7 @@ public sealed class RouteTemplate
         ArgumentNullException.ThrowIfNull(pathValues);
 
         var segments = new List<string>(_segments.Length);
+        string? firstMissingOptionalParameter = null;
         foreach (TemplateSegment segment in _segments)
         {
             if (segment.ParameterName is null)
@@ -139,7 +140,10 @@ public sealed class RouteTemplate
                 string.IsNullOrEmpty(value))
             {
                 if (segment.IsOptional)
+                {
+                    firstMissingOptionalParameter ??= segment.ParameterName;
                     continue;
+                }
 
                 if (segment.IsCatchAll)
                     continue;
@@ -148,15 +152,24 @@ public sealed class RouteTemplate
                     $"No value was supplied for path parameter '{segment.ParameterName}'.");
             }
 
+            string[]? catchAllSegments = segment.IsCatchAll
+                ? value.Split('/', StringSplitOptions.RemoveEmptyEntries)
+                : null;
+            if (catchAllSegments is { Length: 0 })
+                continue;
+
+            if (firstMissingOptionalParameter is not null)
+                throw new InvalidOperationException(
+                    $"Route template '{Value}' cannot format path parameter '{segment.ParameterName}' " +
+                    $"because optional path parameter '{firstMissingOptionalParameter}' was omitted.");
+
             switch (segment.IsCatchAll)
             {
                 case false when !_constraints.Satisfies(value, segment.Constraint):
                     throw new InvalidOperationException(
                         $"Path parameter '{segment.ParameterName}' value '{value}' does not satisfy constraint '{segment.Constraint}'.");
                 case true:
-                    segments.AddRange(value
-                        .Split('/', StringSplitOptions.RemoveEmptyEntries)
-                        .Select(Uri.EscapeDataString));
+                    segments.AddRange(catchAllSegments!.Select(Uri.EscapeDataString));
                     continue;
                 default:
                     segments.Add(Uri.EscapeDataString(value));

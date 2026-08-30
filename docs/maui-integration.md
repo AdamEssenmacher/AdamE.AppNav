@@ -188,7 +188,10 @@ Route pages can implement scoped, asynchronous lifecycle behavior through constr
 methods receive cancellation where appropriate and no `IServiceProvider`. A rollback may issue a compensating update
 with the prior route entry, so update hooks must support that call. AppNav enters each callback on the MAUI main thread
 and restores main-thread affinity before invoking the next callback or touching the page afterward; hooks remain
-responsible for their own continuation choices.
+responsible for their own continuation choices. A lifecycle callback runs inside the router operation presenting the
+page and cannot synchronously or asynchronously re-enter `NavigateAsync`, `BackAsync`, or `ReconcileAsync` on the same
+`IRouterNavigator`. Schedule follow-up navigation to begin after the callback and its owning router operation complete;
+reentrant calls fail immediately with `InvalidOperationException`.
 
 Logical presentation is transactional. AppNav stages replacements, retains removed pages until commit, suppresses
 transient reconciliation, verifies the target, and only then releases retired pages. Before commit, failure or

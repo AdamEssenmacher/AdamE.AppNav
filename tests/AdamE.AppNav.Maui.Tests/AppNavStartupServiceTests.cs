@@ -6,6 +6,7 @@ using AdamE.AppNav.Maui.AppLinks;
 using AdamE.AppNav.Maui.Requests;
 using AdamE.AppNav.Navigation;
 using AdamE.AppNav.Plans;
+using AdamE.AppNav.Policies;
 using AdamE.AppNav.Presentation;
 using AdamE.AppNav.Requests;
 using AdamE.AppNav.Routing;
@@ -124,7 +125,372 @@ public sealed class AppNavStartupServiceTests
     }
 
     [Fact]
-    public async Task StartAsync_PendingAppLink_SkipsFallbackAndAttachesWindow()
+    public async Task StartAsync_PendingAppLinkSuccess_ReturnsAppLinkNavigatedWithoutFallback()
+    {
+        var diagnostics = new NavigationDiagnostics();
+        var navigator = new RecordingRouterNavigator();
+        var fallbackFactoryCalls = 0;
+        using var services = new ServiceCollection()
+            .AddSingleton<IRouterNavigator>(navigator)
+            .AddSingleton(diagnostics)
+            .BuildServiceProvider();
+        using var dispatcher = new MauiExternalNavigationDispatcher(services, diagnostics);
+        Assert.True(dispatcher.TryDispatch(
+            RouterNavigationRequest.FromRoute(new TestRoute("pending"), NavigationRequestSource.AppLink)));
+
+        var windowAttachment = new RecordingWindowAttachment(() =>
+        {
+            dispatcher.MarkReady();
+            dispatcher.SetForegrounded(true);
+        });
+        var startup = new AppNavStartupService(
+            navigator,
+            windowAttachment,
+            dispatcher,
+            new AppNavStartupOptions
+            {
+                AppLinkGracePeriod = TimeSpan.Zero,
+                FallbackRequestFactory = (_, _) =>
+                {
+                    fallbackFactoryCalls++;
+                    return ValueTask.FromResult<RouterNavigationRequest?>(RouterNavigationRequest.FromRoute(
+                        new TestRoute("fallback"),
+                        NavigationRequestSource.InAppCommand));
+                }
+            },
+            services,
+            diagnostics);
+
+        AppNavStartupResult result = await StartOnMainThreadAsync(startup, new Window(new ContentPage()))
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(AppNavStartupOutcome.AppLinkNavigated, result.Outcome);
+        Assert.Equal("pending", Assert.IsType<TestRoute>(Assert.Single(navigator.NavigateCalls).Route).Id);
+        Assert.Equal(0, fallbackFactoryCalls);
+        Assert.Equal(1, windowAttachment.AttachCalls);
+        Assert.False(dispatcher.HasPendingRequests);
+    }
+
+    [Fact]
+    public async Task StartAsync_TerminalPendingAppLink_ContinuesThroughDeferredRecoveryAndFallbackOnce()
+    {
+        var diagnostics = new NavigationDiagnostics();
+        var navigator = new RecordingRouterNavigator((request, _) =>
+        {
+            if (request.Source == NavigationRequestSource.AppLink)
+                throw new NotSupportedException("The app-link route is terminal.");
+            return SuccessfulResult(request);
+        });
+        var deferredStore = new RecordingDeferredRequestStore { HasDeferredRequestsResult = true };
+        var fallbackFactoryCalls = 0;
+        using var services = new ServiceCollection()
+            .AddSingleton<IRouterNavigator>(navigator)
+            .AddSingleton(diagnostics)
+            .AddSingleton<IDeferredNavigationRequestStore>(deferredStore)
+            .BuildServiceProvider();
+        using var dispatcher = new MauiExternalNavigationDispatcher(services, diagnostics);
+        Assert.True(dispatcher.TryDispatch(
+            RouterNavigationRequest.FromRoute(new TestRoute("terminal"), NavigationRequestSource.AppLink)));
+        var windowAttachment = new RecordingWindowAttachment(() =>
+        {
+            dispatcher.MarkReady();
+            dispatcher.SetForegrounded(true);
+        });
+        var startup = new AppNavStartupService(
+            navigator,
+            windowAttachment,
+            dispatcher,
+            new AppNavStartupOptions
+            {
+                AppLinkGracePeriod = TimeSpan.Zero,
+                FallbackRequestFactory = (_, _) =>
+                {
+                    fallbackFactoryCalls++;
+                    return ValueTask.FromResult<RouterNavigationRequest?>(RouterNavigationRequest.FromRoute(
+                        new TestRoute("fallback"),
+                        NavigationRequestSource.InAppCommand));
+                }
+            },
+            services,
+            diagnostics);
+
+        AppNavStartupResult result = await StartOnMainThreadAsync(startup, new Window(new ContentPage()))
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(AppNavStartupOutcome.FallbackNavigated, result.Outcome);
+        Assert.Equal(["terminal", "fallback"], navigator.NavigateCalls
+            .Select(request => Assert.IsType<TestRoute>(request.Route).Id));
+        Assert.Equal(1, fallbackFactoryCalls);
+        Assert.Equal(1, deferredStore.HasDeferredRequestsCalls);
+        Assert.Equal(1, windowAttachment.AttachCalls);
+        Assert.False(dispatcher.HasPendingRequests);
+    }
+
+    [Fact]
+    public async Task StartAsync_RetryablePendingAppLink_WaitsForRetrySuccess()
+    {
+        var diagnostics = new NavigationDiagnostics();
+        var appLinkAttempts = 0;
+        var navigator = new RecordingRouterNavigator((request, _) =>
+        {
+            if (request.Source == NavigationRequestSource.AppLink && ++appLinkAttempts == 1)
+                throw new IOException("Retry this request.");
+            return SuccessfulResult(request);
+        });
+        var fallbackFactoryCalls = 0;
+        using var services = new ServiceCollection()
+            .AddSingleton<IRouterNavigator>(navigator)
+            .AddSingleton(diagnostics)
+            .BuildServiceProvider();
+        using var dispatcher = new MauiExternalNavigationDispatcher(
+            services,
+            diagnostics,
+            new MauiExternalNavigationOptions
+            {
+                MaximumDispatchAttempts = 2,
+                RetryDelay = TimeSpan.Zero
+            });
+        Assert.True(dispatcher.TryDispatch(
+            RouterNavigationRequest.FromRoute(new TestRoute("retry"), NavigationRequestSource.AppLink)));
+        var startup = new AppNavStartupService(
+            navigator,
+            new RecordingWindowAttachment(() =>
+            {
+                dispatcher.MarkReady();
+                dispatcher.SetForegrounded(true);
+            }),
+            dispatcher,
+            new AppNavStartupOptions
+            {
+                AppLinkGracePeriod = TimeSpan.Zero,
+                FallbackRequestFactory = (_, _) =>
+                {
+                    fallbackFactoryCalls++;
+                    return ValueTask.FromResult<RouterNavigationRequest?>(null);
+                }
+            },
+            services,
+            diagnostics);
+
+        AppNavStartupResult result = await StartOnMainThreadAsync(startup, new Window(new ContentPage()))
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(AppNavStartupOutcome.AppLinkNavigated, result.Outcome);
+        Assert.Equal(2, appLinkAttempts);
+        Assert.Equal(2, navigator.NavigateCalls.Count);
+        Assert.Equal(0, fallbackFactoryCalls);
+    }
+
+    [Fact]
+    public async Task StartAsync_MultiplePendingAppLinks_ReturnsAfterAnySuccess()
+    {
+        var diagnostics = new NavigationDiagnostics();
+        var navigator = new RecordingRouterNavigator((request, _) =>
+        {
+            if (request.Route is TestRoute { Id: "terminal" })
+                throw new NotSupportedException("Terminal request.");
+            return SuccessfulResult(request);
+        });
+        using var services = new ServiceCollection()
+            .AddSingleton<IRouterNavigator>(navigator)
+            .AddSingleton(diagnostics)
+            .BuildServiceProvider();
+        using var dispatcher = new MauiExternalNavigationDispatcher(services, diagnostics);
+        Assert.True(dispatcher.TryDispatch(
+            RouterNavigationRequest.FromRoute(new TestRoute("terminal"), NavigationRequestSource.AppLink)));
+        Assert.True(dispatcher.TryDispatch(
+            RouterNavigationRequest.FromRoute(new TestRoute("success"), NavigationRequestSource.AppLink)));
+        var startup = new AppNavStartupService(
+            navigator,
+            new RecordingWindowAttachment(() =>
+            {
+                dispatcher.MarkReady();
+                dispatcher.SetForegrounded(true);
+            }),
+            dispatcher,
+            new AppNavStartupOptions { AppLinkGracePeriod = TimeSpan.Zero },
+            services,
+            diagnostics);
+
+        AppNavStartupResult result = await StartOnMainThreadAsync(startup, new Window(new ContentPage()))
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(AppNavStartupOutcome.AppLinkNavigated, result.Outcome);
+        Assert.Equal(["terminal", "success"], navigator.NavigateCalls
+            .Select(request => Assert.IsType<TestRoute>(request.Route).Id));
+        Assert.False(dispatcher.HasPendingRequests);
+    }
+
+    [Fact]
+    public async Task StartAsync_AllPendingAppLinksTerminal_ExhaustsEpochThenReturnsNoNavigation()
+    {
+        var diagnostics = new NavigationDiagnostics();
+        var navigator = new RecordingRouterNavigator((_, _) =>
+            throw new NotSupportedException("Terminal request."));
+        var deferredStore = new RecordingDeferredRequestStore();
+        using var services = new ServiceCollection()
+            .AddSingleton<IRouterNavigator>(navigator)
+            .AddSingleton(diagnostics)
+            .AddSingleton<IDeferredNavigationRequestStore>(deferredStore)
+            .BuildServiceProvider();
+        using var dispatcher = new MauiExternalNavigationDispatcher(services, diagnostics);
+        Assert.True(dispatcher.TryDispatch(
+            RouterNavigationRequest.FromRoute(new TestRoute("first"), NavigationRequestSource.AppLink)));
+        Assert.True(dispatcher.TryDispatch(
+            RouterNavigationRequest.FromRoute(new TestRoute("second"), NavigationRequestSource.AppLink)));
+        var windowAttachment = new RecordingWindowAttachment(() =>
+        {
+            dispatcher.MarkReady();
+            dispatcher.SetForegrounded(true);
+        });
+        var startup = new AppNavStartupService(
+            navigator,
+            windowAttachment,
+            dispatcher,
+            new AppNavStartupOptions { AppLinkGracePeriod = TimeSpan.Zero },
+            services,
+            diagnostics);
+
+        AppNavStartupResult result = await StartOnMainThreadAsync(startup, new Window(new ContentPage()))
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(AppNavStartupOutcome.NoNavigation, result.Outcome);
+        Assert.Equal(2, navigator.NavigateCalls.Count);
+        Assert.Equal(1, deferredStore.HasDeferredRequestsCalls);
+        Assert.Equal(1, windowAttachment.AttachCalls);
+        Assert.False(dispatcher.HasPendingRequests);
+    }
+
+    [Fact]
+    public async Task StartAsync_UnmatchedPendingUriWithRouterFallback_ReturnsAppLinkNavigated()
+    {
+        var routes = RouteTable.Create(builder => builder.Map(
+            "/known/{id}",
+            match => new TestRoute(match.Path("id")),
+            format => format.PathParam("id", route => route.Id)));
+        using var navigator = new RouterNavigator(
+            routes,
+            new EchoPlanner(),
+            NullNavigationPresenter.Instance,
+            new RouterNavigatorOptions
+            {
+                FallbackRouteFactory = static _ => new TestRoute("router-fallback")
+            });
+        var diagnostics = new NavigationDiagnostics();
+        using var services = new ServiceCollection()
+            .AddSingleton<IRouterNavigator>(navigator)
+            .AddSingleton(diagnostics)
+            .BuildServiceProvider();
+        using var dispatcher = new MauiExternalNavigationDispatcher(
+            services,
+            diagnostics,
+            new MauiExternalNavigationOptions().AllowOrigin(BaseUri));
+        Assert.True(dispatcher.TryDispatch(RouterNavigationRequest.FromUri(
+            new Uri(BaseUri, "missing"),
+            NavigationRequestSource.AppLink)));
+        var startupFallbackCalls = 0;
+        var startup = new AppNavStartupService(
+            navigator,
+            new RecordingWindowAttachment(() =>
+            {
+                dispatcher.MarkReady();
+                dispatcher.SetForegrounded(true);
+            }),
+            dispatcher,
+            new AppNavStartupOptions
+            {
+                AppLinkGracePeriod = TimeSpan.Zero,
+                FallbackRouteFactory = (_, _) =>
+                {
+                    startupFallbackCalls++;
+                    return ValueTask.FromResult<AppRoute?>(new TestRoute("startup-fallback"));
+                }
+            },
+            services,
+            diagnostics);
+
+        AppNavStartupResult result = await StartOnMainThreadAsync(startup, new Window(new ContentPage()))
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(AppNavStartupOutcome.AppLinkNavigated, result.Outcome);
+        Assert.Equal("router-fallback", Assert.IsType<TestRoute>(navigator.History.Current!.Route).Id);
+        Assert.Equal(0, startupFallbackCalls);
+    }
+
+    [Fact]
+    public async Task StartAsync_LifecycleBackgroundingDoesNotExhaustPendingEpoch()
+    {
+        var diagnostics = new NavigationDiagnostics();
+        var firstAttemptStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var firstAttemptCancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var attempts = 0;
+        var navigator = new RecordingRouterNavigator((request, cancellationToken) =>
+        {
+            attempts++;
+            if (attempts > 1)
+                return SuccessfulResult(request);
+
+            firstAttemptStarted.TrySetResult();
+            var completion = new TaskCompletionSource<NavigationResult>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            _ = cancellationToken.Register(() =>
+            {
+                firstAttemptCancelled.TrySetResult();
+                completion.TrySetCanceled(cancellationToken);
+            });
+            return new ValueTask<NavigationResult>(completion.Task);
+        });
+        var fallbackFactoryCalls = 0;
+        using var services = new ServiceCollection()
+            .AddSingleton<IRouterNavigator>(navigator)
+            .AddSingleton(diagnostics)
+            .BuildServiceProvider();
+        using var dispatcher = new MauiExternalNavigationDispatcher(
+            services,
+            diagnostics,
+            new MauiExternalNavigationOptions { MaximumDispatchAttempts = 1 });
+        Assert.True(dispatcher.TryDispatch(
+            RouterNavigationRequest.FromRoute(new TestRoute("backgrounded"), NavigationRequestSource.AppLink)));
+        var startup = new AppNavStartupService(
+            navigator,
+            new RecordingWindowAttachment(() =>
+            {
+                dispatcher.MarkReady();
+                dispatcher.SetForegrounded(true);
+            }),
+            dispatcher,
+            new AppNavStartupOptions
+            {
+                AppLinkGracePeriod = TimeSpan.Zero,
+                FallbackRequestFactory = (_, _) =>
+                {
+                    fallbackFactoryCalls++;
+                    return ValueTask.FromResult<RouterNavigationRequest?>(null);
+                }
+            },
+            services,
+            diagnostics);
+
+        Task<AppNavStartupResult> startupTask = StartOnMainThreadAsync(startup, new Window(new ContentPage()));
+        await firstAttemptStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        dispatcher.SetForegrounded(false);
+        await firstAttemptCancelled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await Task.Delay(50);
+
+        Assert.False(startupTask.IsCompleted);
+        Assert.Equal(0, fallbackFactoryCalls);
+        Assert.True(dispatcher.HasPendingRequests);
+
+        dispatcher.SetForegrounded(true);
+        AppNavStartupResult result = await startupTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(AppNavStartupOutcome.AppLinkNavigated, result.Outcome);
+        Assert.Equal(2, attempts);
+        Assert.Equal(0, fallbackFactoryCalls);
+    }
+
+    [Fact]
+    public async Task StartAsync_CallerCancellationCancelsPendingEpochWait()
     {
         var diagnostics = new NavigationDiagnostics();
         var navigator = new RecordingRouterNavigator();
@@ -135,8 +501,52 @@ public sealed class AppNavStartupServiceTests
         using var dispatcher = new MauiExternalNavigationDispatcher(services, diagnostics);
         Assert.True(dispatcher.TryDispatch(
             RouterNavigationRequest.FromRoute(new TestRoute("pending"), NavigationRequestSource.AppLink)));
-
         var windowAttachment = new RecordingWindowAttachment();
+        var startup = new AppNavStartupService(
+            navigator,
+            windowAttachment,
+            dispatcher,
+            new AppNavStartupOptions { AppLinkGracePeriod = TimeSpan.Zero },
+            services,
+            diagnostics);
+        using var cancellation = new CancellationTokenSource();
+
+        Task<AppNavStartupResult> startupTask = StartOnMainThreadAsync(
+            startup,
+            new Window(new ContentPage()),
+            cancellation.Token);
+        Assert.Equal(1, windowAttachment.AttachCalls);
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => startupTask);
+        Assert.True(dispatcher.HasPendingRequests);
+        Assert.Empty(navigator.NavigateCalls);
+    }
+
+    [Fact]
+    public async Task StartAsync_TerminalPendingAppLinkAndFallbackFailure_ReturnsFailedOnce()
+    {
+        var diagnostics = new NavigationDiagnostics();
+        var fallbackException = new InvalidOperationException("Fallback failed.");
+        var navigator = new RecordingRouterNavigator((request, _) =>
+        {
+            if (request.Source == NavigationRequestSource.AppLink)
+                throw new NotSupportedException("Terminal request.");
+            throw fallbackException;
+        });
+        var fallbackFactoryCalls = 0;
+        using var services = new ServiceCollection()
+            .AddSingleton<IRouterNavigator>(navigator)
+            .AddSingleton(diagnostics)
+            .BuildServiceProvider();
+        using var dispatcher = new MauiExternalNavigationDispatcher(services, diagnostics);
+        Assert.True(dispatcher.TryDispatch(
+            RouterNavigationRequest.FromRoute(new TestRoute("terminal"), NavigationRequestSource.AppLink)));
+        var windowAttachment = new RecordingWindowAttachment(() =>
+        {
+            dispatcher.MarkReady();
+            dispatcher.SetForegrounded(true);
+        });
         var startup = new AppNavStartupService(
             navigator,
             windowAttachment,
@@ -144,20 +554,25 @@ public sealed class AppNavStartupServiceTests
             new AppNavStartupOptions
             {
                 AppLinkGracePeriod = TimeSpan.Zero,
-                FallbackRequestFactory = static (_, _) => ValueTask.FromResult<RouterNavigationRequest?>(
-                    RouterNavigationRequest.FromRoute(
+                FallbackRequestFactory = (_, _) =>
+                {
+                    fallbackFactoryCalls++;
+                    return ValueTask.FromResult<RouterNavigationRequest?>(RouterNavigationRequest.FromRoute(
                         new TestRoute("fallback"),
-                        NavigationRequestSource.InAppCommand))
+                        NavigationRequestSource.InAppCommand));
+                }
             },
             services,
             diagnostics);
 
-        var result = await StartOnMainThreadAsync(startup, new Window(new ContentPage()));
+        AppNavStartupResult result = await StartOnMainThreadAsync(startup, new Window(new ContentPage()))
+            .WaitAsync(TimeSpan.FromSeconds(5));
 
-        Assert.Equal(AppNavStartupOutcome.AppLinkPending, result.Outcome);
-        Assert.Empty(navigator.NavigateCalls);
+        Assert.Equal(AppNavStartupOutcome.Failed, result.Outcome);
+        Assert.Same(fallbackException, result.Exception);
+        Assert.Equal(1, fallbackFactoryCalls);
+        Assert.Equal(2, navigator.NavigateCalls.Count);
         Assert.Equal(1, windowAttachment.AttachCalls);
-        Assert.True(dispatcher.HasPendingRequests);
     }
 
     [Fact]
@@ -571,7 +986,8 @@ public sealed class AppNavStartupServiceTests
 
     private static Task<AppNavStartupResult> StartOnMainThreadAsync(
         AppNavStartupService startup,
-        Window window)
+        Window window,
+        CancellationToken cancellationToken = default)
     {
         var method = typeof(AppNavStartupService).GetMethod(
             "StartOnMainThreadAsync",
@@ -580,7 +996,7 @@ public sealed class AppNavStartupServiceTests
 
         var invocationResult = method!.Invoke(
             startup,
-            [window, "main", CancellationToken.None]);
+            [window, "main", cancellationToken]);
 
         return AsStartupTask(invocationResult);
     }
@@ -602,7 +1018,7 @@ public sealed class AppNavStartupServiceTests
 
     private sealed record TestRoute(string Id) : AppRoute;
 
-    private sealed class RecordingWindowAttachment : IMauiWindowAttachment
+    private sealed class RecordingWindowAttachment(Action? onAttach = null) : IMauiWindowAttachment
     {
         public int AttachCalls { get; private set; }
 
@@ -614,6 +1030,7 @@ public sealed class AppNavStartupServiceTests
             Assert.Equal("main", windowId);
             AttachCalls++;
             AttachMainThreadChecks.Add(MainThread.IsMainThread);
+            onAttach?.Invoke();
         }
     }
 
@@ -709,8 +1126,13 @@ public sealed class AppNavStartupServiceTests
         }
     }
 
-    private sealed class RecordingRouterNavigator : IRouterNavigator
+    private sealed class RecordingRouterNavigator(
+        Func<RouterNavigationRequest, CancellationToken, ValueTask<NavigationResult>>? navigate = null)
+        : IRouterNavigator
     {
+        private readonly Func<RouterNavigationRequest, CancellationToken, ValueTask<NavigationResult>> _navigate =
+            navigate ?? SuccessfulResult;
+
         public List<RouterNavigationRequest> NavigateCalls { get; } = [];
 
         public List<bool> NavigateMainThreadChecks { get; } = [];
@@ -725,17 +1147,38 @@ public sealed class AppNavStartupServiceTests
         {
             NavigateCalls.Add(request);
             NavigateMainThreadChecks.Add(MainThread.IsMainThread);
-            return ValueTask.FromResult(new NavigationResult(
-                request.Route!,
-                new NavigationPlan(NavigationState.Empty),
-                NavigationState.Empty,
-                Presented: true));
+            return _navigate(request, cancellationToken);
         }
 
         public ValueTask<BackNavigationResult> BackAsync(string? windowId = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<NavigationResult> ReconcileAsync(NavigationReconciliation reconciliation, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public void Dispose() { }
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class EchoPlanner : IAppNavigationPlanner
+    {
+        public ValueTask<NavigationPlan> CreatePlanAsync(
+            NavigationPlanningContext context,
+            CancellationToken cancellationToken = default)
+        {
+            var state = new NavigationState(
+                [new WindowNode("main", new StackNode("stack", [new RouteEntry("route", context.Route)]))],
+                "main");
+            return ValueTask.FromResult(new NavigationPlan(state));
+        }
+    }
+
+    private static ValueTask<NavigationResult> SuccessfulResult(
+        RouterNavigationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        AppRoute route = request.Route ?? new TestRoute("uri");
+        return ValueTask.FromResult(new NavigationResult(
+            route,
+            new NavigationPlan(NavigationState.Empty),
+            NavigationState.Empty,
+            Presented: true));
     }
 
     private static string CreateStoreDirectory()

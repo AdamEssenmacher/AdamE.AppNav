@@ -547,9 +547,14 @@ internal sealed record ConventionQueryCollectionShape(
 internal static class ConventionRouteNullability
 {
     private static readonly NullabilityInfoContext Context = new();
+    private static readonly object ContextGate = new();
 
     public static bool IsNullable(ParameterInfo parameter)
     {
-        return Context.Create(parameter).ReadState == NullabilityState.Nullable;
+        NullabilityState readState;
+        lock (ContextGate)
+            readState = Context.Create(parameter).ReadState;
+
+        return readState == NullabilityState.Nullable;
     }
 }

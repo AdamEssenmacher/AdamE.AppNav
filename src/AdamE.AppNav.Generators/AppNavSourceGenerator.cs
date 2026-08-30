@@ -1855,16 +1855,25 @@ internal static class ConstantEmitter
         if (valueType.TypeKind == TypeKind.Enum)
         {
             string enumTypeName = SymbolFacts.TypeName(valueType);
-            if (valueType is INamedTypeSymbol enumType &&
-                enumType.EnumUnderlyingType?.SpecialType is SpecialType.System_UInt64)
+            var enumType = (INamedTypeSymbol)valueType;
+            if (enumType.EnumUnderlyingType?.SpecialType is SpecialType.System_UInt64)
             {
                 return "(" + enumTypeName + ")" +
                        Convert.ToUInt64(value, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture) +
                        "UL";
             }
 
-            return "(" + enumTypeName + ")" +
-                   Convert.ToInt64(value, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture);
+            string literal = Convert.ToInt64(value, CultureInfo.InvariantCulture)
+                .ToString(CultureInfo.InvariantCulture);
+
+            if (enumType.EnumUnderlyingType?.SpecialType is SpecialType.System_Byte or
+                SpecialType.System_UInt16 or
+                SpecialType.System_UInt32)
+            {
+                return "(" + enumTypeName + ")" + literal;
+            }
+
+            return "(" + enumTypeName + ")(" + literal + ")";
         }
 
         switch (value)

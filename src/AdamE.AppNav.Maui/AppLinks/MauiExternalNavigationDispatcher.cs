@@ -17,8 +17,11 @@ internal sealed class MauiExternalNavigationDispatcher : IMauiExternalNavigation
     private readonly HashSet<RouterNavigationRequest> _deduped =
         new(MauiNavigationRequestEquivalenceComparer.Instance);
     private TaskCompletionSource<bool> _pendingRequestAvailable = NewSignal();
+    private TaskCompletionSource<MauiExternalNavigationPendingEpoch?> _pendingEpochAvailable =
+        NewPendingEpochSignal();
     private TaskCompletionSource<bool> _queueChanged = NewSignal();
     private CancellationTokenSource? _activeDrainCancellation;
+    private MauiExternalNavigationPendingEpoch? _activePendingEpoch;
     private PendingRequest? _inFlight;
     private bool _ready;
     private bool _foregrounded;
@@ -116,6 +119,43 @@ internal sealed class MauiExternalNavigationDispatcher : IMauiExternalNavigation
         return HasPendingRequests;
     }
 
+    internal async ValueTask<MauiExternalNavigationPendingEpoch?> WaitForPendingEpochAsync(
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default)
+    {
+        if (timeout < TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(timeout), "Timeout cannot be negative.");
+
+        PruneExpiredPending(_timeProvider.GetUtcNow());
+        Task<MauiExternalNavigationPendingEpoch?> waitTask;
+        lock (_gate)
+        {
+            if (_disposed)
+                return null;
+            if (_activePendingEpoch is not null)
+                return _activePendingEpoch;
+            if (timeout == TimeSpan.Zero)
+                return null;
+
+            if (_pendingEpochAvailable.Task.IsCompleted)
+                _pendingEpochAvailable = NewPendingEpochSignal();
+            waitTask = _pendingEpochAvailable.Task;
+        }
+
+        try
+        {
+            return await waitTask.WaitAsync(timeout, cancellationToken).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            if (waitTask.IsCompletedSuccessfully)
+                return waitTask.Result;
+
+            lock (_gate)
+                return _activePendingEpoch;
+        }
+    }
+
     public void MarkReady()
     {
         lock (_gate)
@@ -183,6 +223,7 @@ internal sealed class MauiExternalNavigationDispatcher : IMauiExternalNavigation
     {
         CancellationTokenSource? activeDrainCancellation;
         TaskCompletionSource<bool> pendingRequestAvailable;
+        TaskCompletionSource<MauiExternalNavigationPendingEpoch?> pendingEpochAvailable;
         TaskCompletionSource<bool> queueChanged;
         lock (_gate)
         {
@@ -196,14 +237,17 @@ internal sealed class MauiExternalNavigationDispatcher : IMauiExternalNavigation
             _pending.Clear();
             _deduped.Clear();
             _inFlight = null;
+            CompletePendingEpochIfIdle();
             activeDrainCancellation = _activeDrainCancellation;
             pendingRequestAvailable = _pendingRequestAvailable;
+            pendingEpochAvailable = _pendingEpochAvailable;
             queueChanged = _queueChanged;
         }
 
         MauiExternalNavigationBridge.Unregister(this);
         TryCancel(activeDrainCancellation);
         pendingRequestAvailable.TrySetResult(false);
+        pendingEpochAvailable.TrySetResult(null);
         queueChanged.TrySetResult(false);
     }
 
@@ -233,6 +277,7 @@ internal sealed class MauiExternalNavigationDispatcher : IMauiExternalNavigation
                 }
                 else
                 {
+                    EnsurePendingEpoch();
                     while (_pending.Count >= _options.MaximumPendingRequests)
                     {
                         PendingRequest dropped = _pending.First!.Value;
@@ -374,6 +419,7 @@ internal sealed class MauiExternalNavigationDispatcher : IMauiExternalNavigation
                 {
                     _pending.Remove(node);
                     _deduped.Remove(item.Request);
+                    CompletePendingEpochIfIdle();
                     return DrainSelection.Expired(item, _pending.Count);
                 }
 
@@ -429,6 +475,8 @@ internal sealed class MauiExternalNavigationDispatcher : IMauiExternalNavigation
             if (ReferenceEquals(_inFlight, item))
                 _inFlight = null;
             _deduped.Remove(item.Request);
+            _activePendingEpoch?.TryComplete(MauiExternalNavigationPendingEpochOutcome.Navigated);
+            CompletePendingEpochIfIdle();
         }
     }
 
@@ -452,6 +500,7 @@ internal sealed class MauiExternalNavigationDispatcher : IMauiExternalNavigation
                 _pending.AddFirst(item);
             }
             _drainScheduled = false;
+            CompletePendingEpochIfIdle();
             pendingCount = _pending.Count;
         }
 
@@ -509,6 +558,7 @@ internal sealed class MauiExternalNavigationDispatcher : IMauiExternalNavigation
             }
 
             pendingCount = _pending.Count;
+            CompletePendingEpochIfIdle();
         }
 
         if (retry)
@@ -565,6 +615,7 @@ internal sealed class MauiExternalNavigationDispatcher : IMauiExternalNavigation
             }
 
             pendingCount = _pending.Count;
+            CompletePendingEpochIfIdle();
         }
 
         if (expired is null)
@@ -593,6 +644,26 @@ internal sealed class MauiExternalNavigationDispatcher : IMauiExternalNavigation
     {
         lock (_gate)
             _queueChanged.TrySetResult(true);
+    }
+
+    private void EnsurePendingEpoch()
+    {
+        if (_activePendingEpoch is not null)
+            return;
+
+        _activePendingEpoch = new MauiExternalNavigationPendingEpoch();
+        if (_pendingEpochAvailable.Task.IsCompleted)
+            _pendingEpochAvailable = NewPendingEpochSignal();
+        _pendingEpochAvailable.TrySetResult(_activePendingEpoch);
+    }
+
+    private void CompletePendingEpochIfIdle()
+    {
+        if (_pending.Count > 0 || _inFlight is not null || _activePendingEpoch is null)
+            return;
+
+        _activePendingEpoch.TryComplete(MauiExternalNavigationPendingEpochOutcome.Exhausted);
+        _activePendingEpoch = null;
     }
 
     private static void TryCancel(CancellationTokenSource? cancellation)
@@ -779,6 +850,12 @@ internal sealed class MauiExternalNavigationDispatcher : IMauiExternalNavigation
     private static TaskCompletionSource<bool> NewSignal()
     {
         return new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    private static TaskCompletionSource<MauiExternalNavigationPendingEpoch?> NewPendingEpochSignal()
+    {
+        return new TaskCompletionSource<MauiExternalNavigationPendingEpoch?>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
     private static string OperationId() => Guid.NewGuid().ToString("N");

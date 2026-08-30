@@ -191,6 +191,96 @@ public sealed class RouteTableTests
     }
 
     [Fact]
+    public void RouteTemplateFormatRejectsPathDataAfterTheFirstMissingOptionalParameter()
+    {
+        RouteTemplate template = RouteTemplate.Parse("/reports/{year?}/{month?}");
+
+        var exception = Assert.Throws<InvalidOperationException>(() => template.Format(
+            new Dictionary<string, string> { ["month"] = "august" }));
+
+        Assert.Equal(
+            "Route template '/reports/{year?}/{month?}' cannot format path parameter 'month' " +
+            "because optional path parameter 'year' was omitted.",
+            exception.Message);
+    }
+
+    [Fact]
+    public void RouteTemplateFormatRejectsNonemptyCatchAllAfterAnOptionalHole()
+    {
+        RouteTemplate template = RouteTemplate.Parse("/reports/{year?}/{*path}");
+
+        var exception = Assert.Throws<InvalidOperationException>(() => template.Format(
+            new Dictionary<string, string> { ["path"] = "monthly/august" }));
+
+        Assert.Equal(
+            "Route template '/reports/{year?}/{*path}' cannot format path parameter 'path' " +
+            "because optional path parameter 'year' was omitted.",
+            exception.Message);
+        Assert.Equal(
+            "/reports",
+            template.Format(new Dictionary<string, string> { ["path"] = "///" }));
+    }
+
+    [Fact]
+    public void RouteTemplateFormatPreservesContiguousOptionalPrefixesAndRoundTrips()
+    {
+        RouteTemplate template = RouteTemplate.Parse("/reports/{year?}/{month?}/{*path}");
+        IReadOnlyDictionary<string, string>[] values =
+        [
+            new Dictionary<string, string>(),
+            new Dictionary<string, string> { ["year"] = "2026" },
+            new Dictionary<string, string> { ["year"] = "2026", ["month"] = "august" },
+            new Dictionary<string, string>
+            {
+                ["year"] = "2026",
+                ["month"] = "august",
+                ["path"] = "daily/30"
+            }
+        ];
+
+        foreach (IReadOnlyDictionary<string, string> pathValues in values)
+        {
+            string path = template.Format(pathValues);
+            IReadOnlyDictionary<string, string> matched = Assert.IsAssignableFrom<IReadOnlyDictionary<string, string>>(
+                template.Match(path));
+
+            Assert.Equal(path, template.Format(matched));
+        }
+    }
+
+    [Fact]
+    public void ExplicitRouteBinderRejectsAnOptionalPathHole()
+    {
+        var table = RouteTable.Create(routes => routes.Map(
+            "/reports/{year?}/{month?}",
+            match => new OptionalReportRoute(match.PathOptional("year"), match.PathOptional("month")),
+            format => format
+                .PathParam("year", route => route.Year)
+                .PathParam("month", route => route.Month)));
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            table.Format(new OptionalReportRoute(null, "august")));
+
+        Assert.Contains("/reports/{year?}/{month?}", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("year", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("month", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ConventionRouteBinderRejectsAnOptionalPathHole()
+    {
+        var table = RouteTable.Create(routes => routes.MapRoute<OptionalReportRoute>(
+            "/reports/{year?}/{month?}"));
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            table.Format(new OptionalReportRoute(null, "august")));
+
+        Assert.Contains("/reports/{year?}/{month?}", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("year", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("month", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ConstrainedOptionalRoutesBeatUnconstrainedRequiredRoutes()
     {
         var table = RouteTable.Create(routes => routes
@@ -717,6 +807,144 @@ public sealed class RouteTableTests
     }
 
     [Fact]
+    public void ExplicitTypedScalarFormattersUseExactRuntimeCodecWhenDeclaredCodecIsMissing()
+    {
+        var table = RouteTable.Create(routes => routes
+            .AddValueCodec<DeclaredRouteValue>(
+                static value => new DeclaredRouteValue(value),
+                static value => $"interface-{value.Value.ToLowerInvariant()}")
+            .AddValueCodec<ConcreteDeclaredRouteValue>(
+                static value => new ConcreteDeclaredRouteValue(value),
+                static value => $"base-{value.Value.ToLowerInvariant()}")
+            .Map<ExplicitRuntimeScalarCodecRoute>(
+                "/runtime/{id}",
+                match => new ExplicitRuntimeScalarCodecRoute(
+                    new DeclaredRouteValue(match.Path("id")),
+                    match.Query("filter") is { } filter
+                        ? new ConcreteDeclaredRouteValue(filter)
+                        : null),
+                format => format
+                    .PathParam<IDeclaredRouteValue>("id", route => route.Id)
+                    .QueryParam<DeclaredRouteValueBase?>("filter", route => route.Filter)));
+
+        Assert.Equal(
+            "/runtime/interface-one?filter=base-two",
+            table.Format(new ExplicitRuntimeScalarCodecRoute(
+                new DeclaredRouteValue("ONE"),
+                new ConcreteDeclaredRouteValue("TWO"))));
+    }
+
+    [Fact]
+    public void ExplicitTypedCollectionsUseExactRuntimeCodecsAndPreserveNulls()
+    {
+        var table = RouteTable.Create(routes => routes
+            .AddValueCodec<DeclaredRouteValue>(
+                static value => new DeclaredRouteValue(value),
+                static value => $"runtime-{value.Value.ToLowerInvariant()}")
+            .Map<ExplicitRuntimeCollectionCodecRoute>(
+                "/runtime-collections",
+                _ => new ExplicitRuntimeCollectionCodecRoute(),
+                format => format
+                    .QueryParam<List<object?>?>(
+                        "object",
+                        route => route.ObjectValues,
+                        omitWhenNull: false)
+                    .QueryParam<IReadOnlyList<IDeclaredRouteValue?>?>(
+                        "interface",
+                        route => route.InterfaceValues,
+                        omitWhenNull: false)));
+
+        Assert.Equal(
+            "/runtime-collections?object=one&object=2&object=&object=runtime-three" +
+            "&interface=runtime-four&interface=",
+            table.Format(new ExplicitRuntimeCollectionCodecRoute(
+                ["one", 2, null, new DeclaredRouteValue("THREE")],
+                [new DeclaredRouteValue("FOUR"), null])));
+        Assert.Equal(
+            "/runtime-collections?object=&interface=",
+            table.Format(new ExplicitRuntimeCollectionCodecRoute()));
+    }
+
+    [Fact]
+    public void ExplicitTypedFormatterReportsMissingExactRuntimeCodec()
+    {
+        var table = RouteTable.Create(routes => routes
+            .Map<ExplicitDeclaredCodecPrecedenceRoute>(
+                "/missing/{id}",
+                match => new ExplicitDeclaredCodecPrecedenceRoute(
+                    new DeclaredRouteValue(match.Path("id"))),
+                format => format.PathParam<IDeclaredRouteValue>("id", route => route.Id)));
+
+        var exception = Assert.Throws<NotSupportedException>(() =>
+            table.Format(new ExplicitDeclaredCodecPrecedenceRoute(new DeclaredRouteValue("ONE"))));
+
+        Assert.Contains(typeof(DeclaredRouteValue).FullName!, exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(typeof(IDeclaredRouteValue).FullName!, exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ExplicitTypedFormattersPreferRegisteredDeclaredCodecs()
+    {
+        var table = RouteTable.Create(routes => routes
+            .AddValueCodec<IDeclaredRouteValue>(
+                static value => new DeclaredRouteValue(value),
+                static value => $"declared-{value.Value.ToLowerInvariant()}")
+            .AddValueCodec<DeclaredRouteValue>(
+                static value => new DeclaredRouteValue(value),
+                static value => $"runtime-{value.Value.ToLowerInvariant()}")
+            .Map<ExplicitDeclaredCodecPrecedenceRoute>(
+                "/precedence/{id}",
+                match => new ExplicitDeclaredCodecPrecedenceRoute(
+                    new DeclaredRouteValue(match.Path("id"))),
+                format => format
+                    .PathParam<IDeclaredRouteValue>("id", route => route.Id)
+                    .QueryParam<IReadOnlyList<IDeclaredRouteValue?>?>(
+                        "value",
+                        route => route.Values,
+                        omitWhenNull: false)));
+
+        Assert.Equal(
+            "/precedence/declared-one?value=declared-two&value=",
+            table.Format(new ExplicitDeclaredCodecPrecedenceRoute(
+                new DeclaredRouteValue("ONE"),
+                [new DeclaredRouteValue("TWO"), null])));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ExplicitTypedFormatterDoesNotFallBackAfterDeclaredCodecFailure(bool returnsNull)
+    {
+        var runtimeCodecCalls = 0;
+        var table = RouteTable.Create(routes => routes
+            .AddValueCodec<IDeclaredRouteValue>(
+                static value => new DeclaredRouteValue(value),
+                _ => returnsNull
+                    ? null!
+                    : throw new FormatException("Declared codec failure."))
+            .AddValueCodec<DeclaredRouteValue>(
+                static value => new DeclaredRouteValue(value),
+                value =>
+                {
+                    runtimeCodecCalls++;
+                    return value.Value;
+                })
+            .Map<ExplicitDeclaredCodecPrecedenceRoute>(
+                "/failure/{id}",
+                match => new ExplicitDeclaredCodecPrecedenceRoute(
+                    new DeclaredRouteValue(match.Path("id"))),
+                format => format.PathParam<IDeclaredRouteValue>("id", route => route.Id)));
+
+        if (returnsNull)
+            Assert.Throws<InvalidOperationException>(() =>
+                table.Format(new ExplicitDeclaredCodecPrecedenceRoute(new DeclaredRouteValue("ONE"))));
+        else
+            Assert.Throws<FormatException>(() =>
+                table.Format(new ExplicitDeclaredCodecPrecedenceRoute(new DeclaredRouteValue("ONE"))));
+        Assert.Equal(0, runtimeCodecCalls);
+    }
+
+    [Fact]
     public void ConventionRouteRejectsMissingCustomValueCodecWhenTableIsBuilt()
     {
         var exception = Assert.Throws<InvalidOperationException>(() => RouteTable.Create(routes =>
@@ -1231,6 +1459,8 @@ public sealed class RouteTableTests
 
     private sealed record OptionalProductRoute(int? ProductId) : AppRoute;
 
+    private sealed record OptionalReportRoute(string? Year, string? Month) : AppRoute;
+
     private sealed record RequiredProductIdRoute(int ProductId) : AppRoute;
 
     private sealed record ProductSlugRoute(string Slug) : AppRoute;
@@ -1262,6 +1492,18 @@ public sealed class RouteTableTests
         DeclaredRouteValueBase Id,
         DeclaredRouteValueBase? Filter = null,
         IReadOnlyList<DeclaredRouteValueBase>? Tags = null) : AppRoute;
+
+    private sealed record ExplicitRuntimeScalarCodecRoute(
+        IDeclaredRouteValue Id,
+        DeclaredRouteValueBase? Filter = null) : AppRoute;
+
+    private sealed record ExplicitRuntimeCollectionCodecRoute(
+        List<object?>? ObjectValues = null,
+        IReadOnlyList<IDeclaredRouteValue?>? InterfaceValues = null) : AppRoute;
+
+    private sealed record ExplicitDeclaredCodecPrecedenceRoute(
+        IDeclaredRouteValue Id,
+        IReadOnlyList<IDeclaredRouteValue?>? Values = null) : AppRoute;
 
     private sealed record DocsRoute(string Path) : AppRoute;
 
