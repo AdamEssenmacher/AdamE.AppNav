@@ -594,19 +594,8 @@ internal static class RouteModelFactory
 
     private static bool IsHiddenBaseProperty(IPropertySymbol derivedProperty, IPropertySymbol baseProperty)
     {
-        if (!StringComparer.Ordinal.Equals(derivedProperty.Name, baseProperty.Name) ||
-            !SymbolFacts.InheritsFrom(derivedProperty.ContainingType, baseProperty.ContainingType))
-            return false;
-
-        for (IPropertySymbol? overridden = derivedProperty.OverriddenProperty;
-             overridden is not null;
-             overridden = overridden.OverriddenProperty)
-        {
-            if (SymbolEqualityComparer.Default.Equals(overridden, baseProperty))
-                return true;
-        }
-
-        return true;
+        return StringComparer.Ordinal.Equals(derivedProperty.Name, baseProperty.Name) &&
+               SymbolFacts.InheritsFrom(derivedProperty.ContainingType, baseProperty.ContainingType);
     }
 
     private static IReadOnlyList<QueryBinding> BuildQueryBindings(
