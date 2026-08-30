@@ -126,6 +126,18 @@ public sealed class NavigationDiagnostics
         if (!_enabled)
             return;
 
+        bool hasActivity = Activity.Current is not null;
+        EventHandler<NavigationDiagnosticEvent>? eventWritten;
+        INavigationDiagnosticObserver[] observers;
+        lock (_gate)
+        {
+            eventWritten = _eventWritten;
+            observers = _observers.Count == 0 ? [] : _observers.ToArray();
+        }
+
+        if (_redactor is null && _logger is null && !hasActivity && eventWritten is null && observers.Length == 0)
+            return;
+
         LogLevel effectiveSeverity = severity ?? InferSeverity(kind);
         NavigationDiagnosticPhase effectivePhase = phase ?? InferPhase(kind);
         bool hasLogger;
@@ -136,15 +148,6 @@ public sealed class NavigationDiagnostics
         catch
         {
             hasLogger = false;
-        }
-
-        bool hasActivity = Activity.Current is not null;
-        EventHandler<NavigationDiagnosticEvent>? eventWritten;
-        INavigationDiagnosticObserver[] observers;
-        lock (_gate)
-        {
-            eventWritten = _eventWritten;
-            observers = _observers.Count == 0 ? [] : _observers.ToArray();
         }
 
         if (_redactor is null && !hasLogger && !hasActivity && eventWritten is null && observers.Length == 0)
