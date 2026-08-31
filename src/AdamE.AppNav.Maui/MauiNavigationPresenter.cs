@@ -235,7 +235,7 @@ internal sealed class MauiNavigationPresenter :
 
     private void QueueFinalCleanup()
     {
-        _ = Task.Run(FinalizeShutdownAsync);
+        _ = Task.Run(FinalizeShutdownAsync, CancellationToken.None);
     }
 
     private async Task FinalizeShutdownAsync()
@@ -1862,90 +1862,17 @@ internal sealed class MauiNavigationPresenter :
             foreach (SuppressedNavigationPop pendingPop in pendingPops)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-
-                var remainingPages = pendingPop.RemainingPages
-                    .ToHashSet(ReferenceEqualityComparer.Instance);
-                Page[] removedPages = pendingPop.KnownPages
-                    .Where(page => !remainingPages.Contains(page))
-                    .Reverse()
-                    .ToArray();
-                if (removedPages.Length == 0)
-                    continue;
-
-                bool accountedByTransaction = transaction is not null &&
-                    removedPages.All(transaction.IsRetired);
-                if (accountedByTransaction)
-                    continue;
-
-                hadExternalPop = true;
-                if (transaction is not null)
-                {
-                    foreach (Page removedPage in removedPages)
-                        transaction.Retire(removedPage);
-                }
-                else
-                {
-                    foreach (Page removedPage in removedPages)
-                        await ReleaseAndDiagnoseAsync(removedPage);
-                }
-
-                if (!TryResolveCapturedNavigationHost(
-                        effectiveState,
-                        pendingPop,
-                        out WindowNode? window,
-                        out StackNode? targetStack))
-                {
-                    continue;
-                }
-
-                MauiNavigationStackProjection remainingProjection =
-                    MauiNavigationStackProjection.Create(pendingPop.RemainingPages);
-                if (remainingProjection.Error is { } projectionError)
-                {
-                    WriteSuppressedPopProjectionFailure(projectionError);
-                    continue;
-                }
-
-                string[] remainingRouteEntryIds = remainingProjection.Segments
-                    .Select(static segment => segment.RouteEntryId)
-                    .ToArray();
-                string[] targetRouteEntryIds = targetStack.Entries
-                    .Select(static entry => entry.Id)
-                    .ToArray();
-                bool changesLogicalState = !targetRouteEntryIds.SequenceEqual(
-                    remainingRouteEntryIds,
-                    StringComparer.Ordinal);
-
-                WindowNode effectiveWindow = window;
-                if (changesLogicalState)
-                {
-                    WindowNode? updatedWindow = UpdateWindowContent(
-                        window,
-                        pendingPop.OwnerModalId,
-                        node => UpdateStackFromNative(node, pendingPop.StackId, remainingRouteEntryIds));
-                    if (updatedWindow is null)
-                        continue;
-
-                    effectiveWindow = updatedWindow;
-                }
-
-                StackNode? effectiveStack = FindStack(
-                    effectiveWindow,
-                    pendingPop.OwnerModalId,
-                    pendingPop.StackId);
-                if (effectiveStack is null)
-                    continue;
-
-                await RestoreNavigationStackToPopSnapshotAsync(
+                SuppressedNavigationPopFold popFold = await FoldSuppressedNavigationPopAsync(
+                    effectiveState,
                     pendingPop,
-                    effectiveStack,
+                    transaction,
                     cancellationToken);
-
-                if (changesLogicalState)
+                effectiveState = popFold.EffectiveState;
+                hadExternalPop |= popFold.HadExternalPop;
+                if (popFold.LogicalStateChanged)
                 {
-                    effectiveState = effectiveState.ReplaceWindow(effectiveWindow);
                     logicalStateChanged = true;
-                    route = FindTopRouteForPresentedNode(effectiveWindow, pendingPop.OwnerModalId);
+                    route = popFold.Route;
                 }
             }
         }
@@ -1955,6 +1882,106 @@ internal sealed class MauiNavigationPresenter :
             hadExternalPop,
             logicalStateChanged,
             route);
+    }
+
+    private async Task<SuppressedNavigationPopFold> FoldSuppressedNavigationPopAsync(
+        NavigationState effectiveState,
+        SuppressedNavigationPop pendingPop,
+        MauiPresentationTransaction? transaction,
+        CancellationToken cancellationToken)
+    {
+        if (!await RetireOrReleaseSuppressedPopPagesAsync(pendingPop, transaction))
+            return new SuppressedNavigationPopFold(effectiveState, false, false, null);
+
+        if (!TryResolveCapturedNavigationHost(
+                effectiveState,
+                pendingPop,
+                out WindowNode? window,
+                out StackNode? targetStack))
+        {
+            return new SuppressedNavigationPopFold(effectiveState, true, false, null);
+        }
+
+        MauiNavigationStackProjection remainingProjection =
+            MauiNavigationStackProjection.Create(pendingPop.RemainingPages);
+        if (remainingProjection.Error is { } projectionError)
+        {
+            WriteSuppressedPopProjectionFailure(projectionError);
+            return new SuppressedNavigationPopFold(effectiveState, true, false, null);
+        }
+
+        string[] remainingRouteEntryIds = remainingProjection.Segments
+            .Select(static segment => segment.RouteEntryId)
+            .ToArray();
+        string[] targetRouteEntryIds = targetStack.Entries
+            .Select(static entry => entry.Id)
+            .ToArray();
+        bool changesLogicalState = !targetRouteEntryIds.SequenceEqual(
+            remainingRouteEntryIds,
+            StringComparer.Ordinal);
+
+        WindowNode effectiveWindow = window;
+        if (changesLogicalState)
+        {
+            WindowNode? updatedWindow = UpdateWindowContent(
+                window,
+                pendingPop.OwnerModalId,
+                node => UpdateStackFromNative(node, pendingPop.StackId, remainingRouteEntryIds));
+            if (updatedWindow is null)
+                return new SuppressedNavigationPopFold(effectiveState, true, false, null);
+
+            effectiveWindow = updatedWindow;
+        }
+
+        StackNode? effectiveStack = FindStack(
+            effectiveWindow,
+            pendingPop.OwnerModalId,
+            pendingPop.StackId);
+        if (effectiveStack is null)
+            return new SuppressedNavigationPopFold(effectiveState, true, false, null);
+
+        await RestoreNavigationStackToPopSnapshotAsync(
+            pendingPop,
+            effectiveStack,
+            cancellationToken);
+
+        return !changesLogicalState
+            ? new SuppressedNavigationPopFold(effectiveState, true, false, null)
+            : new SuppressedNavigationPopFold(
+                effectiveState.ReplaceWindow(effectiveWindow),
+                true,
+                true,
+                FindTopRouteForPresentedNode(effectiveWindow, pendingPop.OwnerModalId));
+    }
+
+    private async ValueTask<bool> RetireOrReleaseSuppressedPopPagesAsync(
+        SuppressedNavigationPop pendingPop,
+        MauiPresentationTransaction? transaction)
+    {
+        var remainingPages = pendingPop.RemainingPages
+            .ToHashSet(ReferenceEqualityComparer.Instance);
+        Page[] removedPages = pendingPop.KnownPages
+            .Where(page => !remainingPages.Contains(page))
+            .Reverse()
+            .ToArray();
+        if (removedPages.Length == 0 ||
+            transaction is not null && removedPages.All(transaction.IsRetired))
+        {
+            return false;
+        }
+
+        if (transaction is not null)
+        {
+            foreach (Page removedPage in removedPages)
+                transaction.Retire(removedPage);
+        }
+        else
+        {
+            foreach (Page removedPage in removedPages)
+                await ReleaseAndDiagnoseAsync(removedPage);
+        }
+
+        return true;
     }
 
     private bool TryResolveCapturedNavigationHost(

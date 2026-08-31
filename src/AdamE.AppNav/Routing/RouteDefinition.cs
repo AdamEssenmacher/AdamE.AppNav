@@ -28,7 +28,7 @@ public sealed class RouteDefinition
     internal (AppRoute Route, IReadOnlyDictionary<string, object?> Metadata) Create(RouteMatchContext context)
     {
         AppRoute route = _createRoute(context);
-        return (route, context.Metadata);
+        return (route, context.SnapshotMetadata());
     }
 
     internal string Format(

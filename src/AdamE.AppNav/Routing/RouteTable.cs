@@ -10,7 +10,7 @@ public sealed class RouteTable
         Definitions = definitions;
         ValueCodecs = valueCodecs;
         _definitionsByRouteType = BuildDefinitionIndex(definitions);
-        _candidateIndex = RouteCandidateIndex.Create(definitions);
+        _candidateIndex = RouteCandidateIndex.Build(definitions);
     }
 
     // ReSharper disable once MemberCanBePrivate.Global
@@ -169,7 +169,7 @@ public sealed class RouteTable
 
         private CandidateNode Root { get; }
 
-        public static RouteCandidateIndex Create(IReadOnlyList<RouteDefinition> definitions)
+        public static RouteCandidateIndex Build(IReadOnlyList<RouteDefinition> definitions)
         {
             var root = new CandidateNode([]);
             foreach (RouteDefinition definition in definitions)

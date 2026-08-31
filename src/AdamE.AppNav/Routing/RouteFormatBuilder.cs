@@ -74,6 +74,28 @@ public sealed class RouteFormatBuilder<TRoute>
         RouteValueCodecRegistry codecs,
         IReadOnlyDictionary<string, object?>? metadata = null)
     {
+        string path = template.Format(BuildPathValues(route, template, codecs));
+        var query = new List<string>();
+        foreach (QueryFormatter<TRoute> queryParam in _queryParams)
+        {
+            AppendQueryValues(
+                query,
+                queryParam.Name,
+                FormatQueryValues(queryParam, route, codecs),
+                queryParam.OmitWhenNull);
+        }
+
+        foreach (MetadataQueryFormatter queryParam in _metadataQueryParams)
+            AppendMetadataQueryValue(query, queryParam, metadata, codecs);
+
+        return query.Count == 0 ? path : $"{path}?{string.Join("&", query)}";
+    }
+
+    private Dictionary<string, string> BuildPathValues(
+        TRoute route,
+        RouteTemplate template,
+        RouteValueCodecRegistry codecs)
+    {
         var pathValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (string parameter in template.ParameterNames)
         {
@@ -98,61 +120,72 @@ public sealed class RouteFormatBuilder<TRoute>
             pathValues[parameter] = value;
         }
 
-        string path = template.Format(pathValues);
-        var query = new List<string>();
-        foreach (QueryFormatter<TRoute> queryParam in _queryParams)
-        {
-            object? queryValue = queryParam.Value(route);
-            IEnumerable<string?> formattedValues;
-            if (queryParam.DeclaredType is null)
-            {
-                formattedValues = RouteValueFormatting.FormatMany(queryValue, queryParam.Name, codecs);
-            }
-            else if (queryParam.CollectionElementType is null)
-            {
-                Type formattingType = codecs.Contains(queryParam.DeclaredType) || queryValue is null
-                    ? queryParam.DeclaredType
-                    : queryValue.GetType();
-                formattedValues = RouteValueFormatting.FormatMany(
-                    queryValue,
-                    formattingType,
-                    queryParam.Name,
-                    codecs);
-            }
-            else if (codecs.Contains(queryParam.CollectionElementType))
-            {
-                formattedValues = RouteValueFormatting.FormatMany(
-                    queryValue,
-                    queryParam.DeclaredType,
-                    queryParam.Name,
-                    codecs,
-                    queryParam.CollectionElementType);
-            }
-            else
-            {
-                formattedValues = FormatRuntimeCollection(queryValue, queryParam.Name, codecs);
-            }
+        return pathValues;
+    }
 
-            query.AddRange(from value in formattedValues
-                           where value is not null || !queryParam.OmitWhenNull
-                           select $"{Uri.EscapeDataString(queryParam.Name)}={Uri.EscapeDataString(value ?? string.Empty)}");
-        }
+    private static IEnumerable<string?> FormatQueryValues(
+        QueryFormatter<TRoute> queryParam,
+        TRoute route,
+        RouteValueCodecRegistry codecs)
+    {
+        object? queryValue = queryParam.Value(route);
+        if (queryParam.DeclaredType is null)
+            return RouteValueFormatting.FormatMany(queryValue, queryParam.Name, codecs);
 
-        foreach (MetadataQueryFormatter queryParam in _metadataQueryParams)
+        if (queryParam.CollectionElementType is null)
         {
-            object? metadataValue = null;
-            metadata?.TryGetValue(queryParam.MetadataName, out metadataValue);
-            string? value = RouteValueFormatting.Format(
-                metadataValue,
-                queryParam.ValueType,
-                queryParam.QueryName,
+            Type formattingType = codecs.Contains(queryParam.DeclaredType) || queryValue is null
+                ? queryParam.DeclaredType
+                : queryValue.GetType();
+            return RouteValueFormatting.FormatMany(
+                queryValue,
+                formattingType,
+                queryParam.Name,
                 codecs);
-            if (value is not null || !queryParam.OmitWhenNull)
-                query.Add(
-                    $"{Uri.EscapeDataString(queryParam.QueryName)}={Uri.EscapeDataString(value ?? string.Empty)}");
         }
 
-        return query.Count == 0 ? path : $"{path}?{string.Join("&", query)}";
+        return codecs.Contains(queryParam.CollectionElementType)
+            ? RouteValueFormatting.FormatMany(
+                queryValue,
+                queryParam.DeclaredType,
+                queryParam.Name,
+                codecs,
+                queryParam.CollectionElementType)
+            : FormatRuntimeCollection(queryValue, queryParam.Name, codecs);
+    }
+
+    private static void AppendQueryValues(
+        ICollection<string> query,
+        string name,
+        IEnumerable<string?> values,
+        bool omitWhenNull)
+    {
+        foreach (string? value in values)
+        {
+            if (value is null && omitWhenNull)
+                continue;
+
+            query.Add($"{Uri.EscapeDataString(name)}={Uri.EscapeDataString(value ?? string.Empty)}");
+        }
+    }
+
+    private static void AppendMetadataQueryValue(
+        ICollection<string> query,
+        MetadataQueryFormatter queryParam,
+        IReadOnlyDictionary<string, object?>? metadata,
+        RouteValueCodecRegistry codecs)
+    {
+        object? metadataValue = null;
+        metadata?.TryGetValue(queryParam.MetadataName, out metadataValue);
+        string? value = RouteValueFormatting.Format(
+            metadataValue,
+            queryParam.ValueType,
+            queryParam.QueryName,
+            codecs);
+        if (value is null && queryParam.OmitWhenNull)
+            return;
+
+        query.Add($"{Uri.EscapeDataString(queryParam.QueryName)}={Uri.EscapeDataString(value ?? string.Empty)}");
     }
 
     private static IEnumerable<string?> FormatRuntimeCollection(
