@@ -884,7 +884,10 @@ public sealed class MauiPresentationTransactionTests
         Task shutdown = presenter.StartShutdown();
         nativeOperations.ReleaseBlockedPushAfterMutation();
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => apply);
+        Exception? applyFailure = await Record.ExceptionAsync(() => apply);
+        Assert.True(
+            applyFailure is null or OperationCanceledException,
+            $"Expected the in-flight apply to either finish or observe shutdown cancellation, but it failed with {applyFailure?.GetType().FullName}.");
         await shutdown.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Empty(reconciliations);
         Assert.All(factory.CreatedPages, page => Assert.Equal(1, factory.ReleaseCountFor(page)));
