@@ -3404,12 +3404,9 @@ internal sealed class MauiNavigationPresenter :
                     CancellationToken.None);
             }
 
-            foreach ((Page page, PageSnapshot snapshot) in _pageSnapshots)
-                snapshot.Restore(page);
-
+            Exception? branchHostRollbackFailure = null;
             if (!_branchHostUpdatesFinalized)
             {
-                Exception? rollbackFailure = null;
                 for (var index = _branchHostUpdates.Count - 1; index >= 0; index--)
                 {
                     try
@@ -3418,7 +3415,7 @@ internal sealed class MauiNavigationPresenter :
                     }
                     catch (Exception ex)
                     {
-                        rollbackFailure ??= ex;
+                        branchHostRollbackFailure ??= ex;
                     }
                 }
 
@@ -3428,12 +3425,15 @@ internal sealed class MauiNavigationPresenter :
                 }
                 catch (Exception ex)
                 {
-                    rollbackFailure ??= ex;
+                    branchHostRollbackFailure ??= ex;
                 }
-
-                if (rollbackFailure is not null)
-                    throw rollbackFailure;
             }
+
+            foreach ((Page page, PageSnapshot snapshot) in _pageSnapshots)
+                snapshot.Restore(page);
+
+            if (branchHostRollbackFailure is not null)
+                throw branchHostRollbackFailure;
 
             _presenter._lastState = PreviousState;
             _presenter.RebuildTrackingFromCurrentPage();

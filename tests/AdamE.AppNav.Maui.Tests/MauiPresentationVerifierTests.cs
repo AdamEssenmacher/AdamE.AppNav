@@ -409,6 +409,36 @@ public sealed class MauiPresentationVerifierTests
     }
 
     [Fact]
+    public async Task VerificationFailureRestoresPreviousTabbedBranchTitle()
+    {
+        var verifier = new SequencedVerifier(
+            null,
+            new MauiPresentationVerificationMismatch("$.root", "expected", "actual"));
+        var presenter = new MauiNavigationPresenter(
+            new InstrumentedRoutePageFactory(),
+            presentationVerifier: verifier);
+        var initialHost = new BranchHostNode(
+            "tabs",
+            [new NavigationBranch("home", "Original title", Stack("home-stack", Entry("home")))],
+            "home",
+            "home");
+        var targetHost = initialHost.ReplaceBranch(
+            initialHost.Branches[0] with { Title = "Target title" });
+        NavigationPlan initialPlan = Plan(initialHost);
+
+        await presenter.ApplyAsync(initialPlan, Context(new TestPageRoute("home")));
+        var tabbedPage = Assert.IsType<TabbedPage>(presenter.CurrentPage);
+        Page branchPage = Assert.Single(tabbedPage.Children);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => presenter.ApplyAsync(
+            Plan(targetHost),
+            Context(new TestPageRoute("home"), initialPlan.TargetState)).AsTask());
+
+        Assert.Same(branchPage, Assert.Single(tabbedPage.Children));
+        Assert.Equal("Original title", branchPage.Title);
+        await presenter.StartShutdown();
+    }
+
+    [Fact]
     public async Task RouterDoesNotCommitWhenMauiPresenterVerificationFails()
     {
         var verifier = new SequencedVerifier(new MauiPresentationVerificationMismatch("$.root", "expected", "actual"));
