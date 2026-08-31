@@ -39,6 +39,14 @@ becoming destination identity. See [A route is neither a page nor a view
 model](00-why-appnav.md#a-route-is-neither-a-page-nor-a-view-model) for why
 AppNav keeps these concepts separate.
 
+This data-first distinction has close relatives outside .NET. SwiftUI can map
+values in a navigation path to views, and Android Compose can map typed route
+objects or back-stack keys to rendered content. AppNav applies the same broad
+separation to its host-independent route, request, topology, and presentation
+contracts. See [Established ideas, adapted for
+.NET](00-why-appnav.md#established-ideas-adapted-for-net) for a bounded
+comparison; the libraries do not have equivalent APIs or behavior.
+
 A route should therefore contain durable domain identity, not a `Page`, view
 model, service, callback, native handle, or information about how a request
 entered the app.

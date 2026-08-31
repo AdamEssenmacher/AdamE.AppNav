@@ -92,6 +92,15 @@ testing](docs/guides/03-application-architecture-and-testing.md) to decide which
 navigation concerns belong in a render-independent project and which remain in
 the MAUI host.
 
+The underlying direction is not unique to AppNav. Across SwiftUI, Android's
+modern navigation APIs, and React Navigation are related ideas around
+data-driven destinations, explicit navigation state, nested history, and
+mapping navigation data to rendered UI. AppNav adapts and combines those
+established concepts for pure .NET application code and native MAUI
+presentation. See [Established ideas, adapted for
+.NET](docs/concepts/00-why-appnav.md#established-ideas-adapted-for-net) for the
+careful comparison and primary references.
+
 If a small application is adequately served by a few direct page operations,
 AppNav may not be the right tradeoff. If navigation must remain coherent across
 several entry paths and native UI structures, the explicit model is the source

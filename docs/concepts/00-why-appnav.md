@@ -55,6 +55,28 @@ that convenience a universal constraint; the distinction matters when a
 destination spans several pages, changes presentation, enters through a URI,
 or must be shared across renderers.
 
+## Established ideas, adapted for .NET
+
+AppNav does not claim that data-driven destinations, explicit navigation
+state, or separating navigation meaning from rendered UI are new ideas. Mature
+UI ecosystems have converged on related concepts:
+
+| Ecosystem | Related idea |
+| --- | --- |
+| SwiftUI | A `NavigationPath` stores data values, and `navigationDestination` maps a presented data type to a destination view. Codable path values can participate in restoration. See Apple's [navigation stack](https://developer.apple.com/documentation/swiftui/understanding-the-navigation-stack) documentation. |
+| Android Compose | Jetpack Navigation supports serializable typed route objects distinct from the composable that displays a destination. Newer Navigation 3 APIs model the back stack as application-owned keys resolved to content and can display more than one destination in adaptive layouts. See Android's [navigation graph](https://developer.android.com/guide/navigation/design) and [Navigation 3](https://developer.android.com/guide/navigation/navigation-3) documentation. |
+| React Navigation | Navigation is represented as explicit, potentially nested state with routes and per-navigator history; linking translates URLs into that model, and partial state can be rehydrated. See its [navigation state](https://reactnavigation.org/docs/navigation-state/) and [linking](https://reactnavigation.org/docs/configuring-links/) documentation. |
+
+These libraries use different terminology, constraints, and rendering models.
+They are precedents for the general direction, not claims of API equivalence or
+drop-in compatibility.
+
+AppNav's purpose is to bring a coherent version of those proven ideas to .NET
+application code and native MAUI presentation: typed semantic routes,
+host-independent topology and policy, explicit request provenance, and
+transactional presentation with native reconciliation. The combination and
+its tradeoffs matter more than claiming novelty for the individual concepts.
+
 ## One navigation pipeline
 
 ```text

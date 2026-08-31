@@ -8,6 +8,14 @@ has more than one renderer, but it also pays off when MAUI is the only renderer:
 most navigation behavior can be tested without starting MAUI, a simulator, a
 device, or a UI thread.
 
+This architectural direction is not a claim of novelty. Other UI ecosystems
+also model navigation as data or explicit state and resolve that state to
+rendered content. AppNav's focus is making that boundary usable from ordinary
+.NET application projects while a native MAUI adapter owns the outer edge. See
+[Established ideas, adapted for
+.NET](../concepts/00-why-appnav.md#established-ideas-adapted-for-net) for the
+comparison and primary references.
+
 This guide continues the fictional RPG
 [Glyphmere](../concepts/01-routing-and-metadata.md#meet-glyphmere). The examples
 are conceptual; the buildable [Getting Started sample](01-getting-started.md)

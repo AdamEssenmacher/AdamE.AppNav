@@ -8,6 +8,9 @@ trying to do.
 
 - Start with [Why AppNav?](concepts/00-why-appnav.md) to understand the design
   tradeoffs and decide whether the route-first model fits your application.
+- Review [Established ideas, adapted for
+  .NET](concepts/00-why-appnav.md#established-ideas-adapted-for-net) for the
+  conceptual lineage and comparisons with mature UI ecosystems.
 - Read the repository [overview and quickstart](../README.md).
 - Review [topology and planning](concepts/02-topology-and-planning.md) to understand
   stacks, independent branches, modals, and canonical navigation.
