@@ -2,16 +2,37 @@
 
 [Documentation home](../index.md)
 
-This document records the accepted design baseline for adding
-`AdamE.AppNav.Blazor`. It is a maintainer implementation guide, not consumer
-documentation. The feasibility slice described below must validate the browser
-history and render-lifecycle assumptions before the proposed public APIs are
-stabilized.
+This document records the design baseline for adding `AdamE.AppNav.Blazor`. It
+is a maintainer implementation guide, not consumer documentation. The
+feasibility slice described below must validate the browser history and
+render-lifecycle assumptions before the proposed public APIs are stabilized.
 
 This baseline has been checked against the official ASP.NET Core 10 Blazor
 documentation. Where Blazor behavior depends on its built-in `Router`, this
 document treats equivalent AppNav behavior as work to implement explicitly,
 not as behavior inherited automatically from the framework.
+
+## Status of this document
+
+Statements here carry three different levels of confidence, and conflating them
+is the main way this document can mislead a later reader:
+
+- **Decided.** Ownership and boundary choices that later work must not silently
+  revisit: AppNav owns its surface and replaces Blazor's `Router` there; the
+  render-mode boundary and its serialization rules; whole-candidate rejection
+  with no per-node pruning; stored browser state never bypassing current
+  authorization; capability detection instead of a closed render-mode enum.
+- **Provisional.** Mechanisms chosen against current framework behavior and
+  expected to survive, but which the feasibility slice may correct — the
+  history behavior table, the presentation transaction boundary and its
+  ordering, the restoration-state envelope and its budgets, and the
+  fragment-entry model.
+- **Proposed.** The required core evolution below is a set of proposals, not
+  accepted API. Nothing in that section is committed until Phase 0a completes
+  and the design review named at the end of Phase 0 approves it.
+
+Restating a proposal more confidently in a later revision does not promote it.
+Promotion happens only at the Phase 0 design review.
 
 ## Outcome
 
@@ -313,8 +334,9 @@ events cancel older uncommitted browser requests. Explicit application calls to
 
 ## Required core evolution
 
-The feasibility slice should establish final names and shapes for these
-concepts before public API approval:
+These are **proposals**, not accepted API. The feasibility slice should
+establish final names and shapes for these concepts before public API approval,
+and Phase 0a must complete before any of them is committed:
 
 1. **Explicit presentation history intent.** Presentation context must use
    host-neutral intents such as append, replace, preserve, and logical back.
@@ -831,22 +853,42 @@ target .NET 10 servicing release and verify behavior in real hosts.
 
 ### Phase 0: design and feasibility
 
+Phase 0 items are tiered. **Phase 0a** items can invalidate the design: a
+failure there returns to design review against the stop conditions below.
+**Phase 0b** items shape the design: a failure there adjusts scope, defers a
+capability, or corrects a contract, but does not by itself put the adapter in
+question. The
+tiers are not sequential phases; 0b work may start whenever it is cheaper to
+learn early. The distinction exists so that one stumble in a long list is not
+read as a verdict on the whole design.
+
+#### Phase 0a: design-invalidating gates
+
+- [ ] Add failing core tests for presentation-time lifecycle navigation and a
+  browser Back intent arriving while presentation awaits self-issued history
+  mutation; do not solve either by suppressing execution-context flow.
+- [ ] Prove `EnableNavigationInterceptionAsync` enables ordinary links,
+  programmatic navigation, and popstate in every supported host; assert that
+  pre-enable `NavigateTo` is prohibited and self egress cannot re-enter core.
+- [ ] Prove the provisional history-before-render order, outlet-diff
+  acknowledgment, async-destination focus retry, bounded timeout, Server
+  disconnect, and idempotent late acknowledgment after reconnect.
+- [ ] Prove the visibility-policy gate prevents Back, modal dismissal, and
+  branch fallback from exposing a route denied after state creation, runs before
+  `IBackNavigationPolicy`, and preserves MAUI hardware-Back cancellation.
+- [ ] Prove candidate-wide policy validation rejects unauthorized routes in
+  covered stacks, inactive branches, modal owners/content, and nested topology
+  without mutating the deferred-request store.
+
+#### Phase 0b: design-shaping work
+
 - [x] Record the accepted scope and ownership decisions.
 - [x] Audit the baseline against official ASP.NET Core 10 Blazor documentation
   and reserve extension points for deferred framework features.
 - [ ] Specify proposed core API signatures and update the adapter contract.
-- [ ] Add failing core tests for presentation-time lifecycle navigation and a
-  browser Back intent arriving while presentation awaits self-issued history
-  mutation; do not solve either by suppressing execution-context flow.
 - [ ] Add failing core contract tests for history intent, branch selection,
   ambient-query ownership, policy-aware restoration, and visible-route
   requirements.
-- [ ] Prove candidate-wide policy validation rejects unauthorized routes in
-  covered stacks, inactive branches, modal owners/content, and nested topology
-  without mutating the deferred-request store.
-- [ ] Prove the visibility-policy gate prevents Back, modal dismissal, and
-  branch fallback from exposing a route denied after state creation, runs before
-  `IBackNavigationPolicy`, and preserves MAUI hardware-Back cancellation.
 - [ ] Build an internal stack-only outlet and component registry without
   stabilizing public Blazor APIs.
 - [ ] Prove the highest-interactive-root and JSON-serializable parameter
@@ -856,9 +898,6 @@ target .NET 10 servicing release and verify behavior in real hosts.
   slice without adding a production package dependency.
 - [ ] Prove push, replace, logical Back, browser Back/Forward, and refresh in
   minimal Interactive Server and WebAssembly hosts.
-- [ ] Prove `EnableNavigationInterceptionAsync` enables ordinary links,
-  programmatic navigation, and popstate in every supported host; assert that
-  pre-enable `NavigateTo` is prohibited and self egress cannot re-enter core.
 - [ ] Prove pre-interactive progressive navigation, full-load scope fallback,
   and degraded behavior when the JavaScript bridge is unavailable.
 - [ ] Prove multiple fragment entries, Back/Forward between fragments, refresh
@@ -866,9 +905,6 @@ target .NET 10 servicing release and verify behavior in real hosts.
   stale `NavigationManager.Uri`, and rapid successive clicks during adoption.
 - [ ] Prove `NavigationManager` preserves AppNav history entry state and limit
   direct JavaScript to the documented gaps.
-- [ ] Prove the provisional history-before-render order, outlet-diff
-  acknowledgment, async-destination focus retry, bounded timeout, Server
-  disconnect, and idempotent late acknowledgment after reconnect.
 - [ ] Prove real destination prerender and interactive handoff.
 - [ ] Prove `Blazor.pauseCircuit()`/`resumeCircuit()` cannot adopt stale
   prerender state or create a duplicate browser entry.

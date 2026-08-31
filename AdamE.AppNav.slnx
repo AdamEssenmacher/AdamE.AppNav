@@ -26,6 +26,7 @@
   </Folder>
   <Folder Name="/docs/maintainers/">
     <File Path="docs/maintainers/app-route-request-dogfood-checkpoint.md" />
+    <File Path="docs/maintainers/blazor-adapter-design.md" />
     <File Path="docs/maintainers/release-checklist.md" />
     <File Path="docs/maintainers/testing.md" />
   </Folder>
