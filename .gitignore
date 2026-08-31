@@ -408,6 +408,11 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 
+# Local SonarQube analysis
+.sonarqube/
+.sonar/
+.coverage/
+
 # VS Code files for those working on multiple tools
 .vscode/*
 !.vscode/settings.json

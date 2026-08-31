@@ -795,7 +795,12 @@ public sealed partial class RepositoryContractTests
         Assert.Contains("net10.0-maccatalyst", mauiTestsProject, StringComparison.Ordinal);
         Assert.Contains("DeviceRunners.Testing.Targets", mauiTestsProject, StringComparison.Ordinal);
         Assert.Contains("DeviceRunners.VisualRunners.Maui", mauiTestsProject, StringComparison.Ordinal);
-        Assert.Contains("DeviceRunners.VisualRunners.Xunit", mauiTestsProject, StringComparison.Ordinal);
+        Assert.Contains("DeviceRunners.UITesting.Xunit3", mauiTestsProject, StringComparison.Ordinal);
+        Assert.Contains("DeviceRunners.VisualRunners.Xunit3", mauiTestsProject, StringComparison.Ordinal);
+        Assert.DoesNotContain("DeviceRunners.UITesting.Xunit\"", mauiTestsProject, StringComparison.Ordinal);
+        Assert.DoesNotContain("DeviceRunners.VisualRunners.Xunit\"", mauiTestsProject, StringComparison.Ordinal);
+        Assert.DoesNotContain("xunit.runner.utility", mauiTestsProject, StringComparison.Ordinal);
+        Assert.Contains(".AddXunit3()", File.ReadAllText(Path.Combine(root, "tests", "AdamE.AppNav.Maui.Tests", "MauiProgram.cs")), StringComparison.Ordinal);
         Assert.Contains("0.1.0-preview.12", mauiTestsProject, StringComparison.Ordinal);
         Assert.DoesNotContain("Microsoft.DotNet.XHarness", mauiTestsProject, StringComparison.Ordinal);
         Assert.Contains("schema 3", releaseNotes, StringComparison.Ordinal);
@@ -804,6 +809,30 @@ public sealed partial class RepositoryContractTests
         Assert.DoesNotContain("HostPopped", releaseNotes, StringComparison.Ordinal);
         Assert.DoesNotContain("BranchSelectionChanged", releaseNotes, StringComparison.Ordinal);
         Assert.Contains("does not rebuild packages or publish to NuGet.org", releaseNotes, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TestProjectsUseXunitV3()
+    {
+        var testProjects = Directory
+            .EnumerateFiles(Path.Combine(RepositoryRoot(), "tests"), "*.Tests.csproj", SearchOption.AllDirectories)
+            .ToArray();
+
+        Assert.Equal(5, testProjects.Length);
+
+        foreach (var testProject in testProjects)
+        {
+            var source = File.ReadAllText(testProject);
+            Assert.Contains("<PackageReference Include=\"xunit.v3\" Version=\"3.2.2\" />", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("<PackageReference Include=\"xunit\"", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("xunit.runner.utility\"", source, StringComparison.Ordinal);
+
+            if (!testProject.EndsWith("AdamE.AppNav.Maui.Tests.csproj", StringComparison.Ordinal))
+            {
+                Assert.Contains("<OutputType>Exe</OutputType>", source, StringComparison.Ordinal);
+                Assert.Contains("<PackageReference Include=\"xunit.runner.visualstudio\" Version=\"3.1.5\" />", source, StringComparison.Ordinal);
+            }
+        }
     }
 
     [Fact]

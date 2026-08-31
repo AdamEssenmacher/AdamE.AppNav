@@ -42,6 +42,9 @@
     <Project Path="samples/Commerce.Sample/Commerce.Sample.csproj" />
     <Project Path="samples/GettingStarted.Sample/GettingStarted.Sample.csproj" />
   </Folder>
+  <Folder Name="/scripts/">
+    <File Path="scripts/sonar-scan.sh" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src/AdamE.AppNav.Generators/AdamE.AppNav.Generators.csproj" />
     <Project Path="src/AdamE.AppNav.Maui.Generators/AdamE.AppNav.Maui.Generators.csproj" />

@@ -9,7 +9,7 @@ using AdamE.AppNav.Presentation;
 using AdamE.AppNav.Requests;
 using AdamE.AppNav.Routing;
 using AdamE.AppNav.State;
-using DeviceRunners.UITesting.Xunit;
+using DeviceRunners.UITesting.Xunit3;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Controls;
@@ -932,6 +932,210 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.Equal(1, fixture.Factory.UpdateCountFor(retainedDetailPage));
         Assert.Equal(
             "cart-detail-updated",
+            Assert.IsType<TestPageRoute>(fixture.Factory.LastUpdatedEntryFor(retainedDetailPage)!.Route).Name);
+
+        _ = fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task ReusedNestedRouteOnlyModalUpdatesVisiblePageWithoutRecreation()
+    {
+        var fixture = new PresenterFixture();
+        var root = Stack("schools", Entry("schools"));
+        var initialState = new NavigationState(
+            new[]
+            {
+                new WindowNode(
+                    "main",
+                    root,
+                    new[]
+                    {
+                        new ModalNode(
+                            "outer-modal",
+                            new RouteEntry("outer-route", new TestPageRoute("outer-shell")),
+                            new ModalNode(
+                                "inner-modal",
+                                new RouteEntry("inner-route", new TestPageRoute("inner-v1"))))
+                    })
+            },
+            "main");
+        var updatedState = new NavigationState(
+            new[]
+            {
+                new WindowNode(
+                    "main",
+                    root,
+                    new[]
+                    {
+                        new ModalNode(
+                            "outer-modal",
+                            new RouteEntry("outer-route", new TestPageRoute("outer-shell")),
+                            new ModalNode(
+                                "inner-modal",
+                                new RouteEntry("inner-route", new TestPageRoute("inner-v2"))))
+                    })
+            },
+            "main");
+
+        await fixture.Presenter.ApplyAsync(
+            new NavigationPlan(initialState),
+            Context(new TestPageRoute("inner-v1"), NavigationState.Empty));
+
+        var rootNavigationPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        var retainedModalPage = Assert.Single(rootNavigationPage.Navigation.ModalStack);
+        int createdPageCount = fixture.Factory.CreatedPages.Count;
+
+        await fixture.Presenter.ApplyAsync(
+            new NavigationPlan(updatedState),
+            Context(new TestPageRoute("inner-v2"), initialState));
+
+        Assert.Same(retainedModalPage, Assert.Single(rootNavigationPage.Navigation.ModalStack));
+        Assert.Equal(createdPageCount, fixture.Factory.CreatedPages.Count);
+        Assert.Equal(0, fixture.Factory.ReleaseCountFor(retainedModalPage));
+        Assert.Equal(1, fixture.Factory.UpdateCountFor(retainedModalPage));
+        Assert.Equal(MauiRoutePageReuseKind.ExplicitTarget, fixture.Factory.LastUpdateContextFor(retainedModalPage)?.ReuseKind);
+        Assert.Equal("inner-v2", Assert.IsType<TestPageRoute>(fixture.Factory.LastUpdatedEntryFor(retainedModalPage)!.Route).Name);
+
+        _ = fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task ReusedNestedRouteOnlyModalIsMarkedAsResurfacedWhenModalAboveItIsDismissed()
+    {
+        var fixture = new PresenterFixture();
+        var root = Stack("schools", Entry("schools"));
+        var initialState = new NavigationState(
+            new[]
+            {
+                new WindowNode(
+                    "main",
+                    root,
+                    new[]
+                    {
+                        new ModalNode(
+                            "outer-modal",
+                            new RouteEntry("outer-route", new TestPageRoute("outer-shell")),
+                            new ModalNode(
+                                "inner-modal",
+                                new RouteEntry("inner-route", new TestPageRoute("inner-v1")))),
+                        new ModalNode(
+                            "detail-modal",
+                            new RouteEntry("detail-route", new TestPageRoute("detail")))
+                    })
+            },
+            "main");
+        var updatedState = new NavigationState(
+            new[]
+            {
+                new WindowNode(
+                    "main",
+                    root,
+                    new[]
+                    {
+                        new ModalNode(
+                            "outer-modal",
+                            new RouteEntry("outer-route", new TestPageRoute("outer-shell")),
+                            new ModalNode(
+                                "inner-modal",
+                                new RouteEntry("inner-route", new TestPageRoute("inner-v2"))))
+                    })
+            },
+            "main");
+
+        await fixture.Presenter.ApplyAsync(
+            new NavigationPlan(initialState),
+            Context(new TestPageRoute("detail"), NavigationState.Empty));
+
+        var rootNavigationPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        var retainedModalPage = rootNavigationPage.Navigation.ModalStack[0];
+        var dismissedModalPage = rootNavigationPage.Navigation.ModalStack[1];
+        int createdPageCount = fixture.Factory.CreatedPages.Count;
+
+        await fixture.Presenter.ApplyAsync(
+            new NavigationPlan(updatedState),
+            Context(new TestPageRoute("inner-v2"), initialState));
+
+        Assert.Same(retainedModalPage, Assert.Single(rootNavigationPage.Navigation.ModalStack));
+        Assert.Equal(createdPageCount, fixture.Factory.CreatedPages.Count);
+        Assert.Equal(0, fixture.Factory.ReleaseCountFor(retainedModalPage));
+        Assert.Equal(1, fixture.Factory.ReleaseCountFor(dismissedModalPage));
+        Assert.Equal(1, fixture.Factory.UpdateCountFor(retainedModalPage));
+        Assert.Equal(MauiRoutePageReuseKind.ResurfacedTarget, fixture.Factory.LastUpdateContextFor(retainedModalPage)?.ReuseKind);
+        Assert.Equal("inner-v2", Assert.IsType<TestPageRoute>(fixture.Factory.LastUpdatedEntryFor(retainedModalPage)!.Route).Name);
+
+        _ = fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task ReusedNestedStackModalIsMarkedAsResurfacedWhenModalAboveItIsDismissed()
+    {
+        var fixture = new PresenterFixture();
+        var root = Stack("schools", Entry("schools"));
+        var initialState = new NavigationState(
+            new[]
+            {
+                new WindowNode(
+                    "main",
+                    root,
+                    new[]
+                    {
+                        new ModalNode(
+                            "outer-modal",
+                            new RouteEntry("outer-route", new TestPageRoute("outer-shell")),
+                            Stack(
+                                "inner-stack",
+                                new RouteEntry("inner-root", new TestPageRoute("inner")),
+                                new RouteEntry("inner-detail", new TestPageRoute("detail-v1")))),
+                        new ModalNode(
+                            "detail-modal",
+                            new RouteEntry("detail-route", new TestPageRoute("detail")))
+                    })
+            },
+            "main");
+        var updatedState = new NavigationState(
+            new[]
+            {
+                new WindowNode(
+                    "main",
+                    root,
+                    new[]
+                    {
+                        new ModalNode(
+                            "outer-modal",
+                            new RouteEntry("outer-route", new TestPageRoute("outer-shell")),
+                            Stack(
+                                "inner-stack",
+                                new RouteEntry("inner-root", new TestPageRoute("inner")),
+                                new RouteEntry("inner-detail", new TestPageRoute("detail-v2"))))
+                    })
+            },
+            "main");
+
+        await fixture.Presenter.ApplyAsync(
+            new NavigationPlan(initialState),
+            Context(new TestPageRoute("detail"), NavigationState.Empty));
+
+        var rootNavigationPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        var retainedModalPage = Assert.IsType<NavigationPage>(rootNavigationPage.Navigation.ModalStack[0]);
+        var retainedDetailPage = retainedModalPage.Navigation.NavigationStack[1];
+        var dismissedModalPage = rootNavigationPage.Navigation.ModalStack[1];
+        int createdPageCount = fixture.Factory.CreatedPages.Count;
+
+        await fixture.Presenter.ApplyAsync(
+            new NavigationPlan(updatedState),
+            Context(new TestPageRoute("detail-v2"), initialState));
+
+        Assert.Same(retainedModalPage, Assert.Single(rootNavigationPage.Navigation.ModalStack));
+        Assert.Same(retainedDetailPage, retainedModalPage.Navigation.NavigationStack[1]);
+        Assert.Equal(createdPageCount, fixture.Factory.CreatedPages.Count);
+        Assert.Equal(0, fixture.Factory.ReleaseCountFor(retainedDetailPage));
+        Assert.Equal(1, fixture.Factory.ReleaseCountFor(dismissedModalPage));
+        Assert.Equal(1, fixture.Factory.UpdateCountFor(retainedDetailPage));
+        Assert.Equal(
+            MauiRoutePageReuseKind.ResurfacedTarget,
+            fixture.Factory.LastUpdateContextFor(retainedDetailPage)?.ReuseKind);
+        Assert.Equal(
+            "detail-v2",
             Assert.IsType<TestPageRoute>(fixture.Factory.LastUpdatedEntryFor(retainedDetailPage)!.Route).Name);
 
         _ = fixture.Presenter.StartShutdown();
