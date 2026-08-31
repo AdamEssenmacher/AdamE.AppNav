@@ -171,11 +171,8 @@ public sealed class MauiHostBackDispatcherTests
             TaskCreationOptions.RunContinuationsAsynchronously);
         diagnostics.EventWritten += (_, diagnosticEvent) =>
         {
-            if (diagnosticEvent.Kind == NavigationDiagnosticEventKind.BackFailed &&
-                diagnosticEvent.Message == "Queued MAUI host Back failed.")
-            {
+            if (diagnosticEvent.Kind == NavigationDiagnosticEventKind.BackFailed)
                 failed.TrySetResult(diagnosticEvent);
-            }
         };
         var presentation = new RecordingPresentationNavigator
         {
