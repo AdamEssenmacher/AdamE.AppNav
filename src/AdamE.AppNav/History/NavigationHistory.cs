@@ -5,7 +5,7 @@ using JetBrains.Annotations;
 namespace AdamE.AppNav.History;
 
 /// <summary>
-/// Represents an immutable history of completed router navigations.
+/// Represents an immutable observational record of committed router operations.
 /// </summary>
 /// <remarks>
 /// A history has a current position. Pushing a new entry retains entries up to that
@@ -110,7 +110,7 @@ public sealed class NavigationHistory
 }
 
 /// <summary>
-/// Represents a single completed navigation stored in <see cref="NavigationHistory"/>.
+/// Represents a single committed router operation stored in <see cref="NavigationHistory"/>.
 /// </summary>
 /// <param name="Request">The navigation request that produced the entry.</param>
 /// <param name="Route">The route resolved for the request.</param>
