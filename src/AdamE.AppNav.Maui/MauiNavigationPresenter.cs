@@ -396,6 +396,7 @@ internal sealed class MauiNavigationPresenter :
             lockTaken = true;
             await InvokeOnMainThreadPreservingExecutionContextAsync(() =>
             {
+                operationCancellation.ThrowIfCancellationRequested();
                 mutation();
                 return Task.CompletedTask;
             });

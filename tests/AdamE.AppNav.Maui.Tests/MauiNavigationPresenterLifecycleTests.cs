@@ -11,6 +11,7 @@ using AdamE.AppNav.Routing;
 using AdamE.AppNav.State;
 using DeviceRunners.UITesting.Xunit;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Controls;
 
 namespace AdamE.AppNav.Maui.Tests;
@@ -135,6 +136,35 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.Same(currentPage, replacementWindow.Page);
         Assert.Same(currentPage, fixture.Presenter.CurrentPage);
 
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [UIFact]
+    public async Task CancelledAttachmentQueuedForMainThreadDoesNotMutateWindowOwnership()
+    {
+        Assert.True(MainThread.IsMainThread);
+        var fixture = new PresenterFixture();
+        var originalPlaceholder = new ContentPage { Title = "original-placeholder" };
+        var replacementPlaceholder = new ContentPage { Title = "replacement-placeholder" };
+        var originalWindow = new Window(originalPlaceholder);
+        var replacementWindow = new Window(replacementPlaceholder);
+        await fixture.Presenter.AttachWindowAsync(originalWindow);
+        using var cancellation = new CancellationTokenSource();
+        SemaphoreSlim operationLock = PresentationOperationLock(fixture.Presenter);
+
+        Task attachment = Task.Run(() => fixture.Presenter
+            .AttachWindowAsync(replacementWindow, cancellationToken: cancellation.Token)
+            .AsTask());
+        Assert.True(SpinWait.SpinUntil(
+            () => operationLock.CurrentCount == 0,
+            TimeSpan.FromSeconds(5)));
+
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => attachment);
+        Assert.Same(originalWindow, fixture.Presenter.AttachedWindow);
+        Assert.Same(originalPlaceholder, originalWindow.Page);
+        Assert.Same(replacementPlaceholder, replacementWindow.Page);
         await fixture.Presenter.StartShutdown();
     }
 
@@ -1734,6 +1764,15 @@ public sealed class MauiNavigationPresenterLifecycleTests
         {
             pageFactory.PresentationPageReleased -= OnPresentationPageReleased;
         }
+    }
+
+    private static SemaphoreSlim PresentationOperationLock(MauiNavigationPresenter presenter)
+    {
+        FieldInfo field = typeof(MauiNavigationPresenter).GetField(
+            "_presentationOperationLock",
+            BindingFlags.Instance | BindingFlags.NonPublic) ??
+            throw new InvalidOperationException("Presentation operation lock field was not found.");
+        return Assert.IsType<SemaphoreSlim>(field.GetValue(presenter));
     }
 
     private sealed class PresenterFixture

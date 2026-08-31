@@ -111,6 +111,32 @@ public sealed class MauiPresentationTransactionTests
     }
 
     [Fact]
+    public async Task EmptyStateVerificationRejectsStaleRouterOwnedWindowPage()
+    {
+        var nativeOperations = new FaultingNativeOperations();
+        var factory = new InstrumentedRoutePageFactory();
+        var presenter = new MauiNavigationPresenter(factory, nativeOperations: nativeOperations);
+        NavigationState previousState = StackState("home");
+        await presenter.ApplyAsync(
+            new NavigationPlan(previousState),
+            Context("home", NavigationState.Empty));
+        Page currentPage = Assert.IsAssignableFrom<Page>(presenter.CurrentPage);
+        var window = new Window();
+        await presenter.AttachWindowAsync(window);
+        nativeOperations.IgnoreNextWindowPageMutation(window);
+        var emptyState = new NavigationState([new WindowNode("main")], "main");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => presenter.ApplyAsync(
+            new NavigationPlan(emptyState),
+            Context("empty", previousState)).AsTask());
+
+        Assert.Same(currentPage, presenter.CurrentPage);
+        Assert.Same(currentPage, window.Page);
+        Assert.Equal(0, factory.ReleaseCountFor(currentPage));
+        await presenter.StartShutdown();
+    }
+
+    [Fact]
     public async Task AttachWindowRollbackFailureFaultsPresenterClosed()
     {
         var nativeOperations = new FaultingNativeOperations();
@@ -1179,6 +1205,7 @@ public sealed class MauiPresentationTransactionTests
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _releaseBlockedPushAfterMutation =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly Queue<Window> _windowPageNoOpTargets = new();
         private readonly Queue<Window> _windowPageFaultTargets = new();
 
         public int PushFailuresRemaining { get; set; }
@@ -1201,6 +1228,11 @@ public sealed class MauiPresentationTransactionTests
         {
             foreach (Window window in windows)
                 _windowPageFaultTargets.Enqueue(window);
+        }
+
+        public void IgnoreNextWindowPageMutation(Window window)
+        {
+            _windowPageNoOpTargets.Enqueue(window);
         }
 
         public async Task PushAsync(NavigationPage navigationPage, Page page, bool animated)
@@ -1276,6 +1308,12 @@ public sealed class MauiPresentationTransactionTests
 
         public void SetWindowPage(Window window, Page? page)
         {
+            if (_windowPageNoOpTargets.TryPeek(out Window? noOpTarget) && ReferenceEquals(noOpTarget, window))
+            {
+                _windowPageNoOpTargets.Dequeue();
+                return;
+            }
+
             MauiNativeNavigationOperations.Instance.SetWindowPage(window, page);
             if (_windowPageFaultTargets.TryPeek(out Window? faultTarget) && ReferenceEquals(faultTarget, window))
             {
