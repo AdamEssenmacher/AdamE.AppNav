@@ -185,6 +185,18 @@ typed `AppNavLink`, including active state, route metadata, replacement options,
 and an optional fragment, while ordinary eligible anchors work through the same
 interception boundary.
 
+Ordinary-anchor ownership requires a mandatory delegated JavaScript click
+bridge; `RegisterLocationChangingHandler` is not sufficient. Once the
+interactive runtime is available, the bridge runs before Blazor enhanced
+navigation, intercepts only eligible unmodified same-origin links beneath the
+owned base path, prevents native navigation, and forwards one request to the
+AppNav ingress coordinator. `AppNavLink`, ordinary anchors, programmatic
+`NavigationManager` calls, and browser traversal must carry distinct ingress
+markers so the coordinator cannot handle one action twice. Before interactivity
+is available, real `href` values retain progressive behavior: Server hosts use
+the normal HTTP pipeline and standalone WebAssembly reloads and starts from the
+requested URL.
+
 Mapped destination components do not require Blazor `@page` directives. AppNav
 route definitions remain the single destination route table. The generator
 warns when a mapped destination also declares `@page`.
@@ -217,10 +229,10 @@ Normal URI and history-state changes use Blazor's supported navigation surface:
 `RegisterLocationChangingHandler`, including its target location, entry state,
 interception flag, cancellation token, and prevention mechanism. Direct
 JavaScript is limited to capabilities Blazor doesn't expose, such as bounded
-`history.go`, session storage, scroll/focus capture, and any proven interception
-bridge. The adapter must not separately overwrite `history.state` after a
-Blazor navigation unless the vertical slice proves that doing so preserves
-framework state and behavior.
+`history.go`, session storage, scroll/focus capture, and the mandatory delegated
+anchor-interception bridge. The adapter must not separately overwrite
+`history.state` after a Blazor navigation unless the vertical slice proves that
+doing so preserves framework state and behavior.
 
 Location-changing callbacks may overlap, and multiple registered handlers have
 no useful ordering contract. AppNav registers one coordinator, treats callback
@@ -235,7 +247,8 @@ extra AppNav journal entries or browser snapshots.
 | `ReplaceCurrent` navigation | Replace the current entry |
 | Initial address-bar startup | Adopt and replace the existing entry; never push a duplicate |
 | Browser Back/Forward restoration | Preserve the timeline; do not push or replace unless policy redirects or canonicalizes |
-| Logical `BackAsync` with a known immediately preceding matching AppNav snapshot | Traverse to that preceding entry |
+| Fragment-only navigation | Push a stamped browser presentation entry that references the unchanged topology |
+| Logical `BackAsync` with a known earlier matching AppNav snapshot after skipping contiguous fragment aliases | Traverse to that matching entry |
 | Logical `BackAsync` without a matching predecessor | Replace the current entry with the logical parent |
 
 Logical Back therefore remains topology-based. Browser Back and Forward remain
@@ -244,8 +257,10 @@ chronological. The conditional traversal optimization avoids producing
 logical Back from a direct deep link can still reveal its canonical parent
 instead of leaving the application.
 
-Every successful browser restoration is appended to the core operation journal
-with history-traversal provenance. A browser traversal that supersedes an
+Every successful semantic-route restoration is appended to the core operation
+journal with history-traversal provenance. Fragment-only presentation entries
+and traversal among them remain adapter history and diagnostics because they do
+not change semantic route state. A browser traversal that supersedes an
 uncommitted presentation cancels or fails that presentation before core commit,
 then processes the latest browser location.
 
@@ -268,15 +283,22 @@ concepts before public API approval:
    `ReconcileAsync`. Reconciliation remains a trusted report of already
    observed host state, such as a MAUI native pop. Restoration accepts a
    host-neutral request plus an optional untrusted candidate state, runs the
-   normal request and policy pipeline, validates the candidate, then restores
-   or replans. Core contracts must not mention browser schemas, storage keys,
-   JavaScript, or `sessionStorage`.
-3. **Accurate request sources.** Add explicit address-bar and host-history-
+   normal request and policy pipeline for every route in the candidate,
+   validates the candidate, then restores or replans. Core contracts must not
+   mention browser schemas, storage keys, JavaScript, or `sessionStorage`.
+3. **Policy-aware visibility transitions.** Before Back, modal dismissal,
+   branch fallback, restoration, or any other topology-only operation exposes
+   a route, core must evaluate current access policy for the route that would
+   become visible. This is a host-neutral invariant, not a Blazor presenter
+   check. The feasibility slice must establish a visibility-policy contract
+   rather than assuming the existing request-policy pipeline can safely be
+   replayed after a plan has already been constructed.
+4. **Accurate request sources.** Add explicit address-bar and host-history-
    traversal sources, plus diagnostic/reconciliation vocabulary that does not
    misclassify Forward as Back.
-4. **Journal semantics.** Document `NavigationHistory` explicitly as a bounded
+5. **Journal semantics.** Document `NavigationHistory` explicitly as a bounded
    successful-operation journal rather than a host history cursor.
-5. **Presentation completion semantics.** Define success as accepted host
+6. **Presentation completion semantics.** Define success as accepted host
    presentation through its observable transaction boundary, not a promise
    that a UI artifact can never fail later.
 
@@ -284,14 +306,26 @@ A restoration candidate wins over replanning only when all of the following
 are true:
 
 1. The entry URL resolves and passes current transformation and access policy.
-2. The candidate state passes core structural validation.
-3. The candidate's visibly presented route corresponds to the resolved,
+2. Every route URI stored anywhere in the candidate resolves to its expected
+   route type, is already canonical, and passes current access policy in a
+   restoration-candidate context. This includes covered stack entries, inactive
+   branches, modal owners and content, and nested routes.
+3. The candidate state passes core structural validation.
+4. The candidate's visibly presented route corresponds to the resolved,
    canonical URL.
 
-If any check fails, the router creates a fresh canonical plan. Stored browser
-state never bypasses current authorization. Policy rejection or redirect after
-a traversal replaces the traversed browser entry with the approved
-destination.
+Any failure, denial, redirect, transformation, or noncanonical hidden route
+rejects the entire candidate. V1 does not prune or rewrite individual hidden
+nodes because doing so could silently change stack, branch, or modal semantics;
+the router instead creates a fresh canonical plan from the visible entry URL.
+Stored browser state never bypasses current authorization.
+
+Candidate-wide validation is not a permanent authorization grant. If policy
+changes after restoration, the visibility-policy gate runs again before a
+topology operation exposes a different route. A denial leaves the current
+presentation and logical state unchanged. A configured redirect is planned as
+a new policy-approved navigation and replaces the affected browser entry only
+after successful presentation.
 
 ## Presentation transaction
 
@@ -414,10 +448,28 @@ route table. Differences in casing, escaping, optional syntax, or query
 normalization replace the current address without adding an entry.
 
 Fragments are browser presentation hints, not semantic route identity or
-policy input. A fragment-only link on the current route remains native browser
-navigation. A link to another AppNav route with a fragment navigates through
-AppNav and scrolls after the destination renders. Canonicalization preserves
-the fragment.
+policy input. The anchor bridge intercepts an eligible fragment-only link on the
+current route and creates a browser presentation entry with a fresh entry ID,
+an AppNav history-state envelope, and a reference to the unchanged topology
+payload. It then performs native-equivalent fragment scrolling without invoking
+semantic route planning or appending to the core operation journal. Repeating
+the already-current fragment remains a no-op, matching normal browser behavior.
+
+Browser Back/Forward among fragment entries preserves core topology and restores
+fragment-specific focus and scroll state. Refresh on a fragment entry performs
+normal policy-checked startup restoration from the full URL. A fragment entry
+that arrives through a mechanism the bridge did not intercept is adopted by
+replacing that current entry with a stamped envelope; it does not add another
+history entry.
+
+Logical `BackAsync` remains topology-based rather than consuming one fragment
+at a time. When correlating a logical parent with browser history, the adapter
+may skip a contiguous run of AppNav-owned fragment entries that reference the
+same topology and traverse to the nearest matching logical-parent entry. If no
+safe match is known, it replaces the current entry with the logical parent as
+usual. A link to another AppNav route with a fragment navigates through AppNav
+and scrolls after the destination renders. Canonicalization preserves the
+fragment.
 
 ## Restoration-state storage
 
@@ -480,8 +532,10 @@ during prerender and activation; side effects belong outside navigation policy.
 
 An explicit opt-in such as `AddAppNavBlazorAuthorization` translates standard
 `IAuthorizeData` metadata, including `[Authorize]` and `[AllowAnonymous]`, on
-mapped components into a replaceable AppNav request-policy adapter. This is
-AppNav compatibility behavior: Blazor only enforces these attributes
+mapped components into a replaceable AppNav access-policy integration. It
+participates in ordinary request resolution, candidate-wide restoration
+validation, and the visibility-policy gate for topology-only operations. This
+is AppNav compatibility behavior: Blazor only enforces these attributes
 automatically for `@page` components reached through its `Router` and
 `AuthorizeRouteView`.
 
@@ -490,9 +544,10 @@ and defines its authorization resource as an AppNav route/context object.
 Authentication challenge, authorization forbid, denied-route navigation, and
 HTTP redirect behavior are separate host-configurable outcomes rather than one
 hard-coded redirect. Authorization is evaluated before presentation and logical
-commit. Rich application access decisions remain ordinary AppNav policies.
-Client navigation policy is never a substitute for server-side endpoint and
-data authorization.
+commit. Rich application access decisions remain ordinary AppNav policies, but
+policies that protect route visibility must participate in restoration and the
+visibility gate as well as initial requests. Client navigation policy is never
+a substitute for server-side endpoint and data authorization.
 
 Before a prerender response is committed or streamed, the Server package
 supports real HTTP outcomes: configured not-found routes can produce `404`, and
@@ -584,12 +639,12 @@ are a release requirement.
 
 | Area | Required coverage |
 | --- | --- |
-| Core | Host-neutral presenter intent, restoration policy, candidate validation, journal semantics, cancellation, and MAUI compatibility |
+| Core | Host-neutral presenter intent, candidate-wide restoration policy, visibility-policy gate, journal semantics, cancellation, and MAUI compatibility |
 | Generator | Multiple valid mappings, typed route parameter, inheritance, conflicts, `@page` warning, trimming-safe output |
 | Components | Interactive-root serialization boundary, outlet acknowledgment, reuse identity, disposal, layouts, branch/modal descriptors, pending/error content |
-| History | `NavigationManager` integration, state preservation, push, replace, logical Back traversal/replacement, browser Back/Forward, rapid traversal, stale/missing candidate |
+| History | `NavigationManager` integration, mandatory ordinary-anchor bridge, push, replace, fragment entry stamping, logical Back across fragment aliases, browser Back/Forward, rapid traversal, stale/missing candidate |
 | Startup | Address-bar deep link, canonicalization, refresh, duplicated tab, storage unavailable, schema mismatch |
-| Security | Tampered snapshots, route mismatch, policy changes after entry creation, opt-in authorization semantics, endpoint authorization, mode-appropriate CSP |
+| Security | Unauthorized hidden routes in every topology shape, whole-candidate rejection, policy changes before topology exposure, route mismatch, opt-in authorization semantics, endpoint authorization, mode-appropriate CSP |
 | Hosting | Standalone WebAssembly, prerendered Interactive WebAssembly with dual service registration, Interactive Server, reconnect and circuit persistence |
 | Accessibility | Focus movement/restoration, modal focus trap, fragment and scroll restoration |
 | HTTP | Infrastructure catch-all precedence, base paths, dotted/encoded paths, successful prerender, streaming boundary, not found, redirect, challenge, and forbid |
@@ -624,6 +679,11 @@ The constraints above are based on the ASP.NET Core 10 documentation for:
   [Content Security Policy](https://learn.microsoft.com/en-us/aspnet/core/blazor/security/content-security-policy?view=aspnetcore-10.0),
   and [forms](https://learn.microsoft.com/en-us/aspnet/core/blazor/forms/binding?view=aspnetcore-10.0).
 
+Fragment-entry state behavior is defined by the
+[HTML navigation and session-history standard](https://html.spec.whatwg.org/multipage/nav-history-apis.html),
+which does not carry classic History API state into native fragment-navigation
+entries.
+
 These links are evidence for current framework behavior, not dependencies in
 the public AppNav contract. The feasibility slice must recheck them against the
 target .NET 10 servicing release and verify behavior in real hosts.
@@ -638,6 +698,10 @@ target .NET 10 servicing release and verify behavior in real hosts.
 - [ ] Specify proposed core API signatures and update the adapter contract.
 - [ ] Add failing core contract tests for history intent and policy-aware
   restoration.
+- [ ] Prove candidate-wide policy validation rejects unauthorized routes in
+  covered stacks, inactive branches, modal owners/content, and nested topology.
+- [ ] Prove the visibility-policy gate prevents Back, modal dismissal, and
+  branch fallback from exposing a route denied after state creation.
 - [ ] Build an internal stack-only outlet and component registry without
   stabilizing public Blazor APIs.
 - [ ] Prove the highest-interactive-root and JSON-serializable parameter
@@ -647,6 +711,12 @@ target .NET 10 servicing release and verify behavior in real hosts.
   slice without adding a production package dependency.
 - [ ] Prove push, replace, logical Back, browser Back/Forward, and refresh in
   minimal Interactive Server and WebAssembly hosts.
+- [ ] Prove the mandatory ordinary-anchor bridge in every supported host,
+  including exclusions, pre-interactive progressive navigation, and duplicate-
+  handling prevention with `AppNavLink` and `NavigationManager`.
+- [ ] Prove multiple fragment entries, Back/Forward between fragments, refresh
+  on a fragment, adoption of an unstamped fragment entry, and logical Back
+  across contiguous fragment aliases.
 - [ ] Prove `NavigationManager` preserves AppNav history entry state and limit
   direct JavaScript to the documented gaps.
 - [ ] Prove real destination prerender and interactive handoff.
@@ -660,7 +730,10 @@ target .NET 10 servicing release and verify behavior in real hosts.
 ### Phase 1: core contracts
 
 - [ ] Implement approved host-neutral presentation-history intent.
-- [ ] Implement policy-aware restoration and candidate validation.
+- [ ] Implement policy-aware restoration, candidate-wide route validation, and
+  whole-candidate rejection.
+- [ ] Implement the host-neutral visibility-policy gate for topology-only
+  operations and update existing Back behavior.
 - [ ] Add address-bar and host-history-traversal sources and diagnostics.
 - [ ] Define operation-journal semantics in public documentation.
 - [ ] Update MAUI and public adapter-contract tests in the same change.
@@ -677,6 +750,8 @@ target .NET 10 servicing release and verify behavior in real hosts.
   recovery reporting, error boundary, and shutdown.
 - [ ] Implement typed and ordinary links, canonical URLs, fragments, layouts,
   pending state, and navigation error UI.
+- [ ] Implement the delegated anchor bridge, ingress deduplication, stamped
+  fragment presentation entries, and fragment-alias correlation.
 - [ ] Implement isolated browser history and replaceable restoration storage
   with measured host-specific bounds and URL-only degradation.
 - [ ] Implement scroll, focus, modal accessibility, and duplicate-tab handling.
@@ -728,7 +803,13 @@ these findings:
   than the single infrastructure host route;
 - policy-aware restoration cannot preserve candidate topology without bypassing
   current access decisions;
+- core cannot prevent a topology-only operation from exposing a route denied by
+  current policy;
 - standalone WebAssembly requires server-only dependencies;
+- ordinary eligible anchors cannot be intercepted exactly once after
+  interactivity in every supported hosting mode;
+- fragment entries cannot retain AppNav identity and safe logical-Back
+  correlation without corrupting native Back/Forward behavior;
 - conditional logical-Back traversal cannot be correlated safely;
 - representative MudBlazor providers or overlays require a competing router,
   an incompatible render-mode boundary, or nondeterministic focus ownership;
