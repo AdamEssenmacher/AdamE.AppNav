@@ -31,6 +31,14 @@ route can remain unchanged if Glyphmere replaces its MAUI page, moves item
 details into a split view, or presents them differently on another platform.
 Presentation can evolve without changing what the destination means.
 
+The route is therefore not the MAUI page or the view model that currently
+represents it. One route can be rendered by a page in a particular state, by a
+route-owned sequence of native pages, or by another host artifact chosen by an
+adapter. Likewise, a view model can request or consume a route without its type
+becoming destination identity. See [A route is neither a page nor a view
+model](00-why-appnav.md#a-route-is-neither-a-page-nor-a-view-model) for why
+AppNav keeps these concepts separate.
+
 A route should therefore contain durable domain identity, not a `Page`, view
 model, service, callback, native handle, or information about how a request
 entered the app.

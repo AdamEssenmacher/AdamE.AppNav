@@ -11,6 +11,13 @@ navigation shape needed to get there. For example, an
 navigation model turns it into a plan that selects Inventory and places the
 Inventory root and requested item on that branch's stack.
 
+Those stack entries are logical `RouteEntry` values, not declarations of page
+or view-model instances. The presenter decides how each entry appears. In the
+built-in MAUI adapter an entry has one anchor route page, but that route can own
+additional native presentation pages and the anchor can render route-specific
+controls or state. The topology therefore describes navigation meaning and
+structure without fixing every presentation artifact.
+
 ## Glyphmere's logical tree
 
 Glyphmere models one game window whose pause menu is a branch host. Each branch

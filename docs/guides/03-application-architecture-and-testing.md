@@ -64,6 +64,13 @@ need to depend on AppNav merely because a view model navigates. Conversely,
 platform ingress and native presentation should not be pulled inward just to
 make every navigation-related file shareable.
 
+This separation does not turn view models into routes. `InventoryViewModel`
+can request `InventoryItemRoute(itemId)`, and a view model associated with the
+result can consume that route, but the view-model types remain replaceable
+presentation details. The semantic route stays stable if Glyphmere splits the
+destination across view models, removes a view model, or renders the same
+destination differently in another host.
+
 ## Navigation from a render-independent view model
 
 A Glyphmere inventory view model can depend on the core `IRouterNavigator` and

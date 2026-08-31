@@ -12,6 +12,10 @@ plain `net10.0` project while the MAUI project keeps pages, lifecycle, native
 presentation, and platform services. This sample's single-project shape is an
 onboarding convenience, not an architectural requirement.
 
+Its one-route-to-one-page mapping is also an onboarding convenience. Routes
+identify Home and Detail; pages and view models are replaceable presentation
+choices rather than navigation identity.
+
 Read the full [Getting started guide](../../docs/guides/01-getting-started.md) or
 return to the [repository README](../../README.md).
 

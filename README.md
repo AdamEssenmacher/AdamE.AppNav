@@ -48,7 +48,9 @@ Powerful application navigation requires a learning investment. AppNav is not
 a page-push helper; it asks an application to model three things explicitly:
 
 1. **Destinations**: typed routes describe where the user wants to go without
-   naming the page operation that gets there.
+   naming the page, view model, or UI operation that gets there. A route can be
+   presented by one page in a particular state, several native pages, a custom
+   control, or another host artifact chosen by the application and adapter.
 2. **Topology**: a navigation model declares the valid windows, stacks,
    independent branches, entries, and modals for those destinations.
 3. **Request context**: app code uses the narrow typed route API, while external
@@ -156,6 +158,11 @@ Annotate the page classes with `[MauiRoutePage(typeof(HomeRoute))]` and
 `[MauiRoutePage(typeof(DetailRoute))]`. The MAUI generator emits
 `AppNavMauiPages.g.cs` and its `MauiPageModule`. App code then uses a typed
 navigation extension:
+
+The sample uses a convenient one-route-to-one-page mapping. That is its MAUI
+presentation choice, not route identity: routes are neither pages nor view
+models. A richer route can own additional native presentation pages or be
+rendered by an anchor page in route-specific state.
 
 ```csharp
 await navigator.NavigateAsync(new DetailRoute(42));

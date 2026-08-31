@@ -6,6 +6,11 @@ This is an advanced MAUI feature. A setup wizard, checkout flow, or editor can
 remain one semantic `AppRoute` while several native pages participate in iOS
 swipe-back and Android system Back.
 
+This is the clearest MAUI example of why a route is not a page. The route owns
+one logical destination and one logical history entry; its native presentation
+can still span several pages. Those pages are implementation details of the
+destination rather than additional semantic routes.
+
 ## Push and pop presentation pages
 
 Register each presentation page with DI, then inject

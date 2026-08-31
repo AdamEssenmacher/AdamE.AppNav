@@ -135,6 +135,13 @@ declared shape from any prior state.
 `AppNavMauiPages.g.cs` and its `MauiPageModule`. Page constructors receive the
 typed route and any services supplied by DI.
 
+This minimal sample uses one page per route because that is the clearest
+onboarding shape, not because a route and page are the same concept. The route
+identifies Home or Detail; the MAUI adapter decides which page presents it.
+More advanced routes can own several native presentation pages, and a page can
+render a route through custom controls or route-specific state. View models may
+request or consume routes, but their types are not routes either.
+
 The Home button uses the buildable `getting-started-typed-navigation` region:
 
 ```csharp

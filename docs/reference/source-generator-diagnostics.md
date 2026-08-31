@@ -6,6 +6,13 @@ AppNav reports route and MAUI page mapping problems during compilation. Treat
 errors as contract failures rather than suppressing them. `APPNAV011` is the
 only warning in the current set.
 
+The MAUI generator maps one anchor page for each route type. That mapping does
+not make the route and page the same abstraction. A semantic route can own
+additional native presentation pages, and its anchor page can render custom
+controls or route-specific state. `APPNAV024` prevents competing anchor
+mappings; it does not require every destination to consist of exactly one
+native page.
+
 ## Route generator
 
 | ID | Severity | Meaning | Remediation |

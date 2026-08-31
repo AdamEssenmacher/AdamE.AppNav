@@ -24,6 +24,37 @@ That separation allows an in-app tap, a shared URI, and a restored request to
 resolve to the same semantic destination without requiring each caller to know
 how the current UI is arranged.
 
+## A route is neither a page nor a view model
+
+A route identifies application meaning; pages and view models are possible
+ways to present and interact with that meaning. `InventoryItemRoute(itemId)`
+still means “show this inventory item” whether Glyphmere renders it as:
+
+- one MAUI page configured for that item;
+- a native segment containing an overview page and a comparison page;
+- a custom control or modal within a larger host surface; or
+- different UI artifacts in another renderer.
+
+The application and its host adapter own that mapping. AppNav core plans a
+logical `RouteEntry`, not a page instance. The built-in MAUI adapter maps each
+route entry to an anchor `Page`, because that is how it participates in native
+MAUI navigation. That page can render route-specific state and can own
+additional [presentation pages](../advanced/route-owned-presentation-pages.md).
+A different adapter can map the same logical entry to different host artifacts.
+
+A view model is not destination identity either. A view model may request an
+`InventoryItemRoute`, consume that route while presenting it, or be one of
+several view models involved in the destination. Its type and lifetime remain
+presentation choices. Treating a view-model type as the route makes those
+choices part of navigation identity and creates the same one-to-one assumption
+as page routing.
+
+Page-keyed and view-model-keyed navigation are convenient while every
+destination maps neatly to one UI object. AppNav deliberately does not make
+that convenience a universal constraint; the distinction matters when a
+destination spans several pages, changes presentation, enters through a URI,
+or must be shared across renderers.
+
 ## One navigation pipeline
 
 ```text

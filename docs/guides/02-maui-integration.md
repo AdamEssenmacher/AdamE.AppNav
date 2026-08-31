@@ -33,6 +33,26 @@ example. `Presentation` there means an application layer containing
 render-independent view models; it is not the same thing as AppNav's host-facing
 `INavigationPresenter` adapter contract.
 
+## Map routes to MAUI presentation
+
+The built-in MAUI adapter maps each logical route entry to one anchor `Page`.
+That is an adapter requirement, not the definition of the route. The route
+remains semantic destination identity, while the page and its view model are
+application-owned presentation choices.
+
+An anchor page can display one route in a particular state, host custom
+controls, and update when a compatible route entry is reused. A route can also
+own a native segment of additional presentation pages. Those pages participate
+in native Back without becoming new routes or logical history entries. See
+[Route-owned presentation pages](../advanced/route-owned-presentation-pages.md)
+for that advanced lifecycle.
+
+View models can request typed routes and can consume route information supplied
+by the app's page or composition layer. AppNav does not navigate to a view-model
+type or require a one-route-to-one-view-model relationship. A custom host
+adapter may map logical entries to non-page artifacts; the MAUI adapter uses
+pages so it can participate in MAUI's native navigation containers.
+
 ## Common Flow
 
 1. Define durable semantic destinations as `AppRoute`.

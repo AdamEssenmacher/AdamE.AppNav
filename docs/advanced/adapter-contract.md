@@ -27,6 +27,13 @@ with the router through `RouterNavigatorFactory`.
 - native-to-logical reconciliation;
 - platform ingress and storage choices.
 
+That mapping is presentation policy, not route identity. Core does not require
+a `RouteEntry` to equal one page or one view model. An adapter may use one or
+several host artifacts, provided it can apply, verify, roll back, and reconcile
+the logical target consistently. The built-in MAUI adapter uses one anchor
+`Page` per entry and optionally lets that route own additional presentation
+pages; another host can choose a different artifact model.
+
 The presenter must leave logical state uncommitted on failure or cancellation. Reconciliation events contain the
 observed target state, a host-neutral source, optional route, and reason. Disposal detaches events and stops new work;
 asynchronous disposal waits for accepted work and adapter cleanup.
