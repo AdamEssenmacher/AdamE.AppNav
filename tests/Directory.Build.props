@@ -1,0 +1,8 @@
+<Project>
+    <Import Project="../Directory.Build.props" />
+
+    <PropertyGroup>
+        <!-- Test projects remain analyzable without contributing production metrics. -->
+        <SonarQubeTestProject>true</SonarQubeTestProject>
+    </PropertyGroup>
+</Project>

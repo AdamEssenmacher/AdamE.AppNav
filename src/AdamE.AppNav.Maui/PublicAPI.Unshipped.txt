@@ -1,4 +1,33 @@
 #nullable enable
+AdamE.AppNav.Maui.IMauiPresentationOperationPolicy
+AdamE.AppNav.Maui.IMauiPresentationOperationPolicy.Resolve(AdamE.AppNav.Maui.MauiPresentationOperationContext! context) -> AdamE.AppNav.Maui.MauiPresentationOperationOptions!
+AdamE.AppNav.Maui.MauiPresentationMotion
+AdamE.AppNav.Maui.MauiPresentationMotion.Automatic = 0 -> AdamE.AppNav.Maui.MauiPresentationMotion
+AdamE.AppNav.Maui.MauiPresentationMotion.PlatformDefault = 2 -> AdamE.AppNav.Maui.MauiPresentationMotion
+AdamE.AppNav.Maui.MauiPresentationMotion.Suppressed = 1 -> AdamE.AppNav.Maui.MauiPresentationMotion
+AdamE.AppNav.Maui.MauiPresentationOperationContext
+AdamE.AppNav.Maui.MauiPresentationOperationContext.MauiPresentationOperationContext(AdamE.AppNav.Plans.NavigationPlan! plan, AdamE.AppNav.Presentation.NavigationPresentationContext! presentationContext, AdamE.AppNav.Maui.MauiPresentationOperationKind operationKind, AdamE.AppNav.State.RouteEntry? sourceEntry, AdamE.AppNav.State.RouteEntry? targetEntry) -> void
+AdamE.AppNav.Maui.MauiPresentationOperationContext.OperationKind.get -> AdamE.AppNav.Maui.MauiPresentationOperationKind
+AdamE.AppNav.Maui.MauiPresentationOperationContext.Plan.get -> AdamE.AppNav.Plans.NavigationPlan!
+AdamE.AppNav.Maui.MauiPresentationOperationContext.PresentationContext.get -> AdamE.AppNav.Presentation.NavigationPresentationContext!
+AdamE.AppNav.Maui.MauiPresentationOperationContext.SourceEntry.get -> AdamE.AppNav.State.RouteEntry?
+AdamE.AppNav.Maui.MauiPresentationOperationContext.TargetEntry.get -> AdamE.AppNav.State.RouteEntry?
+AdamE.AppNav.Maui.MauiPresentationOperationKind
+AdamE.AppNav.Maui.MauiPresentationOperationKind.ModalPop = 3 -> AdamE.AppNav.Maui.MauiPresentationOperationKind
+AdamE.AppNav.Maui.MauiPresentationOperationKind.ModalPush = 2 -> AdamE.AppNav.Maui.MauiPresentationOperationKind
+AdamE.AppNav.Maui.MauiPresentationOperationKind.StackPop = 1 -> AdamE.AppNav.Maui.MauiPresentationOperationKind
+AdamE.AppNav.Maui.MauiPresentationOperationKind.StackPush = 0 -> AdamE.AppNav.Maui.MauiPresentationOperationKind
+AdamE.AppNav.Maui.MauiPresentationOperationOptions
+AdamE.AppNav.Maui.MauiPresentationOperationOptions.<Clone>$() -> AdamE.AppNav.Maui.MauiPresentationOperationOptions!
+AdamE.AppNav.Maui.MauiPresentationOperationOptions.Equals(AdamE.AppNav.Maui.MauiPresentationOperationOptions? other) -> bool
+AdamE.AppNav.Maui.MauiPresentationOperationOptions.MauiPresentationOperationOptions() -> void
+AdamE.AppNav.Maui.MauiPresentationOperationOptions.Motion.get -> AdamE.AppNav.Maui.MauiPresentationMotion
+AdamE.AppNav.Maui.MauiPresentationOperationOptions.Motion.init -> void
+override AdamE.AppNav.Maui.MauiPresentationOperationOptions.Equals(object? obj) -> bool
+override AdamE.AppNav.Maui.MauiPresentationOperationOptions.GetHashCode() -> int
+override AdamE.AppNav.Maui.MauiPresentationOperationOptions.ToString() -> string!
+static AdamE.AppNav.Maui.MauiPresentationOperationOptions.operator !=(AdamE.AppNav.Maui.MauiPresentationOperationOptions? left, AdamE.AppNav.Maui.MauiPresentationOperationOptions? right) -> bool
+static AdamE.AppNav.Maui.MauiPresentationOperationOptions.operator ==(AdamE.AppNav.Maui.MauiPresentationOperationOptions? left, AdamE.AppNav.Maui.MauiPresentationOperationOptions? right) -> bool
 AdamE.AppNav.Maui.AppNavNavigatorOptions
 AdamE.AppNav.Maui.AppNavNavigatorOptions.AppNavNavigatorOptions() -> void
 AdamE.AppNav.Maui.AppNavNavigatorOptions.FallbackRouteFactory.get -> System.Func<AdamE.AppNav.Navigation.NavigationFallbackContext!, AdamE.AppNav.AppRoute?>?

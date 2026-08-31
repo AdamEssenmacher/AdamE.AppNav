@@ -192,6 +192,27 @@ Custom toolbar commands should await `IMauiHostBackDispatcher.BackAsync()`. AppN
 platform handlers or gestures. A native pop, swipe, or modal dismissal that commits without going through this dispatcher
 is reconciled afterward and cannot be asynchronously vetoed retroactively.
 
+## Native Presentation Motion
+
+The MAUI presenter uses the platform-default animation for a singular visible stack push/pop or modal push/pop.
+Initial materialization, native reconciliation, root or container replacement, composite changes, rollback, recovery,
+and cleanup remain unanimated. Changes confined to inactive branches are applied without animation and do not prevent
+an otherwise singular visible operation from using native motion. A logical route pop that must also remove route-owned
+presentation pages is composite and therefore unanimated.
+
+Applications can replace `IMauiPresentationOperationPolicy` before calling `AddAppNav(...)` to suppress an eligible
+operation based on its plan, runtime presentation context, operation kind, and source or target route entry:
+
+```csharp
+services.AddSingleton<IMauiPresentationOperationPolicy, ReducedMotionPolicy>();
+services.AddAppNav(routes, model, pages => pages.AddModule(AppNavGenerated.MauiPageModule));
+```
+
+The policy returns `MauiPresentationOperationOptions` with `Automatic`, `PlatformDefault`, or `Suppressed` motion.
+It is invoked only for operations the presenter has already determined are safe to animate. It cannot enable motion
+for reconciliation, composite changes, rollback, or recovery, and it must not re-enter the router. This seam controls
+MAUI's native animated flag; AppNav still does not provide custom, shared-element, or predictive-back transitions.
+
 ## Route-Owned Presentation Pages
 
 Some workflows are one semantic destination but need several native pages. A setup wizard, checkout flow, or editor can remain one `AppRoute` while its steps participate in iOS swipe-back and Android system back.

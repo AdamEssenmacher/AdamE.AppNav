@@ -49,6 +49,7 @@ The preview includes:
 - logical window, stack, branch-host, and modal state;
 - native MAUI presentation and reconciliation;
 - asynchronous cancelable Back policies and opt-in MAUI host-Back dispatch;
+- platform-native motion for singular visible stack and modal operations;
 - trusted-origin external navigation;
 - bounded retrying ingress queues;
 - schema-3 deferred navigation persistence;
