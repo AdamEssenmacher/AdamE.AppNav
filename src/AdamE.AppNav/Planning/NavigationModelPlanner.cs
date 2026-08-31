@@ -50,15 +50,27 @@ public sealed class NavigationModelPlanner<TRoute> : IAppNavigationPlanner
                 "Unsupported navigation disposition.")
         };
 
+        // A contextual disposition that cannot be satisfied silently produces a fresh canonical
+        // topology, which discards any accumulated stack and branch state. Report that in the plan
+        // reason so the fallback is observable instead of looking like an ordinary contextual plan.
+        bool fellBackToCanonical = targetState is null &&
+            disposition is not RouterNavigationDisposition.Canonical;
+
         targetState ??= _model.CreateCanonicalState(
             route,
             context.Request.Metadata,
             context.Request.WindowId);
 
+        string reason = fellBackToCanonical
+            ? $"{disposition} navigation through {typeof(TRoute).Name} model fell back to canonical " +
+              "topology because the current state could not be extended contextually; accumulated " +
+              "stack and branch state was discarded."
+            : $"{disposition} navigation through {typeof(TRoute).Name} model.";
+
         return ValueTask.FromResult(new NavigationPlan(
             targetState,
             NavigationPlanKind.Navigate,
-            $"{disposition} navigation through {typeof(TRoute).Name} model."));
+            reason));
     }
 
     private NavigationState? TryCreateContextualState(

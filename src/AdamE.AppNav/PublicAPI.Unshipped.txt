@@ -45,3 +45,4 @@ static AdamE.AppNav.Navigation.BackNavigationResult.CompletedBy(AdamE.AppNav.Nav
 *REMOVED*AdamE.AppNav.Navigation.BackNavigationResult.HandledNavigationResult.get -> AdamE.AppNav.Navigation.NavigationResult?
 *REMOVED*AdamE.AppNav.Navigation.BackNavigationResult.HandledNavigationResult.init -> void
 *REMOVED*static AdamE.AppNav.Navigation.BackNavigationResult.HandledBy(AdamE.AppNav.Navigation.NavigationResult! result) -> AdamE.AppNav.Navigation.BackNavigationResult
+AdamE.AppNav.Requests.NavigationRequestSource.HostBack = 8 -> AdamE.AppNav.Requests.NavigationRequestSource

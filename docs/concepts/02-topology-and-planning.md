@@ -104,6 +104,12 @@ plan instead rebuilds the declared destination shape and sanitizes inactive
 branches to their configured roots; use canonical navigation when that reset is
 the intended behavior.
 
+A `Contextual` or `ReplaceCurrent` request that cannot be satisfied falls back
+to canonical topology, which discards the accumulated stack and branch state
+those dispositions were asked to preserve. That fallback is reported in the
+plan's reason and on the `PlanningCompleted` diagnostic, so it is observable
+rather than silent.
+
 Use `IAppNavigationPlanner` directly when an app coordinates multiple models or
 has domain-specific topology rules.
 
@@ -127,6 +133,11 @@ Native host changes are reconciled with host-neutral sources:
 - `HostReconciliation` for the synthesized router request recorded in history.
 
 Cancelled native gestures do not commit logical state.
+
+A host-dispatched Back request is not reconciliation. It runs the ordinary Back
+pipeline, including `IBackNavigationPolicy`, and records the `HostBack` request
+source in presentation context and history, so a hardware or system Back is
+distinguishable from an in-app `BackAsync` call.
 
 ## MAUI window rule
 

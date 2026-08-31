@@ -55,6 +55,49 @@ public sealed class NavigationModelPlannerTests
     }
 
     [Fact]
+    public async Task ContextualFallbackReportsDiscardedTopologyInPlanReason()
+    {
+        var model = new RecordingModel();
+        var planner = new NavigationModelPlanner<TestRoute>(model);
+
+        var plan = await planner.CreatePlanAsync(
+            Context(NavigationRequestSource.InAppCommand, RouterNavigationDisposition.Contextual));
+
+        Assert.Equal("canonical", plan.TargetState.ActiveWindow!.Id);
+        Assert.NotNull(plan.Reason);
+        Assert.Contains("fell back to canonical", plan.Reason, StringComparison.Ordinal);
+        Assert.Contains("discarded", plan.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SatisfiedContextualPlanDoesNotReportFallback()
+    {
+        var model = new RecordingModel { ContextualResult = State("contextual") };
+        var planner = new NavigationModelPlanner<TestRoute>(model);
+
+        var plan = await planner.CreatePlanAsync(
+            Context(NavigationRequestSource.InAppCommand, RouterNavigationDisposition.Contextual));
+
+        Assert.Same(model.ContextualResult, plan.TargetState);
+        Assert.NotNull(plan.Reason);
+        Assert.DoesNotContain("fell back", plan.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CanonicalDispositionIsNotReportedAsAFallback()
+    {
+        var model = new RecordingModel();
+        var planner = new NavigationModelPlanner<TestRoute>(model);
+
+        var plan = await planner.CreatePlanAsync(
+            Context(NavigationRequestSource.InAppCommand, RouterNavigationDisposition.Canonical));
+
+        Assert.Equal("canonical", plan.TargetState.ActiveWindow!.Id);
+        Assert.NotNull(plan.Reason);
+        Assert.DoesNotContain("fell back", plan.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ReplaceCurrentUsesReplaceTopAndFallsBackToCanonicalTopology()
     {
         var model = new RecordingModel();

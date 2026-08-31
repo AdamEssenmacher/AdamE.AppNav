@@ -249,7 +249,8 @@ internal sealed class RouterNavigator : IRouterNavigator
                     operationId,
                     plan.Kind.ToString(),
                     RouterNavigationDiagnostics.Duration(planningTimer,
-                        (NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
+                        (NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString()),
+                        (NavigationDiagnosticDataKeys.Reason, plan.Reason)));
             }
             catch (Exception ex)
             {
@@ -415,7 +416,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             string? resolvedWindowId = backContext.ResolvedWindowId ?? backContext.RequestedWindowId;
             AppRoute route = ResolvePresentedRoute(plan.TargetState, resolvedWindowId, new BackRoute());
             RouterNavigationRequest request =
-                RouterNavigationRequest.FromRoute(route, NavigationRequestSource.InAppCommand, resolvedWindowId);
+                RouterNavigationRequest.FromRoute(route, ResolveBackRequestSource(backRequest.Source), resolvedWindowId);
 
             _diagnostics.Write(
                 NavigationDiagnosticEventKind.PresentationStarted,
@@ -867,6 +868,15 @@ internal sealed class RouterNavigator : IRouterNavigator
     }
 
     private sealed record ReconciledRoute : AppRoute;
+
+    private static NavigationRequestSource ResolveBackRequestSource(BackNavigationSource source)
+    {
+        return source switch
+        {
+            BackNavigationSource.Host => NavigationRequestSource.HostBack,
+            _ => NavigationRequestSource.InAppCommand
+        };
+    }
 
     private sealed record BackRoute : AppRoute;
 }

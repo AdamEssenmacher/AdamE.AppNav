@@ -3,6 +3,7 @@ using AdamE.AppNav.Diagnostics;
 using AdamE.AppNav.History;
 using AdamE.AppNav.Navigation;
 using AdamE.AppNav.Plans;
+using AdamE.AppNav.Requests;
 using AdamE.AppNav.State;
 
 namespace AdamE.AppNav.Tests;
@@ -262,6 +263,24 @@ public sealed class BackNavigationPolicyTests
 
         Assert.Contains("unknown decision value '42'", exception.Message, StringComparison.Ordinal);
         Assert.Same(previousState, navigator.CurrentState);
+    }
+
+    [Theory]
+    [InlineData(BackNavigationSource.Host, NavigationRequestSource.HostBack)]
+    [InlineData(BackNavigationSource.ApplicationCommand, NavigationRequestSource.InAppCommand)]
+    public async Task BackAttributesTheOriginatingSourceToHistoryAndPresentation(
+        BackNavigationSource backSource,
+        NavigationRequestSource expectedSource)
+    {
+        var presenter = new RecordingNavigationPresenter();
+        RouterNavigator navigator = CreateNavigator(presenter);
+
+        BackNavigationResult result = await navigator.BackAsync(
+            new BackNavigationRequest("main", backSource));
+
+        Assert.Equal(BackNavigationStatus.Completed, result.Status);
+        Assert.Equal(expectedSource, presenter.LastContext!.Request.Source);
+        Assert.Equal(expectedSource, navigator.History.Current!.Request.Source);
     }
 
     private static RouterNavigator CreateNavigator(
