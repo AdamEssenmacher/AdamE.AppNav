@@ -71,9 +71,8 @@ internal sealed class MauiPageAbandonment : IAsyncDisposable
 /// or <see cref="IRouterNavigator.ReconcileAsync"/> on the same navigator. Schedule follow-up navigation to run after
 /// the callback and its owning router operation have completed.
 /// <para>
-/// <see cref="OnPageReleasedAsync"/> is invoked for normal page retirement. When the native host destroys an entire
-/// page tree, AppNav cannot safely pass those invalid pages to user code; it skips the release callback and disposes
-/// the captured page scope instead.
+/// <see cref="OnPageReleasedAsync"/> represents normal page retirement. The internal page-free abandonment path does
+/// not invoke this page-based callback.
 /// </para>
 /// </remarks>
 public interface IMauiRoutePageLifecycleHook
