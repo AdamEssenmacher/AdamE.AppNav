@@ -18,7 +18,7 @@ internal interface IMauiNativeNavigationOperations
 
     void SetCurrentTab(TabbedPage tabbedPage, Page? page);
 
-    void SetFlyoutDetail(FlyoutPage flyoutPage, Page page);
+    void SetFlyoutDetail(FlyoutPage flyoutPage, Page? page);
 
     void SetFlyoutPresented(FlyoutPage flyoutPage, bool isPresented);
 
@@ -50,8 +50,8 @@ internal sealed class MauiNativeNavigationOperations : IMauiNativeNavigationOper
     public void SetCurrentTab(TabbedPage tabbedPage, Page? page) =>
         tabbedPage.CurrentPage = page;
 
-    public void SetFlyoutDetail(FlyoutPage flyoutPage, Page page) =>
-        flyoutPage.Detail = page;
+    public void SetFlyoutDetail(FlyoutPage flyoutPage, Page? page) =>
+        flyoutPage.Detail = page!;
 
     public void SetFlyoutPresented(FlyoutPage flyoutPage, bool isPresented) =>
         flyoutPage.IsPresented = isPresented;

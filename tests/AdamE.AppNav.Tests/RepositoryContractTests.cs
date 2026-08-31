@@ -674,15 +674,15 @@ public sealed partial class RepositoryContractTests
         Assert.Equal(typeof(bool), result.GetProperty(nameof(NavigationResult.Presented))!.PropertyType);
 
         Assert.True(typeof(BackNavigationResult).IsValueType);
-        Assert.False(BackNavigationResult.Unhandled.Handled);
-        Assert.Null(BackNavigationResult.Unhandled.HandledNavigationResult);
+        Assert.Equal(BackNavigationStatus.Unhandled, BackNavigationResult.Unhandled.Status);
+        Assert.Null(BackNavigationResult.Unhandled.NavigationResult);
 
         Assert.Contains(
             "`NavigationResult` is not a success/failure union",
             guide,
             StringComparison.Ordinal);
         Assert.Contains("`Presented == false`", guide, StringComparison.Ordinal);
-        Assert.Contains("`Handled == false` is not an error", guide, StringComparison.Ordinal);
+        Assert.Contains("`BackNavigationStatus.Unhandled` is not an error", guide, StringComparison.Ordinal);
         Assert.Contains(
             "commit state and history -> return result",
             guide,

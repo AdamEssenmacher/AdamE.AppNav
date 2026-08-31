@@ -451,6 +451,10 @@ public sealed class NavigationDiagnostics
                 NavigationDiagnosticPhase.Reconciliation,
             NavigationDiagnosticEventKind.BackStarted or
                 NavigationDiagnosticEventKind.BackEvaluated or
+                NavigationDiagnosticEventKind.BackPolicyStarted or
+                NavigationDiagnosticEventKind.BackPolicyCompleted or
+                NavigationDiagnosticEventKind.BackPolicyFailed or
+                NavigationDiagnosticEventKind.BackCanceled or
                 NavigationDiagnosticEventKind.BackCompleted or
                 NavigationDiagnosticEventKind.BackUnhandled or
                 NavigationDiagnosticEventKind.BackFailed =>

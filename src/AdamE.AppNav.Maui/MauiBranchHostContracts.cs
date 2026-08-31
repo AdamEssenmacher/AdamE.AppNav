@@ -303,9 +303,7 @@ internal sealed class MauiTabbedBranchHost : IMauiBranchHost, IMauiBranchHostNat
 
     public string? SelectedBranchId { get; private set; }
 
-    public Page? SelectedBranchPage =>
-        _branches.FirstOrDefault(branch =>
-            StringComparer.Ordinal.Equals(branch.Id, SelectedBranchId))?.Page;
+    public Page? SelectedBranchPage => _page.CurrentPage;
 
     public event EventHandler<MauiBranchHostSelectionChangedEventArgs>? SelectionChanged;
 
@@ -339,7 +337,9 @@ internal sealed class MauiTabbedBranchHost : IMauiBranchHost, IMauiBranchHostNat
             }
 
             SelectedBranchId = context.SelectedBranchId;
-            _nativeOperations.SetCurrentTab(_page, SelectedBranchPage ?? _page.Children.FirstOrDefault());
+            Page? selectedPage = _branches.FirstOrDefault(branch =>
+                StringComparer.Ordinal.Equals(branch.Id, context.SelectedBranchId))?.Page;
+            _nativeOperations.SetCurrentTab(_page, selectedPage ?? _page.Children.FirstOrDefault());
             return ValueTask.FromResult<IMauiBranchHostUpdate>(update);
         }
         catch (Exception applyException)
@@ -466,9 +466,7 @@ internal sealed class MauiFlyoutBranchHost : IMauiBranchHost, IMauiBranchHostNat
 
     public string? SelectedBranchId { get; private set; }
 
-    public Page? SelectedBranchPage =>
-        _branches.FirstOrDefault(branch =>
-            StringComparer.Ordinal.Equals(branch.Id, SelectedBranchId))?.Page;
+    public Page? SelectedBranchPage => _page.Detail;
 
     public event EventHandler<MauiBranchHostSelectionChangedEventArgs>? SelectionChanged;
 
@@ -494,7 +492,9 @@ internal sealed class MauiFlyoutBranchHost : IMauiBranchHost, IMauiBranchHostNat
                 new MauiFlyoutBranchPresentation(branch.Id, branch.Title, branch.Page)).ToArray();
             _page.SetBranches(presentations);
             SelectedBranchId = context.SelectedBranchId;
-            if ((SelectedBranchPage ?? _branches.FirstOrDefault()?.Page) is { } detail)
+            Page? selectedPage = _branches.FirstOrDefault(branch =>
+                StringComparer.Ordinal.Equals(branch.Id, context.SelectedBranchId))?.Page;
+            if ((selectedPage ?? _branches.FirstOrDefault()?.Page) is { } detail)
                 _nativeOperations.SetFlyoutDetail(_page, detail);
             _page.SetSelectedBranch(context.SelectedBranchId);
             if (previousSelected is not null && !StringComparer.Ordinal.Equals(previousSelected, context.SelectedBranchId))
@@ -534,15 +534,19 @@ internal sealed class MauiFlyoutBranchHost : IMauiBranchHost, IMauiBranchHostNat
 
     private void HandleBranchSelected(object? sender, MauiFlyoutBranchSelectedEventArgs e)
     {
-        if (_disposed || _suppressSelectionChanged || _page.FindBranchPage(e.BranchId) is null)
+        if (_disposed || _suppressSelectionChanged || _page.FindBranchPage(e.BranchId) is not { } selectedPage)
             return;
 
-        SelectedBranchId = e.BranchId;
-        if (SelectedBranchPage is { } selectedPage)
+        if (StringComparer.Ordinal.Equals(SelectedBranchId, e.BranchId))
         {
-            _nativeOperations.SetFlyoutDetail(_page, selectedPage);
             _nativeOperations.SetFlyoutPresented(_page, false);
+            return;
         }
+
+        _nativeOperations.SetFlyoutDetail(_page, selectedPage);
+        _page.SetSelectedBranch(e.BranchId);
+        _nativeOperations.SetFlyoutPresented(_page, false);
+        SelectedBranchId = e.BranchId;
         SelectionChanged?.Invoke(this, new MauiBranchHostSelectionChangedEventArgs(e.BranchId));
     }
 
@@ -576,8 +580,7 @@ internal sealed class MauiFlyoutBranchHost : IMauiBranchHost, IMauiBranchHostNat
                 host._page.SetBranches(host._branches.Select(branch =>
                     new MauiFlyoutBranchPresentation(branch.Id, branch.Title, branch.Page)).ToArray());
                 host.SelectedBranchId = selectedBranchId;
-                if (detail is not null)
-                    nativeOperations.SetFlyoutDetail(host._page, detail);
+                nativeOperations.SetFlyoutDetail(host._page, detail);
                 if (selectedBranchId is not null)
                     host._page.SetSelectedBranch(selectedBranchId);
                 nativeOperations.SetFlyoutPresented(host._page, isPresented);

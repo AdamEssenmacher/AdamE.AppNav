@@ -1308,6 +1308,7 @@ internal sealed class MauiNavigationPresenter :
         if (existingPage is not null &&
             _branchHostPages.TryGetValue(existingPage, out IMauiBranchHost? existingHost) &&
             _branchHostFactories.TryGetValue(existingPage, out IMauiBranchHostFactory? existingFactory) &&
+            StringComparer.Ordinal.Equals(GetHostId(existingPage), branchHost.Id) &&
             ReferenceEquals(existingFactory, selection.Factory))
         {
             host = existingHost;
@@ -1954,6 +1955,12 @@ internal sealed class MauiNavigationPresenter :
         {
             _branchHostFactories.Remove(page);
             UntrackBranchHost(branchHost);
+            Page[] branchPages = branchHost.Branches
+                .Select(static branch => branch.Page)
+                .ToArray();
+            foreach (Page branchPage in branchPages)
+                await DetachPageTreeAsync(branchPage, visited, failures);
+
             try
             {
                 await branchHost.DisposeAsync();
@@ -1962,9 +1969,6 @@ internal sealed class MauiNavigationPresenter :
             {
                 failures.Add(ex);
             }
-
-            foreach (MauiBranchHostBranch branch in branchHost.Branches)
-                await DetachPageTreeAsync(branch.Page, visited, failures);
 
             return;
         }

@@ -7,6 +7,7 @@ using AdamE.AppNav.Requests;
 using AdamE.AppNav.Routing;
 using AdamE.AppNav.State;
 using DeviceRunners.UITesting.Xunit3;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Maui.Controls;
 
 namespace AdamE.AppNav.Maui.Tests;
@@ -94,6 +95,41 @@ public sealed class MauiPresentationTransactionTests
         Assert.All(FlyoutMenuButtons(flyoutPage), button => Assert.Same(initialIcon, button.ImageSource));
         Assert.All(previousPages, page => Assert.Equal(0, factory.ReleaseCountFor(page)));
         await presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task FirstFlyoutDetailFailureRestoresNullDetail()
+    {
+        NavigationState targetState = BranchState("catalog", "catalog", "orders");
+        var branchHost = Assert.IsType<BranchHostNode>(targetState.ActiveWindow?.Root);
+        var creationContext = new MauiBranchHostCreationContext(
+            branchHost,
+            MauiBranchHostPlacement.WindowRoot,
+            Context("catalog", NavigationState.Empty),
+            new ServiceCollection().BuildServiceProvider());
+        IMauiBranchHost host = await new MauiFlyoutBranchHostFactory("Main").CreateAsync(creationContext);
+        var nativeOperations = new FaultingNativeOperations
+        {
+            FaultAfterMutation = NativeMutation.SetFlyoutDetail
+        };
+        Assert.IsAssignableFrom<IMauiBranchHostNativeOperations>(host).SetNativeOperations(nativeOperations);
+        var flyoutPage = Assert.IsType<MauiBranchFlyoutPage>(host.Page);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => host.ApplyAsync(
+            new MauiBranchHostUpdateContext(
+                branchHost,
+                MauiBranchHostPlacement.WindowRoot,
+                [
+                    new MauiBranchHostBranch("catalog", "Catalog", new ContentPage()),
+                    new MauiBranchHostBranch("orders", "Orders", new ContentPage())
+                ],
+                "catalog",
+                creationContext.PresentationContext)).AsTask());
+
+        Assert.Null(flyoutPage.Detail);
+        Assert.Empty(host.Branches);
+        Assert.Null(host.SelectedBranchId);
+        await host.DisposeAsync();
     }
 
     [Theory]
@@ -1362,7 +1398,7 @@ public sealed class MauiPresentationTransactionTests
             ThrowAfterMutation(NativeMutation.SetCurrentTab);
         }
 
-        public void SetFlyoutDetail(FlyoutPage flyoutPage, Page page)
+        public void SetFlyoutDetail(FlyoutPage flyoutPage, Page? page)
         {
             MauiNativeNavigationOperations.Instance.SetFlyoutDetail(flyoutPage, page);
             ThrowAfterMutation(NativeMutation.SetFlyoutDetail);

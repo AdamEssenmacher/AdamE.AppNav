@@ -229,7 +229,10 @@ internal sealed class MauiPresentationVerifier : IMauiPresentationVerifier
                   StringComparer.Ordinal.Equals(branch.Id, branchHost.SelectedBranchId) &&
                   ReferenceEquals(branch.Page, host.SelectedBranchPage))
                 ? null
-                : Mismatch($"{path}.selectedBranchPage", branchHost.SelectedBranchId, "missing")
+                : Mismatch(
+                    $"{path}.selectedBranchPage",
+                    branchHost.SelectedBranchId,
+                    MauiPresentationMetadata.GetBranchId(host.SelectedBranchPage) ?? "missing")
             : Mismatch($"{path}.selectedBranchId", branchHost.SelectedBranchId, host.SelectedBranchId ?? "null");
     }
 

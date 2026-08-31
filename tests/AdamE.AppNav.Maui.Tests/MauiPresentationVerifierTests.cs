@@ -55,11 +55,22 @@ public sealed class MauiPresentationVerifierTests
         MauiPresentationMetadata.SetBranchId(home, "home");
         var catalog = StackPage("catalog-stack", "catalog");
         MauiPresentationMetadata.SetBranchId(catalog, "catalog");
-        tabbedPage.Children.Add(home);
-        tabbedPage.Children.Add(catalog);
-        tabbedPage.CurrentPage = catalog;
+        var host = new MauiTabbedBranchHost(tabbedPage);
+        host.ApplyAsync(new MauiBranchHostUpdateContext(
+            branchHost,
+            MauiBranchHostPlacement.WindowRoot,
+            [
+                new MauiBranchHostBranch("home", "Home", home),
+                new MauiBranchHostBranch("catalog", "Catalog", catalog)
+            ],
+            "catalog",
+            Context(new TestPageRoute("catalog"))),
+            CancellationToken.None).GetAwaiter().GetResult().CommitAsync().GetAwaiter().GetResult();
 
-        var mismatch = Verify(State(branchHost), tabbedPage);
+        var mismatch = Verify(
+            State(branchHost),
+            tabbedPage,
+            branchHosts: new Dictionary<Page, IMauiBranchHost> { [tabbedPage] = host });
 
         Assert.Null(mismatch);
     }
@@ -71,27 +82,35 @@ public sealed class MauiPresentationVerifierTests
         var options = new MauiRoutePresentationOptions();
         var flyoutFactory = new MauiFlyoutBranchHostFactory("Menu", FlyoutLayoutBehavior.Default, true);
         options.BranchHosts.Add("branches", new MauiBranchHostRegistration(flyoutFactory));
-        var flyoutOptions = new MauiFlyoutBranchHostOptions("Menu", FlyoutLayoutBehavior.Default, true);
-        var flyoutPage = new MauiBranchFlyoutPage(flyoutOptions);
+        var host = new MauiFlyoutBranchHost("Menu", FlyoutLayoutBehavior.Default, true);
+        var flyoutPage = Assert.IsType<MauiBranchFlyoutPage>(host.Page);
         MauiPresentationMetadata.SetHostId(flyoutPage, "branches");
         var home = StackPage("home-stack", "home");
         MauiPresentationMetadata.SetBranchId(home, "home");
         var catalog = StackPage("catalog-stack", "catalog");
         MauiPresentationMetadata.SetBranchId(catalog, "catalog");
-        flyoutPage.SetBranches(
-        [
-            new MauiFlyoutBranchPresentation("home", "Home", home),
-            new MauiFlyoutBranchPresentation("catalog", "Catalog", catalog)
-        ]);
-        flyoutPage.Detail = catalog;
-        flyoutPage.SetSelectedBranch("catalog");
+        host.ApplyAsync(new MauiBranchHostUpdateContext(
+            branchHost,
+            MauiBranchHostPlacement.WindowRoot,
+            [
+                new MauiBranchHostBranch("home", "Home", home),
+                new MauiBranchHostBranch("catalog", "Catalog", catalog)
+            ],
+            "catalog",
+            Context(new TestPageRoute("catalog"))),
+            CancellationToken.None).GetAwaiter().GetResult().CommitAsync().GetAwaiter().GetResult();
+        var branchHosts = new Dictionary<Page, IMauiBranchHost> { [flyoutPage] = host };
 
-        Assert.Null(Verify(State(branchHost), flyoutPage, options));
+        Assert.Null(Verify(State(branchHost), flyoutPage, options, branchHosts: branchHosts));
 
         flyoutPage.Detail = home;
-        MauiPresentationVerificationMismatch? mismatch = Verify(State(branchHost), flyoutPage, options);
+        MauiPresentationVerificationMismatch? mismatch = Verify(
+            State(branchHost),
+            flyoutPage,
+            options,
+            branchHosts: branchHosts);
         Assert.NotNull(mismatch);
-        Assert.Equal("$.root.detail", mismatch.Path);
+        Assert.Equal("$.root.selectedBranchPage", mismatch.Path);
         Assert.Equal("catalog", mismatch.Expected);
         Assert.Equal("home", mismatch.Actual);
     }
@@ -225,11 +244,23 @@ public sealed class MauiPresentationVerifierTests
         MauiPresentationMetadata.SetBranchId(home, "home");
         var catalog = StackPage("catalog-stack", "catalog");
         MauiPresentationMetadata.SetBranchId(catalog, "catalog");
-        tabbedPage.Children.Add(home);
-        tabbedPage.Children.Add(catalog);
+        var host = new MauiTabbedBranchHost(tabbedPage);
+        host.ApplyAsync(new MauiBranchHostUpdateContext(
+            branchHost,
+            MauiBranchHostPlacement.WindowRoot,
+            [
+                new MauiBranchHostBranch("home", "Home", home),
+                new MauiBranchHostBranch("catalog", "Catalog", catalog)
+            ],
+            "catalog",
+            Context(new TestPageRoute("catalog"))),
+            CancellationToken.None).GetAwaiter().GetResult().CommitAsync().GetAwaiter().GetResult();
         tabbedPage.CurrentPage = home;
 
-        var mismatch = Verify(State(branchHost), tabbedPage);
+        var mismatch = Verify(
+            State(branchHost),
+            tabbedPage,
+            branchHosts: new Dictionary<Page, IMauiBranchHost> { [tabbedPage] = host });
 
         Assert.NotNull(mismatch);
         Assert.Equal("$.root.selectedBranchId", mismatch.Path);

@@ -245,6 +245,7 @@ public static class AppNavServiceCollectionExtensions
             {
                 Diagnostics = provider.GetRequiredService<NavigationDiagnostics>(),
                 BackNavigator = provider.GetRequiredService<IBackNavigator>(),
+                BackNavigationPolicies = provider.GetServices<IBackNavigationPolicy>().ToArray(),
                 LoggerFactory = provider.GetService<ILoggerFactory>(),
                 RequestTransformers = provider.GetServices<INavigationRequestTransformer>().ToArray(),
                 RequestPolicies = provider.GetServices<INavigationRequestPolicy>().ToArray(),
@@ -342,6 +343,9 @@ public static class AppNavServiceCollectionExtensions
             _ = provider.GetRequiredService<IAppNavRuntime>();
             return provider.GetRequiredService<MauiNavigationPresenter>();
         });
+        services.TryAddSingleton<MauiHostBackDispatcher>();
+        services.TryAddSingleton<IMauiHostBackDispatcher>(provider =>
+            provider.GetRequiredService<MauiHostBackDispatcher>());
 
         return services;
     }
