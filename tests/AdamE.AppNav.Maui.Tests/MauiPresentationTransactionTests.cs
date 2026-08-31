@@ -325,6 +325,53 @@ public sealed class MauiPresentationTransactionTests
     }
 
     [UIFact]
+    public async Task FailedReplacementRollbackFaultsPresenterWithoutReleasingAttachedCandidate()
+    {
+        var nativeOperations = new FaultingNativeOperations();
+        var factory = new InstrumentedRoutePageFactory();
+        var presenter = new MauiNavigationPresenter(factory, nativeOperations: nativeOperations);
+        NavigationState committedState = StackState("home");
+        await presenter.ApplyAsync(
+            new NavigationPlan(committedState),
+            Context("home", NavigationState.Empty));
+        var destroyedWindow = new Window();
+        await presenter.AttachWindowAsync(destroyedWindow);
+        RaiseWindowDestroying(destroyedWindow);
+        var bootstrapPage = new ContentPage { Title = "bootstrap" };
+        var replacementWindow = new Window(bootstrapPage);
+        using var cancellation = new CancellationTokenSource();
+        nativeOperations.WindowPageMutated = window =>
+        {
+            if (!ReferenceEquals(window, replacementWindow))
+                return;
+
+            nativeOperations.WindowPageMutated = null;
+            nativeOperations.FailWindowPageBeforeMutation(replacementWindow);
+            cancellation.Cancel();
+        };
+
+        await Assert.ThrowsAsync<MauiPresentationConsistencyException>(() =>
+            presenter.AttachWindowAsync(replacementWindow, cancellationToken: cancellation.Token).AsTask());
+
+        Page candidateRoot = Assert.IsType<NavigationPage>(replacementWindow.Page);
+        Assert.Same(candidateRoot, presenter.CurrentPage);
+        Assert.Same(replacementWindow, presenter.AttachedWindow);
+        Assert.All(
+            candidateRoot.Navigation.NavigationStack,
+            page => Assert.Equal(0, factory.ReleaseCountFor(page)));
+        await Assert.ThrowsAsync<MauiPresentationConsistencyException>(() =>
+            presenter.ApplyAsync(
+                new NavigationPlan(StackState("settings")),
+                Context("settings", committedState)).AsTask());
+
+        await presenter.StartShutdown();
+        Assert.Null(replacementWindow.Page);
+        Assert.All(
+            candidateRoot.Navigation.NavigationStack,
+            page => Assert.Equal(1, factory.ReleaseCountFor(page)));
+    }
+
+    [UIFact]
     public async Task CandidateWindowDestroyedDuringMaterializationIsAbandonedAndRetryable()
     {
         var factory = new GatedRoutePageFactory();
@@ -1364,6 +1411,7 @@ public sealed class MauiPresentationTransactionTests
         private readonly TaskCompletionSource _releaseBlockedPushAfterMutation =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly Queue<Window> _windowPageNoOpTargets = new();
+        private readonly Queue<Window> _windowPagePreMutationFaultTargets = new();
         private readonly Queue<Window> _windowPageFaultTargets = new();
 
         public int PushFailuresRemaining { get; set; }
@@ -1378,6 +1426,8 @@ public sealed class MauiPresentationTransactionTests
 
         public NativeMutation? FaultAfterMutation { get; set; }
 
+        public Action<Window>? WindowPageMutated { get; set; }
+
         public Task BlockedPushStarted => _blockedPushStarted.Task;
 
         public Task BlockedPushAfterMutationStarted => _blockedPushAfterMutationStarted.Task;
@@ -1386,6 +1436,12 @@ public sealed class MauiPresentationTransactionTests
         {
             foreach (Window window in windows)
                 _windowPageFaultTargets.Enqueue(window);
+        }
+
+        public void FailWindowPageBeforeMutation(params Window[] windows)
+        {
+            foreach (Window window in windows)
+                _windowPagePreMutationFaultTargets.Enqueue(window);
         }
 
         public void IgnoreNextWindowPageMutation(Window window)
@@ -1486,6 +1542,13 @@ public sealed class MauiPresentationTransactionTests
 
         public void SetWindowPage(Window window, Page? page)
         {
+            if (_windowPagePreMutationFaultTargets.TryPeek(out Window? preMutationFaultTarget) &&
+                ReferenceEquals(preMutationFaultTarget, window))
+            {
+                _windowPagePreMutationFaultTargets.Dequeue();
+                throw new InvalidOperationException("Injected SetWindowPage failure before mutation.");
+            }
+
             if (_windowPageNoOpTargets.TryPeek(out Window? noOpTarget) && ReferenceEquals(noOpTarget, window))
             {
                 _windowPageNoOpTargets.Dequeue();
@@ -1493,6 +1556,7 @@ public sealed class MauiPresentationTransactionTests
             }
 
             MauiNativeNavigationOperations.Instance.SetWindowPage(window, page);
+            WindowPageMutated?.Invoke(window);
             if (_windowPageFaultTargets.TryPeek(out Window? faultTarget) && ReferenceEquals(faultTarget, window))
             {
                 _windowPageFaultTargets.Dequeue();

@@ -167,6 +167,55 @@ public sealed class MauiNavigationPresenterLifecycleTests
     }
 
     [Fact]
+    public async Task EmptyLogicalStateClearsReplacementWindowBootstrapPage()
+    {
+        var fixture = new PresenterFixture();
+        NavigationPlan initialPlan = Plan(Stack("schools", Entry("schools")));
+        await fixture.Presenter.ApplyAsync(
+            initialPlan,
+            Context(new TestPageRoute("schools")));
+        var destroyedWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(destroyedWindow);
+        RaiseWindowLifecycleEvent(destroyedWindow, "Destroying");
+        await fixture.Presenter.ApplyAsync(
+            new NavigationPlan(NavigationState.Empty),
+            Context(new TestPageRoute("empty"), initialPlan.TargetState));
+        var bootstrapPage = new ContentPage { Title = "bootstrap" };
+        var replacementWindow = new Window(bootstrapPage);
+
+        await fixture.Presenter.AttachWindowAsync(replacementWindow);
+
+        Assert.Null(replacementWindow.Page);
+        Assert.Null(fixture.Presenter.CurrentPage);
+        Assert.Same(replacementWindow, fixture.Presenter.AttachedWindow);
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task DestroyedEpochStopsAfterUncooperativePageUpdateReturns()
+    {
+        var factory = new GatedUpdateRoutePageFactory();
+        var presenter = new MauiNavigationPresenter(factory);
+        NavigationPlan initialPlan = Plan(Stack("schools", Entry("schools"), Entry("details")));
+        await presenter.ApplyAsync(
+            initialPlan,
+            Context(new TestPageRoute("details")));
+        var destroyedWindow = new Window();
+        await presenter.AttachWindowAsync(destroyedWindow);
+
+        Task apply = presenter.ApplyAsync(
+            Plan(Stack("schools", Entry("schools"), Entry("details"))),
+            Context(new TestPageRoute("details"), initialPlan.TargetState)).AsTask();
+        await factory.UpdateStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        RaiseWindowLifecycleEvent(destroyedWindow, "Destroying");
+        factory.AllowUpdateToReturn();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => apply);
+        Assert.Equal(1, factory.UpdateCalls);
+        await presenter.StartShutdown();
+    }
+
+    [Fact]
     public async Task DeferredModalCallbackFromDestroyedEpochCannotChangeReplacementState()
     {
         var dispatcher = new ControlledMainThreadDispatcher();
@@ -2516,6 +2565,60 @@ public sealed class MauiNavigationPresenterLifecycleTests
             ReferenceEquals(page, _ownedPage)
                 ? new MauiPageAbandonment(Scope, page.GetType().FullName ?? page.GetType().Name)
                 : null;
+    }
+
+    private sealed class GatedUpdateRoutePageFactory : IMauiRoutePageFactory
+    {
+        private readonly InstrumentedRoutePageFactory _inner = new();
+        private readonly TaskCompletionSource _updateStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _allowUpdateToReturn =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task UpdateStarted => _updateStarted.Task;
+
+        public int UpdateCalls { get; private set; }
+
+        public void AllowUpdateToReturn() => _allowUpdateToReturn.TrySetResult();
+
+        public ValueTask<Page> CreatePageAsync(
+            RouteEntry entry,
+            CancellationToken cancellationToken = default) =>
+            _inner.CreatePageAsync(entry, cancellationToken);
+
+        public ValueTask<Page> CreatePresentationPageAsync(
+            Type pageType,
+            Page ownerRoutePage,
+            bool inheritBindingContext,
+            CancellationToken cancellationToken = default) =>
+            _inner.CreatePresentationPageAsync(
+                pageType,
+                ownerRoutePage,
+                inheritBindingContext,
+                cancellationToken);
+
+        public async ValueTask UpdatePageAsync(
+            Page page,
+            RouteEntry entry,
+            MauiRoutePageUpdateContext context,
+            CancellationToken cancellationToken = default)
+        {
+            UpdateCalls++;
+            if (UpdateCalls == 1)
+            {
+                _updateStarted.TrySetResult();
+                await _allowUpdateToReturn.Task;
+            }
+
+            await _inner.UpdatePageAsync(page, entry, context, cancellationToken);
+        }
+
+        public ValueTask ReleasePageAsync(Page page) => _inner.ReleasePageAsync(page);
+
+        public ValueTask ReleasePresentationPageAsync(Page page) =>
+            _inner.ReleasePresentationPageAsync(page);
+
+        public MauiPageAbandonment? CaptureAbandonment(Page page) => _inner.CaptureAbandonment(page);
     }
 
     private sealed class GatedAsyncDisposable : IAsyncDisposable
