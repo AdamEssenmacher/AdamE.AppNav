@@ -378,7 +378,7 @@ public sealed partial class RepositoryContractTests
             .Root!
             .Elements("Folder")
             .Where(folder => ((string?)folder.Attribute("Name"))?.StartsWith(
-                "/Documentation/",
+                "/docs/",
                 StringComparison.Ordinal) == true)
             .Elements("File")
             .Select(file => (string)file.Attribute("Path")!)

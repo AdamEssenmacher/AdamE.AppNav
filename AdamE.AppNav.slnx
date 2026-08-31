@@ -2,35 +2,35 @@
   <Folder Name="/benchmarks/">
     <Project Path="benchmarks/AdamE.AppNav.Benchmarks/AdamE.AppNav.Benchmarks.csproj" />
   </Folder>
-  <Folder Name="/Documentation/">
+  <Folder Name="/docs/">
     <File Path="docs/README.md" />
   </Folder>
-  <Folder Name="/Documentation/advanced/">
+  <Folder Name="/docs/advanced/">
     <File Path="docs/advanced/adapter-contract.md" />
     <File Path="docs/advanced/route-owned-presentation-pages.md" />
   </Folder>
-  <Folder Name="/Documentation/concepts/">
+  <Folder Name="/docs/concepts/">
     <File Path="docs/concepts/requests-and-provenance.md" />
     <File Path="docs/concepts/routing-and-metadata.md" />
     <File Path="docs/concepts/topology-and-planning.md" />
   </Folder>
-  <Folder Name="/Documentation/guides/">
+  <Folder Name="/docs/guides/">
     <File Path="docs/guides/deferred-navigation.md" />
     <File Path="docs/guides/external-navigation.md" />
     <File Path="docs/guides/getting-started.md" />
     <File Path="docs/guides/maui-integration.md" />
     <File Path="docs/guides/troubleshooting.md" />
   </Folder>
-  <Folder Name="/Documentation/maintainers/">
+  <Folder Name="/docs/maintainers/">
     <File Path="docs/maintainers/app-route-request-dogfood-checkpoint.md" />
     <File Path="docs/maintainers/release-checklist.md" />
     <File Path="docs/maintainers/testing.md" />
   </Folder>
-  <Folder Name="/Documentation/reference/">
+  <Folder Name="/docs/reference/">
     <File Path="docs/reference/diagnostics.md" />
     <File Path="docs/reference/source-generator-diagnostics.md" />
   </Folder>
-  <Folder Name="/Documentation/release-notes/">
+  <Folder Name="/docs/release-notes/">
     <File Path="docs/release-notes/0.1.0-preview.1.md" />
     <File Path="docs/release-notes/README.md" />
   </Folder>
