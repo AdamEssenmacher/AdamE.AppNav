@@ -57,7 +57,8 @@ minimal buildable sample.
 ## Debug an integration
 
 - Start with [Troubleshooting](guides/06-troubleshooting.md).
-- Use the [diagnostics reference](reference/diagnostics.md).
+- Configure and interpret [logging, tracing, and
+  diagnostics](reference/diagnostics.md).
 - Resolve build-time problems with the
   [source-generator diagnostics](reference/source-generator-diagnostics.md).
 
@@ -90,7 +91,7 @@ Every documentation page is indexed here:
 - [Requests and provenance](concepts/03-requests-and-provenance.md)
 - [Route-owned presentation pages](advanced/route-owned-presentation-pages.md)
 - [Adapter contract](advanced/adapter-contract.md)
-- [Diagnostics](reference/diagnostics.md)
+- [Logging, tracing, and diagnostics](reference/diagnostics.md)
 - [Source-generator diagnostics](reference/source-generator-diagnostics.md)
 - [Testing](maintainers/testing.md)
 - [Public preview release checklist](maintainers/release-checklist.md)

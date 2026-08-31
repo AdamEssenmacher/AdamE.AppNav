@@ -4,7 +4,10 @@
 
 Start with the exception or diagnostic event, then check the relevant item
 below. Safe diagnostics intentionally omit raw paths, query values, and
-provenance values.
+provenance values. Use [Logging, tracing, and
+diagnostics](../reference/diagnostics.md) to configure the standard logger
+category, capture one operation by `OperationId`, and interpret phases and
+structured data.
 
 The concrete cases below reuse the fictional RPG
 [Glyphmere](../concepts/01-routing-and-metadata.md#meet-glyphmere) where a domain

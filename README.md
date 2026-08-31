@@ -256,6 +256,7 @@ Start at the [documentation home](docs/index.md).
 - [External navigation](docs/guides/04-external-navigation.md)
 - [Deferred navigation](docs/guides/05-deferred-navigation.md)
 - [Troubleshooting](docs/guides/06-troubleshooting.md)
+- [Logging, tracing, and diagnostics](docs/reference/diagnostics.md)
 
 ## Samples
 

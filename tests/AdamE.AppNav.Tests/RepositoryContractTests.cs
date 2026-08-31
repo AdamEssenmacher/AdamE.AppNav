@@ -1,5 +1,6 @@
 using System.Xml.Linq;
 using System.Text.RegularExpressions;
+using AdamE.AppNav.Diagnostics;
 
 namespace AdamE.AppNav.Tests;
 
@@ -498,6 +499,53 @@ public sealed partial class RepositoryContractTests
                     StringComparison.OrdinalIgnoreCase);
             }
         }
+    }
+
+    [Fact]
+    public void DiagnosticsReferenceMatchesRuntimeIdentifiers()
+    {
+        var root = RepositoryRoot();
+        string reference = File.ReadAllText(
+            Path.Combine(root, "docs", "reference", "diagnostics.md"));
+        string serviceRegistration = File.ReadAllText(
+            Path.Combine(
+                root,
+                "src",
+                "AdamE.AppNav.Maui",
+                "DependencyInjection",
+                "AppNavServiceCollectionExtensions.cs"));
+        string navigator = File.ReadAllText(
+            Path.Combine(root, "src", "AdamE.AppNav", "Navigation", "RouterNavigator.cs"));
+
+        Assert.Equal(
+            NavigationDiagnosticDataMode.Safe,
+            new NavigationDiagnosticsOptions().DataMode);
+        Assert.Contains("Safe data mode is the default", reference, StringComparison.Ordinal);
+
+        const string loggerCategory = "AdamE.AppNav.Diagnostics";
+        Assert.Contains($"CreateLogger(\"{loggerCategory}\")", serviceRegistration, StringComparison.Ordinal);
+        Assert.Contains($"`{loggerCategory}`", reference, StringComparison.Ordinal);
+
+        Assert.Equal("AdamE.AppNav", NavigationActivitySources.DefaultName);
+        Assert.Contains("`AdamE.AppNav`", reference, StringComparison.Ordinal);
+
+        foreach (string activityName in new[]
+                 {
+                     "Navigation.Navigate",
+                     "Navigation.Back",
+                     "Navigation.Reconcile"
+                 })
+        {
+            Assert.Contains($"StartActivity(\"{activityName}\"", navigator, StringComparison.Ordinal);
+            Assert.Contains($"`{activityName}`", reference, StringComparison.Ordinal);
+        }
+
+        const string logTemplate =
+            "Navigation {Kind} ({Phase}) operation {OperationId}: {Message} {@Data}";
+        string diagnostics = File.ReadAllText(
+            Path.Combine(root, "src", "AdamE.AppNav", "Diagnostics", "NavigationDiagnostics.cs"));
+        Assert.Contains(logTemplate, diagnostics, StringComparison.Ordinal);
+        Assert.Contains(logTemplate, reference, StringComparison.Ordinal);
     }
 
     [Fact]

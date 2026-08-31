@@ -230,6 +230,10 @@ application-defined navigation ids, and presentation mismatch values. Call `AddA
 mode, and register `INavigationDiagnosticRedactor` for app-specific redaction. Redactor failures fall back to built-in
 Safe output without affecting navigation.
 
+See [Logging, tracing, and diagnostics](../reference/diagnostics.md) for the
+`AdamE.AppNav.Diagnostics` logger category, event observers, activity source,
+severity mapping, privacy comparison, and operation-level troubleshooting.
+
 ## Other Public Runtime Seams
 
 `IRouterNavigator` exposes full-envelope navigation, Back, and `ReconcileAsync(...)`. Four typed extension methods cover app-authored routes. Host-owned boundaries construct a complete `RouterNavigationRequest`.
