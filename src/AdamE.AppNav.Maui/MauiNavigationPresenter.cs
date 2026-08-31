@@ -1355,7 +1355,7 @@ internal sealed class MauiNavigationPresenter :
             ownerRoutePage,
             recoveryPage.InheritBindingContext,
             cancellationToken);
-        if (page is NavigationPage or TabbedPage)
+        if (page is NavigationPage or TabbedPage or FlyoutPage)
         {
             await _pageFactory.ReleasePresentationPageAsync(page);
             throw new InvalidOperationException(
@@ -1627,13 +1627,19 @@ internal sealed class MauiNavigationPresenter :
                                      !StringComparer.Ordinal.Equals(
                                          flyoutPage.SelectedBranchId,
                                          branchHost.SelectedBranchId);
+        ThrowIfNativeNavigationBlocked(flyoutPage);
         flyoutPage.SetBranches(stagedBranches);
         MauiFlyoutBranchPresentation selected = stagedBranches.First(branch =>
             StringComparer.Ordinal.Equals(branch.Id, branchHost.SelectedBranchId));
+        ThrowIfNativeNavigationBlocked(flyoutPage);
         _nativeOperations.SetFlyoutDetail(flyoutPage, selected.Page);
+        ThrowIfNativeNavigationBlocked(flyoutPage);
         flyoutPage.SetSelectedBranch(selected.Id);
         if (selectedBranchChanged)
+        {
+            ThrowIfNativeNavigationBlocked(flyoutPage);
             _nativeOperations.SetFlyoutPresented(flyoutPage, false);
+        }
 
         foreach (Page retiredPage in retiredPages)
             await DetachPageTreeAsync(retiredPage);

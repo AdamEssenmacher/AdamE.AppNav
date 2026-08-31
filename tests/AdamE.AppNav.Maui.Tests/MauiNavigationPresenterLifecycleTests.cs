@@ -1023,6 +1023,100 @@ public sealed class MauiNavigationPresenterLifecycleTests
         _ = fixture.Presenter.StartShutdown();
     }
 
+    [UIFact]
+    public async Task DestroyingDuringFlyoutMaterializationStopsFurtherFlyoutMutation()
+    {
+        var pageCreationStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releasePageCreation = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var nativeOperations = new CountingNativeNavigationOperations();
+        var fixture = new PresenterFixture(
+            createPageAsync: async (entry, cancellationToken) =>
+            {
+                if (StringComparer.Ordinal.Equals(entry.Id, "settings"))
+                {
+                    pageCreationStarted.TrySetResult();
+                    await releasePageCreation.Task.WaitAsync(cancellationToken);
+                }
+
+                return new ContentPage
+                {
+                    Title = entry.Id,
+                    Content = new Label { Text = entry.Id }
+                };
+            },
+            nativeOperations: nativeOperations,
+            configurePresentation: options => options.FlyoutBranchHosts.Add(
+                "store-branchHost",
+                new MauiFlyoutBranchHostOptions("Store", FlyoutLayoutBehavior.Default, true)));
+        BranchHostNode initialRoot = StoreBranchHost("home");
+        BranchHostNode targetRoot = new(
+            initialRoot.Id,
+            [.. initialRoot.Branches, new NavigationBranch("settings", "Settings", Stack("settings-stack", Entry("settings")))],
+            initialRoot.SelectedBranchId,
+            initialRoot.DefaultBranchId);
+
+        await fixture.Presenter.ApplyAsync(
+            Plan(initialRoot),
+            Context(new TestPageRoute("home")));
+        var window = new Window();
+        await fixture.Presenter.AttachWindowAsync(window);
+        var flyoutPage = Assert.IsType<MauiBranchFlyoutPage>(window.Page);
+        int flyoutDetailSetCount = nativeOperations.FlyoutDetailSetCountFor(flyoutPage);
+        int flyoutPresentedSetCount = nativeOperations.FlyoutPresentedSetCountFor(flyoutPage);
+
+        Task presentation = fixture.Presenter.ApplyAsync(
+            Plan(targetRoot),
+            Context(new TestPageRoute("home"), fixture.PresenterState)).AsTask();
+        await pageCreationStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        ((IWindow)window).Destroying();
+        releasePageCreation.TrySetResult();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => presentation);
+        Assert.Equal(2, flyoutPage.Branches.Count);
+        Assert.Equal(flyoutDetailSetCount, nativeOperations.FlyoutDetailSetCountFor(flyoutPage));
+        Assert.Equal(flyoutPresentedSetCount, nativeOperations.FlyoutPresentedSetCountFor(flyoutPage));
+
+        Assert.True(await Task.Run(() => SpinWait.SpinUntil(
+            () => fixture.Presenter.AttachedWindow is null,
+            TimeSpan.FromSeconds(5))));
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [UIFact]
+    public async Task DetachedRecoveryRejectsFlyoutPresentationPage()
+    {
+        var presentationPageCreationCount = 0;
+        var fixture = new PresenterFixture(
+            createPresentationPage: _ => Interlocked.Increment(ref presentationPageCreationCount) == 1
+                ? new ContentPage()
+                : new FlyoutPage());
+        var plan = Plan(Stack("main-stack", Entry("home")));
+
+        await fixture.Presenter.ApplyAsync(
+            plan,
+            Context(new TestPageRoute("home")));
+        await fixture.Presenter.PushAsync<TestPresentationPage>(
+            "settings",
+            new MauiRoutePresentationPageOptions { Animated = false });
+
+        var window = new Window();
+        await fixture.Presenter.AttachWindowAsync(window);
+        ((IWindow)window).Destroying();
+        Assert.True(await Task.Run(() => SpinWait.SpinUntil(
+            () => fixture.Presenter.AttachedWindow is null,
+            TimeSpan.FromSeconds(5))));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Presenter.ApplyAsync(
+                plan,
+                Context(new TestPageRoute("home"), plan.TargetState)).AsTask());
+
+        await fixture.Presenter.StartShutdown();
+    }
+
     [Fact]
     public async Task FlyoutMenuSelectionChangesDetailAndRequestsBranchReconciliation()
     {
@@ -2761,6 +2855,8 @@ public sealed class MauiNavigationPresenterLifecycleTests
         private readonly TaskCompletionSource _releaseStackPush =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly List<NavigationPage> _stackPushPages = [];
+        private readonly List<FlyoutPage> _flyoutDetailPages = [];
+        private readonly List<FlyoutPage> _flyoutPresentedPages = [];
         private bool _blockNextStackPush;
 
         public int StackPushCount { get; private set; }
@@ -2768,6 +2864,16 @@ public sealed class MauiNavigationPresenterLifecycleTests
         public int ModalPushCount { get; private set; }
 
         public int WindowPageSetCount { get; private set; }
+
+        public int FlyoutDetailSetCount { get; private set; }
+
+        public int FlyoutPresentedSetCount { get; private set; }
+
+        public int FlyoutDetailSetCountFor(FlyoutPage flyoutPage) =>
+            _flyoutDetailPages.Count(page => ReferenceEquals(page, flyoutPage));
+
+        public int FlyoutPresentedSetCountFor(FlyoutPage flyoutPage) =>
+            _flyoutPresentedPages.Count(page => ReferenceEquals(page, flyoutPage));
 
         public Task StackPushStarted => _stackPushStarted.Task;
 
@@ -2819,11 +2925,19 @@ public sealed class MauiNavigationPresenterLifecycleTests
         public void SetCurrentTab(TabbedPage tabbedPage, Page? page) =>
             MauiNativeNavigationOperations.Instance.SetCurrentTab(tabbedPage, page);
 
-        public void SetFlyoutDetail(FlyoutPage flyoutPage, Page page) =>
+        public void SetFlyoutDetail(FlyoutPage flyoutPage, Page page)
+        {
+            FlyoutDetailSetCount++;
+            _flyoutDetailPages.Add(flyoutPage);
             MauiNativeNavigationOperations.Instance.SetFlyoutDetail(flyoutPage, page);
+        }
 
-        public void SetFlyoutPresented(FlyoutPage flyoutPage, bool isPresented) =>
+        public void SetFlyoutPresented(FlyoutPage flyoutPage, bool isPresented)
+        {
+            FlyoutPresentedSetCount++;
+            _flyoutPresentedPages.Add(flyoutPage);
             MauiNativeNavigationOperations.Instance.SetFlyoutPresented(flyoutPage, isPresented);
+        }
 
         public void SetWindowPage(Window window, Page? page) =>
             SetWindowPageCore(window, page);
