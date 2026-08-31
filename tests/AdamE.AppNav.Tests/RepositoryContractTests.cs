@@ -1,8 +1,16 @@
 using System.Xml.Linq;
+using System.Text.RegularExpressions;
+using AdamE.AppNav.Diagnostics;
+using AdamE.AppNav.Navigation;
+using Markdig;
+using Markdig.Extensions.AutoIdentifiers;
+using Markdig.Renderers.Html;
+using Markdig.Syntax;
+using Markdig.Syntax.Inlines;
 
 namespace AdamE.AppNav.Tests;
 
-public sealed class RepositoryContractTests
+public sealed partial class RepositoryContractTests
 {
     [Fact]
     public void SamplesDoNotUseShell()
@@ -49,6 +57,40 @@ public sealed class RepositoryContractTests
             Assert.DoesNotContain("<Shell", File.ReadAllText(file), StringComparison.Ordinal);
             Assert.DoesNotContain("Prism", File.ReadAllText(file), StringComparison.Ordinal);
         }
+    }
+
+    [Fact]
+    public void DocumentationRequiresOneNavigationOwnerAndRejectsShellAndPrismNavigation()
+    {
+        var root = RepositoryRoot();
+        string readme = File.ReadAllText(Path.Combine(root, "README.md"));
+        string whyAppNav = File.ReadAllText(
+            Path.Combine(root, "docs", "concepts", "00-why-appnav.md"));
+        string mauiIntegration = File.ReadAllText(
+            Path.Combine(root, "docs", "guides", "02-maui-integration.md"));
+
+        Assert.Contains(
+            "Navigation ownership: no Shell or Prism navigation",
+            readme,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "AppNav does not support `Microsoft.Maui.Controls.Shell`, Shell routing",
+            readme,
+            StringComparison.Ordinal);
+        Assert.Contains("Prism navigation", readme, StringComparison.Ordinal);
+        Assert.Contains("## One navigation owner", whyAppNav, StringComparison.Ordinal);
+        Assert.Contains(
+            "## One navigation owner: no Shell or Prism navigation",
+            mauiIntegration,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "This rule is intentionally scoped to navigation ownership",
+            mauiIntegration,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Shell or Prism bridge or a mixed-ownership migration mode",
+            mauiIntegration,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -287,10 +329,433 @@ public sealed class RepositoryContractTests
     {
         var root = RepositoryRoot();
         var readme = File.ReadAllText(Path.Combine(root, "README.md"));
+        var gettingStarted = File.ReadAllText(
+            Path.Combine(root, "docs", "guides", "01-getting-started.md"));
         var sample = File.ReadAllText(
             Path.Combine(root, "samples", "GettingStarted.Sample", fileName));
 
-        Assert.Contains(ReadRegion(sample, regionName), readme, StringComparison.Ordinal);
+        string region = ReadRegion(sample, regionName);
+        Assert.Contains(region, readme, StringComparison.Ordinal);
+        Assert.Contains(region, gettingStarted, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DocumentationLinksAndHeadingFragmentsResolve()
+    {
+        var root = RepositoryRoot();
+        string[] documents = DocumentationFiles(root).ToArray();
+        var parsedDocuments = documents.ToDictionary(
+            static document => document,
+            ParseMarkdownFile,
+            StringComparer.Ordinal);
+
+        Assert.NotEmpty(documents);
+        foreach (string document in documents)
+        foreach (string target in parsedDocuments[document].Links)
+        {
+            if (target.Length == 0 || IsExternalLink(target))
+                continue;
+
+            int fragmentIndex = target.IndexOf('#', StringComparison.Ordinal);
+            string pathPart = fragmentIndex >= 0 ? target[..fragmentIndex] : target;
+            string? fragment = fragmentIndex >= 0 ? target[(fragmentIndex + 1)..] : null;
+            string targetFile = pathPart.Length == 0
+                ? document
+                : Path.GetFullPath(
+                    Path.Combine(
+                        Path.GetDirectoryName(document)!,
+                        Uri.UnescapeDataString(pathPart)));
+
+            Assert.True(
+                File.Exists(targetFile) || Directory.Exists(targetFile),
+                $"Markdown link '{target}' in '{Path.GetRelativePath(root, document)}' does not resolve.");
+
+            if (!string.IsNullOrEmpty(fragment))
+            {
+                Assert.True(File.Exists(targetFile), $"Fragment link '{target}' must target a file.");
+                if (!parsedDocuments.TryGetValue(targetFile, out ParsedMarkdown? parsedTarget))
+                {
+                    parsedTarget = ParseMarkdownFile(targetFile);
+                    parsedDocuments[targetFile] = parsedTarget;
+                }
+
+                Assert.Contains(
+                    Uri.UnescapeDataString(fragment),
+                    parsedTarget.Anchors,
+                    StringComparer.Ordinal);
+            }
+        }
+    }
+
+    [Fact]
+    public void MarkdownContractUsesGitHubLinksAndHeadingIdentifiers()
+    {
+        const string markdown = """
+            # route_entry
+            # Duplicate
+            # Duplicate
+
+            ```sh
+            # phantom
+            ```
+
+            [Home](../index.md "Documentation home")
+            """;
+
+        ParsedMarkdown parsed = ParseMarkdown(markdown);
+
+        Assert.Equal(new[] { "route_entry", "duplicate", "duplicate-1" }, parsed.Anchors);
+        Assert.Equal(new[] { "../index.md" }, parsed.Links);
+    }
+
+    [Fact]
+    public void DocumentationHomeIndexesEveryDocumentationPage()
+    {
+        var root = RepositoryRoot();
+        string documentationRoot = Path.Combine(root, "docs");
+        string homePath = Path.Combine(documentationRoot, "index.md");
+        var indexedFiles = ParseMarkdownFile(homePath)
+            .Links
+            .Select(target => target.Split('#')[0])
+            .Where(static target => !string.IsNullOrWhiteSpace(target) && !IsExternalLink(target))
+            .Select(target => Path.GetFullPath(Path.Combine(documentationRoot, Uri.UnescapeDataString(target))))
+            .ToHashSet(StringComparer.Ordinal);
+
+        string[] pages = Directory
+            .EnumerateFiles(documentationRoot, "*.md", SearchOption.AllDirectories)
+            .Where(path => !string.Equals(path, homePath, StringComparison.Ordinal))
+            .ToArray();
+
+        Assert.NotEmpty(pages);
+        foreach (string page in pages)
+            Assert.Contains(page, indexedFiles);
+    }
+
+    [Fact]
+    public void DocumentationFilesAreIncludedInTheSolutionFolder()
+    {
+        var root = RepositoryRoot();
+        string documentationRoot = Path.Combine(root, "docs");
+        string[] expected = Directory
+            .EnumerateFiles(documentationRoot, "*.md", SearchOption.AllDirectories)
+            .Select(path => Path.GetRelativePath(root, path).Replace('\\', '/'))
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        string[] actual = XDocument
+            .Load(Path.Combine(root, "AdamE.AppNav.slnx"))
+            .Root!
+            .Elements("Folder")
+            .Where(folder => ((string?)folder.Attribute("Name"))?.StartsWith(
+                "/docs/",
+                StringComparison.Ordinal) == true)
+            .Elements("File")
+            .Select(file => (string)file.Attribute("Path")!)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public void UserGuidesHaveNavigationAndMaintainerMaterialIsNotOnTheOnboardingPath()
+    {
+        var root = RepositoryRoot();
+        string[] guides = Directory
+            .EnumerateFiles(Path.Combine(root, "docs", "guides"), "*.md", SearchOption.TopDirectoryOnly)
+            .ToArray();
+        string[] concepts = Directory
+            .EnumerateFiles(Path.Combine(root, "docs", "concepts"), "*.md", SearchOption.TopDirectoryOnly)
+            .ToArray();
+
+        Assert.Equal(
+            new[]
+            {
+                "01-getting-started.md",
+                "02-maui-integration.md",
+                "03-application-architecture-and-testing.md",
+                "04-navigation-outcomes-and-failure-handling.md",
+                "05-external-navigation.md",
+                "06-deferred-navigation.md",
+                "07-troubleshooting.md"
+            },
+            guides.Select(Path.GetFileName).Order(StringComparer.Ordinal));
+        Assert.Equal(
+            new[]
+            {
+                "00-why-appnav.md",
+                "01-routing-and-metadata.md",
+                "02-topology-and-planning.md",
+                "03-requests-and-provenance.md"
+            },
+            concepts.Select(Path.GetFileName).Order(StringComparer.Ordinal));
+        foreach (string document in guides.Concat(concepts))
+        {
+            string text = File.ReadAllText(document);
+            Assert.Contains("[Documentation home](../index.md)", text, StringComparison.Ordinal);
+            Assert.Contains("## Next steps", text, StringComparison.Ordinal);
+        }
+
+        string onboarding = string.Join(
+            Environment.NewLine,
+            File.ReadAllText(Path.Combine(root, "README.md")),
+            File.ReadAllText(Path.Combine(root, "docs", "guides", "01-getting-started.md")),
+            File.ReadAllText(Path.Combine(root, "samples", "GettingStarted.Sample", "README.md")));
+        Assert.DoesNotContain("maintainers/", onboarding, StringComparison.Ordinal);
+        Assert.DoesNotContain("dogfood checkpoint", onboarding, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ArchitectureDocumentationMatchesPackageBoundaries()
+    {
+        var root = RepositoryRoot();
+        XDocument coreProject = XDocument.Load(
+            Path.Combine(root, "src", "AdamE.AppNav", "AdamE.AppNav.csproj"));
+        XDocument mauiProject = XDocument.Load(
+            Path.Combine(root, "src", "AdamE.AppNav.Maui", "AdamE.AppNav.Maui.csproj"));
+
+        Assert.Equal("net10.0", coreProject.Descendants("TargetFramework").Single().Value.Trim());
+        Assert.Empty(coreProject.Descendants("UseMaui"));
+
+        string[] mauiFrameworks = mauiProject
+            .Descendants("TargetFrameworks")
+            .Single()
+            .Value
+            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        Assert.Equal(
+            new[] { "net10.0", "net10.0-android", "net10.0-ios", "net10.0-maccatalyst" },
+            mauiFrameworks);
+        Assert.Equal("true", mauiProject.Descendants("UseMaui").Single().Value);
+        Assert.Contains(
+            mauiProject.Descendants("ProjectReference"),
+            reference => ((string?)reference.Attribute("Include"))?
+                .Replace('\\', '/') == "../AdamE.AppNav/AdamE.AppNav.csproj");
+
+        string whyAppNav = File.ReadAllText(
+            Path.Combine(root, "docs", "concepts", "00-why-appnav.md"));
+        string architectureGuide = File.ReadAllText(
+            Path.Combine(root, "docs", "guides", "03-application-architecture-and-testing.md"));
+
+        Assert.Contains("`AdamE.AppNav` targets plain `net10.0`", whyAppNav, StringComparison.Ordinal);
+        Assert.Contains(
+            "`AdamE.AppNav.Maui` is the production adapter supplied by this preview",
+            architectureGuide,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DocumentationDoesNotDescribeViewModelsAsNavigationUnits()
+    {
+        var root = RepositoryRoot();
+        string[] forbiddenPhrases =
+        [
+            "view-model navigation",
+            "view model navigation",
+            "viewmodel navigation",
+            "navigation-aware view model",
+            "view model navigates",
+            "view-model-keyed navigation"
+        ];
+
+        foreach (string document in DocumentationFiles(root))
+        {
+            string text = File.ReadAllText(document);
+            foreach (string phrase in forbiddenPhrases)
+            {
+                Assert.DoesNotContain(
+                    phrase,
+                    text,
+                    StringComparison.OrdinalIgnoreCase);
+            }
+        }
+    }
+
+    [Fact]
+    public void HistoryDocumentationDescribesAnObservationalRecordRatherThanBackTraversal()
+    {
+        var root = RepositoryRoot();
+        string glossary = File.ReadAllText(
+            Path.Combine(root, "docs", "reference", "glossary.md"));
+
+        Assert.Contains("bounded observational record", glossary, StringComparison.Ordinal);
+        Assert.Contains("Logical Back plans from the current", glossary, StringComparison.Ordinal);
+        Assert.Contains("does not traverse prior history entries", glossary, StringComparison.Ordinal);
+        Assert.DoesNotContain("used by navigation behavior", glossary, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RequestResultAndDiagnosticsDocumentationMatchesRuntimeSemantics()
+    {
+        var root = RepositoryRoot();
+        string requests = File.ReadAllText(
+            Path.Combine(root, "docs", "concepts", "03-requests-and-provenance.md"));
+        string outcomes = File.ReadAllText(
+            Path.Combine(root, "docs", "guides", "04-navigation-outcomes-and-failure-handling.md"));
+        string diagnostics = File.ReadAllText(
+            Path.Combine(root, "docs", "reference", "diagnostics.md"));
+
+        Assert.Contains("`WithTarget(...)`", requests, StringComparison.Ordinal);
+        Assert.Contains("preserves `Request.Metadata`", requests, StringComparison.Ordinal);
+        Assert.Contains("match-produced `RouteMetadata` is recomputed", requests, StringComparison.Ordinal);
+        Assert.Contains("target-state presentation is authoritative", outcomes, StringComparison.Ordinal);
+        Assert.Contains("as a record of the original request target", outcomes, StringComparison.Ordinal);
+        Assert.Contains(
+            "LogLevel.Warning or LogLevel.Error or LogLevel.Critical",
+            diagnostics,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("Severity >= LogLevel.Warning", diagnostics, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DiagnosticsReferenceMatchesRuntimeIdentifiers()
+    {
+        var root = RepositoryRoot();
+        string reference = File.ReadAllText(
+            Path.Combine(root, "docs", "reference", "diagnostics.md"));
+        string serviceRegistration = File.ReadAllText(
+            Path.Combine(
+                root,
+                "src",
+                "AdamE.AppNav.Maui",
+                "DependencyInjection",
+                "AppNavServiceCollectionExtensions.cs"));
+        string navigator = File.ReadAllText(
+            Path.Combine(root, "src", "AdamE.AppNav", "Navigation", "RouterNavigator.cs"));
+
+        Assert.Equal(
+            NavigationDiagnosticDataMode.Safe,
+            new NavigationDiagnosticsOptions().DataMode);
+        Assert.Contains("Safe data mode is the default", reference, StringComparison.Ordinal);
+
+        const string loggerCategory = "AdamE.AppNav.Diagnostics";
+        Assert.Contains($"CreateLogger(\"{loggerCategory}\")", serviceRegistration, StringComparison.Ordinal);
+        Assert.Contains($"`{loggerCategory}`", reference, StringComparison.Ordinal);
+
+        Assert.Equal("AdamE.AppNav", NavigationActivitySources.DefaultName);
+        Assert.Contains("`AdamE.AppNav`", reference, StringComparison.Ordinal);
+
+        foreach (string activityName in new[]
+                 {
+                     "Navigation.Navigate",
+                     "Navigation.Back",
+                     "Navigation.Reconcile"
+                 })
+        {
+            Assert.Contains($"StartActivity(\"{activityName}\"", navigator, StringComparison.Ordinal);
+            Assert.Contains($"`{activityName}`", reference, StringComparison.Ordinal);
+        }
+
+        const string logTemplate =
+            "Navigation {Kind} ({Phase}) operation {OperationId}: {Message} {@Data}";
+        string diagnostics = File.ReadAllText(
+            Path.Combine(root, "src", "AdamE.AppNav", "Diagnostics", "NavigationDiagnostics.cs"));
+        Assert.Contains(logTemplate, diagnostics, StringComparison.Ordinal);
+        Assert.Contains(logTemplate, reference, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NavigationOutcomeGuideMatchesPublicResultContracts()
+    {
+        var root = RepositoryRoot();
+        string guide = File.ReadAllText(
+            Path.Combine(
+                root,
+                "docs",
+                "guides",
+                "04-navigation-outcomes-and-failure-handling.md"));
+
+        Type result = typeof(NavigationResult);
+        Assert.Equal(typeof(AppRoute), result.GetProperty(nameof(NavigationResult.Route))!.PropertyType);
+        Assert.Equal(
+            typeof(AdamE.AppNav.Plans.NavigationPlan),
+            result.GetProperty(nameof(NavigationResult.Plan))!.PropertyType);
+        Assert.Equal(
+            typeof(AdamE.AppNav.State.NavigationState),
+            result.GetProperty(nameof(NavigationResult.State))!.PropertyType);
+        Assert.Equal(typeof(bool), result.GetProperty(nameof(NavigationResult.Presented))!.PropertyType);
+
+        Assert.True(typeof(BackNavigationResult).IsValueType);
+        Assert.Equal(BackNavigationStatus.Unhandled, BackNavigationResult.Unhandled.Status);
+        Assert.Null(BackNavigationResult.Unhandled.NavigationResult);
+
+        Assert.Contains(
+            "`NavigationResult` is not a success/failure union",
+            guide,
+            StringComparison.Ordinal);
+        Assert.Contains("`Presented == false`", guide, StringComparison.Ordinal);
+        Assert.Contains("`BackNavigationStatus.Unhandled` is not an error", guide, StringComparison.Ordinal);
+        Assert.Contains(
+            "commit state and history -> return result",
+            guide,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GlossaryDefinesCorePublicVocabularyAndDistinctions()
+    {
+        var root = RepositoryRoot();
+        string glossary = File.ReadAllText(
+            Path.Combine(root, "docs", "reference", "glossary.md"));
+
+        foreach (string heading in new[]
+                 {
+                     "### `AppRoute`",
+                     "### `AppRouteRequest`",
+                     "### Navigation plan",
+                     "### Navigation result",
+                     "### Navigation state",
+                     "### Presenter",
+                     "### Provenance",
+                     "### Reconciliation",
+                     "### Route entry",
+                     "### `RouterNavigationRequest`",
+                     "### Semantic destination",
+                     "### Topology"
+                 })
+        {
+            Assert.Contains(heading, glossary, StringComparison.Ordinal);
+        }
+
+        foreach (string lifetime in Enum.GetNames<RouteStateLifetime>())
+            Assert.Contains($"### {lifetime} metadata", glossary, StringComparison.Ordinal);
+
+        foreach (string disposition in Enum.GetNames<AdamE.AppNav.Requests.RouterNavigationDisposition>())
+            Assert.Contains($"`{disposition}`", glossary, StringComparison.Ordinal);
+
+        Assert.Contains("Route and page", glossary, StringComparison.Ordinal);
+        Assert.Contains("Route and view model", glossary, StringComparison.Ordinal);
+        Assert.Contains("Canonical URI and canonical navigation", glossary, StringComparison.Ordinal);
+        Assert.Contains("Diagnostics and outcomes", glossary, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SourceGeneratorDiagnosticReferenceMatchesDeclaredDiagnostics()
+    {
+        var root = RepositoryRoot();
+        string declared = string.Join(
+            Environment.NewLine,
+            new[]
+            {
+                Path.Combine(root, "src", "AdamE.AppNav.Generators"),
+                Path.Combine(root, "src", "AdamE.AppNav.Maui.Generators")
+            }
+            .SelectMany(directory => Directory.EnumerateFiles(
+                directory,
+                "*.cs",
+                SearchOption.AllDirectories))
+            .Where(path => !path.Contains(
+                $"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}",
+                StringComparison.Ordinal))
+            .Where(path => !path.Contains(
+                $"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}",
+                StringComparison.Ordinal))
+            .Select(File.ReadAllText));
+        string reference = File.ReadAllText(
+            Path.Combine(root, "docs", "reference", "source-generator-diagnostics.md"));
+
+        string[] declaredIds = DiagnosticIdPattern().Matches(declared).Select(static match => match.Value).Distinct().Order().ToArray();
+        string[] documentedIds = DiagnosticIdPattern().Matches(reference).Select(static match => match.Value).Distinct().Order().ToArray();
+
+        Assert.Equal(declaredIds, documentedIds);
     }
 
     [Fact]
@@ -336,9 +801,12 @@ public sealed class RepositoryContractTests
     {
         var root = RepositoryRoot();
         var readme = File.ReadAllText(Path.Combine(root, "README.md"));
+        var topology = File.ReadAllText(
+            Path.Combine(root, "docs", "concepts", "02-topology-and-planning.md"));
 
-        Assert.Contains("Native user actions reconcile", readme, StringComparison.Ordinal);
-        Assert.Contains("transition or shared-element system", readme, StringComparison.Ordinal);
+        Assert.Contains("Native host changes are reconciled", topology, StringComparison.Ordinal);
+        Assert.Contains("a transition", readme, StringComparison.Ordinal);
+        Assert.Contains("shared-element system", readme, StringComparison.Ordinal);
         Assert.DoesNotContain("NavigationTransition", readme, StringComparison.Ordinal);
         Assert.DoesNotContain("SharedElementNavigationTransition", readme, StringComparison.Ordinal);
         Assert.DoesNotContain("AppNavTransition", readme, StringComparison.Ordinal);
@@ -352,16 +820,20 @@ public sealed class RepositoryContractTests
     }
 
     [Fact]
-    public void ReadmeExamplesStayOnPublicSurface()
+    public void PublicSurfaceDocumentationStaysOnSupportedApis()
     {
         var root = RepositoryRoot();
         var readme = File.ReadAllText(Path.Combine(root, "README.md"));
+        var requests = File.ReadAllText(
+            Path.Combine(root, "docs", "concepts", "03-requests-and-provenance.md"));
+        var releaseNotes = File.ReadAllText(
+            Path.Combine(root, "docs", "release-notes", "0.1.0-preview.1.md"));
 
         Assert.Contains("FallbackRouteFactory", readme, StringComparison.Ordinal);
         Assert.Contains("FallbackRequestFactory", readme, StringComparison.Ordinal);
-        Assert.Contains("There are no URI/source convenience overloads", readme, StringComparison.Ordinal);
-        Assert.Contains("RouterNavigatorExtensions", readme, StringComparison.Ordinal);
-        Assert.Contains("ReconcileAsync", File.ReadAllText(Path.Combine(root, "docs", "adapter-contract.md")), StringComparison.Ordinal);
+        Assert.Contains("URI/source convenience overloads are removed", releaseNotes, StringComparison.Ordinal);
+        Assert.Contains("RouterNavigatorExtensions", requests, StringComparison.Ordinal);
+        Assert.Contains("ReconcileAsync", File.ReadAllText(Path.Combine(root, "docs", "advanced", "adapter-contract.md")), StringComparison.Ordinal);
         Assert.DoesNotContain("AdamE.AppNav.Testing", readme, StringComparison.Ordinal);
         Assert.DoesNotContain("RouterTestNavigator", readme, StringComparison.Ordinal);
         Assert.DoesNotContain("NavigationSnapshotTestSerializer", readme, StringComparison.Ordinal);
@@ -376,7 +848,8 @@ public sealed class RepositoryContractTests
     {
         var root = RepositoryRoot();
         var readme = File.ReadAllText(Path.Combine(root, "README.md"));
-        var checklist = File.ReadAllText(Path.Combine(root, "docs", "release-checklist.md"));
+        var docsHome = File.ReadAllText(Path.Combine(root, "docs", "index.md"));
+        var checklist = File.ReadAllText(Path.Combine(root, "docs", "maintainers", "release-checklist.md"));
         var runner = File.ReadAllText(Path.Combine(root, "eng", "run-maui-platform-tests.sh"));
         var packageVerifier = File.ReadAllText(Path.Combine(root, "eng", "verify-package-assets.sh"));
         var releaseVerifier = File.ReadAllText(Path.Combine(root, "eng", "verify.sh"));
@@ -384,7 +857,7 @@ public sealed class RepositoryContractTests
         var releaseNotes = File.ReadAllText(Path.Combine(root, "docs", "release-notes", "0.1.0-preview.1.md"));
         var mauiTestsProject = File.ReadAllText(Path.Combine(root, "tests", "AdamE.AppNav.Maui.Tests", "AdamE.AppNav.Maui.Tests.csproj"));
 
-        Assert.Contains("docs/release-checklist.md", readme, StringComparison.Ordinal);
+        Assert.Contains("maintainers/release-checklist.md", docsHome, StringComparison.Ordinal);
         Assert.Contains("eng/run-maui-platform-tests.sh android", checklist, StringComparison.Ordinal);
         Assert.Contains("eng/verify.sh release", checklist, StringComparison.Ordinal);
         Assert.DoesNotContain("AdamE.AppNav.Testing", checklist, StringComparison.Ordinal);
@@ -521,7 +994,17 @@ public sealed class RepositoryContractTests
 
         Assert.Contains("<PackageLicenseExpression>MIT</PackageLicenseExpression>", buildProps, StringComparison.Ordinal);
         Assert.Contains("<RepositoryUrl>https://github.com/AdamEssenmacher/AdamE.AppNav.git</RepositoryUrl>", buildProps, StringComparison.Ordinal);
-        Assert.Contains("<PackageReadmeFile>README.md</PackageReadmeFile>", buildProps, StringComparison.Ordinal);
+        Assert.Contains("<PackageReadmeFile>PACKAGE.md</PackageReadmeFile>", buildProps, StringComparison.Ordinal);
+        Assert.Contains(
+            "<None Include=\"$(MSBuildThisFileDirectory)PACKAGE.md\" Pack=\"true\" PackagePath=\"/\"",
+            buildProps,
+            StringComparison.Ordinal);
+
+        string packageReadme = File.ReadAllText(Path.Combine(root, "PACKAGE.md"));
+        Assert.Contains("Route-first navigation for .NET MAUI", packageReadme, StringComparison.Ordinal);
+        Assert.All(ParseMarkdown(packageReadme).Links, target => Assert.True(
+            IsExternalLink(target),
+            $"Packaged documentation link '{target}' must be absolute."));
         Assert.Contains("<IncludeSymbols>true</IncludeSymbols>", buildProps, StringComparison.Ordinal);
         Assert.Contains("Microsoft.SourceLink.GitHub", buildProps, StringComparison.Ordinal);
         Assert.Contains("<AppNavDefaultVersion>0.1.0-preview.local</AppNavDefaultVersion>", buildProps, StringComparison.Ordinal);
@@ -560,6 +1043,65 @@ public sealed class RepositoryContractTests
 
         throw new InvalidOperationException("Could not locate repository root.");
     }
+
+    private static IEnumerable<string> DocumentationFiles(string root)
+    {
+        yield return Path.Combine(root, "README.md");
+        yield return Path.Combine(root, "PACKAGE.md");
+
+        foreach (string document in Directory.EnumerateFiles(
+                     Path.Combine(root, "docs"),
+                     "*.md",
+                     SearchOption.AllDirectories))
+            yield return document;
+
+        foreach (string sampleReadme in Directory.EnumerateFiles(
+                     Path.Combine(root, "samples"),
+                     "README.md",
+                     SearchOption.AllDirectories))
+            yield return sampleReadme;
+    }
+
+    private static bool IsExternalLink(string target)
+    {
+        return target.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
+               target.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+               target.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static ParsedMarkdown ParseMarkdownFile(string path)
+    {
+        return ParseMarkdown(File.ReadAllText(path));
+    }
+
+    private static ParsedMarkdown ParseMarkdown(string source)
+    {
+        MarkdownDocument document = Markdown.Parse(source, DocumentationMarkdownPipeline);
+        string[] links = document
+            .Descendants<LinkInline>()
+            .Select(static link => link.Url)
+            .Where(static url => !string.IsNullOrWhiteSpace(url))
+            .Select(static url => url!.Trim())
+            .ToArray();
+        string[] anchors = document
+            .Descendants<HeadingBlock>()
+            .Select(static heading => heading.GetAttributes().Id)
+            .Where(static id => !string.IsNullOrWhiteSpace(id))
+            .Select(static id => id!)
+            .ToArray();
+
+        return new ParsedMarkdown(links, anchors);
+    }
+
+    [GeneratedRegex(@"\bAPPNAV\d+\b")]
+    private static partial Regex DiagnosticIdPattern();
+
+    private static readonly MarkdownPipeline DocumentationMarkdownPipeline =
+        new MarkdownPipelineBuilder()
+            .UseAutoIdentifiers(AutoIdentifierOptions.GitHub)
+            .Build();
+
+    private sealed record ParsedMarkdown(string[] Links, string[] Anchors);
 
     private static string ReadRegion(string source, string regionName)
     {

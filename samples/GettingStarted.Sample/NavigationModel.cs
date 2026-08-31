@@ -10,10 +10,19 @@ public static class GettingStartedNavigationModel
     {
         return StackNavigationModel<AppRoute>.Create(builder =>
         {
+            // These app-defined stable IDs identify the canonical surface.
+            // "main" becomes WindowNode.Id and matches startup.Start(window, "main").
+            // "main-stack" becomes StackNode.Id for the NavigationPage-backed stack.
             builder.CanonicalSurface("main", "main-stack");
+
+            // "main" makes Home and Detail eligible for contextual navigation
+            // within the current stack; it is not the "main-stack" structural ID.
             builder.Map<HomeRoute>(recipe => recipe
                 .EntryId(_ => "home")
                 .ScopeKey(_ => "main"));
+
+            // Each item gets a distinct entry. Canonical navigation rebuilds
+            // the complete Home -> Detail stack from any previous state.
             builder.Map<DetailRoute>(recipe => recipe
                 .EntryId(route => $"detail-{route.ItemId}")
                 .ScopeKey(_ => "main")

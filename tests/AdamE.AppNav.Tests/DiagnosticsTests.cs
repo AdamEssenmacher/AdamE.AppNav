@@ -576,6 +576,141 @@ public sealed class DiagnosticsTests
         Assert.DoesNotContain("spring", activityText, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(ActivityListenerFailurePoint.Sample, TracedRouterOperation.Navigate)]
+    [InlineData(ActivityListenerFailurePoint.Sample, TracedRouterOperation.Back)]
+    [InlineData(ActivityListenerFailurePoint.Sample, TracedRouterOperation.Reconcile)]
+    [InlineData(ActivityListenerFailurePoint.Start, TracedRouterOperation.Navigate)]
+    [InlineData(ActivityListenerFailurePoint.Start, TracedRouterOperation.Back)]
+    [InlineData(ActivityListenerFailurePoint.Start, TracedRouterOperation.Reconcile)]
+    [InlineData(ActivityListenerFailurePoint.Stop, TracedRouterOperation.Navigate)]
+    [InlineData(ActivityListenerFailurePoint.Stop, TracedRouterOperation.Back)]
+    [InlineData(ActivityListenerFailurePoint.Stop, TracedRouterOperation.Reconcile)]
+    public async Task ActivityListenerFailuresDoNotAffectRouterOperations(
+        ActivityListenerFailurePoint failurePoint,
+        TracedRouterOperation operation)
+    {
+        string activityName = operation switch
+        {
+            TracedRouterOperation.Navigate => "Navigation.Navigate",
+            TracedRouterOperation.Back => "Navigation.Back",
+            TracedRouterOperation.Reconcile => "Navigation.Reconcile",
+            _ => throw new ArgumentOutOfRangeException(nameof(operation))
+        };
+        var failureEnabled = new AsyncLocal<bool>();
+        using var parentActivity = new Activity("FaultingActivityListenerTest").Start();
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == NavigationActivitySources.DefaultName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> options) =>
+            {
+                if (!failureEnabled.Value ||
+                    !string.Equals(options.Name, activityName, StringComparison.Ordinal))
+                {
+                    return ActivitySamplingResult.None;
+                }
+
+                if (failurePoint == ActivityListenerFailurePoint.Sample)
+                    throw new InvalidOperationException("Sampling failed.");
+
+                return ActivitySamplingResult.AllData;
+            },
+            ActivityStarted = activity =>
+            {
+                if (failureEnabled.Value &&
+                    failurePoint == ActivityListenerFailurePoint.Start &&
+                    string.Equals(activity.OperationName, activityName, StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException("Activity start failed.");
+                }
+            },
+            ActivityStopped = activity =>
+            {
+                if (failureEnabled.Value &&
+                    failurePoint == ActivityListenerFailurePoint.Stop &&
+                    string.Equals(activity.OperationName, activityName, StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException("Activity stop failed.");
+                }
+            }
+        };
+        ActivitySource.AddActivityListener(listener);
+
+        var initialState = new NavigationState(new[]
+        {
+            new WindowNode(
+                "main",
+                new StackNode("stack", new[]
+                {
+                    new RouteEntry("home", new TestRoutes.StoreRoute("home")),
+                    new RouteEntry("detail", new TestRoutes.StoreRoute("detail"))
+                }))
+        }, "main");
+        var navigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            new TestPlanner(),
+            NullNavigationPresenter.Instance,
+            new RouterNavigatorOptions { InitialState = initialState });
+
+        failureEnabled.Value = true;
+        try
+        {
+            switch (operation)
+            {
+                case TracedRouterOperation.Navigate:
+                {
+                    NavigationResult result = await navigator.NavigateAsync(
+                        RouterNavigationRequest.FromRoute(
+                            new TestRoutes.StoreRoute("navigated"),
+                            NavigationRequestSource.Test));
+
+                    Assert.True(result.Presented);
+                    Assert.Equal("navigated", Assert.IsType<TestRoutes.StoreRoute>(result.Route).StoreId);
+                    break;
+                }
+                case TracedRouterOperation.Back:
+                {
+                    BackNavigationResult result = await navigator.BackAsync();
+
+                    Assert.Equal(BackNavigationStatus.Completed, result.Status);
+                    var stack = Assert.IsType<StackNode>(navigator.CurrentState.ActiveWindow!.Root);
+                    Assert.Single(stack.Entries);
+                    Assert.Equal("home", Assert.IsType<TestRoutes.StoreRoute>(stack.Top!.Route).StoreId);
+                    break;
+                }
+                case TracedRouterOperation.Reconcile:
+                {
+                    var route = new TestRoutes.StoreRoute("reconciled");
+                    var targetState = new NavigationState(new[]
+                    {
+                        new WindowNode(
+                            "main",
+                            new StackNode("stack", new[] { new RouteEntry("reconciled", route) }))
+                    }, "main");
+                    NavigationResult result = await navigator.ReconcileAsync(
+                        new NavigationReconciliation(
+                            targetState,
+                            NavigationReconciliationSource.HostBack,
+                            route,
+                            "test reconciliation"));
+
+                    Assert.False(result.Presented);
+                    Assert.Equal(route, result.Route);
+                    break;
+                }
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(operation));
+            }
+
+            Assert.Single(navigator.History.Entries);
+            Assert.Same(parentActivity, Activity.Current);
+        }
+        finally
+        {
+            failureEnabled.Value = false;
+        }
+    }
+
     [Fact]
     public async Task ReconciliationEmitsDiagnosticsAndUpdatesHistory()
     {
@@ -693,6 +828,20 @@ public sealed class DiagnosticsTests
     }
 
     private sealed record InvalidProductRoute(int ProductId) : AppRoute;
+
+    public enum ActivityListenerFailurePoint
+    {
+        Sample,
+        Start,
+        Stop
+    }
+
+    public enum TracedRouterOperation
+    {
+        Navigate,
+        Back,
+        Reconcile
+    }
 
     private sealed record SensitiveRedirectRoute(string Value, string Token) : AppRoute;
 

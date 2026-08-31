@@ -1,4 +1,9 @@
-# AppRouteRequest Dogfood Checkpoint
+# AppRouteRequest dogfood checkpoint
+
+[Documentation home](../index.md)
+
+This is an internal public-preview design checkpoint for AppNav maintainers. It
+is not application integration guidance.
 
 Source generators are now part of the preview package contract. Revisit this API split during Scavos public-preview
 dogfooding and before declaring the API stable.
@@ -16,3 +21,8 @@ If those pressures do not appear, keep the current split:
 
 The public-preview API keeps one `IRouterNavigator` surface and typed route extension methods. External boundaries still
 construct the full `RouterNavigationRequest` envelope; no second navigator facade is planned for the preview.
+
+## Next steps
+
+- Revisit this checkpoint during Scavos preview dogfooding.
+- Record any accepted API change in the relevant [release notes](../release-notes/index.md).
