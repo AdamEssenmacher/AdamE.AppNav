@@ -1043,7 +1043,8 @@ internal sealed class MauiNavigationPresenter :
         Page? existingPage,
         string operationId,
         bool isNavigationTarget,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool wasResurfacedTarget = false)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -1060,17 +1061,44 @@ internal sealed class MauiNavigationPresenter :
                 existingPage as TabbedPage,
                 operationId,
                 isNavigationTarget,
-                cancellationToken),
-            ModalNode modal => modal.Content is null
-                ? await CreateRoutePageAsync(modal.RouteEntry, cancellationToken)
-                : await MaterializeNodeAsync(
-                    modal.Content,
+                cancellationToken,
+                wasResurfacedTarget),
+            ModalNode modal when modal.Content is null &&
+                                existingPage is not null &&
+                                StringComparer.Ordinal.Equals(GetRouteEntryId(existingPage), modal.RouteEntry.Id)
+                => await UpdateReusedRouteModalPageAsync(
+                    modal,
                     existingPage,
-                    operationId,
                     isNavigationTarget,
+                    wasResurfacedTarget,
                     cancellationToken),
+            ModalNode modal when modal.Content is null
+                => await CreateRoutePageAsync(modal.RouteEntry, cancellationToken),
+            ModalNode modal => await MaterializeNodeAsync(
+                modal.Content!,
+                existingPage,
+                operationId,
+                isNavigationTarget,
+                cancellationToken,
+                wasResurfacedTarget),
             _ => throw new NotSupportedException($"Navigation node '{node.GetType().Name}' is not supported by the MAUI presenter.")
         };
+    }
+
+    private async Task<Page> UpdateReusedRouteModalPageAsync(
+        ModalNode modal,
+        Page existingPage,
+        bool isNavigationTarget,
+        bool wasResurfacedTarget,
+        CancellationToken cancellationToken)
+    {
+        await UpdateRoutePageAsync(
+            existingPage,
+            modal.RouteEntry,
+            new MauiRoutePageUpdateContext(
+                ClassifyReuseKind(isNavigationTarget, wasResurfacedTarget)),
+            cancellationToken);
+        return existingPage;
     }
 
     private async Task<Page> MaterializeStackAsync(
@@ -1196,7 +1224,8 @@ internal sealed class MauiNavigationPresenter :
         TabbedPage? existingPage,
         string operationId,
         bool isNavigationTarget,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool wasResurfacedTarget = false)
     {
         var tabbedPage = existingPage is not null && StringComparer.Ordinal.Equals(GetHostId(existingPage), branchHost.Id)
             ? existingPage
@@ -1227,7 +1256,8 @@ internal sealed class MauiNavigationPresenter :
                 existingBranchPage,
                 operationId,
                 isNavigationTarget && StringComparer.Ordinal.Equals(branch.Id, branchHost.SelectedBranchId),
-                cancellationToken);
+                cancellationToken,
+                wasResurfacedTarget);
             stagedBranches.Add((branch, existingBranchPage, page));
         }
 
@@ -1446,7 +1476,8 @@ internal sealed class MauiNavigationPresenter :
                 pages[i],
                 operationId,
                 isNavigationTarget: i == modals.Count - 1,
-                cancellationToken);
+                cancellationToken,
+                wasResurfacedTarget: previousModalCount > modals.Count);
         }
     }
 
