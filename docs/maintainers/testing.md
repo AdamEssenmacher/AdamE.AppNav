@@ -1,6 +1,6 @@
 # Testing
 
-[Documentation home](../README.md)
+[Documentation home](../index.md)
 
 This document is for AppNav repository maintainers. Application consumers do
 not need to run the release gates.
@@ -39,4 +39,4 @@ five-branch dogfood matrix; the in-memory lab is preferred for deterministic nat
 ## Next steps
 
 - Follow the [public preview release checklist](release-checklist.md).
-- Review the current [release notes](../release-notes/README.md).
+- Review the current [release notes](../release-notes/index.md).

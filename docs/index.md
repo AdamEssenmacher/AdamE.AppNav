@@ -9,7 +9,7 @@ trying to do.
 - Read the repository [overview and quickstart](../README.md).
 - Review [topology and planning](concepts/topology-and-planning.md) to understand
   stacks, independent branches, modals, and canonical navigation.
-- Review the [preview release notes](release-notes/README.md) and supported
+- Review the [preview release notes](release-notes/index.md) and supported
   limits before adopting the preview.
 
 ## Build your first app
@@ -68,7 +68,7 @@ Every documentation page is indexed here:
 - [Testing](maintainers/testing.md)
 - [Public preview release checklist](maintainers/release-checklist.md)
 - [AppRouteRequest dogfood checkpoint](maintainers/app-route-request-dogfood-checkpoint.md)
-- [Release notes](release-notes/README.md)
+- [Release notes](release-notes/index.md)
 - [0.1.0-preview.1 release notes](release-notes/0.1.0-preview.1.md)
 
 Return to the [repository README](../README.md).

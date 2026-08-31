@@ -1,6 +1,6 @@
 # Routing and metadata
 
-[Documentation home](../README.md)
+[Documentation home](../index.md)
 
 AppNav routes are typed semantic destinations. A route should contain durable
 domain identity, not a `Page`, view model, service, callback, native handle, or

@@ -1,6 +1,6 @@
 # Diagnostics
 
-[Documentation home](../README.md)
+[Documentation home](../index.md)
 
 `NavigationDiagnostics` reports each pipeline and presentation phase. Safe mode is the default for observers, logging,
 and activities.

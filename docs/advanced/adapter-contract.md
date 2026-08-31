@@ -1,6 +1,6 @@
 # Adapter contract
 
-[Documentation home](../README.md)
+[Documentation home](../index.md)
 
 This is advanced material for adapter authors. Application integrations should
 start with [Getting started](../guides/getting-started.md).

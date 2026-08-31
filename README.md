@@ -167,7 +167,7 @@ Native user actions reconcile through host-neutral `HostBack`,
 
 ## Documentation
 
-Start at the [documentation home](docs/README.md).
+Start at the [documentation home](docs/index.md).
 
 - [Getting started](docs/guides/getting-started.md)
 - [MAUI integration](docs/guides/maui-integration.md)

@@ -1,6 +1,6 @@
 # MAUI integration
 
-[Documentation home](../README.md)
+[Documentation home](../index.md)
 
 This guide walks through one common MAUI integration shape for AppNav. It is a complete example, not the only public way to use the library.
 

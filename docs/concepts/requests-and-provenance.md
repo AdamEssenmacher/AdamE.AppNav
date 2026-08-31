@@ -1,6 +1,6 @@
 # Requests and provenance
 
-[Documentation home](../README.md)
+[Documentation home](../index.md)
 
 Navigation provenance is runtime request context. It describes how a `RouterNavigationRequest` entered the router. It is not route identity, URL formatting state, `AppRouteRequest` metadata, or `RouteStateRegistry` state.
 

@@ -1,6 +1,6 @@
 # Getting started
 
-[Documentation home](../README.md)
+[Documentation home](../index.md)
 
 This guide uses the buildable
 [`GettingStarted.Sample`](../../samples/GettingStarted.Sample/README.md). It is

@@ -1,6 +1,6 @@
 # External navigation
 
-[Documentation home](../README.md)
+[Documentation home](../index.md)
 
 External navigation is a security boundary. Enable it only after the
 application has defined the production origins it owns and intends to accept.

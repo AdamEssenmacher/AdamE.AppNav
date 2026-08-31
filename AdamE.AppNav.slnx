@@ -3,7 +3,7 @@
     <Project Path="benchmarks/AdamE.AppNav.Benchmarks/AdamE.AppNav.Benchmarks.csproj" />
   </Folder>
   <Folder Name="/docs/">
-    <File Path="docs/README.md" />
+    <File Path="docs/index.md" />
   </Folder>
   <Folder Name="/docs/advanced/">
     <File Path="docs/advanced/adapter-contract.md" />
@@ -32,7 +32,7 @@
   </Folder>
   <Folder Name="/docs/release-notes/">
     <File Path="docs/release-notes/0.1.0-preview.1.md" />
-    <File Path="docs/release-notes/README.md" />
+    <File Path="docs/release-notes/index.md" />
   </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/Commerce.Sample/Commerce.Sample.csproj" />

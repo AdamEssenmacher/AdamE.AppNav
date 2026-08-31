@@ -1,6 +1,6 @@
 # Topology and planning
 
-[Documentation home](../README.md)
+[Documentation home](../index.md)
 
 AppNav plans a logical tree before an adapter mutates UI.
 

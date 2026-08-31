@@ -1,6 +1,6 @@
 # Source-generator diagnostics
 
-[Documentation home](../README.md)
+[Documentation home](../index.md)
 
 AppNav reports route and MAUI page mapping problems during compilation. Treat
 errors as contract failures rather than suppressing them. `APPNAV011` is the

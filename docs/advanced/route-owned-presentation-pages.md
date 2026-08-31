@@ -1,6 +1,6 @@
 # Route-owned presentation pages
 
-[Documentation home](../README.md)
+[Documentation home](../index.md)
 
 This is an advanced MAUI feature. A setup wizard, checkout flow, or editor can
 remain one semantic `AppRoute` while several native pages participate in iOS

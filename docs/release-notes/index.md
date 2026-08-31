@@ -1,6 +1,6 @@
 # Release notes
 
-[Documentation home](../README.md)
+[Documentation home](../index.md)
 
 - [0.1.0-preview.1](0.1.0-preview.1.md) — first public MAUI preview.
 

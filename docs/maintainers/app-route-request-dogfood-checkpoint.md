@@ -1,6 +1,6 @@
 # AppRouteRequest dogfood checkpoint
 
-[Documentation home](../README.md)
+[Documentation home](../index.md)
 
 This is an internal public-preview design checkpoint for AppNav maintainers. It
 is not application integration guidance.
@@ -25,4 +25,4 @@ construct the full `RouterNavigationRequest` envelope; no second navigator facad
 ## Next steps
 
 - Revisit this checkpoint during Scavos preview dogfooding.
-- Record any accepted API change in the relevant [release notes](../release-notes/README.md).
+- Record any accepted API change in the relevant [release notes](../release-notes/index.md).

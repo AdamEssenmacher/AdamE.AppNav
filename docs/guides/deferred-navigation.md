@@ -1,6 +1,6 @@
 # Deferred navigation
 
-[Documentation home](../README.md)
+[Documentation home](../index.md)
 
 Deferred persistence supports auth or policy flows that must replay a canonical destination after process restart.
 It is not a raw deep-link cache.

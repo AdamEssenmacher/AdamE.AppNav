@@ -343,7 +343,7 @@ public sealed partial class RepositoryContractTests
     {
         var root = RepositoryRoot();
         string documentationRoot = Path.Combine(root, "docs");
-        string homePath = Path.Combine(documentationRoot, "README.md");
+        string homePath = Path.Combine(documentationRoot, "index.md");
         string home = File.ReadAllText(homePath);
         var indexedFiles = MarkdownLinkPattern()
             .Matches(home)
@@ -400,7 +400,7 @@ public sealed partial class RepositoryContractTests
         foreach (string guide in guides)
         {
             string text = File.ReadAllText(guide);
-            Assert.Contains("[Documentation home](../README.md)", text, StringComparison.Ordinal);
+            Assert.Contains("[Documentation home](../index.md)", text, StringComparison.Ordinal);
             Assert.Contains("## Next steps", text, StringComparison.Ordinal);
         }
 
@@ -513,7 +513,7 @@ public sealed partial class RepositoryContractTests
     {
         var root = RepositoryRoot();
         var readme = File.ReadAllText(Path.Combine(root, "README.md"));
-        var docsHome = File.ReadAllText(Path.Combine(root, "docs", "README.md"));
+        var docsHome = File.ReadAllText(Path.Combine(root, "docs", "index.md"));
         var checklist = File.ReadAllText(Path.Combine(root, "docs", "maintainers", "release-checklist.md"));
         var runner = File.ReadAllText(Path.Combine(root, "eng", "run-maui-platform-tests.sh"));
         var packageVerifier = File.ReadAllText(Path.Combine(root, "eng", "verify-package-assets.sh"));

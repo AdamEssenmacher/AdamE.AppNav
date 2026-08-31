@@ -1,6 +1,6 @@
 # Troubleshooting
 
-[Documentation home](../README.md)
+[Documentation home](../index.md)
 
 Start with the exception or diagnostic event, then check the relevant item
 below. Safe diagnostics intentionally omit raw paths, query values, and

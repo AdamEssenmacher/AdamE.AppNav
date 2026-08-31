@@ -1,6 +1,6 @@
 # Public preview release checklist
 
-[Documentation home](../README.md)
+[Documentation home](../index.md)
 
 This checklist is for AppNav repository maintainers, not application
 integration.
