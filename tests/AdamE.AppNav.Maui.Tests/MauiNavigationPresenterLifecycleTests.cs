@@ -2220,6 +2220,14 @@ public sealed class MauiNavigationPresenterLifecycleTests
         public void SetFlyoutPresented(FlyoutPage flyoutPage, bool isPresented) =>
             MauiNativeNavigationOperations.Instance.SetFlyoutPresented(flyoutPage, isPresented);
 
+        public void SetFlyoutBranches(
+            MauiBranchFlyoutPage flyoutPage,
+            IReadOnlyList<MauiFlyoutBranchPresentation> branches) =>
+            MauiNativeNavigationOperations.Instance.SetFlyoutBranches(flyoutPage, branches);
+
+        public void SetSelectedFlyoutBranch(MauiBranchFlyoutPage flyoutPage, string branchId) =>
+            MauiNativeNavigationOperations.Instance.SetSelectedFlyoutBranch(flyoutPage, branchId);
+
         public void SetWindowPage(Window window, Page? page) =>
             MauiNativeNavigationOperations.Instance.SetWindowPage(window, page);
     }

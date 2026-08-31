@@ -1378,6 +1378,14 @@ public sealed class MauiPresentationTransactionTests
             ThrowAfterMutation(NativeMutation.SetFlyoutPresented);
         }
 
+        public void SetFlyoutBranches(
+            MauiBranchFlyoutPage flyoutPage,
+            IReadOnlyList<MauiFlyoutBranchPresentation> branches) =>
+            MauiNativeNavigationOperations.Instance.SetFlyoutBranches(flyoutPage, branches);
+
+        public void SetSelectedFlyoutBranch(MauiBranchFlyoutPage flyoutPage, string branchId) =>
+            MauiNativeNavigationOperations.Instance.SetSelectedFlyoutBranch(flyoutPage, branchId);
+
         public void SetWindowPage(Window window, Page? page)
         {
             if (_windowPageNoOpTargets.TryPeek(out Window? noOpTarget) && ReferenceEquals(noOpTarget, window))
