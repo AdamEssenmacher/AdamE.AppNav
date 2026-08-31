@@ -9,7 +9,7 @@ is visible without external ingress, persistence, tabs, or auth.
 
 ## Read the core concepts first
 
-AppNav is easier to integrate once three boundaries are clear. Before copying
+AppNav is easier to understand once three boundaries are clear. Before copying
 the setup code, read these short concept guides in order:
 
 1. [Routing and metadata](../concepts/routing-and-metadata.md) explains why a
