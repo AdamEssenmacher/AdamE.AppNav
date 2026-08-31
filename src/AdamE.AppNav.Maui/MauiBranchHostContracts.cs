@@ -299,13 +299,24 @@ internal sealed class MauiTabbedBranchHost : IMauiBranchHost, IMauiBranchHostNat
 
     public Page Page => _page;
 
-    public IReadOnlyList<MauiBranchHostBranch> Branches => _branches;
+    public IReadOnlyList<MauiBranchHostBranch> Branches => _page.Children
+        .Select(DescribeBranch)
+        .ToArray();
 
     public string? SelectedBranchId { get; private set; }
 
     public Page? SelectedBranchPage => _page.CurrentPage;
 
     public event EventHandler<MauiBranchHostSelectionChangedEventArgs>? SelectionChanged;
+
+    private MauiBranchHostBranch DescribeBranch(Page child)
+    {
+        return _branches.FirstOrDefault(branch => ReferenceEquals(branch.Page, child)) ??
+               new MauiBranchHostBranch(
+                   MauiPresentationMetadata.GetBranchId(child) ?? string.Empty,
+                   child.Title ?? string.Empty,
+                   child);
+    }
 
     public ValueTask<IMauiBranchHostUpdate> ApplyAsync(
         MauiBranchHostUpdateContext context,
@@ -484,7 +495,9 @@ internal sealed class MauiFlyoutBranchHost : IMauiBranchHost, IMauiBranchHostNat
 
     public Page Page => _page;
 
-    public IReadOnlyList<MauiBranchHostBranch> Branches => _branches;
+    public IReadOnlyList<MauiBranchHostBranch> Branches => _page.Branches
+        .Select(branch => new MauiBranchHostBranch(branch.Id, branch.Title, branch.Page))
+        .ToArray();
 
     public string? SelectedBranchId { get; private set; }
 
@@ -523,13 +536,13 @@ internal sealed class MauiFlyoutBranchHost : IMauiBranchHost, IMauiBranchHostNat
                     branch.Title,
                     branch.Page,
                     branch.Page.IconImageSource)).ToArray();
-            _page.SetBranches(presentations);
+            _nativeOperations.SetFlyoutBranches(_page, presentations);
             SelectedBranchId = context.SelectedBranchId;
             Page? selectedPage = _branches.FirstOrDefault(branch =>
                 StringComparer.Ordinal.Equals(branch.Id, context.SelectedBranchId))?.Page;
             if ((selectedPage ?? _branches.FirstOrDefault()?.Page) is { } detail)
                 _nativeOperations.SetFlyoutDetail(_page, detail);
-            _page.SetSelectedBranch(context.SelectedBranchId);
+            _nativeOperations.SetSelectedFlyoutBranch(_page, context.SelectedBranchId);
             if (previousSelected is not null && !StringComparer.Ordinal.Equals(previousSelected, context.SelectedBranchId))
                 _nativeOperations.SetFlyoutPresented(_page, false);
             return ValueTask.FromResult<IMauiBranchHostUpdate>(update);
@@ -577,7 +590,7 @@ internal sealed class MauiFlyoutBranchHost : IMauiBranchHost, IMauiBranchHostNat
         }
 
         _nativeOperations.SetFlyoutDetail(_page, selectedPage);
-        _page.SetSelectedBranch(e.BranchId);
+        _nativeOperations.SetSelectedFlyoutBranch(_page, e.BranchId);
         _nativeOperations.SetFlyoutPresented(_page, false);
         SelectedBranchId = e.BranchId;
         SelectionChanged?.Invoke(this, new MauiBranchHostSelectionChangedEventArgs(e.BranchId));
@@ -611,11 +624,11 @@ internal sealed class MauiFlyoutBranchHost : IMauiBranchHost, IMauiBranchHostNat
             try
             {
                 host._branches = branches.ToArray();
-                host._page.SetBranches(presentations);
+                nativeOperations.SetFlyoutBranches(host._page, presentations);
                 host.SelectedBranchId = selectedBranchId;
                 nativeOperations.SetFlyoutDetail(host._page, detail);
                 if (selectedBranchId is not null)
-                    host._page.SetSelectedBranch(selectedBranchId);
+                    nativeOperations.SetSelectedFlyoutBranch(host._page, selectedBranchId);
                 nativeOperations.SetFlyoutPresented(host._page, isPresented);
                 _completed = true;
             }

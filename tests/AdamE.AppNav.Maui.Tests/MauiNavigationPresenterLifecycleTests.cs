@@ -687,6 +687,78 @@ public sealed class MauiNavigationPresenterLifecycleTests
     }
 
     [Fact]
+    public async Task ModalStackReplacesRegisteredNavigationPageBackedBranchHost()
+    {
+        var factory = new RecordingBranchHostFactory(
+            MauiBranchHostPlacement.ModalContent,
+            static () =>
+            {
+                var infrastructureRoot = new ContentPage();
+                MauiPresentationMetadata.SetRouteEntryId(infrastructureRoot, "home");
+                return new NavigationPage(infrastructureRoot);
+            });
+        var fixture = new PresenterFixture(configurePresentation: options =>
+            options.BranchHosts.Add("shared-host", new MauiBranchHostRegistration(factory)));
+        var modalHost = new BranchHostNode(
+            "shared-host",
+            [new NavigationBranch("branch", "Branch", Stack("branch-stack", Entry("branch")))],
+            "branch",
+            "branch");
+        var initial = new NavigationState(
+            [new WindowNode(
+                "main",
+                Stack("root-stack", Entry("root")),
+                [new ModalNode("modal", Entry("modal-route"), modalHost)])],
+            "main");
+        await fixture.Presenter.ApplyAsync(
+            new NavigationPlan(initial),
+            Context(new TestPageRoute("branch")));
+        RecordingBranchHost host = Assert.Single(factory.CreatedHosts);
+        var hostPage = Assert.IsType<NavigationPage>(host.Page);
+
+        var target = new NavigationState(
+            [new WindowNode(
+                "main",
+                Stack("root-stack", Entry("root")),
+                [new ModalNode("modal", Entry("modal-route"), Stack("shared-host", Entry("home")))])],
+            "main");
+        await fixture.Presenter.ApplyAsync(
+            new NavigationPlan(target),
+            Context(new TestPageRoute("home"), initial));
+
+        Page modalPage = Assert.Single(Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage).Navigation.ModalStack);
+        var stackPage = Assert.IsType<NavigationPage>(modalPage);
+        Assert.NotSame(hostPage, stackPage);
+        Assert.Equal("home", MauiPresentationMetadata.GetRouteEntryId(stackPage.CurrentPage));
+        Assert.Equal(1, host.DisposeCount);
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task BranchHostMustRetainTheExactPagesSuppliedByThePresenter()
+    {
+        var factory = new RecordingBranchHostFactory(MauiBranchHostPlacement.WindowRoot)
+        {
+            SubstituteBranchPages = true
+        };
+        var fixture = new PresenterFixture(configurePresentation: options =>
+            options.BranchHosts.Add("custom-root", new MauiBranchHostRegistration(factory)));
+        var state = new BranchHostNode(
+            "custom-root",
+            [new NavigationBranch("home", "Home", Stack("home-stack", Entry("home")))],
+            "home",
+            "home");
+
+        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Presenter.ApplyAsync(Plan(state), Context(new TestPageRoute("home"))).AsTask());
+
+        Assert.Contains("did not retain the supplied page", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(1, Assert.Single(factory.CreatedHosts).DisposeCount);
+        Assert.All(fixture.Factory.CreatedPages, page => Assert.Equal(1, fixture.Factory.ReleaseCountFor(page)));
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
     public async Task CustomBranchHostCanContainNestedDefaultTabs()
     {
         var factory = new RecordingBranchHostFactory(MauiBranchHostPlacement.WindowRoot | MauiBranchHostPlacement.Nested);
@@ -2717,6 +2789,8 @@ public sealed class MauiNavigationPresenterLifecycleTests
 
         public bool FailNextCommit { get; set; }
 
+        public bool SubstituteBranchPages { get; set; }
+
         public ValueTask<IMauiBranchHost> CreateAsync(
             MauiBranchHostCreationContext context,
             CancellationToken cancellationToken = default)
@@ -2730,7 +2804,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
 
                 FailNextCommit = false;
                 return true;
-            }, createHostPage?.Invoke());
+            }, createHostPage?.Invoke(), SubstituteBranchPages);
             CreatedHosts.Add(host);
             return ValueTask.FromResult<IMauiBranchHost>(host);
         }
@@ -2742,10 +2816,14 @@ public sealed class MauiNavigationPresenterLifecycleTests
         private IReadOnlyList<MauiBranchHostBranch> _branches = [];
         private bool _disposed;
 
-        public RecordingBranchHost(Func<bool> shouldFailCommit, Page? page = null)
+        public RecordingBranchHost(
+            Func<bool> shouldFailCommit,
+            Page? page = null,
+            bool substituteBranchPages = false)
         {
             _shouldFailCommit = shouldFailCommit;
             Page = page ?? new ContentPage();
+            SubstituteBranchPages = substituteBranchPages;
         }
 
         public Page Page { get; }
@@ -2762,6 +2840,8 @@ public sealed class MauiNavigationPresenterLifecycleTests
         public bool BranchesReadAfterDispose { get; private set; }
 
         public int DisposeCount { get; private set; }
+
+        private bool SubstituteBranchPages { get; }
 
         public List<MauiBranchHostPlacement> AppliedPlacements { get; } = [];
 
@@ -2781,7 +2861,9 @@ public sealed class MauiNavigationPresenterLifecycleTests
             AppliedPlacements.Add(context.Placement);
             var previousBranches = _branches;
             string? previousSelected = SelectedBranchId;
-            _branches = context.Branches.ToArray();
+            _branches = SubstituteBranchPages
+                ? context.Branches.Select(SubstituteBranchPage).ToArray()
+                : context.Branches.ToArray();
             SelectedBranchId = context.SelectedBranchId;
             foreach (MauiBranchHostBranch branch in _branches)
             {
@@ -2791,6 +2873,25 @@ public sealed class MauiNavigationPresenterLifecycleTests
 
             return ValueTask.FromResult<IMauiBranchHostUpdate>(
                 new RecordingBranchHostUpdate(this, previousBranches, previousSelected, _shouldFailCommit()));
+        }
+
+        private static MauiBranchHostBranch SubstituteBranchPage(MauiBranchHostBranch branch)
+        {
+            Page replacement = branch.Page;
+            if (branch.Page is NavigationPage navigationPage &&
+                navigationPage.Navigation.NavigationStack.FirstOrDefault() is { } originalRoot)
+            {
+                var replacementRoot = new ContentPage();
+                MauiPresentationMetadata.SetRouteEntryId(
+                    replacementRoot,
+                    MauiPresentationMetadata.GetRouteEntryId(originalRoot));
+                replacement = new NavigationPage(replacementRoot);
+                MauiPresentationMetadata.SetHostId(
+                    replacement,
+                    MauiPresentationMetadata.GetHostId(navigationPage));
+            }
+
+            return new MauiBranchHostBranch(branch.Id, branch.Title, replacement);
         }
 
         public void Select(string branchId)

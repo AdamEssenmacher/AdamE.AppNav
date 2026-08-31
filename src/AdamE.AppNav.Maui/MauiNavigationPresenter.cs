@@ -1442,14 +1442,56 @@ internal sealed class MauiNavigationPresenter :
                 _activeNavigationPresentationContext ?? throw new InvalidOperationException(
                     "A branch-host was updated without presentation context.")),
             cancellationToken);
+        ArgumentNullException.ThrowIfNull(update);
         if (_activeTransaction is { } transaction)
+        {
             transaction.TrackBranchHostUpdate(update);
+            VerifyAppliedBranchPages(host, stagedBranches);
+        }
         else
         {
-            await update.CommitAsync(cancellationToken);
-            await update.DisposeAsync();
+            try
+            {
+                VerifyAppliedBranchPages(host, stagedBranches);
+                await update.CommitAsync(cancellationToken);
+            }
+            catch
+            {
+                await update.RollbackAsync(CancellationToken.None);
+                throw;
+            }
+            finally
+            {
+                await update.DisposeAsync();
+            }
         }
         return host.Page;
+    }
+
+    private static void VerifyAppliedBranchPages(
+        IMauiBranchHost host,
+        IReadOnlyList<MauiBranchHostBranch> stagedBranches)
+    {
+        IReadOnlyList<MauiBranchHostBranch> presentedBranches = host.Branches;
+        if (presentedBranches.Count != stagedBranches.Count)
+        {
+            throw new InvalidOperationException(
+                $"Branch host '{GetHostId(host.Page) ?? host.Page.GetType().Name}' did not retain the supplied branch pages: " +
+                $"expected {stagedBranches.Count} branches but observed {presentedBranches.Count}.");
+        }
+
+        for (var index = 0; index < stagedBranches.Count; index++)
+        {
+            MauiBranchHostBranch staged = stagedBranches[index];
+            MauiBranchHostBranch presented = presentedBranches[index];
+            if (!StringComparer.Ordinal.Equals(presented.Id, staged.Id) ||
+                !ReferenceEquals(presented.Page, staged.Page))
+            {
+                throw new InvalidOperationException(
+                    $"Branch host '{GetHostId(host.Page) ?? host.Page.GetType().Name}' did not retain the supplied page " +
+                    $"for branch '{staged.Id}' at index {index}.");
+            }
+        }
     }
 
     private MauiBranchHostFactorySelection ResolveBranchHostFactory(string branchHostId)
@@ -1576,6 +1618,7 @@ internal sealed class MauiNavigationPresenter :
         return node switch
         {
             StackNode stack => existingPage is NavigationPage navigationPage &&
+                               !_branchHostPages.ContainsKey(existingPage) &&
                                StringComparer.Ordinal.Equals(GetHostId(navigationPage), stack.Id) &&
                                StackRootMatches(navigationPage, stack),
             BranchHostNode branchHost => existingPage is not null &&

@@ -15,6 +15,36 @@ namespace AdamE.AppNav.Maui.Tests;
 public sealed class MauiPresentationTransactionTests
 {
     [Theory]
+    [InlineData(NativeMutation.RemoveTab)]
+    [InlineData(NativeMutation.InsertTab)]
+    public async Task NoOpNativeTabMutationFailsVerificationAndRollsBack(NativeMutation mutation)
+    {
+        (NavigationState previousState, NavigationState targetState) = StatesFor(mutation);
+        var nativeOperations = new FaultingNativeOperations();
+        var factory = new InstrumentedRoutePageFactory();
+        var presenter = new MauiNavigationPresenter(factory, nativeOperations: nativeOperations);
+        await presenter.ApplyAsync(new NavigationPlan(previousState), Context("previous", NavigationState.Empty));
+        NativePresentationSnapshot previousPresentation = CapturePresentation(presenter, null);
+        int createdPageCount = factory.CreatedPages.Count;
+        if (mutation == NativeMutation.RemoveTab)
+            nativeOperations.IgnoreRemoveTabMutation(callsUntilNoOp: 2);
+        else
+            nativeOperations.IgnoreInsertTabMutation(callsUntilNoOp: 2);
+
+        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            presenter.ApplyAsync(
+                new NavigationPlan(targetState),
+                Context("target", previousState)).AsTask());
+
+        Assert.Contains("did not retain", exception.Message, StringComparison.Ordinal);
+        AssertPresentation(previousPresentation, presenter, null);
+        Assert.All(
+            factory.CreatedPages.Skip(createdPageCount),
+            page => Assert.Equal(1, factory.ReleaseCountFor(page)));
+        await presenter.StartShutdown();
+    }
+
+    [Theory]
     [InlineData(NativeMutation.PopStack)]
     [InlineData(NativeMutation.PushStack)]
     [InlineData(NativeMutation.PopModal)]
@@ -1376,6 +1406,8 @@ public sealed class MauiPresentationTransactionTests
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly Queue<Window> _windowPageNoOpTargets = new();
         private readonly Queue<Window> _windowPageFaultTargets = new();
+        private int _insertTabCallsUntilNoOp;
+        private int _removeTabCallsUntilNoOp;
 
         public int PushFailuresRemaining { get; set; }
 
@@ -1403,6 +1435,12 @@ public sealed class MauiPresentationTransactionTests
         {
             _windowPageNoOpTargets.Enqueue(window);
         }
+
+        public void IgnoreInsertTabMutation(int callsUntilNoOp) =>
+            _insertTabCallsUntilNoOp = callsUntilNoOp;
+
+        public void IgnoreRemoveTabMutation(int callsUntilNoOp) =>
+            _removeTabCallsUntilNoOp = callsUntilNoOp;
 
         public async Task PushAsync(NavigationPage navigationPage, Page page, bool animated)
         {
@@ -1459,12 +1497,18 @@ public sealed class MauiPresentationTransactionTests
 
         public void InsertTab(TabbedPage tabbedPage, int index, Page page)
         {
+            if (_insertTabCallsUntilNoOp > 0 && --_insertTabCallsUntilNoOp == 0)
+                return;
+
             MauiNativeNavigationOperations.Instance.InsertTab(tabbedPage, index, page);
             ThrowAfterMutation(NativeMutation.InsertTab);
         }
 
         public void RemoveTab(TabbedPage tabbedPage, Page page)
         {
+            if (_removeTabCallsUntilNoOp > 0 && --_removeTabCallsUntilNoOp == 0)
+                return;
+
             MauiNativeNavigationOperations.Instance.RemoveTab(tabbedPage, page);
             ThrowAfterMutation(NativeMutation.RemoveTab);
         }
