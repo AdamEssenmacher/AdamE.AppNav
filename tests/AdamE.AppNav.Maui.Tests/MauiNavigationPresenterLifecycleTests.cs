@@ -912,6 +912,98 @@ public sealed class MauiNavigationPresenterLifecycleTests
     }
 
     [Fact]
+    public async Task ConfiguredRootBranchHostUsesFlyoutAndRetainsInactiveBranchTrees()
+    {
+        var fixture = new PresenterFixture(configurePresentation: options =>
+            options.FlyoutBranchHosts.Add(
+                "store-branchHost",
+                new MauiFlyoutBranchHostOptions("Store", FlyoutLayoutBehavior.Popover, false)));
+        BranchHostNode branchHost = StoreBranchHost("catalog");
+        var window = new Window(new ContentPage());
+        await fixture.Presenter.AttachWindowAsync(window, "main");
+
+        await fixture.Presenter.ApplyAsync(
+            Plan(branchHost),
+            Context(new TestPageRoute("product")));
+
+        var flyoutPage = Assert.IsType<MauiBranchFlyoutPage>(fixture.Presenter.CurrentPage);
+        Assert.Same(flyoutPage, window.Page);
+        Assert.Equal("Store", flyoutPage.Flyout.Title);
+        Assert.Equal(FlyoutLayoutBehavior.Popover, flyoutPage.FlyoutLayoutBehavior);
+        Assert.False(flyoutPage.IsGestureEnabled);
+        Assert.Equal(new[] { "home", "catalog" }, flyoutPage.Branches.Select(static branch => branch.Id));
+        Page homePage = flyoutPage.Branches[0].Page;
+        Page catalogPage = flyoutPage.Branches[1].Page;
+        Assert.Same(catalogPage, flyoutPage.Detail);
+        Assert.Equal("catalog", flyoutPage.SelectedBranchId);
+
+        flyoutPage.IsPresented = true;
+        await fixture.Presenter.ApplyAsync(
+            Plan(branchHost with { SelectedBranchId = "home" }),
+            Context(new TestPageRoute("home"), fixture.PresenterState));
+
+        Assert.Same(flyoutPage, fixture.Presenter.CurrentPage);
+        Assert.Same(homePage, flyoutPage.Detail);
+        Assert.Same(catalogPage, flyoutPage.Branches[1].Page);
+        Assert.False(flyoutPage.IsPresented);
+        Assert.Empty(fixture.Factory.ReleasedPages);
+        _ = fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task FlyoutMenuSelectionChangesDetailAndRequestsBranchReconciliation()
+    {
+        var fixture = new PresenterFixture(configurePresentation: options =>
+            options.FlyoutBranchHosts.Add(
+                "store-branchHost",
+                new MauiFlyoutBranchHostOptions("Store", FlyoutLayoutBehavior.Default, true)));
+        await fixture.Presenter.ApplyAsync(
+            Plan(StoreBranchHost("home")),
+            Context(new TestPageRoute("home")));
+        var flyoutPage = Assert.IsType<MauiBranchFlyoutPage>(fixture.Presenter.CurrentPage);
+        flyoutPage.IsPresented = true;
+
+        NavigationReconciliation reconciliation = await ReconcileAfterNativeMutationAsync(
+            fixture.Presenter,
+            () =>
+            {
+                flyoutPage.RequestBranchSelection("catalog");
+                return Task.CompletedTask;
+            });
+
+        var updated = Assert.IsType<BranchHostNode>(reconciliation.TargetState.ActiveWindow?.Root);
+        Assert.Equal("catalog", updated.SelectedBranchId);
+        Assert.Equal(NavigationReconciliationSource.BranchChanged, reconciliation.Source);
+        Assert.Equal("catalog", flyoutPage.SelectedBranchId);
+        Assert.Same(flyoutPage.Branches[1].Page, flyoutPage.Detail);
+        Assert.False(flyoutPage.IsPresented);
+        _ = fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task ConfiguredFlyoutOutsideDirectWindowRootIsRejectedBeforePageCreation()
+    {
+        var fixture = new PresenterFixture(configurePresentation: options =>
+            options.FlyoutBranchHosts.Add(
+                "store-branchHost",
+                new MauiFlyoutBranchHostOptions("Store", FlyoutLayoutBehavior.Default, true)));
+        var nested = new BranchHostNode(
+            "outer-tabs",
+            new[] { new NavigationBranch("nested", "Nested", StoreBranchHost("home")) },
+            "nested");
+
+        NotSupportedException exception = await Assert.ThrowsAsync<NotSupportedException>(() =>
+            fixture.Presenter.ApplyAsync(
+                Plan(nested),
+                Context(new TestPageRoute("home"))).AsTask());
+
+        Assert.Contains("only supported as the direct window root", exception.Message, StringComparison.Ordinal);
+        Assert.Empty(fixture.Factory.CreatedPages);
+        Assert.Null(fixture.Presenter.CurrentPage);
+        _ = fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
     public async Task BranchHostAppliesStackRootIconsToGeneratedNavigationPageTabs()
     {
         var homeIcon = new FontImageSource { Glyph = "home" };
@@ -2548,12 +2640,14 @@ public sealed class MauiNavigationPresenterLifecycleTests
             Action<Page, RouteEntry, MauiRoutePageUpdateContext>? updatePage = null,
             IMauiNativeNavigationOperations? nativeOperations = null,
             Func<RouteEntry, CancellationToken, ValueTask<Page>>? createPageAsync = null,
-            Func<Type, Page>? createPresentationPage = null)
+            Func<Type, Page>? createPresentationPage = null,
+            Action<MauiRoutePresentationOptions>? configurePresentation = null)
         {
             Diagnostics = new NavigationDiagnostics();
             Diagnostics.AddObserver(Observer);
             PresentationOptions = new MauiRoutePresentationOptions();
             configurePages?.Invoke(PresentationOptions.Pages);
+            configurePresentation?.Invoke(PresentationOptions);
             Factory = new InstrumentedRoutePageFactory(
                 createPage,
                 updatePage,
@@ -2651,6 +2745,12 @@ public sealed class MauiNavigationPresenterLifecycleTests
 
         public void SetCurrentTab(TabbedPage tabbedPage, Page? page) =>
             MauiNativeNavigationOperations.Instance.SetCurrentTab(tabbedPage, page);
+
+        public void SetFlyoutDetail(FlyoutPage flyoutPage, Page page) =>
+            MauiNativeNavigationOperations.Instance.SetFlyoutDetail(flyoutPage, page);
+
+        public void SetFlyoutPresented(FlyoutPage flyoutPage, bool isPresented) =>
+            MauiNativeNavigationOperations.Instance.SetFlyoutPresented(flyoutPage, isPresented);
 
         public void SetWindowPage(Window window, Page? page) =>
             SetWindowPageCore(window, page);

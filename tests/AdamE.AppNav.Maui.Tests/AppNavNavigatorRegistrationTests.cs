@@ -20,6 +20,54 @@ namespace AdamE.AppNav.Maui.Tests;
 [Collection(ExternalNavigationBridgeTestCollection.Name)]
 public sealed class AppNavNavigatorRegistrationTests
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void AddAppNavMauiPresentationComposesRegardlessOfRegistrationOrder(bool presentationFirst)
+    {
+        var services = new ServiceCollection();
+        void AddPresentation() => services.AddAppNavMauiPresentation(options =>
+            options.MapFlyoutBranchHost("store", "Store", FlyoutLayoutBehavior.Popover, false));
+        void AddRuntime() => services.AddAppNav<ThrowingPlanner>(
+            Routes(),
+            pages => pages.MapPage<TestRoute>((_, _) => new TestPage()));
+
+        if (presentationFirst)
+        {
+            AddPresentation();
+            AddRuntime();
+        }
+        else
+        {
+            AddRuntime();
+            AddPresentation();
+        }
+
+        using ServiceProvider provider = services.BuildServiceProvider();
+        MauiRoutePresentationOptions resolved = provider.GetRequiredService<MauiRoutePresentationOptions>();
+        Assert.True(resolved.TryGetFlyout("store", out MauiFlyoutBranchHostOptions? flyout));
+        Assert.Equal("Store", flyout.MenuTitle);
+        Assert.Equal(FlyoutLayoutBehavior.Popover, flyout.LayoutBehavior);
+        Assert.False(flyout.IsGestureEnabled);
+    }
+
+    [Fact]
+    public void FlyoutPresentationConfigurationRejectsInvalidAndDuplicateMappingsImmediately()
+    {
+        var options = new MauiNavigationPresentationOptions();
+        Assert.Throws<ArgumentException>(() => options.MapFlyoutBranchHost(" ", "Store"));
+        Assert.Throws<ArgumentException>(() => options.MapFlyoutBranchHost("store", " "));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            options.MapFlyoutBranchHost("invalid-layout", "Store", (FlyoutLayoutBehavior)999));
+        options.MapFlyoutBranchHost("store", "Store");
+        Assert.Throws<InvalidOperationException>(() => options.MapFlyoutBranchHost("store", "Other"));
+
+        var services = new ServiceCollection();
+        services.AddAppNavMauiPresentation(value => value.MapFlyoutBranchHost("store", "Store"));
+        Assert.Throws<InvalidOperationException>(() =>
+            services.AddAppNavMauiPresentation(value => value.MapFlyoutBranchHost("store", "Other")));
+    }
+
     [Fact]
     public void AddAppNavRegistersDefaultPresentationPolicyAndPreservesApplicationReplacement()
     {

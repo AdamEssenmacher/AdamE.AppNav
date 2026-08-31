@@ -35,6 +35,8 @@ public static class MauiProgram
 #endif
 
 		builder.Services.AddAppNavDiagnostics();
+		builder.Services.AddAppNavMauiPresentation(options =>
+			options.MapFlyoutBranchHost("store-tabs", "Store"));
 		builder.Services.AddSingleton<INavigationRequestTransformer, LegacyProductUrlTransformer>();
 		builder.Services.AddAppNavStartup(options =>
 		{

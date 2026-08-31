@@ -193,7 +193,8 @@ internal sealed class RouterNavigator : IRouterNavigator
         CancellationToken cancellationToken)
     {
         var operationId = Guid.NewGuid().ToString("N");
-        using Activity? activity = _diagnostics.StartActivity("Navigation.Navigate", operationId, request);
+        using RouterNavigationActivityScope activity =
+            _diagnostics.StartActivity("Navigation.Navigate", operationId, request);
         var operationTimer = Stopwatch.StartNew();
         AppRoute? route = null;
 
@@ -206,9 +207,9 @@ internal sealed class RouterNavigator : IRouterNavigator
                     operationId,
                     cancellationToken).ConfigureAwait(false);
             route = appRoute;
-            Activity.Current?.SetTag("navigation.route_type", route.GetType().FullName);
-            Activity.Current?.SetTag("navigation.route_template", routeDefinition?.Template.Value);
-            Activity.Current?.SetTag("navigation.disposition", effectiveRequest.Disposition.ToString());
+            activity.SetTag("navigation.route_type", route.GetType().FullName);
+            activity.SetTag("navigation.route_template", routeDefinition?.Template.Value);
+            activity.SetTag("navigation.disposition", effectiveRequest.Disposition);
 
             var planningTimer = Stopwatch.StartNew();
             _diagnostics.Write(
@@ -226,7 +227,7 @@ internal sealed class RouterNavigator : IRouterNavigator
                     new NavigationPlanningContext(effectiveRequest, route, CurrentState, operationId),
                     cancellationToken).ConfigureAwait(false);
                 NavigationStateValidator.ValidatePlan(plan, "App navigation planner");
-                Activity.Current?.SetTag("navigation.plan_kind", plan.Kind.ToString());
+                activity.SetTag("navigation.plan_kind", plan.Kind);
                 _diagnostics.Write(
                     NavigationDiagnosticEventKind.PlanningCompleted,
                     operationId,
@@ -283,13 +284,13 @@ internal sealed class RouterNavigator : IRouterNavigator
             History = History.Push(
                 CreateHistoryEntry(finalizedRequest, finalRoute, CurrentState),
                 _maxHistoryEntries);
-            activity?.SetStatus(ActivityStatusCode.Ok);
+            activity.SetStatus(ActivityStatusCode.Ok);
 
             return new NavigationResult(finalRoute, plan, CurrentState, true);
         }
         catch (Exception ex)
         {
-            activity?.SetStatus(ActivityStatusCode.Error);
+            activity.SetStatus(ActivityStatusCode.Error);
             _diagnostics.WriteFailure(
                 NavigationDiagnosticEventKind.NavigationFailed,
                 operationId,
@@ -305,7 +306,7 @@ internal sealed class RouterNavigator : IRouterNavigator
         CancellationToken cancellationToken)
     {
         var operationId = Guid.NewGuid().ToString("N");
-        using Activity? activity =
+        using RouterNavigationActivityScope activity =
             _diagnostics.StartActivity("Navigation.Back", operationId, nameof(NavigationRequestSource.InAppCommand));
         var timer = Stopwatch.StartNew();
 
@@ -331,7 +332,7 @@ internal sealed class RouterNavigator : IRouterNavigator
                     "No host accepted back navigation.",
                     RouterNavigationDiagnostics.Duration(timer,
                         (NavigationDiagnosticDataKeys.WindowId, diagnosticWindowId)));
-                activity?.SetStatus(ActivityStatusCode.Ok);
+                activity.SetStatus(ActivityStatusCode.Ok);
                 return BackNavigationResult.Unhandled;
             }
 
@@ -382,12 +383,12 @@ internal sealed class RouterNavigator : IRouterNavigator
                 plan.Reason ?? "Back handled.",
                 RouterNavigationDiagnostics.Duration(timer,
                     (NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
-            activity?.SetStatus(ActivityStatusCode.Ok);
+            activity.SetStatus(ActivityStatusCode.Ok);
             return BackNavigationResult.HandledBy(new NavigationResult(route, plan, CurrentState, true));
         }
         catch (Exception ex)
         {
-            activity?.SetStatus(ActivityStatusCode.Error);
+            activity.SetStatus(ActivityStatusCode.Error);
             _diagnostics.WriteFailure(
                 NavigationDiagnosticEventKind.BackFailed,
                 operationId,
@@ -404,7 +405,7 @@ internal sealed class RouterNavigator : IRouterNavigator
         CancellationToken cancellationToken)
     {
         var operationId = Guid.NewGuid().ToString("N");
-        using Activity? activity =
+        using RouterNavigationActivityScope activity =
             _diagnostics.StartActivity("Navigation.Reconcile", operationId, reconciliation.Source.ToString());
         var timer = Stopwatch.StartNew();
         AppRoute route = request.Route ?? new ReconciledRoute();
@@ -465,12 +466,12 @@ internal sealed class RouterNavigator : IRouterNavigator
                 reconciliation.Source.ToString(),
                 RouterNavigationDiagnostics.Duration(timer,
                     (NavigationDiagnosticDataKeys.ReconciliationSource, reconciliation.Source.ToString())));
-            activity?.SetStatus(ActivityStatusCode.Ok);
+            activity.SetStatus(ActivityStatusCode.Ok);
             return new NavigationResult(finalRoute, plan, CurrentState, false);
         }
         catch (Exception ex)
         {
-            activity?.SetStatus(ActivityStatusCode.Error);
+            activity.SetStatus(ActivityStatusCode.Error);
             _diagnostics.WriteFailure(NavigationDiagnosticEventKind.ReconciliationFailed, operationId,
                 reconciliation.Source.ToString(), ex, timer);
             throw;
