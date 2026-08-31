@@ -51,7 +51,7 @@ public sealed class MauiPresentationTransactionTests
         Assert.All(
             factory.CreatedPages.Skip(createdPageCount),
             page => Assert.Equal(1, factory.ReleaseCountFor(page)));
-        await presenter.DisposeAsync();
+        await presenter.StartShutdown();
     }
 
     [Theory]
@@ -81,7 +81,7 @@ public sealed class MauiPresentationTransactionTests
         Assert.Same(originalWindow, presenter.AttachedWindow);
         Assert.Equal("main", presenter.AttachedWindowId);
 
-        await presenter.DisposeAsync();
+        await presenter.StartShutdown();
     }
 
     [Fact]
@@ -105,7 +105,7 @@ public sealed class MauiPresentationTransactionTests
         Assert.Same(window, presenter.AttachedWindow);
         Assert.Equal("main", presenter.AttachedWindowId);
 
-        await presenter.DisposeAsync();
+        await presenter.StartShutdown();
     }
 
     [Fact]
@@ -135,7 +135,7 @@ public sealed class MauiPresentationTransactionTests
         Assert.Same(originalWindow, presenter.AttachedWindow);
         Assert.Equal("main", presenter.AttachedWindowId);
 
-        await presenter.DisposeAsync();
+        await presenter.StartShutdown();
     }
 
     [Fact]
@@ -167,7 +167,7 @@ public sealed class MauiPresentationTransactionTests
         Assert.Equal(1, factory.ReleaseCountFor(failedReplacement));
         Assert.Contains(NavigationDiagnosticEventKind.PresentationRollbackStarted, events);
         Assert.Contains(NavigationDiagnosticEventKind.PresentationRollbackCompleted, events);
-        await presenter.DisposeAsync();
+        await presenter.StartShutdown();
     }
 
     [Fact]
@@ -195,7 +195,7 @@ public sealed class MauiPresentationTransactionTests
         Assert.Equal(previousStack, navigationPage.Navigation.NavigationStack.ToArray());
         Assert.Equal(1, factory.ReleaseCountFor(createdPage));
         Assert.Null(reconciliation);
-        await presenter.DisposeAsync();
+        await presenter.StartShutdown();
         Assert.Equal(1, factory.ReleaseCountFor(createdPage));
     }
 
@@ -222,7 +222,7 @@ public sealed class MauiPresentationTransactionTests
         Assert.Equal(0, factory.ReleaseCountFor(presentationPage));
         Assert.True(await presenter.PopAsync(animated: false));
         Assert.Equal(1, factory.ReleaseCountFor(presentationPage));
-        await presenter.DisposeAsync();
+        await presenter.StartShutdown();
         Assert.Equal(1, factory.ReleaseCountFor(presentationPage));
     }
 
@@ -252,7 +252,7 @@ public sealed class MauiPresentationTransactionTests
         Page createdPage = Assert.Single(factory.CreatedPresentationPages);
         Assert.Equal(previousStack, navigationPage.Navigation.NavigationStack.ToArray());
         Assert.Equal(1, factory.ReleaseCountFor(createdPage));
-        await presenter.DisposeAsync();
+        await presenter.StartShutdown();
     }
 
     [Fact]
@@ -281,7 +281,7 @@ public sealed class MauiPresentationTransactionTests
                 .Select(page => Assert.IsType<string>(MauiPresentationMetadata.GetRouteEntryId(page)))
                 .ToArray());
         Assert.Equal(1, factory.ReleaseCountFor(Assert.Single(factory.CreatedPresentationPages)));
-        await presenter.DisposeAsync();
+        await presenter.StartShutdown();
     }
 
     [Fact]
@@ -299,7 +299,7 @@ public sealed class MauiPresentationTransactionTests
             new MauiRoutePresentationPageOptions { Animated = false }).AsTask();
         await nativeOperations.BlockedPushStarted;
 
-        Task shutdown = presenter.DisposeAsync().AsTask();
+        Task shutdown = presenter.StartShutdown();
         Assert.False(shutdown.IsCompleted);
         nativeOperations.ReleaseBlockedPush();
 
@@ -338,7 +338,7 @@ public sealed class MauiPresentationTransactionTests
         await presenter.ApplyAsync(new NavigationPlan(nextState), Context("catalog", previousState));
         Assert.Equal("catalog", MauiPresentationMetadata.GetRouteEntryId(
             Assert.IsType<NavigationPage>(presenter.CurrentPage).CurrentPage));
-        await presenter.DisposeAsync();
+        await presenter.StartShutdown();
     }
 
     [Fact]
@@ -362,7 +362,7 @@ public sealed class MauiPresentationTransactionTests
                 Context("detail", previousState)).AsTask());
 
         Assert.Same(failure, subsequent);
-        await presenter.DisposeAsync();
+        await presenter.StartShutdown();
     }
 
     [Fact]
@@ -389,7 +389,7 @@ public sealed class MauiPresentationTransactionTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => apply);
         Assert.Same(navigationPage, presenter.CurrentPage);
         Assert.Equal(previousPages, navigationPage.Navigation.NavigationStack.ToArray());
-        await presenter.DisposeAsync();
+        await presenter.StartShutdown();
     }
 
     [Fact]
@@ -421,7 +421,7 @@ public sealed class MauiPresentationTransactionTests
         Assert.Equal(
             new TestRoute("previous-route"),
             Assert.IsType<TestRoute>(factory.LastUpdatedEntryFor(page)?.Route));
-        await presenter.DisposeAsync();
+        await presenter.StartShutdown();
     }
 
     [Fact]
@@ -446,7 +446,7 @@ public sealed class MauiPresentationTransactionTests
                 return Task.CompletedTask;
             })]);
 
-        Task shutdown = presenter.DisposeAsync().AsTask();
+        Task shutdown = presenter.StartShutdown();
         Assert.False(shutdown.IsCompleted);
         nativeOperations.ReleaseBlockedPush();
 
@@ -497,7 +497,7 @@ public sealed class MauiPresentationTransactionTests
         Assert.Equal(1, factory.ReleaseCountFor(detailPage));
         Assert.Equal(1, factory.ReleaseCountFor(settingsPage));
 
-        await presenter.DisposeAsync();
+        await presenter.StartShutdown();
         Assert.Equal(1, factory.ReleaseCountFor(detailPage));
         Assert.Equal(1, factory.ReleaseCountFor(settingsPage));
     }
@@ -541,7 +541,7 @@ public sealed class MauiPresentationTransactionTests
         Assert.All(existingPages, page => Assert.Equal(1, factory.ReleaseCountFor(page)));
         Assert.Equal(1, factory.ReleaseCountFor(receiptPage));
 
-        await presenter.DisposeAsync();
+        await presenter.StartShutdown();
         Assert.All(existingPages, page => Assert.Equal(1, factory.ReleaseCountFor(page)));
         Assert.Equal(1, factory.ReleaseCountFor(receiptPage));
     }
@@ -565,7 +565,7 @@ public sealed class MauiPresentationTransactionTests
 
         Assert.Empty(reconciliations);
         Assert.Equal(1, factory.ReleaseCountFor(presentationPage));
-        await presenter.DisposeAsync();
+        await presenter.StartShutdown();
         Assert.Empty(reconciliations);
         Assert.Equal(1, factory.ReleaseCountFor(presentationPage));
     }
@@ -602,7 +602,7 @@ public sealed class MauiPresentationTransactionTests
         Assert.Equal(1, factory.ReleaseCountFor(detailPage));
         Assert.Equal(1, factory.ReleaseCountFor(settingsPage));
 
-        await presenter.DisposeAsync();
+        await presenter.StartShutdown();
         Assert.Equal(1, factory.ReleaseCountFor(detailPage));
         Assert.Equal(1, factory.ReleaseCountFor(settingsPage));
     }
@@ -636,7 +636,7 @@ public sealed class MauiPresentationTransactionTests
         Assert.All(previousPages, page => Assert.Equal(0, factory.ReleaseCountFor(page)));
         Page failedReplacement = factory.CreatedPages[^1];
         Assert.Equal(1, factory.ReleaseCountFor(failedReplacement));
-        await presenter.DisposeAsync();
+        await presenter.StartShutdown();
         Assert.Empty(reconciliations);
         Assert.Equal(1, factory.ReleaseCountFor(failedReplacement));
     }
@@ -660,7 +660,7 @@ public sealed class MauiPresentationTransactionTests
         await nativeOperations.BlockedPushAfterMutationStarted.WaitAsync(TimeSpan.FromSeconds(5));
         await MauiNativeNavigationOperations.Instance.PopAsync(navigationPage, animated: false);
 
-        Task shutdown = presenter.DisposeAsync().AsTask();
+        Task shutdown = presenter.StartShutdown();
         nativeOperations.ReleaseBlockedPushAfterMutation();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => apply);
@@ -703,7 +703,7 @@ public sealed class MauiPresentationTransactionTests
         Assert.Equal(["home", "detail"], NativeRouteEntryIds(navigationPage));
 
         await navigator.DisposeAsync();
-        await presenter.DisposeAsync();
+        await presenter.StartShutdown();
     }
 
     private static string[] NativeRouteEntryIds(NavigationPage navigationPage)

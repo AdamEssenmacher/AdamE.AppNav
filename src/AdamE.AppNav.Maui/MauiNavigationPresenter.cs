@@ -238,17 +238,6 @@ internal sealed class MauiNavigationPresenter :
         _ = Task.Run(FinalizeShutdownAsync);
     }
 
-    public void Dispose()
-    {
-        _ = StartShutdown();
-    }
-
-    public ValueTask DisposeAsync()
-    {
-        Task shutdown = StartShutdown();
-        return shutdown.IsCompletedSuccessfully ? ValueTask.CompletedTask : new ValueTask(shutdown);
-    }
-
     private async Task FinalizeShutdownAsync()
     {
         try
