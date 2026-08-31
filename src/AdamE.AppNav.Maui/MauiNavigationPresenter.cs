@@ -2082,8 +2082,11 @@ internal sealed class MauiNavigationPresenter :
             catch (Exception ex)
             {
                 failures.Add(ex);
+                pageReleaseSucceeded = false;
             }
 
+            if (pageReleaseSucceeded)
+                ForgetPage(page);
             return;
         }
 

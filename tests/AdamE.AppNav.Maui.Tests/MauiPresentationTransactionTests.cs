@@ -14,6 +14,37 @@ namespace AdamE.AppNav.Maui.Tests;
 
 public sealed class MauiPresentationTransactionTests
 {
+    [Fact]
+    public async Task NoOpNativeFlyoutSelectionFailsVerificationAndRollsBack()
+    {
+        NavigationState previousState = BranchState("catalog", "catalog", "orders");
+        NavigationState targetState = BranchState("orders", "catalog", "orders");
+        var nativeOperations = new FaultingNativeOperations();
+        var options = new MauiRoutePresentationOptions();
+        options.BranchHosts.Add(
+            "main-tabs",
+            new MauiBranchHostRegistration(new MauiFlyoutBranchHostFactory("Main")));
+        var presenter = new MauiNavigationPresenter(
+            new InstrumentedRoutePageFactory(),
+            presentationOptions: options,
+            nativeOperations: nativeOperations);
+        await presenter.ApplyAsync(new NavigationPlan(previousState), Context("catalog", NavigationState.Empty));
+        var flyoutPage = Assert.IsType<MauiBranchFlyoutPage>(presenter.CurrentPage);
+        NativePresentationSnapshot previousPresentation = CapturePresentation(presenter, null);
+        Assert.Equal("catalog", flyoutPage.SelectedBranchId);
+        nativeOperations.IgnoreNextSelectedFlyoutBranchMutation = true;
+
+        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            presenter.ApplyAsync(
+                new NavigationPlan(targetState),
+                Context("orders", previousState)).AsTask());
+
+        Assert.Contains("selectedBranchId", exception.Message, StringComparison.Ordinal);
+        AssertPresentation(previousPresentation, presenter, null);
+        Assert.Equal("catalog", flyoutPage.SelectedBranchId);
+        await presenter.StartShutdown();
+    }
+
     [Theory]
     [InlineData(NativeMutation.RemoveTab)]
     [InlineData(NativeMutation.InsertTab)]
@@ -1421,6 +1452,8 @@ public sealed class MauiPresentationTransactionTests
 
         public NativeMutation? FaultAfterMutation { get; set; }
 
+        public bool IgnoreNextSelectedFlyoutBranchMutation { get; set; }
+
         public Task BlockedPushStarted => _blockedPushStarted.Task;
 
         public Task BlockedPushAfterMutationStarted => _blockedPushAfterMutationStarted.Task;
@@ -1536,8 +1569,16 @@ public sealed class MauiPresentationTransactionTests
             IReadOnlyList<MauiFlyoutBranchPresentation> branches) =>
             MauiNativeNavigationOperations.Instance.SetFlyoutBranches(flyoutPage, branches);
 
-        public void SetSelectedFlyoutBranch(MauiBranchFlyoutPage flyoutPage, string branchId) =>
+        public void SetSelectedFlyoutBranch(MauiBranchFlyoutPage flyoutPage, string? branchId)
+        {
+            if (IgnoreNextSelectedFlyoutBranchMutation)
+            {
+                IgnoreNextSelectedFlyoutBranchMutation = false;
+                return;
+            }
+
             MauiNativeNavigationOperations.Instance.SetSelectedFlyoutBranch(flyoutPage, branchId);
+        }
 
         public void SetWindowPage(Window window, Page? page)
         {

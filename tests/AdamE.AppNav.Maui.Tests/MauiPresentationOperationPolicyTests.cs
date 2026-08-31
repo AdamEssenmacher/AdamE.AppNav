@@ -347,7 +347,7 @@ public sealed class MauiPresentationOperationPolicyTests
             IReadOnlyList<MauiFlyoutBranchPresentation> branches) =>
             MauiNativeNavigationOperations.Instance.SetFlyoutBranches(flyoutPage, branches);
 
-        public void SetSelectedFlyoutBranch(MauiBranchFlyoutPage flyoutPage, string branchId) =>
+        public void SetSelectedFlyoutBranch(MauiBranchFlyoutPage flyoutPage, string? branchId) =>
             MauiNativeNavigationOperations.Instance.SetSelectedFlyoutBranch(flyoutPage, branchId);
 
         public void SetWindowPage(Window window, Page? page) =>

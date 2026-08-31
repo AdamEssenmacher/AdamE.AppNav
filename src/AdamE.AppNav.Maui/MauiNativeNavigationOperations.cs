@@ -26,7 +26,7 @@ internal interface IMauiNativeNavigationOperations
         MauiBranchFlyoutPage flyoutPage,
         IReadOnlyList<MauiFlyoutBranchPresentation> branches);
 
-    void SetSelectedFlyoutBranch(MauiBranchFlyoutPage flyoutPage, string branchId);
+    void SetSelectedFlyoutBranch(MauiBranchFlyoutPage flyoutPage, string? branchId);
 
     void SetWindowPage(Window window, Page? page);
 }
@@ -67,7 +67,7 @@ internal sealed class MauiNativeNavigationOperations : IMauiNativeNavigationOper
         IReadOnlyList<MauiFlyoutBranchPresentation> branches) =>
         flyoutPage.SetBranches(branches);
 
-    public void SetSelectedFlyoutBranch(MauiBranchFlyoutPage flyoutPage, string branchId) =>
+    public void SetSelectedFlyoutBranch(MauiBranchFlyoutPage flyoutPage, string? branchId) =>
         flyoutPage.SetSelectedBranch(branchId);
 
     public void SetWindowPage(Window window, Page? page) =>
@@ -151,7 +151,7 @@ internal sealed class GuardedMauiNativeNavigationOperations(
         inner.SetFlyoutBranches(flyoutPage, branches);
     }
 
-    public void SetSelectedFlyoutBranch(MauiBranchFlyoutPage flyoutPage, string branchId)
+    public void SetSelectedFlyoutBranch(MauiBranchFlyoutPage flyoutPage, string? branchId)
     {
         Guard(flyoutPage);
         inner.SetSelectedFlyoutBranch(flyoutPage, branchId);

@@ -53,7 +53,7 @@ internal sealed class MauiBranchFlyoutPage : FlyoutPage
         RebuildMenu();
     }
 
-    public void SetSelectedBranch(string branchId)
+    public void SetSelectedBranch(string? branchId)
     {
         SelectedBranchId = branchId;
         foreach ((string id, Button button) in _buttons)

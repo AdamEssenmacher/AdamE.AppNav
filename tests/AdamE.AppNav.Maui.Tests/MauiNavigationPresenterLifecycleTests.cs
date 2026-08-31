@@ -687,6 +687,33 @@ public sealed class MauiNavigationPresenterLifecycleTests
     }
 
     [Fact]
+    public async Task RetiredBranchHostPageIsForgottenFromNativeTreeEpoch()
+    {
+        var factory = new RecordingBranchHostFactory(MauiBranchHostPlacement.WindowRoot);
+        var fixture = new PresenterFixture(configurePresentation: options =>
+            options.BranchHosts.Add("custom-root", new MauiBranchHostRegistration(factory)));
+        var initial = new BranchHostNode(
+            "custom-root",
+            [new NavigationBranch("home", "Home", Stack("home-stack", Entry("home")))],
+            "home",
+            "home");
+        await fixture.Presenter.ApplyAsync(Plan(initial), Context(new TestPageRoute("home")));
+        RecordingBranchHost host = Assert.Single(factory.CreatedHosts);
+
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("replacement-stack", Entry("replacement"))),
+            Context(new TestPageRoute("replacement"), Plan(initial).TargetState));
+
+        MethodInfo canMutatePage = typeof(MauiNavigationPresenter).GetMethod(
+            "CanMutatePage",
+            BindingFlags.Instance | BindingFlags.NonPublic) ??
+            throw new InvalidOperationException("CanMutatePage was not found.");
+        Assert.False(Assert.IsType<bool>(canMutatePage.Invoke(fixture.Presenter, [host.Page])));
+        Assert.Equal(1, host.DisposeCount);
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
     public async Task ModalStackReplacesRegisteredNavigationPageBackedBranchHost()
     {
         var factory = new RecordingBranchHostFactory(
@@ -2709,7 +2736,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
             IReadOnlyList<MauiFlyoutBranchPresentation> branches) =>
             MauiNativeNavigationOperations.Instance.SetFlyoutBranches(flyoutPage, branches);
 
-        public void SetSelectedFlyoutBranch(MauiBranchFlyoutPage flyoutPage, string branchId) =>
+        public void SetSelectedFlyoutBranch(MauiBranchFlyoutPage flyoutPage, string? branchId) =>
             MauiNativeNavigationOperations.Instance.SetSelectedFlyoutBranch(flyoutPage, branchId);
 
         public void SetWindowPage(Window window, Page? page) =>
