@@ -1,3 +1,4 @@
+using System.Reflection;
 using AdamE.AppNav.Diagnostics;
 using AdamE.AppNav.Navigation;
 using AdamE.AppNav.Plans;
@@ -42,6 +43,42 @@ public sealed class MauiPresentationTransactionTests
         Assert.Contains("selectedBranchId", exception.Message, StringComparison.Ordinal);
         AssertPresentation(previousPresentation, presenter, null);
         Assert.Equal("catalog", flyoutPage.SelectedBranchId);
+        await presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task StructuralRollbackFailureStillFinalizesBranchHostUpdate()
+    {
+        var nativeOperations = new FaultingNativeOperations();
+        var branchHostFactory = new TrackingBranchHostFactory();
+        var options = new MauiRoutePresentationOptions();
+        options.BranchHosts.Add(
+            "main-tabs",
+            new MauiBranchHostRegistration(branchHostFactory));
+        var presenter = new MauiNavigationPresenter(
+            new InstrumentedRoutePageFactory(),
+            presentationOptions: options,
+            nativeOperations: nativeOperations);
+        NavigationState previousState = BranchState("catalog", "catalog", "orders");
+        await presenter.ApplyAsync(new NavigationPlan(previousState), Context("catalog", NavigationState.Empty));
+        BranchHostNode root = Assert.IsType<BranchHostNode>(previousState.ActiveWindow?.Root);
+        var targetState = new NavigationState(
+            [new WindowNode(
+                "main",
+                root with { SelectedBranchId = "orders" },
+                [new ModalNode("details", new RouteEntry("details-entry", new TestRoute("details")))])],
+            "main");
+        nativeOperations.FaultAfterMutation = NativeMutation.PushModal;
+        nativeOperations.PopModalFailuresRemaining = 1;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => presenter.ApplyAsync(
+            new NavigationPlan(targetState),
+            Context("orders", previousState)).AsTask());
+
+        TrackingBranchHostUpdate failedUpdate = branchHostFactory.Updates[1];
+        Assert.Equal(1, failedUpdate.RollbackCount);
+        Assert.Equal(1, failedUpdate.DisposeCount);
+        Assert.Equal("catalog", Assert.IsType<BranchHostNode>(previousState.ActiveWindow?.Root).SelectedBranchId);
         await presenter.StartShutdown();
     }
 
@@ -621,6 +658,7 @@ public sealed class MauiPresentationTransactionTests
 
         Task shutdown = presenter.StartShutdown();
         Assert.False(shutdown.IsCompleted);
+        WaitForShutdownCancellationRequested(presenter);
         nativeOperations.ReleaseBlockedPush();
 
         Exception cancellation = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => push);
@@ -768,6 +806,7 @@ public sealed class MauiPresentationTransactionTests
 
         Task shutdown = presenter.StartShutdown();
         Assert.False(shutdown.IsCompleted);
+        WaitForShutdownCancellationRequested(presenter);
         nativeOperations.ReleaseBlockedPush();
 
         Exception cancellation = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => apply);
@@ -981,6 +1020,7 @@ public sealed class MauiPresentationTransactionTests
         await MauiNativeNavigationOperations.Instance.PopAsync(navigationPage, animated: false);
 
         Task shutdown = presenter.StartShutdown();
+        WaitForShutdownCancellationRequested(presenter);
         nativeOperations.ReleaseBlockedPushAfterMutation();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => apply);
@@ -1031,6 +1071,18 @@ public sealed class MauiPresentationTransactionTests
         return navigationPage.Navigation.NavigationStack
             .Select(page => Assert.IsType<string>(MauiPresentationMetadata.GetRouteEntryId(page)))
             .ToArray();
+    }
+
+    private static void WaitForShutdownCancellationRequested(MauiNavigationPresenter presenter)
+    {
+        FieldInfo field = typeof(MauiNavigationPresenter).GetField(
+            "_shutdownCancellation",
+            BindingFlags.Instance | BindingFlags.NonPublic) ??
+            throw new InvalidOperationException("Shutdown cancellation source was not found.");
+        var cancellation = Assert.IsType<CancellationTokenSource>(field.GetValue(presenter));
+        Assert.True(SpinWait.SpinUntil(
+            () => cancellation.IsCancellationRequested,
+            TimeSpan.FromSeconds(5)));
     }
 
     private static NavigationState StackState(params string[] entryIds)
@@ -1444,6 +1496,8 @@ public sealed class MauiPresentationTransactionTests
 
         public int PopFailuresRemaining { get; set; }
 
+        public int PopModalFailuresRemaining { get; set; }
+
         public bool AlwaysFailPush { get; set; }
 
         public bool BlockNextPush { get; set; }
@@ -1523,6 +1577,12 @@ public sealed class MauiPresentationTransactionTests
 
         public async Task<Page?> PopModalAsync(Page host, bool animated)
         {
+            if (PopModalFailuresRemaining > 0)
+            {
+                PopModalFailuresRemaining--;
+                throw new InvalidOperationException("Injected native modal pop failure.");
+            }
+
             Page? page = await MauiNativeNavigationOperations.Instance.PopModalAsync(host, animated);
             ThrowAfterMutation(NativeMutation.PopModal);
             return page;
@@ -1609,6 +1669,102 @@ public sealed class MauiPresentationTransactionTests
 
             FaultAfterMutation = null;
             throw new InvalidOperationException($"Injected {mutation} failure after mutation.");
+        }
+    }
+
+    private sealed class TrackingBranchHostFactory : IMauiBranchHostFactory
+    {
+        public MauiBranchHostPlacement SupportedPlacements => MauiBranchHostPlacement.All;
+
+        public List<TrackingBranchHostUpdate> Updates { get; } = [];
+
+        public ValueTask<IMauiBranchHost> CreateAsync(
+            MauiBranchHostCreationContext context,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult<IMauiBranchHost>(new TrackingBranchHost(this));
+        }
+    }
+
+    private sealed class TrackingBranchHost(TrackingBranchHostFactory factory) : IMauiBranchHost
+    {
+        private IReadOnlyList<MauiBranchHostBranch> _branches = [];
+
+        public Page Page { get; } = new ContentPage();
+
+        public IReadOnlyList<MauiBranchHostBranch> Branches => _branches;
+
+        public string? SelectedBranchId { get; private set; }
+
+        public Page? SelectedBranchPage => _branches.FirstOrDefault(branch =>
+            StringComparer.Ordinal.Equals(branch.Id, SelectedBranchId))?.Page;
+
+        public event EventHandler<MauiBranchHostSelectionChangedEventArgs>? SelectionChanged
+        {
+            add { }
+            remove { }
+        }
+
+        public ValueTask<IMauiBranchHostUpdate> ApplyAsync(
+            MauiBranchHostUpdateContext context,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            IReadOnlyList<MauiBranchHostBranch> previousBranches = _branches;
+            string? previousSelectedBranchId = SelectedBranchId;
+            _branches = context.Branches.ToArray();
+            SelectedBranchId = context.SelectedBranchId;
+            var update = new TrackingBranchHostUpdate(
+                this,
+                previousBranches,
+                previousSelectedBranchId);
+            factory.Updates.Add(update);
+            return ValueTask.FromResult<IMauiBranchHostUpdate>(update);
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+        public void Restore(
+            IReadOnlyList<MauiBranchHostBranch> branches,
+            string? selectedBranchId)
+        {
+            _branches = branches;
+            SelectedBranchId = selectedBranchId;
+        }
+    }
+
+    private sealed class TrackingBranchHostUpdate(
+        TrackingBranchHost host,
+        IReadOnlyList<MauiBranchHostBranch> previousBranches,
+        string? previousSelectedBranchId) : IMauiBranchHostUpdate
+    {
+        private bool _committed;
+
+        public int RollbackCount { get; private set; }
+
+        public int DisposeCount { get; private set; }
+
+        public ValueTask CommitAsync(CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            _committed = true;
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask RollbackAsync(CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            RollbackCount++;
+            if (!_committed)
+                host.Restore(previousBranches, previousSelectedBranchId);
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            DisposeCount++;
+            return ValueTask.CompletedTask;
         }
     }
 

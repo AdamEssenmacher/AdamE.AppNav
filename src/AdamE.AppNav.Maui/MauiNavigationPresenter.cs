@@ -3562,65 +3562,73 @@ internal sealed class MauiNavigationPresenter :
 
         public async ValueTask RollbackAsync()
         {
-            if (!ReferenceEquals(_presenter._attachedWindow, _previousAttachedWindow))
+            Exception? structuralRollbackFailure = null;
+            try
             {
-                throw new InvalidOperationException(
-                    "The attached MAUI window changed during a serialized presentation transaction.");
-            }
-
-            _presenter.CurrentPage = _previousCurrentPage;
-            if (_previousAttachedWindow is not null)
-                _presenter._nativeOperations.SetWindowPage(
-                    _previousAttachedWindow,
-                    _previousWindowPage);
-
-            foreach ((NavigationPage navigationPage, Page[] pages) in _navigationStacks)
-            {
-                while (navigationPage.Navigation.NavigationStack.Count > 1)
+                if (!ReferenceEquals(_presenter._attachedWindow, _previousAttachedWindow))
                 {
-                    int previousCount = navigationPage.Navigation.NavigationStack.Count;
-                    await _presenter._nativeOperations.PopAsync(navigationPage, animated: false);
-                    if (navigationPage.Navigation.NavigationStack.Count >= previousCount)
-                        throw new InvalidOperationException("Native stack rollback did not remove a page.");
+                    throw new InvalidOperationException(
+                        "The attached MAUI window changed during a serialized presentation transaction.");
                 }
 
-                if (pages.Length == 0)
-                    continue;
-                if (navigationPage.Navigation.NavigationStack.Count != 1 ||
-                    !ReferenceEquals(navigationPage.Navigation.NavigationStack[0], pages[0]))
+                _presenter.CurrentPage = _previousCurrentPage;
+                if (_previousAttachedWindow is not null)
+                    _presenter._nativeOperations.SetWindowPage(
+                        _previousAttachedWindow,
+                        _previousWindowPage);
+
+                foreach ((NavigationPage navigationPage, Page[] pages) in _navigationStacks)
                 {
-                    throw new InvalidOperationException("Native stack rollback could not restore its original root page.");
+                    while (navigationPage.Navigation.NavigationStack.Count > 1)
+                    {
+                        int previousCount = navigationPage.Navigation.NavigationStack.Count;
+                        await _presenter._nativeOperations.PopAsync(navigationPage, animated: false);
+                        if (navigationPage.Navigation.NavigationStack.Count >= previousCount)
+                            throw new InvalidOperationException("Native stack rollback did not remove a page.");
+                    }
+
+                    if (pages.Length == 0)
+                        continue;
+                    if (navigationPage.Navigation.NavigationStack.Count != 1 ||
+                        !ReferenceEquals(navigationPage.Navigation.NavigationStack[0], pages[0]))
+                    {
+                        throw new InvalidOperationException("Native stack rollback could not restore its original root page.");
+                    }
+
+                    for (var index = 1; index < pages.Length; index++)
+                        await _presenter._nativeOperations.PushAsync(navigationPage, pages[index], animated: false);
                 }
 
-                for (var index = 1; index < pages.Length; index++)
-                    await _presenter._nativeOperations.PushAsync(navigationPage, pages[index], animated: false);
-            }
-
-            if (_previousCurrentPage is not null)
-            {
-                while (_previousCurrentPage.Navigation.ModalStack.Count > 0)
+                if (_previousCurrentPage is not null)
                 {
-                    int previousCount = _previousCurrentPage.Navigation.ModalStack.Count;
-                    await _presenter._nativeOperations.PopModalAsync(_previousCurrentPage, animated: false);
-                    if (_previousCurrentPage.Navigation.ModalStack.Count >= previousCount)
-                        throw new InvalidOperationException("Modal rollback did not remove a page.");
+                    while (_previousCurrentPage.Navigation.ModalStack.Count > 0)
+                    {
+                        int previousCount = _previousCurrentPage.Navigation.ModalStack.Count;
+                        await _presenter._nativeOperations.PopModalAsync(_previousCurrentPage, animated: false);
+                        if (_previousCurrentPage.Navigation.ModalStack.Count >= previousCount)
+                            throw new InvalidOperationException("Modal rollback did not remove a page.");
+                    }
+
+                    foreach (Page modal in _previousModals)
+                        await _presenter._nativeOperations.PushModalAsync(
+                            _previousCurrentPage,
+                            modal,
+                            animated: false);
                 }
 
-                foreach (Page modal in _previousModals)
-                    await _presenter._nativeOperations.PushModalAsync(
-                        _previousCurrentPage,
-                        modal,
-                        animated: false);
+                foreach ((Page page, RouteEntry entry) in _updatedPages)
+                {
+                    SetRouteEntryId(page, entry.Id);
+                    await _presenter._pageFactory.UpdatePageAsync(
+                        page,
+                        entry,
+                        new MauiRoutePageUpdateContext(MauiRoutePageReuseKind.NonTargetReuse),
+                        CancellationToken.None);
+                }
             }
-
-            foreach ((Page page, RouteEntry entry) in _updatedPages)
+            catch (Exception ex)
             {
-                SetRouteEntryId(page, entry.Id);
-                await _presenter._pageFactory.UpdatePageAsync(
-                    page,
-                    entry,
-                    new MauiRoutePageUpdateContext(MauiRoutePageReuseKind.NonTargetReuse),
-                    CancellationToken.None);
+                structuralRollbackFailure = ex;
             }
 
             Exception? branchHostRollbackFailure = null;
@@ -3651,6 +3659,16 @@ internal sealed class MauiNavigationPresenter :
             foreach ((Page page, PageSnapshot snapshot) in _pageSnapshots)
                 snapshot.Restore(page);
 
+            if (structuralRollbackFailure is not null && branchHostRollbackFailure is not null)
+            {
+                throw new AggregateException(
+                    "Structural and branch-host rollback both failed.",
+                    structuralRollbackFailure,
+                    branchHostRollbackFailure);
+            }
+
+            if (structuralRollbackFailure is not null)
+                throw structuralRollbackFailure;
             if (branchHostRollbackFailure is not null)
                 throw branchHostRollbackFailure;
 
