@@ -17,11 +17,12 @@ not as behavior inherited automatically from the framework.
 Statements here carry three different levels of confidence, and conflating them
 is the main way this document can mislead a later reader:
 
-- **Decided.** Ownership and boundary choices that later work must not silently
-  revisit: AppNav owns its surface and replaces Blazor's `Router` there; the
-  render-mode boundary and its serialization rules; whole-candidate rejection
-  with no per-node pruning; stored browser state never bypassing current
-  authorization; capability detection instead of a closed render-mode enum.
+- **Decided.** Scope and boundary choices that later work must not silently
+  revisit: the supported v1 scope and its exclusions; AppNav owning its surface
+  and replacing Blazor's `Router` there; the render-mode boundary and its
+  serialization rules; whole-candidate rejection with no per-node pruning;
+  stored browser state never bypassing current authorization; and capability
+  detection instead of a closed render-mode enum.
 - **Provisional.** Mechanisms chosen against current framework behavior and
   expected to survive, but which the feasibility slice may correct — the
   history behavior table, the presentation transaction boundary and its
@@ -32,6 +33,10 @@ is the main way this document can mislead a later reader:
   until Phase 0a completes and the design review named at the end of Phase 0
   signs off. Feasibility implementation may land in the repository before then;
   what is gated is API stabilization, not development.
+
+These lists name the load-bearing cases, not every statement. Anything not
+listed is **provisional** by default: implementable as written, correctable by
+the feasibility slice, and not a contract until promoted here.
 
 Restating a proposal more confidently in a later revision does not promote it.
 Promotion happens only at the Phase 0 design review.
@@ -880,7 +885,11 @@ have been published.
 
 - [ ] Add failing core tests for presentation-time lifecycle navigation and a
   browser Back intent arriving while presentation awaits self-issued history
-  mutation; do not solve either by suppressing execution-context flow.
+  mutation, then make them pass against a throwaway feasibility implementation
+  of deferred or superseding navigation; neither may be solved by suppressing
+  execution-context flow or weakening core serialization. A red test only
+  records the hazard, so if it cannot be made green, record a stop-condition
+  finding rather than closing the gate.
 - [ ] Prove `EnableNavigationInterceptionAsync` enables ordinary links,
   programmatic navigation, and popstate in every supported host; assert that
   pre-enable `NavigateTo` is prohibited and self egress cannot re-enter core.
@@ -935,7 +944,11 @@ have been published.
 
 Closes both tiers.
 
-- [ ] Stop for design review before publishing public Blazor API baselines.
+- [ ] Hold the design review and record its outcome: approval, or corrections
+  incorporated and re-reviewed. Completion requires recorded approval covering
+  both the core and Blazor public API surfaces, not merely that a review was
+  convened. Core is in scope even though no Blazor baseline has been published
+  yet, because Phase 1 updates core baselines immediately.
 
 ### Phase 1: core contracts
 
