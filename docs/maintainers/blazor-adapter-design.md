@@ -28,8 +28,10 @@ is the main way this document can mislead a later reader:
   ordering, the restoration-state envelope and its budgets, and the
   fragment-entry model.
 - **Proposed.** The required core evolution below is a set of proposals, not
-  accepted API. Nothing in that section is committed until Phase 0a completes
-  and the design review named at the end of Phase 0 approves it.
+  accepted API. Nothing in that section is approved or stabilized as public API
+  until Phase 0a completes and the design review named at the end of Phase 0
+  signs off. Feasibility implementation may land in the repository before then;
+  what is gated is API stabilization, not development.
 
 Restating a proposal more confidently in a later revision does not promote it.
 Promotion happens only at the Phase 0 design review.
@@ -336,7 +338,7 @@ events cancel older uncommitted browser requests. Explicit application calls to
 
 These are **proposals**, not accepted API. The feasibility slice should
 establish final names and shapes for these concepts before public API approval,
-and Phase 0a must complete before any of them is committed:
+and Phase 0a must complete before any of them is stabilized as public API:
 
 1. **Explicit presentation history intent.** Presentation context must use
    host-neutral intents such as append, replace, preserve, and logical back.
@@ -853,16 +855,28 @@ target .NET 10 servicing release and verify behavior in real hosts.
 
 ### Phase 0: design and feasibility
 
-Phase 0 items are tiered. **Phase 0a** items can invalidate the design: a
-failure there returns to design review against the stop conditions below.
-**Phase 0b** items shape the design: a failure there adjusts scope, defers a
-capability, or corrects a contract, but does not by itself put the adapter in
-question. The
-tiers are not sequential phases; 0b work may start whenever it is cheaper to
-learn early. The distinction exists so that one stumble in a long list is not
-read as a verdict on the whole design.
+Phase 0 items are tiered by what they unblock, not by how severe a failure is.
+**Phase 0a** items must be settled before any public Blazor or core API is
+stabilized, because every later item is written against the contracts they
+establish. **Phase 0b** is the remaining feasibility and design-shaping work.
+The tiers are not sequential phases; 0b work may start whenever it is cheaper
+to learn early.
 
-#### Phase 0a: design-invalidating gates
+Severity is governed by the feasibility stop conditions, not by the tier. A
+failure in **either** tier that matches a stop condition returns to design
+review. The stop conditions are split roughly evenly across the two tiers, and
+several of the most consequential are proved by 0b items — fragment history
+identity, ambient-query and branch preservation, server route-carrier
+coexistence, and MudBlazor compatibility among them. The tiering orders the
+work; it never licenses papering over a 0b finding.
+
+One stop condition is not evaluated in Phase 0 at all: the vertical slice runs
+only Chromium, so a material Chromium/Firefox/WebKit difference can first
+surface in the Phase 5 release-confidence lane. A failure there returns to
+design review on the same terms, even though public API baselines may already
+have been published.
+
+#### Phase 0a: public-API stabilization gates
 
 - [ ] Add failing core tests for presentation-time lifecycle navigation and a
   browser Back intent arriving while presentation awaits self-issued history
@@ -880,7 +894,7 @@ read as a verdict on the whole design.
   covered stacks, inactive branches, modal owners/content, and nested topology
   without mutating the deferred-request store.
 
-#### Phase 0b: design-shaping work
+#### Phase 0b: remaining feasibility and design-shaping work
 
 - [x] Record the accepted scope and ownership decisions.
 - [x] Audit the baseline against official ASP.NET Core 10 Blazor documentation
@@ -916,6 +930,11 @@ read as a verdict on the whole design.
 - [ ] Prove `NavigationManager.NotFound()` renders the configured AppNav
   destination during prerender and after interactive activation.
 - [ ] Run the vertical slice in Chromium and document any contract corrections.
+
+#### Phase 0 exit gate
+
+Closes both tiers.
+
 - [ ] Stop for design review before publishing public Blazor API baselines.
 
 ### Phase 1: core contracts
