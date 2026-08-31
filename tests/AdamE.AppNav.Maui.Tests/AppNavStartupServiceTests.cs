@@ -58,6 +58,44 @@ public sealed class AppNavStartupServiceTests
     }
 
     [Fact]
+    public Task StartAsync_AwaitsAsynchronousWindowAttachment()
+    {
+        return MainThread.InvokeOnMainThreadAsync(async () =>
+        {
+            var navigator = new RecordingRouterNavigator();
+            using var services = new ServiceCollection()
+                .AddSingleton<IRouterNavigator>(navigator)
+                .AddSingleton(new NavigationDiagnostics())
+                .BuildServiceProvider();
+            using var dispatcher = new MauiExternalNavigationDispatcher(
+                services,
+                services.GetRequiredService<NavigationDiagnostics>());
+            var windowAttachment = new GatedWindowAttachment();
+            var startup = new AppNavStartupService(
+                navigator,
+                windowAttachment,
+                dispatcher,
+                new AppNavStartupOptions { AppLinkGracePeriod = TimeSpan.Zero },
+                services,
+                services.GetRequiredService<NavigationDiagnostics>());
+
+            Task<AppNavStartupResult> startupTask = startup
+                .StartAsync(new Window(new ContentPage()))
+                .AsTask();
+            await windowAttachment.AttachStarted;
+
+            Assert.False(startupTask.IsCompleted);
+            Assert.True(windowAttachment.AttachOnMainThread);
+
+            windowAttachment.CompleteAttach();
+            AppNavStartupResult result = await startupTask;
+
+            Assert.Equal(AppNavStartupOutcome.NoNavigation, result.Outcome);
+            Assert.Equal(1, windowAttachment.AttachCalls);
+        });
+    }
+
+    [Fact]
     public async Task StartAsync_TypedFallbackCreatesCanonicalInAppRequestForStartupWindow()
     {
         var navigator = new RecordingRouterNavigator();
@@ -1024,13 +1062,50 @@ public sealed class AppNavStartupServiceTests
 
         public List<bool> AttachMainThreadChecks { get; } = [];
 
-        public void AttachWindow(Window window, string windowId)
+        public ValueTask AttachWindowAsync(
+            Window window,
+            string windowId,
+            CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             Assert.NotNull(window);
             Assert.Equal("main", windowId);
             AttachCalls++;
             AttachMainThreadChecks.Add(MainThread.IsMainThread);
             onAttach?.Invoke();
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class GatedWindowAttachment : IMauiWindowAttachment
+    {
+        private readonly TaskCompletionSource _attachStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _attachCompletion =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task AttachStarted => _attachStarted.Task;
+
+        public int AttachCalls { get; private set; }
+
+        public bool AttachOnMainThread { get; private set; }
+
+        public void CompleteAttach()
+        {
+            _attachCompletion.TrySetResult();
+        }
+
+        public ValueTask AttachWindowAsync(
+            Window window,
+            string windowId,
+            CancellationToken cancellationToken = default)
+        {
+            Assert.NotNull(window);
+            Assert.Equal("main", windowId);
+            AttachCalls++;
+            AttachOnMainThread = MainThread.IsMainThread;
+            _attachStarted.TrySetResult();
+            return new ValueTask(_attachCompletion.Task.WaitAsync(cancellationToken));
         }
     }
 

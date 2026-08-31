@@ -316,12 +316,32 @@ internal sealed class MauiNavigationPresenter :
         _lastState = NavigationState.Empty;
     }
 
-    public void AttachWindow(Window window, string windowId = "main")
+    public async ValueTask AttachWindowAsync(
+        Window window,
+        string windowId = "main",
+        CancellationToken cancellationToken = default)
     {
-        ThrowIfUnavailable();
         ArgumentNullException.ThrowIfNull(window);
         ArgumentException.ThrowIfNullOrWhiteSpace(windowId);
 
+        await RunSerializedWindowMutationAsync(
+            () => AttachWindowOnMainThread(window, windowId),
+            cancellationToken);
+    }
+
+    public async ValueTask DetachWindowAsync(
+        Window window,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(window);
+
+        await RunSerializedWindowMutationAsync(
+            () => DetachWindowOnMainThread(window),
+            cancellationToken);
+    }
+
+    private void AttachWindowOnMainThread(Window window, string windowId)
+    {
         WindowNode? presentedWindow = _lastState.ActiveWindow;
         if (presentedWindow is not null &&
             !StringComparer.Ordinal.Equals(presentedWindow.Id, windowId))
@@ -348,11 +368,8 @@ internal sealed class MauiNavigationPresenter :
         _externalNavigationDispatcher?.MarkReady();
     }
 
-    public void DetachWindow(Window window)
+    private void DetachWindowOnMainThread(Window window)
     {
-        ThrowIfUnavailable();
-        ArgumentNullException.ThrowIfNull(window);
-
         if (ReferenceEquals(_attachedWindow, window))
         {
             TransferCurrentPage(window, null);
@@ -360,6 +377,36 @@ internal sealed class MauiNavigationPresenter :
             _externalNavigationDispatcher?.SetForegrounded(false);
             _attachedWindow = null;
             _attachedWindowId = null;
+        }
+    }
+
+    private async ValueTask RunSerializedWindowMutationAsync(
+        Action mutation,
+        CancellationToken cancellationToken)
+    {
+        BeginOperation();
+        var lockTaken = false;
+        CancellationTokenSource? linkedCancellation = null;
+        try
+        {
+            CancellationToken operationCancellation = CreateOperationCancellation(
+                cancellationToken,
+                out linkedCancellation);
+            await _presentationOperationLock.WaitAsync(operationCancellation).ConfigureAwait(false);
+            lockTaken = true;
+            await InvokeOnMainThreadPreservingExecutionContextAsync(() =>
+            {
+                mutation();
+                return Task.CompletedTask;
+            });
+        }
+        finally
+        {
+            if (lockTaken)
+                _presentationOperationLock.Release();
+
+            linkedCancellation?.Dispose();
+            EndOperation();
         }
     }
 
@@ -2993,6 +3040,7 @@ internal sealed class MauiNavigationPresenter :
     {
         private readonly MauiNavigationPresenter _presenter;
         private readonly Page? _previousCurrentPage;
+        private readonly Window? _previousAttachedWindow;
         private readonly Page? _previousWindowPage;
         private readonly Page[] _previousModals;
         private readonly Dictionary<NavigationPage, Page[]> _navigationStacks =
@@ -3013,7 +3061,8 @@ internal sealed class MauiNavigationPresenter :
             _presenter = presenter;
             PreviousState = presenter._lastState;
             _previousCurrentPage = presenter.CurrentPage;
-            _previousWindowPage = presenter._attachedWindow?.Page;
+            _previousAttachedWindow = presenter._attachedWindow;
+            _previousWindowPage = _previousAttachedWindow?.Page;
             _previousModals = _previousCurrentPage?.Navigation.ModalStack.ToArray() ?? [];
             _previousEntries = CreateRouteEntryMap(PreviousState);
 
@@ -3062,10 +3111,16 @@ internal sealed class MauiNavigationPresenter :
 
         public async ValueTask RollbackAsync()
         {
+            if (!ReferenceEquals(_presenter._attachedWindow, _previousAttachedWindow))
+            {
+                throw new InvalidOperationException(
+                    "The attached MAUI window changed during a serialized presentation transaction.");
+            }
+
             _presenter.CurrentPage = _previousCurrentPage;
-            if (_presenter._attachedWindow is not null)
+            if (_previousAttachedWindow is not null)
                 _presenter._nativeOperations.SetWindowPage(
-                    _presenter._attachedWindow,
+                    _previousAttachedWindow,
                     _previousWindowPage);
 
             foreach ((TabbedPage tabbedPage, TabSnapshot snapshot) in _tabs)

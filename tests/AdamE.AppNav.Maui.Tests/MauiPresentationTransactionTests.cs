@@ -34,7 +34,7 @@ public sealed class MauiPresentationTransactionTests
         if (mutation == NativeMutation.SetWindowPage)
         {
             window = new Window(Assert.IsAssignableFrom<Page>(presenter.CurrentPage));
-            presenter.AttachWindow(window);
+            await presenter.AttachWindowAsync(window);
         }
 
         NativePresentationSnapshot previousPresentation = CapturePresentation(presenter, window);
@@ -67,13 +67,14 @@ public sealed class MauiPresentationTransactionTests
         await presenter.ApplyAsync(new NavigationPlan(state), Context("detail", NavigationState.Empty));
         Page currentPage = Assert.IsAssignableFrom<Page>(presenter.CurrentPage);
         var originalWindow = new Window();
-        presenter.AttachWindow(originalWindow);
+        await presenter.AttachWindowAsync(originalWindow);
         var replacementPage = new ContentPage();
         var replacementWindow = new Window(replacementPage);
         nativeOperations.FailWindowPageAfterMutation(
             faultSourceWindow ? originalWindow : replacementWindow);
 
-        Assert.Throws<InvalidOperationException>(() => presenter.AttachWindow(replacementWindow));
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            presenter.AttachWindowAsync(replacementWindow).AsTask());
 
         Assert.Same(currentPage, originalWindow.Page);
         Assert.Same(replacementPage, replacementWindow.Page);
@@ -95,10 +96,11 @@ public sealed class MauiPresentationTransactionTests
         await presenter.ApplyAsync(new NavigationPlan(state), Context("detail", NavigationState.Empty));
         Page currentPage = Assert.IsAssignableFrom<Page>(presenter.CurrentPage);
         var window = new Window();
-        presenter.AttachWindow(window);
+        await presenter.AttachWindowAsync(window);
         nativeOperations.FailWindowPageAfterMutation(window);
 
-        Assert.Throws<InvalidOperationException>(() => presenter.DetachWindow(window));
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            presenter.DetachWindowAsync(window).AsTask());
 
         Assert.Same(currentPage, window.Page);
         Assert.Same(currentPage, presenter.CurrentPage);
@@ -119,15 +121,15 @@ public sealed class MauiPresentationTransactionTests
         await presenter.ApplyAsync(new NavigationPlan(state), Context("detail", NavigationState.Empty));
         Page currentPage = Assert.IsAssignableFrom<Page>(presenter.CurrentPage);
         var originalWindow = new Window();
-        presenter.AttachWindow(originalWindow);
+        await presenter.AttachWindowAsync(originalWindow);
         var replacementPage = new ContentPage();
         var replacementWindow = new Window(replacementPage);
         nativeOperations.FailWindowPageAfterMutation(replacementWindow, replacementWindow);
 
-        MauiPresentationConsistencyException failure = Assert.Throws<MauiPresentationConsistencyException>(
-            () => presenter.AttachWindow(replacementWindow));
-        MauiPresentationConsistencyException subsequent = Assert.Throws<MauiPresentationConsistencyException>(
-            () => presenter.AttachWindow(new Window()));
+        MauiPresentationConsistencyException failure = await Assert.ThrowsAsync<MauiPresentationConsistencyException>(
+            () => presenter.AttachWindowAsync(replacementWindow).AsTask());
+        MauiPresentationConsistencyException subsequent = await Assert.ThrowsAsync<MauiPresentationConsistencyException>(
+            () => presenter.AttachWindowAsync(new Window()).AsTask());
 
         Assert.Same(failure, subsequent);
         Assert.Same(currentPage, originalWindow.Page);
@@ -135,6 +137,86 @@ public sealed class MauiPresentationTransactionTests
         Assert.Same(originalWindow, presenter.AttachedWindow);
         Assert.Equal("main", presenter.AttachedWindowId);
 
+        await presenter.StartShutdown();
+    }
+
+    [UIFact]
+    public async Task ReplacementAttachmentWaitsForFailingPresentationRollback()
+    {
+        var factory = new GatedRoutePageFactory();
+        var presenter = new MauiNavigationPresenter(factory);
+        var originalPlaceholder = new ContentPage { Title = "original-placeholder" };
+        var replacementPlaceholder = new ContentPage { Title = "replacement-placeholder" };
+        var originalWindow = new Window(originalPlaceholder);
+        var replacementWindow = new Window(replacementPlaceholder);
+        await presenter.AttachWindowAsync(originalWindow);
+        using var cancellation = new CancellationTokenSource();
+
+        Task apply = presenter.ApplyAsync(
+            new NavigationPlan(StackState("home")),
+            Context("home", NavigationState.Empty),
+            cancellation.Token).AsTask();
+        await factory.CreateStarted.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Task attachReplacement = presenter.AttachWindowAsync(replacementWindow).AsTask();
+        await Task.Yield();
+
+        Assert.False(attachReplacement.IsCompleted);
+        Assert.Same(originalWindow, presenter.AttachedWindow);
+        Assert.Same(originalPlaceholder, originalWindow.Page);
+        Assert.Same(replacementPlaceholder, replacementWindow.Page);
+
+        cancellation.Cancel();
+        factory.ReleaseCreate();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => apply);
+        await attachReplacement.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Page failedPage = Assert.Single(factory.CreatedPages);
+        Assert.Equal(1, factory.ReleaseCountFor(failedPage));
+        Assert.Null(presenter.CurrentPage);
+        Assert.Same(originalPlaceholder, originalWindow.Page);
+        Assert.Same(replacementPlaceholder, replacementWindow.Page);
+        Assert.Same(replacementWindow, presenter.AttachedWindow);
+
+        await presenter.ApplyAsync(
+            new NavigationPlan(StackState("recovered")),
+            Context("recovered", NavigationState.Empty));
+
+        Assert.Same(presenter.CurrentPage, replacementWindow.Page);
+        Assert.Same(originalPlaceholder, originalWindow.Page);
+        await presenter.StartShutdown();
+    }
+
+    [UIFact]
+    public async Task ReplacementAttachmentWaitsForSuccessfulPresentationCommit()
+    {
+        var factory = new GatedRoutePageFactory();
+        var presenter = new MauiNavigationPresenter(factory);
+        var originalWindow = new Window(new ContentPage { Title = "original-placeholder" });
+        var replacementWindow = new Window(new ContentPage { Title = "replacement-placeholder" });
+        await presenter.AttachWindowAsync(originalWindow);
+
+        Task apply = presenter.ApplyAsync(
+            new NavigationPlan(StackState("home")),
+            Context("home", NavigationState.Empty)).AsTask();
+        await factory.CreateStarted.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Task attachReplacement = presenter.AttachWindowAsync(replacementWindow).AsTask();
+        await Task.Yield();
+
+        Assert.False(attachReplacement.IsCompleted);
+        Assert.Same(originalWindow, presenter.AttachedWindow);
+
+        factory.ReleaseCreate();
+        await apply.WaitAsync(TimeSpan.FromSeconds(5));
+        await attachReplacement.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Page committedRoot = Assert.IsAssignableFrom<Page>(presenter.CurrentPage);
+        Assert.Null(originalWindow.Page);
+        Assert.Same(committedRoot, replacementWindow.Page);
+        Assert.Same(replacementWindow, presenter.AttachedWindow);
+        Assert.Empty(factory.ReleasedPages);
         await presenter.StartShutdown();
     }
 
@@ -1013,6 +1095,78 @@ public sealed class MauiPresentationTransactionTests
         }
 
         public int ReleaseCountFor(Page page) => _inner.ReleaseCountFor(page);
+    }
+
+    private sealed class GatedRoutePageFactory : IMauiRoutePageFactory
+    {
+        private readonly InstrumentedRoutePageFactory _inner = new();
+        private readonly TaskCompletionSource _createStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _releaseCreate =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private bool _gateNextCreate = true;
+
+        public Task CreateStarted => _createStarted.Task;
+
+        public IReadOnlyList<Page> CreatedPages => _inner.CreatedPages;
+
+        public IReadOnlyList<Page> ReleasedPages => _inner.ReleasedPages;
+
+        public void ReleaseCreate()
+        {
+            _releaseCreate.TrySetResult();
+        }
+
+        public async ValueTask<Page> CreatePageAsync(
+            RouteEntry entry,
+            CancellationToken cancellationToken = default)
+        {
+            if (_gateNextCreate)
+            {
+                _gateNextCreate = false;
+                _createStarted.TrySetResult();
+                await _releaseCreate.Task;
+            }
+
+            return await _inner.CreatePageAsync(entry, cancellationToken);
+        }
+
+        public ValueTask<Page> CreatePresentationPageAsync(
+            Type pageType,
+            Page ownerRoutePage,
+            bool inheritBindingContext,
+            CancellationToken cancellationToken = default)
+        {
+            return _inner.CreatePresentationPageAsync(
+                pageType,
+                ownerRoutePage,
+                inheritBindingContext,
+                cancellationToken);
+        }
+
+        public ValueTask UpdatePageAsync(
+            Page page,
+            RouteEntry entry,
+            MauiRoutePageUpdateContext context,
+            CancellationToken cancellationToken = default)
+        {
+            return _inner.UpdatePageAsync(page, entry, context, cancellationToken);
+        }
+
+        public ValueTask ReleasePageAsync(Page page)
+        {
+            return _inner.ReleasePageAsync(page);
+        }
+
+        public ValueTask ReleasePresentationPageAsync(Page page)
+        {
+            return _inner.ReleasePresentationPageAsync(page);
+        }
+
+        public int ReleaseCountFor(Page page)
+        {
+            return _inner.ReleaseCountFor(page);
+        }
     }
 
     private sealed class FaultingNativeOperations : IMauiNativeNavigationOperations

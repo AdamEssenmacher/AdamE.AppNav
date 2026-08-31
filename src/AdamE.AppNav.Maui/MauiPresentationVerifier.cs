@@ -49,11 +49,7 @@ internal sealed class MauiPresentationVerifier : IMauiPresentationVerifier
             return Mismatch("$.currentPage", "null", DescribePage(context.CurrentPage));
         }
 
-        if (context.AttachedWindow?.Page is not null)
-        {
-            return Mismatch("$.attachedWindow.Page", "null", DescribePage(context.AttachedWindow.Page));
-        }
-
+        // With no router-owned current page, an attached window may retain a host-owned placeholder.
         return null;
     }
 

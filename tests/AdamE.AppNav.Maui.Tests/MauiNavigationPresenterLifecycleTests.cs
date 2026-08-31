@@ -31,7 +31,8 @@ public sealed class MauiNavigationPresenterLifecycleTests
 
         _ = fixture.Presenter.StartShutdown();
         _ = fixture.Presenter.StartShutdown();
-        Assert.Throws<ObjectDisposedException>(() => fixture.Presenter.AttachWindow(new Window()));
+        await Assert.ThrowsAsync<ObjectDisposedException>(() =>
+            fixture.Presenter.AttachWindowAsync(new Window()).AsTask());
         await fixture.Presenter.StartShutdown();
 
         Assert.All(routePages, page => Assert.Equal(1, fixture.Factory.ReleaseCountFor(page)));
@@ -57,16 +58,16 @@ public sealed class MauiNavigationPresenterLifecycleTests
         var window = new Window();
         var replacementWindow = new Window();
 
-        fixture.Presenter.AttachWindow(window);
+        await fixture.Presenter.AttachWindowAsync(window);
         Assert.Same(currentPage, window.Page);
 
-        fixture.Presenter.DetachWindow(window);
+        await fixture.Presenter.DetachWindowAsync(window);
 
         Assert.Null(window.Page);
         Assert.Same(currentPage, fixture.Presenter.CurrentPage);
         Assert.Empty(fixture.Factory.ReleasedPages);
 
-        fixture.Presenter.AttachWindow(replacementWindow);
+        await fixture.Presenter.AttachWindowAsync(replacementWindow);
 
         Assert.Same(currentPage, replacementWindow.Page);
         Assert.Same(replacementWindow, fixture.Presenter.AttachedWindow);
@@ -95,8 +96,8 @@ public sealed class MauiNavigationPresenterLifecycleTests
             eventName => EventHandlerCount(replacementWindow, eventName),
             StringComparer.Ordinal);
 
-        fixture.Presenter.AttachWindow(originalWindow);
-        fixture.Presenter.AttachWindow(replacementWindow);
+        await fixture.Presenter.AttachWindowAsync(originalWindow);
+        await fixture.Presenter.AttachWindowAsync(replacementWindow);
 
         Assert.Null(originalWindow.Page);
         Assert.Same(currentPage, replacementWindow.Page);
@@ -123,12 +124,12 @@ public sealed class MauiNavigationPresenterLifecycleTests
 
         Page currentPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
         var originalWindow = new Window();
-        fixture.Presenter.AttachWindow(originalWindow);
+        await fixture.Presenter.AttachWindowAsync(originalWindow);
         var hostOwnedPage = new ContentPage();
         originalWindow.Page = hostOwnedPage;
         var replacementWindow = new Window();
 
-        fixture.Presenter.AttachWindow(replacementWindow);
+        await fixture.Presenter.AttachWindowAsync(replacementWindow);
 
         Assert.Same(hostOwnedPage, originalWindow.Page);
         Assert.Same(currentPage, replacementWindow.Page);
@@ -154,14 +155,14 @@ public sealed class MauiNavigationPresenterLifecycleTests
         var rootPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
         var window = new Window();
 
-        fixture.Presenter.AttachWindow(window, "main");
+        await fixture.Presenter.AttachWindowAsync(window, "main");
 
         Assert.Same(rootPage, presentationState.RootPage);
         Assert.Same(rootPage, fixture.Presenter.CurrentPage);
         Assert.Same(window, presentationState.AttachedWindow);
         Assert.Equal("main", presentationState.AttachedWindowId);
 
-        fixture.Presenter.DetachWindow(window);
+        await fixture.Presenter.DetachWindowAsync(window);
 
         Assert.Same(rootPage, presentationState.RootPage);
         Assert.Null(presentationState.AttachedWindow);
@@ -176,7 +177,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
     }
 
     [Fact]
-    public void AttachWindowSameWindowDoesNotDuplicateLifecycleHandlers()
+    public async Task AttachWindowSameWindowDoesNotDuplicateLifecycleHandlers()
     {
         var fixture = new PresenterFixture();
         var window = new Window();
@@ -185,15 +186,15 @@ public sealed class MauiNavigationPresenterLifecycleTests
             eventName => EventHandlerCount(window, eventName),
             StringComparer.Ordinal);
 
-        fixture.Presenter.AttachWindow(window);
-        fixture.Presenter.AttachWindow(window);
+        await fixture.Presenter.AttachWindowAsync(window);
+        await fixture.Presenter.AttachWindowAsync(window);
 
         foreach (var eventName in WindowLifecycleEventNames)
         {
             Assert.Equal(initialHandlerCounts[eventName] + 1, EventHandlerCount(window, eventName));
         }
 
-        fixture.Presenter.DetachWindow(window);
+        await fixture.Presenter.DetachWindowAsync(window);
 
         foreach (var eventName in WindowLifecycleEventNames)
         {
@@ -207,12 +208,12 @@ public sealed class MauiNavigationPresenterLifecycleTests
     [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
-    public void AttachWindowRejectsMissingWindowId(string? windowId)
+    public async Task AttachWindowRejectsMissingWindowId(string? windowId)
     {
         var fixture = new PresenterFixture();
 
-        Assert.ThrowsAny<ArgumentException>(() =>
-            fixture.Presenter.AttachWindow(new Window(), windowId!));
+        await Assert.ThrowsAnyAsync<ArgumentException>(() =>
+            fixture.Presenter.AttachWindowAsync(new Window(), windowId!).AsTask());
 
         _ = fixture.Presenter.StartShutdown();
     }
@@ -222,7 +223,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
     {
         var fixture = new PresenterFixture();
         var originalWindow = new Window();
-        fixture.Presenter.AttachWindow(originalWindow, "main");
+        await fixture.Presenter.AttachWindowAsync(originalWindow, "main");
         int originalActivatedHandlers = EventHandlerCount(originalWindow, "Activated");
 
         await fixture.Presenter.ApplyAsync(
@@ -232,8 +233,8 @@ public sealed class MauiNavigationPresenterLifecycleTests
         var replacementWindow = new Window();
         int replacementActivatedHandlers = EventHandlerCount(replacementWindow, "Activated");
 
-        var exception = Assert.Throws<AppNavigationConfigurationException>(() =>
-            fixture.Presenter.AttachWindow(replacementWindow, "secondary"));
+        var exception = await Assert.ThrowsAsync<AppNavigationConfigurationException>(() =>
+            fixture.Presenter.AttachWindowAsync(replacementWindow, "secondary").AsTask());
 
         Assert.Contains("does not match", exception.Message, StringComparison.Ordinal);
         Assert.Same(originalWindow, fixture.Presenter.AttachedWindow);
@@ -248,15 +249,15 @@ public sealed class MauiNavigationPresenterLifecycleTests
     }
 
     [Fact]
-    public void AttachWindowRejectsMissingIdWithoutDetachingExistingWindow()
+    public async Task AttachWindowRejectsMissingIdWithoutDetachingExistingWindow()
     {
         var fixture = new PresenterFixture();
         var originalWindow = new Window();
-        fixture.Presenter.AttachWindow(originalWindow, "main");
+        await fixture.Presenter.AttachWindowAsync(originalWindow, "main");
         int originalActivatedHandlers = EventHandlerCount(originalWindow, "Activated");
 
-        Assert.ThrowsAny<ArgumentException>(() =>
-            fixture.Presenter.AttachWindow(new Window(), " "));
+        await Assert.ThrowsAnyAsync<ArgumentException>(() =>
+            fixture.Presenter.AttachWindowAsync(new Window(), " ").AsTask());
 
         Assert.Same(originalWindow, fixture.Presenter.AttachedWindow);
         Assert.Equal(originalActivatedHandlers, EventHandlerCount(originalWindow, "Activated"));
@@ -268,7 +269,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
     {
         var fixture = new PresenterFixture();
         var window = new Window();
-        fixture.Presenter.AttachWindow(window, "main");
+        await fixture.Presenter.AttachWindowAsync(window, "main");
 
         var exception = await Assert.ThrowsAsync<AppNavigationConfigurationException>(() => fixture.Presenter
             .ApplyAsync(
@@ -287,7 +288,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
     {
         var fixture = new PresenterFixture();
         var window = new Window();
-        fixture.Presenter.AttachWindow(window, "main");
+        await fixture.Presenter.AttachWindowAsync(window, "main");
 
         var exception = await Assert.ThrowsAsync<AppNavigationConfigurationException>(() => fixture.Presenter
             .ApplyAsync(

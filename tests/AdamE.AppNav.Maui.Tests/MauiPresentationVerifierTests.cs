@@ -213,6 +213,18 @@ public sealed class MauiPresentationVerifierTests
     }
 
     [Fact]
+    public void VerifyAcceptsHostOwnedAttachedPageForEmptyRouterState()
+    {
+        var hostOwnedPage = new ContentPage();
+        var window = new Window(hostOwnedPage);
+
+        var mismatch = Verify(NavigationState.Empty, currentPage: null, attachedWindow: window);
+
+        Assert.Null(mismatch);
+        Assert.Same(hostOwnedPage, window.Page);
+    }
+
+    [Fact]
     public async Task PresenterVerificationFailureEmitsDiagnosticAndDoesNotAdvanceLastState()
     {
         var verifier = new SequencedVerifier(
