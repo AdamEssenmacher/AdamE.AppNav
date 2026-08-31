@@ -10,10 +10,16 @@ public static class GettingStartedNavigationModel
     {
         return StackNavigationModel<AppRoute>.Create(builder =>
         {
+            // This model owns one logical window and one native navigation stack.
             builder.CanonicalSurface("main", "main-stack");
+
+            // Home has one stable entry on the shared "main" stack scope.
             builder.Map<HomeRoute>(recipe => recipe
                 .EntryId(_ => "home")
                 .ScopeKey(_ => "main"));
+
+            // Each item gets a distinct entry. Canonical navigation rebuilds
+            // the complete Home -> Detail stack from any previous state.
             builder.Map<DetailRoute>(recipe => recipe
                 .EntryId(route => $"detail-{route.ItemId}")
                 .ScopeKey(_ => "main")
