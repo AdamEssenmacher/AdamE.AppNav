@@ -6,18 +6,17 @@ trying to do.
 
 ## Evaluate AppNav
 
-- Start with [Why AppNav?](concepts/00-why-appnav.md) to understand the design
+- Start with the repository [overview](../README.md), including the shortest
+  source-sample path and preview limits.
+- Read [Why AppNav?](concepts/00-why-appnav.md) to understand the design
   tradeoffs and decide whether the route-first model fits your application.
 - Keep the [Glossary](reference/glossary.md) nearby for precise definitions and
   distinctions such as route versus page, plan versus presentation, and source
   versus provenance.
-- Confirm the [one-navigation-owner boundary](guides/02-maui-integration.md#one-navigation-owner-no-shell-or-prism-navigation):
+- Confirm the [one-navigation-owner
+  boundary](guides/02-maui-integration.md#one-navigation-owner-no-shell-or-prism-navigation):
   AppNav does not support Shell routing, Prism navigation, or mixed ownership
   of the same window.
-- Review [Established ideas, adapted for
-  .NET](concepts/00-why-appnav.md#established-ideas-adapted-for-net) for the
-  conceptual lineage and comparisons with mature UI ecosystems.
-- Read the repository [overview and quickstart](../README.md).
 - Review [topology and planning](concepts/02-topology-and-planning.md) to understand
   stacks, independent branches, modals, and canonical navigation.
 - Review the [preview release notes](release-notes/index.md) and supported
@@ -25,16 +24,18 @@ trying to do.
 
 ## Build your first app
 
-The concept guides share **Glyphmere**, a fictional RPG pause menu, so routes,
-independent branch histories, requests, and provenance build on one recognizable
-model. The Getting Started guide then applies the same fundamentals in a
-minimal buildable sample.
+The Getting Started guide begins with a minimal buildable sample. When that
+sample needs a richer setting, the concept guides use **Glyphmere**, a
+fictional RPG pause menu, to explain independent branch histories, requests,
+and provenance.
 
-1. Learn [routing and metadata](concepts/01-routing-and-metadata.md).
-2. Understand [topology and planning](concepts/02-topology-and-planning.md).
-3. Choose the right abstraction with
+1. Run the source sample with [Getting started](guides/01-getting-started.md).
+2. Deepen the sample's model with [routing and
+   metadata](concepts/01-routing-and-metadata.md).
+3. Understand independent branches and canonical shapes with
+   [topology and planning](concepts/02-topology-and-planning.md).
+4. Choose the right request abstraction with
    [requests and provenance](concepts/03-requests-and-provenance.md).
-4. Follow [Getting started](guides/01-getting-started.md).
 5. Continue with [MAUI integration](guides/02-maui-integration.md).
 6. Structure inner application code with
    [Application architecture and testing](guides/03-application-architecture-and-testing.md).

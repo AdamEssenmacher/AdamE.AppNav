@@ -765,9 +765,12 @@ public sealed partial class RepositoryContractTests
     {
         var root = RepositoryRoot();
         var readme = File.ReadAllText(Path.Combine(root, "README.md"));
+        var topology = File.ReadAllText(
+            Path.Combine(root, "docs", "concepts", "02-topology-and-planning.md"));
 
-        Assert.Contains("Native user actions reconcile", readme, StringComparison.Ordinal);
-        Assert.Contains("transition or shared-element system", readme, StringComparison.Ordinal);
+        Assert.Contains("Native host changes are reconciled", topology, StringComparison.Ordinal);
+        Assert.Contains("a transition", readme, StringComparison.Ordinal);
+        Assert.Contains("shared-element system", readme, StringComparison.Ordinal);
         Assert.DoesNotContain("NavigationTransition", readme, StringComparison.Ordinal);
         Assert.DoesNotContain("SharedElementNavigationTransition", readme, StringComparison.Ordinal);
         Assert.DoesNotContain("AppNavTransition", readme, StringComparison.Ordinal);
@@ -781,15 +784,19 @@ public sealed partial class RepositoryContractTests
     }
 
     [Fact]
-    public void ReadmeExamplesStayOnPublicSurface()
+    public void PublicSurfaceDocumentationStaysOnSupportedApis()
     {
         var root = RepositoryRoot();
         var readme = File.ReadAllText(Path.Combine(root, "README.md"));
+        var requests = File.ReadAllText(
+            Path.Combine(root, "docs", "concepts", "03-requests-and-provenance.md"));
+        var releaseNotes = File.ReadAllText(
+            Path.Combine(root, "docs", "release-notes", "0.1.0-preview.1.md"));
 
         Assert.Contains("FallbackRouteFactory", readme, StringComparison.Ordinal);
         Assert.Contains("FallbackRequestFactory", readme, StringComparison.Ordinal);
-        Assert.Contains("There are no URI/source convenience overloads", readme, StringComparison.Ordinal);
-        Assert.Contains("RouterNavigatorExtensions", readme, StringComparison.Ordinal);
+        Assert.Contains("URI/source convenience overloads are removed", releaseNotes, StringComparison.Ordinal);
+        Assert.Contains("RouterNavigatorExtensions", requests, StringComparison.Ordinal);
         Assert.Contains("ReconcileAsync", File.ReadAllText(Path.Combine(root, "docs", "advanced", "adapter-contract.md")), StringComparison.Ordinal);
         Assert.DoesNotContain("AdamE.AppNav.Testing", readme, StringComparison.Ordinal);
         Assert.DoesNotContain("RouterTestNavigator", readme, StringComparison.Ordinal);

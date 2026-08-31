@@ -9,13 +9,11 @@ Routes, the navigation model, pages, and MAUI registration live together here
 so a new reader can see the complete minimum setup. In a larger application,
 routes, policies, topology, and view models that request typed destinations can
 move into a plain `net10.0` project while the MAUI project keeps pages,
-lifecycle, native presentation, and platform services. This sample's
-single-project shape is an onboarding convenience, not an architectural
-requirement.
+lifecycle, native presentation, and platform services.
 
-Its one-route-to-one-page mapping is also an onboarding convenience. Routes
-identify Home and Detail; pages and view models are replaceable presentation
-choices rather than navigation identity.
+The sample maps one route to one page for clarity. [Why
+AppNav?](../../docs/concepts/00-why-appnav.md#a-route-is-neither-a-page-nor-a-view-model)
+explains the more flexible route-to-presentation relationship.
 
 Read the full [Getting started guide](../../docs/guides/01-getting-started.md) or
 return to the [repository README](../../README.md).

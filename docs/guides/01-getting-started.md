@@ -6,31 +6,31 @@ This guide uses the buildable
 [`GettingStarted.Sample`](../../samples/GettingStarted.Sample/README.md). It is
 deliberately limited to Home -> Detail -> native Back so the core AppNav model
 is visible without external ingress, persistence, tabs, or auth. The concept
-guides use the richer fictional RPG [Glyphmere](../concepts/01-routing-and-metadata.md#meet-glyphmere)
-to explain independent branches and nested destinations; Home -> Detail is the
-smallest executable version of the same route -> plan -> presentation flow.
+guides use the richer fictional RPG
+[Glyphmere](../concepts/01-routing-and-metadata.md#meet-glyphmere) to explain
+independent branches and nested destinations; Home -> Detail is the smallest
+executable version of the same route -> plan -> presentation flow.
 
-## Read the core concepts first
-
-Before copying the setup code, understand the three boundaries introduced by
-[routing and metadata](../concepts/01-routing-and-metadata.md), [topology and
-planning](../concepts/02-topology-and-planning.md), and [requests and
-provenance](../concepts/03-requests-and-provenance.md). Use the
-[Glossary](../reference/glossary.md) whenever a term such as route, entry, plan,
-presentation, or provenance is unfamiliar.
+## Core concepts in one minute
 
 The minimum mental model is: app code requests a semantic destination, a
 navigation model plans the logical topology for it, and the MAUI presenter
 materializes that topology with native controls. The walkthrough below puts
 those concepts together in the smallest supported application.
 
-The sample intentionally keeps routes, the navigation model, pages, and MAUI
-composition in one project. That makes the minimum setup visible; it is not a
-recommendation that a larger application put navigation decisions in its
-rendering layer. A layered application can move its routes, route metadata,
-navigation model, policies, and view models that request typed destinations
-into a plain `net10.0` project while the MAUI project retains pages, lifecycle,
-native presentation, and platform services. See [Application architecture and
+For more depth, use [routing and
+metadata](../concepts/01-routing-and-metadata.md), [topology and
+planning](../concepts/02-topology-and-planning.md), and [requests and
+provenance](../concepts/03-requests-and-provenance.md) as those boundaries
+appear below. The [Glossary](../reference/glossary.md) defines terms such as
+route, entry, plan, presentation, and provenance.
+
+The sample keeps routes, the navigation model, pages, and MAUI composition in
+one project so the minimum setup is visible. A layered application can move its
+routes, route metadata, navigation model, policies, and view models that
+request typed destinations into a plain `net10.0` project while the MAUI
+project retains pages, lifecycle, native presentation, and platform services.
+See [Application architecture and
 testing](03-application-architecture-and-testing.md).
 
 ## Requirements
@@ -131,12 +131,10 @@ declared shape from any prior state.
 `AppNavMauiPages.g.cs` and its `MauiPageModule`. Page constructors receive the
 typed route and any services supplied by DI.
 
-This minimal sample uses one page per route because that is the clearest
-onboarding shape, not because a route and page are the same concept. The route
-identifies Home or Detail; the MAUI adapter decides which page presents it.
-More advanced routes can own several native presentation pages, and a page can
-render a route through custom controls or route-specific state. View models may
-request or consume routes, but their types are not routes either.
+This minimal sample uses one page per route for clarity. The [route and
+presentation distinction](../concepts/00-why-appnav.md#a-route-is-neither-a-page-nor-a-view-model)
+also permits route-specific controls, state, or several native presentation
+pages.
 
 The Home button uses the buildable `getting-started-typed-navigation` region:
 

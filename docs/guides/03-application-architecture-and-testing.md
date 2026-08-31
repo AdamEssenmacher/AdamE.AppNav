@@ -8,14 +8,6 @@ has more than one renderer, but it also pays off when MAUI is the only renderer:
 most navigation behavior can be tested without starting MAUI, a simulator, a
 device, or a UI thread.
 
-This architectural direction is not a claim of novelty. Other UI ecosystems
-also model navigation as data or explicit state and resolve that state to
-rendered content. AppNav's focus is making that boundary usable from ordinary
-.NET application projects while a native MAUI adapter owns the outer edge. See
-[Established ideas, adapted for
-.NET](../concepts/00-why-appnav.md#established-ideas-adapted-for-net) for the
-comparison and primary references.
-
 This guide continues the fictional RPG
 [Glyphmere](../concepts/01-routing-and-metadata.md#meet-glyphmere). The examples
 are conceptual; the buildable [Getting Started sample](01-getting-started.md)
@@ -72,12 +64,10 @@ need to depend on AppNav merely because presentation logic requests a route.
 Conversely, platform ingress and native presentation should not be pulled
 inward just to make every navigation-related file shareable.
 
-This separation does not turn view models into routes. `InventoryViewModel`
-can request `InventoryItemRoute(itemId)`, and a view model associated with the
-result can consume that route, but the view-model types remain replaceable
-presentation details. The semantic route stays stable if Glyphmere splits the
-destination across view models, removes a view model, or renders the same
-destination differently in another host.
+`InventoryViewModel` can request `InventoryItemRoute(itemId)` without becoming
+the destination's identity. [Why
+AppNav?](../concepts/00-why-appnav.md#a-route-is-neither-a-page-nor-a-view-model)
+explains that distinction in full.
 
 ## Request semantic destinations from presentation logic
 

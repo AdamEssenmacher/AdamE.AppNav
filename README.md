@@ -6,6 +6,23 @@ Define destinations once, then use the same typed routes for in-app navigation,
 deep links, native stacks and tabs, Back behavior, restoration, and testing.
 AppNav owns the navigation model while MAUI keeps rendering native controls.
 
+## Try the source sample
+
+The smallest runnable example is Home -> Detail -> native Back. From the
+repository root, build it for a supported target:
+
+```sh
+dotnet build samples/GettingStarted.Sample/GettingStarted.Sample.csproj \
+  -c Debug \
+  -f net10.0-maccatalyst \
+  -warnaserror
+```
+
+Substitute `net10.0-android` or `net10.0-ios` as appropriate, then launch it
+through Rider or the normal MAUI run workflow. The [Getting started
+guide](docs/guides/01-getting-started.md) explains the files and concepts as
+they appear in the sample.
+
 ## Preview status
 
 The target release is `0.1.0-preview.1`.
@@ -24,9 +41,9 @@ retry queues, deferred navigation persistence, safe diagnostics, and
 trimming/AOT-oriented validation.
 
 The preview deliberately excludes Windows MAUI, Shell and Prism integration, a
-production Blazor adapter, true multi-window MAUI orchestration, a transition or shared-element system,
-NuGet.org publication, and stable `1.0` compatibility
-guarantees.
+production Blazor adapter, true multi-window MAUI orchestration, a transition
+or shared-element system, NuGet.org publication, and stable `1.0`
+compatibility guarantees.
 
 Packages will be attached to a GitHub prerelease as `.nupkg` and `.snupkg`
 files. A consumer installation workflow will be documented when the publication
@@ -64,9 +81,10 @@ MVVM libraries, dependency-injection containers, messaging libraries, and
 other non-navigation features may coexist when they do not mutate the
 AppNav-managed navigation surface. Moving an existing Shell- or Prism-navigated
 window to AppNav is a replacement migration, not an interoperability switch in
-this preview. See [MAUI integration](docs/guides/02-maui-integration.md#one-navigation-owner-no-shell-or-prism-navigation).
+this preview. See [MAUI
+integration](docs/guides/02-maui-integration.md#one-navigation-owner-no-shell-or-prism-navigation).
 
-## Learn the model first
+## Why the model is explicit
 
 AppNav treats navigation as an application model with three explicit parts:
 
@@ -77,8 +95,8 @@ AppNav treats navigation as an application model with three explicit parts:
 2. **Topology**: a navigation model declares the valid windows, stacks,
    independent branches, entries, and modals for those destinations.
 3. **Request context**: app code uses the narrow typed route API, while external
-   and host boundaries preserve source, policy, disposition, and provenance in
-   a complete request.
+   and host boundaries preserve the target, source, disposition, timestamp,
+   window, metadata, and provenance in a complete request.
 
 This model takes more setup than a direct page push, and it gives every entry
 path the same vocabulary. Buttons, deep links, notifications, startup,
@@ -99,39 +117,29 @@ intent -> typed route or complete request -> transform/match -> policy
        -> logical plan -> native presentation -> commit/reconciliation
 ```
 
-Before copying the setup code, follow the concepts in order:
-
-1. [Why AppNav?](docs/concepts/00-why-appnav.md)
-2. [Routing and metadata](docs/concepts/01-routing-and-metadata.md)
-3. [Topology and planning](docs/concepts/02-topology-and-planning.md)
-4. [Requests and provenance](docs/concepts/03-requests-and-provenance.md)
-
-Then use [Application architecture and
-testing](docs/guides/03-application-architecture-and-testing.md) to decide which
-navigation concerns belong in a render-independent project and which remain in
-the MAUI host.
-
-The underlying direction is not unique to AppNav. Across SwiftUI, Android's
-modern navigation APIs, and React Navigation are related ideas around
-data-driven destinations, explicit navigation state, nested history, and
-mapping navigation data to rendered UI. AppNav adapts and combines those
-established concepts for pure .NET application code and native MAUI
-presentation. See [Established ideas, adapted for
-.NET](docs/concepts/00-why-appnav.md#established-ideas-adapted-for-net) for the
-careful comparison and primary references.
+The concept guides develop this model in order: [Why
+AppNav?](docs/concepts/00-why-appnav.md), [Routing and
+metadata](docs/concepts/01-routing-and-metadata.md), [Topology and
+planning](docs/concepts/02-topology-and-planning.md), and [Requests and
+provenance](docs/concepts/03-requests-and-provenance.md). Read them as the
+sample introduces unfamiliar terms or before designing a larger topology. Use
+[Application architecture and
+testing](docs/guides/03-application-architecture-and-testing.md) when deciding
+which concerns belong in a render-independent project and which remain in the
+MAUI host.
 
 If a small application is adequately served by a few direct page operations,
 AppNav may not be the right tradeoff. If navigation must remain coherent across
 several entry paths and native UI structures, the explicit model is the source
 of that coherence.
 
-## Buildable quickstart
+## How the sample works
 
 The complete buildable onboarding app is
 [`samples/GettingStarted.Sample`](samples/GettingStarted.Sample/README.md). It
 has Home -> Detail -> native Back and intentionally contains no external
-navigation or persistence. It is the smallest executable application of the
-concepts above, not a substitute for them.
+navigation or persistence. The five steps below are sourced directly from that
+sample.
 
 ### 1. Define typed routes
 
@@ -188,10 +196,10 @@ Annotate the page classes with `[MauiRoutePage(typeof(HomeRoute))]` and
 `AppNavMauiPages.g.cs` and its `MauiPageModule`. App code then uses a typed
 navigation extension:
 
-The sample uses a convenient one-route-to-one-page mapping. That is its MAUI
-presentation choice, not route identity: routes are neither pages nor view
-models. A richer route can own additional native presentation pages or be
-rendered by an anchor page in route-specific state.
+The sample deliberately uses the simplest route-to-page mapping. See [A route
+is neither a page nor a view
+model](docs/concepts/00-why-appnav.md#a-route-is-neither-a-page-nor-a-view-model)
+for the more flexible presentation boundary.
 
 ```csharp
 await navigator.NavigateAsync(new DetailRoute(42));
@@ -235,33 +243,6 @@ for tests and advanced coordination.
 
 Continue with the [Getting started guide](docs/guides/01-getting-started.md) for
 commands, a sample walkthrough, and next steps.
-
-## Core request model
-
-- `AppRoute` is durable semantic destination identity.
-- `AppRouteRequest` adds route-owned metadata to a typed route.
-- `RouterNavigationRequest` is the complete runtime envelope used at transport
-  and host boundaries.
-- `IRouterNavigator` exposes full-envelope navigation, logical Back,
-  reconciliation, current state, and history.
-- `RouterNavigatorExtensions` supplies the four typed app-facing operations.
-
-There are no URI/source convenience overloads on `IRouterNavigator`. App links,
-push, QR, restore, and other boundaries construct a complete
-`RouterNavigationRequest` so source, disposition, window, and provenance remain
-explicit.
-
-The standard planner supports:
-
-| Disposition | Behavior |
-| --- | --- |
-| `Auto` | Contextual for in-app/test requests; canonical for external sources |
-| `Contextual` | Contextual push, then canonical fallback |
-| `ReplaceCurrent` | Contextual replace-top, then canonical fallback |
-| `Canonical` | Rebuild the model's declared canonical topology |
-
-Native user actions reconcile through host-neutral `HostBack`,
-`BranchChanged`, and `HostReconciliation` vocabulary.
 
 ## Documentation
 
