@@ -69,7 +69,9 @@ public static StackNavigationModel<AppRoute> Create()
 {
     return StackNavigationModel<AppRoute>.Create(builder =>
     {
-        // This model owns one logical window and one native navigation stack.
+        // These app-defined stable IDs identify the canonical surface.
+        // "main" becomes WindowNode.Id and matches startup.Start(window, "main").
+        // "main-stack" becomes StackNode.Id for the NavigationPage-backed stack.
         builder.CanonicalSurface("main", "main-stack");
 
         // Home has one stable entry on the shared "main" stack scope.
