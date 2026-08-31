@@ -15,14 +15,14 @@ public sealed class BackNavigatorTests
         BackNavigationResult result = default;
 
         Assert.Equal(BackNavigationResult.Unhandled, result);
-        Assert.False(result.Handled);
-        Assert.Null(result.HandledNavigationResult);
+        Assert.Equal(BackNavigationStatus.Unhandled, result.Status);
+        Assert.Null(result.NavigationResult);
     }
 
     [Fact]
     public void HandledBackNavigationResultRequiresNavigationResult()
     {
-        Assert.Throws<ArgumentNullException>(() => BackNavigationResult.HandledBy(null!));
+        Assert.Throws<ArgumentNullException>(() => BackNavigationResult.CompletedBy(null!));
     }
 
     [Fact]

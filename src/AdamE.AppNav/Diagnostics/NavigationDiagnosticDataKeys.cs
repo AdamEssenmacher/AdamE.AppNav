@@ -11,6 +11,16 @@ namespace AdamE.AppNav.Diagnostics;
 public static class NavigationDiagnosticDataKeys
 {
     /// <summary>
+    /// Decision produced by a policy.
+    /// </summary>
+    public const string Decision = "decision";
+
+    /// <summary>
+    /// Source that initiated a logical back request.
+    /// </summary>
+    public const string BackSource = "backSource";
+
+    /// <summary>
     /// Number of items affected by an operation.
     /// </summary>
     public const string Count = "count";

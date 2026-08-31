@@ -382,6 +382,31 @@ public sealed class AppNavNavigatorRegistrationTests
     }
 
     [Fact]
+    public async Task AddAppNavDiscoversBackPoliciesInDiOrderAndRegistersHostBackDispatcher()
+    {
+        var calls = new List<string>();
+        var services = new ServiceCollection();
+        services.AddSingleton<IBackNavigationPolicy>(new RecordingBackPolicy("first", calls));
+        services.AddSingleton<IBackNavigationPolicy>(new RecordingBackPolicy("second", calls));
+        services.AddSingleton<IBackNavigator>(new FixedBackNavigator());
+        services.AddAppNav<PagePlanner>(
+            Routes(),
+            pages => pages.MapPage<TestRoute>((_, _) => new TestPage()));
+
+        await using var provider = services.BuildServiceProvider();
+        var navigator = provider.GetRequiredService<IRouterNavigator>();
+        await navigator.NavigateAsync(new TestRoute("registered"));
+
+        BackNavigationResult result = await navigator.BackAsync();
+
+        Assert.Equal(BackNavigationStatus.Completed, result.Status);
+        Assert.Equal(["first", "second"], calls);
+        Assert.Same(
+            provider.GetRequiredService<IMauiHostBackDispatcher>(),
+            provider.GetRequiredService<IMauiHostBackDispatcher>());
+    }
+
+    [Fact]
     public async Task ServiceProviderDisposalShutsDownFactoryCreatedNavigator()
     {
         var services = new ServiceCollection();
@@ -710,6 +735,23 @@ public sealed class AppNavNavigatorRegistrationTests
         }
     }
 
+    private sealed class RecordingBackPolicy(string name, List<string> calls) : IBackNavigationPolicy
+    {
+        public ValueTask<BackNavigationPolicyDecision> EvaluateAsync(
+            BackNavigationPolicyContext context,
+            CancellationToken cancellationToken = default)
+        {
+            calls.Add(name);
+            return ValueTask.FromResult(BackNavigationPolicyDecision.Continue);
+        }
+    }
+
+    private sealed class FixedBackNavigator : IBackNavigator
+    {
+        public NavigationPlan CreateBackPlan(BackNavigationContext context) =>
+            new(NavigationState.Empty, NavigationPlanKind.Back);
+    }
+
     private sealed class RecordingRouterNavigator : IRouterNavigator
     {
         public NavigationState CurrentState => NavigationState.Empty;
@@ -717,7 +759,7 @@ public sealed class AppNavNavigatorRegistrationTests
         public NavigationHistory History => NavigationHistory.Empty;
 
         public ValueTask<NavigationResult> NavigateAsync(RouterNavigationRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public ValueTask<BackNavigationResult> BackAsync(string? windowId = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<BackNavigationResult> BackAsync(BackNavigationRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<NavigationResult> ReconcileAsync(NavigationReconciliation reconciliation, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public void Dispose() { }
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;

@@ -298,5 +298,25 @@ public enum NavigationDiagnosticEventKind
     /// <summary>
     /// The oldest deferred-navigation requests were dropped to preserve configured store bounds.
     /// </summary>
-    DeferredRequestStoreOverflowed
+    DeferredRequestStoreOverflowed,
+
+    /// <summary>
+    /// Asynchronous evaluation of a back-navigation policy started.
+    /// </summary>
+    BackPolicyStarted,
+
+    /// <summary>
+    /// A back-navigation policy completed successfully.
+    /// </summary>
+    BackPolicyCompleted,
+
+    /// <summary>
+    /// A back-navigation policy failed.
+    /// </summary>
+    BackPolicyFailed,
+
+    /// <summary>
+    /// A candidate logical back operation was canceled by policy.
+    /// </summary>
+    BackCanceled
 }

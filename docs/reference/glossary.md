@@ -51,8 +51,9 @@ ephemeral. It is narrower than `RouterNavigationRequest`.
 
 A request to move backward through logical navigation. AppNav considers modal
 content, modal dismissal, stack entries, and configured branch fallback.
-`BackNavigationResult.Handled == false` is a normal result that lets the host
-apply its root-level Back behavior. See [Navigation outcomes and failure
+`BackNavigationStatus.Unhandled` is a normal result that lets the host apply its
+root-level Back behavior. `Canceled` means an asynchronous policy consumed the
+request without mutation. See [Navigation outcomes and failure
 handling](../guides/04-navigation-outcomes-and-failure-handling.md).
 
 ### Branch

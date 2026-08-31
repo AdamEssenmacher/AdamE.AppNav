@@ -61,17 +61,24 @@ BackNavigationResult back = await navigator.BackAsync(
     windowId: "main",
     cancellationToken: cancellationToken);
 
-if (!back.Handled)
+if (back.Status == BackNavigationStatus.Unhandled)
 {
     // Let the host close the pause menu or apply its normal root-level Back behavior.
     return;
 }
 
-NavigationResult completed = back.HandledNavigationResult!;
+if (back.Status == BackNavigationStatus.Canceled)
+{
+    // A policy consumed Back without changing presentation, state, or history.
+    return;
+}
+
+NavigationResult completed = back.NavigationResult!;
 ```
 
-`Handled == false` is not an error and has no nested navigation result. When
-`Handled == true`, `HandledNavigationResult` describes the presented and
+`BackNavigationStatus.Unhandled` is not an error and has no nested navigation
+result. `Canceled` is also a normal consumed outcome with no nested result.
+Only `Completed` carries `NavigationResult`, which describes the presented and
 committed Back plan.
 
 For Glyphmere, Back from an inventory item may return to Weapons. Back at the

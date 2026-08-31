@@ -1,4 +1,5 @@
 using AdamE.AppNav.History;
+using AdamE.AppNav.Back;
 using AdamE.AppNav.Navigation;
 using AdamE.AppNav.Presentation;
 using AdamE.AppNav.Requests;
@@ -18,6 +19,8 @@ internal interface IMauiWindowAttachment
 
 internal interface IAppNavRuntime : IRouterNavigator
 {
+    bool IsDisposed { get; }
+
     ValueTask AttachWindowAsync(
         Window window,
         string windowId,
@@ -29,6 +32,10 @@ internal sealed class AppNavRuntime(
     MauiNavigationPresenter presenter)
     : IAppNavRuntime, IMauiWindowAttachment
 {
+    private int _disposed;
+
+    public bool IsDisposed => Volatile.Read(ref _disposed) != 0;
+
     public NavigationState CurrentState => navigator.CurrentState;
 
     public NavigationHistory History => navigator.History;
@@ -47,6 +54,13 @@ internal sealed class AppNavRuntime(
         return navigator.BackAsync(windowId, cancellationToken);
     }
 
+    public ValueTask<BackNavigationResult> BackAsync(
+        BackNavigationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return navigator.BackAsync(request, cancellationToken);
+    }
+
     public ValueTask<NavigationResult> ReconcileAsync(
         NavigationReconciliation reconciliation,
         CancellationToken cancellationToken = default)
@@ -56,6 +70,7 @@ internal sealed class AppNavRuntime(
 
     public void Dispose()
     {
+        Interlocked.Exchange(ref _disposed, 1);
         try
         {
             navigator.Dispose();
@@ -68,6 +83,7 @@ internal sealed class AppNavRuntime(
 
     public async ValueTask DisposeAsync()
     {
+        Interlocked.Exchange(ref _disposed, 1);
         ValueTask navigatorShutdown = navigator.DisposeAsync();
         Task presenterShutdown = presenter.StartShutdown();
         Exception? navigatorFailure = null;

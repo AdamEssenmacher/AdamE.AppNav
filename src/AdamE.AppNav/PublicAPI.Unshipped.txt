@@ -4,3 +4,44 @@ AdamE.AppNav.Navigation.AppNavigationConfigurationException.AppNavigationConfigu
 AdamE.AppNav.Navigation.AppNavigationConfigurationException.AppNavigationConfigurationException(string! message, System.Exception! innerException) -> void
 AdamE.AppNav.Routing.RouteFormatBuilder<TRoute>.PathParam<TValue>(string! name, System.Func<TRoute!, TValue>! value) -> AdamE.AppNav.Routing.RouteFormatBuilder<TRoute!>!
 AdamE.AppNav.Routing.RouteFormatBuilder<TRoute>.QueryParam<TValue>(string! name, System.Func<TRoute!, TValue>! value, bool omitWhenNull = true) -> AdamE.AppNav.Routing.RouteFormatBuilder<TRoute!>!
+AdamE.AppNav.Back.BackNavigationPolicyContext
+AdamE.AppNav.Back.BackNavigationPolicyContext.BackNavigationPolicyContext(AdamE.AppNav.Back.BackNavigationRequest! request, AdamE.AppNav.Back.BackNavigationContext! navigationContext, AdamE.AppNav.Plans.NavigationPlan! candidatePlan) -> void
+AdamE.AppNav.Back.BackNavigationPolicyContext.CandidatePlan.get -> AdamE.AppNav.Plans.NavigationPlan!
+AdamE.AppNav.Back.BackNavigationPolicyContext.NavigationContext.get -> AdamE.AppNav.Back.BackNavigationContext!
+AdamE.AppNav.Back.BackNavigationPolicyContext.Request.get -> AdamE.AppNav.Back.BackNavigationRequest!
+AdamE.AppNav.Back.BackNavigationPolicyDecision
+AdamE.AppNav.Back.BackNavigationPolicyDecision.Cancel = 1 -> AdamE.AppNav.Back.BackNavigationPolicyDecision
+AdamE.AppNav.Back.BackNavigationPolicyDecision.Continue = 0 -> AdamE.AppNav.Back.BackNavigationPolicyDecision
+AdamE.AppNav.Back.BackNavigationRequest
+AdamE.AppNav.Back.BackNavigationRequest.BackNavigationRequest(string? windowId = null, AdamE.AppNav.Back.BackNavigationSource source = AdamE.AppNav.Back.BackNavigationSource.ApplicationCommand) -> void
+AdamE.AppNav.Back.BackNavigationRequest.Source.get -> AdamE.AppNav.Back.BackNavigationSource
+AdamE.AppNav.Back.BackNavigationRequest.WindowId.get -> string?
+AdamE.AppNav.Back.BackNavigationSource
+AdamE.AppNav.Back.BackNavigationSource.ApplicationCommand = 0 -> AdamE.AppNav.Back.BackNavigationSource
+AdamE.AppNav.Back.BackNavigationSource.Host = 1 -> AdamE.AppNav.Back.BackNavigationSource
+AdamE.AppNav.Back.IBackNavigationPolicy
+AdamE.AppNav.Back.IBackNavigationPolicy.EvaluateAsync(AdamE.AppNav.Back.BackNavigationPolicyContext! context, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<AdamE.AppNav.Back.BackNavigationPolicyDecision>
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.BackCanceled = 78 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.BackPolicyCompleted = 76 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.BackPolicyFailed = 77 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.BackPolicyStarted = 75 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Navigation.BackNavigationResult.NavigationResult.get -> AdamE.AppNav.Navigation.NavigationResult?
+AdamE.AppNav.Navigation.BackNavigationResult.Status.get -> AdamE.AppNav.Navigation.BackNavigationStatus
+AdamE.AppNav.Navigation.BackNavigationStatus
+AdamE.AppNav.Navigation.BackNavigationStatus.Canceled = 2 -> AdamE.AppNav.Navigation.BackNavigationStatus
+AdamE.AppNav.Navigation.BackNavigationStatus.Completed = 1 -> AdamE.AppNav.Navigation.BackNavigationStatus
+AdamE.AppNav.Navigation.BackNavigationStatus.Unhandled = 0 -> AdamE.AppNav.Navigation.BackNavigationStatus
+AdamE.AppNav.Navigation.IRouterNavigator.BackAsync(AdamE.AppNav.Back.BackNavigationRequest! request, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<AdamE.AppNav.Navigation.BackNavigationResult>
+AdamE.AppNav.Navigation.RouterNavigatorFactoryOptions.BackNavigationPolicies.get -> System.Collections.Generic.IReadOnlyList<AdamE.AppNav.Back.IBackNavigationPolicy!>!
+AdamE.AppNav.Navigation.RouterNavigatorFactoryOptions.BackNavigationPolicies.init -> void
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.BackSource = "backSource" -> string!
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.Decision = "decision" -> string!
+static AdamE.AppNav.Navigation.BackNavigationResult.Canceled.get -> AdamE.AppNav.Navigation.BackNavigationResult
+static AdamE.AppNav.Navigation.BackNavigationResult.CompletedBy(AdamE.AppNav.Navigation.NavigationResult! result) -> AdamE.AppNav.Navigation.BackNavigationResult
+*REMOVED*AdamE.AppNav.Navigation.BackNavigationResult.BackNavigationResult(bool Handled, AdamE.AppNav.Navigation.NavigationResult? HandledNavigationResult = null) -> void
+*REMOVED*AdamE.AppNav.Navigation.BackNavigationResult.Deconstruct(out bool Handled, out AdamE.AppNav.Navigation.NavigationResult? HandledNavigationResult) -> void
+*REMOVED*AdamE.AppNav.Navigation.BackNavigationResult.Handled.get -> bool
+*REMOVED*AdamE.AppNav.Navigation.BackNavigationResult.Handled.init -> void
+*REMOVED*AdamE.AppNav.Navigation.BackNavigationResult.HandledNavigationResult.get -> AdamE.AppNav.Navigation.NavigationResult?
+*REMOVED*AdamE.AppNav.Navigation.BackNavigationResult.HandledNavigationResult.init -> void
+*REMOVED*static AdamE.AppNav.Navigation.BackNavigationResult.HandledBy(AdamE.AppNav.Navigation.NavigationResult! result) -> AdamE.AppNav.Navigation.BackNavigationResult
