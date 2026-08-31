@@ -18,6 +18,7 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PORTABLE_PROJECT="src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj"
 PROJECT_KEY="adame-appnav"
+BUILD_ONLY_PROJECT_KEY="adame-appnav-build"
 PROJECT_NAME="AdamE.AppNav"
 COVERAGE_DIR="$REPO_ROOT/.coverage"
 STACK_DIR="$HOME/sonarqube-local"
@@ -66,6 +67,11 @@ case "${1:-}" in
     die "unknown argument: $1"
     ;;
 esac
+
+if [ "$RUN_TESTS" -eq 0 ]; then
+  PROJECT_KEY="$BUILD_ONLY_PROJECT_KEY"
+  PROJECT_NAME="AdamE.AppNav (build-only)"
+fi
 
 cd "$REPO_ROOT" || die "cannot cd to $REPO_ROOT"
 
@@ -157,8 +163,8 @@ SCAN_ACTIVE=1
 finish_incomplete_scan() {
   local exit_code=$?
   if [ "$SCAN_ACTIVE" -eq 1 ]; then
-    warn "ending the incomplete SonarQube analysis"
-    dotnet sonarscanner end "/d:sonar.token=$SONAR_TOKEN" >/dev/null 2>&1 || true
+    warn "cleaning up the incomplete SonarQube analysis (not uploading)"
+    rm -rf "$REPO_ROOT/.sonarqube"
     SCAN_ACTIVE=0
   fi
   return "$exit_code"
@@ -167,9 +173,6 @@ trap finish_incomplete_scan EXIT
 
 abort_scan() {
   warn "$1"
-  if dotnet sonarscanner end "/d:sonar.token=$SONAR_TOKEN" >/dev/null 2>&1; then
-    SCAN_ACTIVE=0
-  fi
   die "$1"
 }
 
@@ -224,6 +227,10 @@ else
   bold "3/4  tests skipped"
 fi
 
+if [ "$TESTS_FAILED" -ne 0 ]; then
+  die "tests or coverage failed; analysis not uploaded"
+fi
+
 # --- end -------------------------------------------------------------------
 bold "4/4  sonarscanner end (uploading)"
 dotnet sonarscanner end "/d:sonar.token=$SONAR_TOKEN" || die "end failed"
@@ -233,7 +240,3 @@ trap - EXIT
 echo
 ok "Analysis uploaded"
 echo "  $SONAR_HOST_URL/dashboard?id=$PROJECT_KEY"
-
-if [ "$TESTS_FAILED" -ne 0 ]; then
-  die "analysis uploaded, but tests or coverage failed"
-fi

@@ -32,7 +32,10 @@ endpoint.
 
 The default command scans the portable `net10.0` production graph and collects OpenCover data from the core,
 adapter-contract, route-generator, and MAUI-generator test suites. `--no-tests` performs a faster build-only scan.
-Native MAUI tests, samples, benchmarks, and package-consumer fixtures are intentionally outside this local baseline.
+Build-only scans upload to the separate SonarQube project `adame-appnav-build`, preserving coverage history in the
+full-analysis project `adame-appnav`. Native MAUI tests, samples, benchmarks, and package-consumer fixtures are
+intentionally outside this local baseline. Failed builds, tests, or coverage collection clean up without uploading an
+incomplete analysis.
 
 ## Runtime gate
 
