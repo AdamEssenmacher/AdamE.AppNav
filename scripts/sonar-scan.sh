@@ -70,8 +70,14 @@ esac
 cd "$REPO_ROOT" || die "cannot cd to $REPO_ROOT"
 
 # --- configuration ---------------------------------------------------------
+# Keep explicit caller values authoritative while using the shared .env file
+# only for defaults. This makes one-off local endpoints and tokens predictable.
+CALLER_SONAR_HOST_URL="${SONAR_HOST_URL-}"
+CALLER_SONAR_TOKEN="${SONAR_TOKEN-}"
 [ -f "$STACK_DIR/.env" ] && { set -a; . "$STACK_DIR/.env"; set +a; }
-SONAR_HOST_URL="${SONAR_HOST_URL:-http://localhost:9000}"
+SONAR_HOST_URL="${CALLER_SONAR_HOST_URL:-${SONAR_HOST_URL:-http://localhost:9000}}"
+SONAR_TOKEN="${CALLER_SONAR_TOKEN:-${SONAR_TOKEN:-}}"
+unset CALLER_SONAR_HOST_URL CALLER_SONAR_TOKEN
 
 [ -n "${SONAR_TOKEN:-}" ] || die "SONAR_TOKEN not set.
     Generate one at $SONAR_HOST_URL (My Account > Security), then add it to:
