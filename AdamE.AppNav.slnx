@@ -15,11 +15,11 @@
     <File Path="docs/concepts/topology-and-planning.md" />
   </Folder>
   <Folder Name="/docs/guides/">
-    <File Path="docs/guides/deferred-navigation.md" />
-    <File Path="docs/guides/external-navigation.md" />
-    <File Path="docs/guides/getting-started.md" />
-    <File Path="docs/guides/maui-integration.md" />
-    <File Path="docs/guides/troubleshooting.md" />
+    <File Path="docs/guides/01-getting-started.md" />
+    <File Path="docs/guides/02-maui-integration.md" />
+    <File Path="docs/guides/03-external-navigation.md" />
+    <File Path="docs/guides/04-deferred-navigation.md" />
+    <File Path="docs/guides/05-troubleshooting.md" />
   </Folder>
   <Folder Name="/docs/maintainers/">
     <File Path="docs/maintainers/app-route-request-dogfood-checkpoint.md" />

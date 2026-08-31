@@ -96,6 +96,6 @@ when generation fails.
 
 ## Next steps
 
-- Follow [MAUI integration](../guides/maui-integration.md).
+- Follow [MAUI integration](../guides/02-maui-integration.md).
 - Understand [requests and provenance](requests-and-provenance.md).
 - Review [topology and planning](topology-and-planning.md).

@@ -3,7 +3,7 @@
 [Documentation home](../index.md)
 
 This is advanced material for adapter authors. Application integrations should
-start with [Getting started](../guides/getting-started.md).
+start with [Getting started](../guides/01-getting-started.md).
 
 AppNav core is host-independent. An adapter implements `INavigationPresenter` using only public core APIs and is created
 with the router through `RouterNavigatorFactory`.

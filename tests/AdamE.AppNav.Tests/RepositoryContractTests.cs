@@ -289,7 +289,7 @@ public sealed partial class RepositoryContractTests
         var root = RepositoryRoot();
         var readme = File.ReadAllText(Path.Combine(root, "README.md"));
         var gettingStarted = File.ReadAllText(
-            Path.Combine(root, "docs", "guides", "getting-started.md"));
+            Path.Combine(root, "docs", "guides", "01-getting-started.md"));
         var sample = File.ReadAllText(
             Path.Combine(root, "samples", "GettingStarted.Sample", fileName));
 
@@ -396,7 +396,16 @@ public sealed partial class RepositoryContractTests
             .EnumerateFiles(Path.Combine(root, "docs", "guides"), "*.md", SearchOption.TopDirectoryOnly)
             .ToArray();
 
-        Assert.NotEmpty(guides);
+        Assert.Equal(
+            new[]
+            {
+                "01-getting-started.md",
+                "02-maui-integration.md",
+                "03-external-navigation.md",
+                "04-deferred-navigation.md",
+                "05-troubleshooting.md"
+            },
+            guides.Select(Path.GetFileName).Order(StringComparer.Ordinal));
         foreach (string guide in guides)
         {
             string text = File.ReadAllText(guide);
@@ -407,7 +416,7 @@ public sealed partial class RepositoryContractTests
         string onboarding = string.Join(
             Environment.NewLine,
             File.ReadAllText(Path.Combine(root, "README.md")),
-            File.ReadAllText(Path.Combine(root, "docs", "guides", "getting-started.md")),
+            File.ReadAllText(Path.Combine(root, "docs", "guides", "01-getting-started.md")),
             File.ReadAllText(Path.Combine(root, "samples", "GettingStarted.Sample", "README.md")));
         Assert.DoesNotContain("maintainers/", onboarding, StringComparison.Ordinal);
         Assert.DoesNotContain("dogfood checkpoint", onboarding, StringComparison.OrdinalIgnoreCase);

@@ -5,7 +5,7 @@ generated typed routes, two generated pages, one stack navigation model, a
 typed startup fallback, and native Back reconciliation. It intentionally has no
 external ingress, deferred persistence, tabs, auth, Shell, or Prism.
 
-Read the full [Getting started guide](../../docs/guides/getting-started.md) or
+Read the full [Getting started guide](../../docs/guides/01-getting-started.md) or
 return to the [repository README](../../README.md).
 
 ## Requirements
@@ -56,6 +56,6 @@ should not be edited.
 ## Next steps
 
 - Learn [routing and metadata](../../docs/concepts/routing-and-metadata.md).
-- Read the complete [MAUI integration guide](../../docs/guides/maui-integration.md).
+- Read the complete [MAUI integration guide](../../docs/guides/02-maui-integration.md).
 - Explore tabs, dispositions, transforms, and external ingress in the
   [Commerce sample](../Commerce.Sample/README.md).

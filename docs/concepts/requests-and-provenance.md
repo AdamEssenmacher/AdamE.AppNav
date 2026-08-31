@@ -142,5 +142,5 @@ The router should usually see one of these instead:
 ## Next steps
 
 - Define [routing and metadata](routing-and-metadata.md).
-- Configure [external navigation](../guides/external-navigation.md).
-- Persist only safe fields with [deferred navigation](../guides/deferred-navigation.md).
+- Configure [external navigation](../guides/03-external-navigation.md).
+- Persist only safe fields with [deferred navigation](../guides/04-deferred-navigation.md).

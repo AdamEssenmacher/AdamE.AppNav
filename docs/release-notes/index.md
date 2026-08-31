@@ -10,5 +10,5 @@ tagging a release.
 
 ## Next steps
 
-- Application developers can start with [Getting started](../guides/getting-started.md).
+- Application developers can start with [Getting started](../guides/01-getting-started.md).
 - Maintainers can open the [testing guide](../maintainers/testing.md).

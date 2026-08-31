@@ -83,5 +83,5 @@ register nor trust the sample custom scheme.
 ## Next steps
 
 - Define field ownership with [requests and provenance](../concepts/requests-and-provenance.md).
-- Add durable auth recovery with [deferred navigation](deferred-navigation.md).
-- Diagnose rejection with [Troubleshooting](troubleshooting.md).
+- Add durable auth recovery with [deferred navigation](04-deferred-navigation.md).
+- Diagnose rejection with [Troubleshooting](05-troubleshooting.md).

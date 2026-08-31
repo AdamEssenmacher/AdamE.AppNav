@@ -50,6 +50,6 @@ Preflight validation occurs before page creation or native mutation.
 
 ## Next steps
 
-- Apply the model in [MAUI integration](../guides/maui-integration.md).
+- Apply the model in [MAUI integration](../guides/02-maui-integration.md).
 - Choose the right envelope with [requests and provenance](requests-and-provenance.md).
 - Read the [adapter contract](../advanced/adapter-contract.md) before implementing another host.

@@ -14,15 +14,15 @@ trying to do.
 
 ## Build your first app
 
-1. Follow [Getting started](guides/getting-started.md).
+1. Follow [Getting started](guides/01-getting-started.md).
 2. Learn [routing and metadata](concepts/routing-and-metadata.md).
-3. Continue with [MAUI integration](guides/maui-integration.md).
+3. Continue with [MAUI integration](guides/02-maui-integration.md).
 
 ## Add advanced capabilities
 
-- [External navigation](guides/external-navigation.md): trusted app-link, push,
+- [External navigation](guides/03-external-navigation.md): trusted app-link, push,
   QR, and provider ingress.
-- [Deferred navigation](guides/deferred-navigation.md): durable auth defer and
+- [Deferred navigation](guides/04-deferred-navigation.md): durable auth defer and
   replay.
 - [Requests and provenance](concepts/requests-and-provenance.md): choose the
   correct request abstraction and preserve runtime context.
@@ -31,7 +31,7 @@ trying to do.
 
 ## Debug an integration
 
-- Start with [Troubleshooting](guides/troubleshooting.md).
+- Start with [Troubleshooting](guides/05-troubleshooting.md).
 - Use the [diagnostics reference](reference/diagnostics.md).
 - Resolve build-time problems with the
   [source-generator diagnostics](reference/source-generator-diagnostics.md).
@@ -53,11 +53,11 @@ These documents are for repository maintainers, not application onboarding:
 
 Every documentation page is indexed here:
 
-- [Getting started](guides/getting-started.md)
-- [MAUI integration](guides/maui-integration.md)
-- [External navigation](guides/external-navigation.md)
-- [Deferred navigation](guides/deferred-navigation.md)
-- [Troubleshooting](guides/troubleshooting.md)
+- [Getting started](guides/01-getting-started.md)
+- [MAUI integration](guides/02-maui-integration.md)
+- [External navigation](guides/03-external-navigation.md)
+- [Deferred navigation](guides/04-deferred-navigation.md)
+- [Troubleshooting](guides/05-troubleshooting.md)
 - [Routing and metadata](concepts/routing-and-metadata.md)
 - [Topology and planning](concepts/topology-and-planning.md)
 - [Requests and provenance](concepts/requests-and-provenance.md)

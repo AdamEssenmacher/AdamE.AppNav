@@ -61,6 +61,6 @@ and may remove the owning route.
 
 ## Next steps
 
-- Return to [MAUI integration](../guides/maui-integration.md).
-- Diagnose failures with [Troubleshooting](../guides/troubleshooting.md).
+- Return to [MAUI integration](../guides/02-maui-integration.md).
+- Diagnose failures with [Troubleshooting](../guides/05-troubleshooting.md).
 - Read the [adapter contract](adapter-contract.md) for transaction ownership.

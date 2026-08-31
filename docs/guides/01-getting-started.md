@@ -172,6 +172,6 @@ for every `APPNAV` code.
 ## Next steps
 
 - Learn [routing and metadata](../concepts/routing-and-metadata.md).
-- Add application wiring with [MAUI integration](maui-integration.md).
+- Add application wiring with [MAUI integration](02-maui-integration.md).
 - Explore native tabs and external ingress in the
   [Commerce sample](../../samples/Commerce.Sample/README.md).

@@ -78,6 +78,6 @@ modes. Repository maintainers should use the full
 ## Next steps
 
 - Configure [diagnostics](../reference/diagnostics.md).
-- Recheck [MAUI integration](maui-integration.md).
-- Review [external navigation](external-navigation.md) or
-  [deferred navigation](deferred-navigation.md) for boundary-specific failures.
+- Recheck [MAUI integration](02-maui-integration.md).
+- Review [external navigation](03-external-navigation.md) or
+  [deferred navigation](04-deferred-navigation.md) for boundary-specific failures.

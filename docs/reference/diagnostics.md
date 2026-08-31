@@ -22,6 +22,6 @@ credential-bearing configuration values.
 
 ## Next steps
 
-- Use the symptom-oriented [Troubleshooting guide](../guides/troubleshooting.md).
-- Review [external navigation](../guides/external-navigation.md) diagnostics.
-- Review [deferred navigation](../guides/deferred-navigation.md) persistence events.
+- Use the symptom-oriented [Troubleshooting guide](../guides/05-troubleshooting.md).
+- Review [external navigation](../guides/03-external-navigation.md) diagnostics.
+- Review [deferred navigation](../guides/04-deferred-navigation.md) persistence events.

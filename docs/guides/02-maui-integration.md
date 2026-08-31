@@ -189,6 +189,6 @@ transactional push/pop, rollback, and consistency faults.
 ## Next steps
 
 - Define [routing and metadata](../concepts/routing-and-metadata.md).
-- Configure [external navigation](external-navigation.md) only after defining trusted origins.
-- Add [deferred navigation](deferred-navigation.md) only for a real auth defer/replay flow.
-- Diagnose integration failures with [Troubleshooting](troubleshooting.md).
+- Configure [external navigation](03-external-navigation.md) only after defining trusted origins.
+- Add [deferred navigation](04-deferred-navigation.md) only for a real auth defer/replay flow.
+- Diagnose integration failures with [Troubleshooting](05-troubleshooting.md).
