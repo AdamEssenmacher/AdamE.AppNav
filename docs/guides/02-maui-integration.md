@@ -258,6 +258,8 @@ transactional push/pop, rollback, and consistency faults.
 - Define [routing and metadata](../concepts/01-routing-and-metadata.md).
 - Keep navigation decisions testable with
   [Application architecture and testing](03-application-architecture-and-testing.md).
-- Configure [external navigation](04-external-navigation.md) only after defining trusted origins.
-- Add [deferred navigation](05-deferred-navigation.md) only for a real auth defer/replay flow.
-- Diagnose integration failures with [Troubleshooting](06-troubleshooting.md).
+- Handle [navigation outcomes and failures](04-navigation-outcomes-and-failure-handling.md)
+  at the boundary that can recover the initiating UI.
+- Configure [external navigation](05-external-navigation.md) only after defining trusted origins.
+- Add [deferred navigation](06-deferred-navigation.md) only for a real auth defer/replay flow.
+- Diagnose integration failures with [Troubleshooting](07-troubleshooting.md).

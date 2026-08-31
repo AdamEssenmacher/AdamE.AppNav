@@ -32,6 +32,8 @@ minimal buildable sample.
 5. Continue with [MAUI integration](guides/02-maui-integration.md).
 6. Structure inner application code with
    [Application architecture and testing](guides/03-application-architecture-and-testing.md).
+7. Handle completion, Back, cancellation, and failures with
+   [Navigation outcomes and failure handling](guides/04-navigation-outcomes-and-failure-handling.md).
 
 ## Structure and test your application
 
@@ -45,9 +47,11 @@ minimal buildable sample.
 
 ## Add advanced capabilities
 
-- [External navigation](guides/04-external-navigation.md): trusted app-link, push,
+- [Navigation outcomes and failure handling](guides/04-navigation-outcomes-and-failure-handling.md):
+  successful results, unhandled Back, exceptions, cancellation, and commit semantics.
+- [External navigation](guides/05-external-navigation.md): trusted app-link, push,
   QR, and provider ingress.
-- [Deferred navigation](guides/05-deferred-navigation.md): durable auth defer and
+- [Deferred navigation](guides/06-deferred-navigation.md): durable auth defer and
   replay.
 - [Requests and provenance](concepts/03-requests-and-provenance.md): choose the
   correct request abstraction and preserve runtime context.
@@ -56,7 +60,7 @@ minimal buildable sample.
 
 ## Debug an integration
 
-- Start with [Troubleshooting](guides/06-troubleshooting.md).
+- Start with [Troubleshooting](guides/07-troubleshooting.md).
 - Configure and interpret [logging, tracing, and
   diagnostics](reference/diagnostics.md).
 - Resolve build-time problems with the
@@ -82,9 +86,10 @@ Every documentation page is indexed here:
 - [Getting started](guides/01-getting-started.md)
 - [MAUI integration](guides/02-maui-integration.md)
 - [Application architecture and testing](guides/03-application-architecture-and-testing.md)
-- [External navigation](guides/04-external-navigation.md)
-- [Deferred navigation](guides/05-deferred-navigation.md)
-- [Troubleshooting](guides/06-troubleshooting.md)
+- [Navigation outcomes and failure handling](guides/04-navigation-outcomes-and-failure-handling.md)
+- [External navigation](guides/05-external-navigation.md)
+- [Deferred navigation](guides/06-deferred-navigation.md)
+- [Troubleshooting](guides/07-troubleshooting.md)
 - [Why AppNav?](concepts/00-why-appnav.md)
 - [Routing and metadata](concepts/01-routing-and-metadata.md)
 - [Topology and planning](concepts/02-topology-and-planning.md)

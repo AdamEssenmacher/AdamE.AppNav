@@ -189,6 +189,7 @@ The router should usually see one of these instead:
 
 - Define [routing and metadata](01-routing-and-metadata.md).
 - See how routes become [topology and plans](02-topology-and-planning.md).
-- Configure [external navigation](../guides/04-external-navigation.md).
+- Handle [navigation outcomes and failures](../guides/04-navigation-outcomes-and-failure-handling.md).
+- Configure [external navigation](../guides/05-external-navigation.md).
 - Persist only safe fields with
-  [deferred navigation](../guides/05-deferred-navigation.md).
+  [deferred navigation](../guides/06-deferred-navigation.md).

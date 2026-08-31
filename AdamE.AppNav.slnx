@@ -19,9 +19,10 @@
     <File Path="docs/guides/01-getting-started.md" />
     <File Path="docs/guides/02-maui-integration.md" />
     <File Path="docs/guides/03-application-architecture-and-testing.md" />
-    <File Path="docs/guides/04-external-navigation.md" />
-    <File Path="docs/guides/05-deferred-navigation.md" />
-    <File Path="docs/guides/06-troubleshooting.md" />
+    <File Path="docs/guides/04-navigation-outcomes-and-failure-handling.md" />
+    <File Path="docs/guides/05-external-navigation.md" />
+    <File Path="docs/guides/06-deferred-navigation.md" />
+    <File Path="docs/guides/07-troubleshooting.md" />
   </Folder>
   <Folder Name="/docs/maintainers/">
     <File Path="docs/maintainers/app-route-request-dogfood-checkpoint.md" />

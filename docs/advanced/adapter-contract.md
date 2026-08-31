@@ -48,4 +48,5 @@ the same contract while owning browser history, component mapping, lifecycle, an
 
 - Review [topology and planning](../concepts/02-topology-and-planning.md).
 - Use maintainer [testing](../maintainers/testing.md) to run adapter contracts.
+- Handle [navigation outcomes and failures](../guides/04-navigation-outcomes-and-failure-handling.md).
 - Diagnose host failures with [Diagnostics](../reference/diagnostics.md).

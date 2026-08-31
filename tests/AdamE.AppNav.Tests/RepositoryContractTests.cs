@@ -1,6 +1,7 @@
 using System.Xml.Linq;
 using System.Text.RegularExpressions;
 using AdamE.AppNav.Diagnostics;
+using AdamE.AppNav.Navigation;
 
 namespace AdamE.AppNav.Tests;
 
@@ -406,9 +407,10 @@ public sealed partial class RepositoryContractTests
                 "01-getting-started.md",
                 "02-maui-integration.md",
                 "03-application-architecture-and-testing.md",
-                "04-external-navigation.md",
-                "05-deferred-navigation.md",
-                "06-troubleshooting.md"
+                "04-navigation-outcomes-and-failure-handling.md",
+                "05-external-navigation.md",
+                "06-deferred-navigation.md",
+                "07-troubleshooting.md"
             },
             guides.Select(Path.GetFileName).Order(StringComparer.Ordinal));
         Assert.Equal(
@@ -546,6 +548,43 @@ public sealed partial class RepositoryContractTests
             Path.Combine(root, "src", "AdamE.AppNav", "Diagnostics", "NavigationDiagnostics.cs"));
         Assert.Contains(logTemplate, diagnostics, StringComparison.Ordinal);
         Assert.Contains(logTemplate, reference, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NavigationOutcomeGuideMatchesPublicResultContracts()
+    {
+        var root = RepositoryRoot();
+        string guide = File.ReadAllText(
+            Path.Combine(
+                root,
+                "docs",
+                "guides",
+                "04-navigation-outcomes-and-failure-handling.md"));
+
+        Type result = typeof(NavigationResult);
+        Assert.Equal(typeof(AppRoute), result.GetProperty(nameof(NavigationResult.Route))!.PropertyType);
+        Assert.Equal(
+            typeof(AdamE.AppNav.Plans.NavigationPlan),
+            result.GetProperty(nameof(NavigationResult.Plan))!.PropertyType);
+        Assert.Equal(
+            typeof(AdamE.AppNav.State.NavigationState),
+            result.GetProperty(nameof(NavigationResult.State))!.PropertyType);
+        Assert.Equal(typeof(bool), result.GetProperty(nameof(NavigationResult.Presented))!.PropertyType);
+
+        Assert.True(typeof(BackNavigationResult).IsValueType);
+        Assert.False(BackNavigationResult.Unhandled.Handled);
+        Assert.Null(BackNavigationResult.Unhandled.HandledNavigationResult);
+
+        Assert.Contains(
+            "`NavigationResult` is not a success/failure union",
+            guide,
+            StringComparison.Ordinal);
+        Assert.Contains("`Presented == false`", guide, StringComparison.Ordinal);
+        Assert.Contains("`Handled == false` is not an error", guide, StringComparison.Ordinal);
+        Assert.Contains(
+            "commit state and history -> return result",
+            guide,
+            StringComparison.Ordinal);
     }
 
     [Fact]

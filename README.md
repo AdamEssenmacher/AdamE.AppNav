@@ -251,11 +251,12 @@ Start at the [documentation home](docs/index.md).
 - [Getting started](docs/guides/01-getting-started.md)
 - [MAUI integration](docs/guides/02-maui-integration.md)
 - [Application architecture and testing](docs/guides/03-application-architecture-and-testing.md)
+- [Navigation outcomes and failure handling](docs/guides/04-navigation-outcomes-and-failure-handling.md)
 - [Routing and metadata](docs/concepts/01-routing-and-metadata.md)
 - [Topology and planning](docs/concepts/02-topology-and-planning.md)
-- [External navigation](docs/guides/04-external-navigation.md)
-- [Deferred navigation](docs/guides/05-deferred-navigation.md)
-- [Troubleshooting](docs/guides/06-troubleshooting.md)
+- [External navigation](docs/guides/05-external-navigation.md)
+- [Deferred navigation](docs/guides/06-deferred-navigation.md)
+- [Troubleshooting](docs/guides/07-troubleshooting.md)
 - [Logging, tracing, and diagnostics](docs/reference/diagnostics.md)
 
 ## Samples

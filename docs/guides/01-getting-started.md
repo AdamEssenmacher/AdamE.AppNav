@@ -216,5 +216,7 @@ for every `APPNAV` code.
 - Add application wiring with [MAUI integration](02-maui-integration.md).
 - Separate inner navigation decisions from the renderer with
   [Application architecture and testing](03-application-architecture-and-testing.md).
+- Learn how awaited navigation, Back, and failures complete in
+  [Navigation outcomes and failure handling](04-navigation-outcomes-and-failure-handling.md).
 - Explore native tabs and external ingress in the
   [Commerce sample](../../samples/Commerce.Sample/README.md).

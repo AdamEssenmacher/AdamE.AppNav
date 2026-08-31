@@ -53,4 +53,6 @@ starve later valid requests.
 
 - Keep transport context separate with [requests and provenance](../concepts/03-requests-and-provenance.md).
 - Configure Safe-mode [diagnostics](../reference/diagnostics.md).
-- Diagnose reset and quarantine behavior with [Troubleshooting](06-troubleshooting.md).
+- Understand replay completion in
+  [Navigation outcomes and failure handling](04-navigation-outcomes-and-failure-handling.md).
+- Diagnose reset and quarantine behavior with [Troubleshooting](07-troubleshooting.md).

@@ -175,5 +175,7 @@ host. It is adapter material, not required MAUI onboarding.
 - Model branches and stacks in
   [Topology and planning](../concepts/02-topology-and-planning.md).
 - Connect the inner model to native UI with [MAUI integration](02-maui-integration.md).
+- Handle awaited results, Back, and exceptions with
+  [Navigation outcomes and failure handling](04-navigation-outcomes-and-failure-handling.md).
 - Read the advanced [adapter contract](../advanced/adapter-contract.md) only if
   you are implementing another host.

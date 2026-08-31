@@ -260,8 +260,9 @@ There is no durable API that retains raw rejected requests for later inspection.
 
 ## Next steps
 
-- Use the symptom-oriented [Troubleshooting guide](../guides/06-troubleshooting.md).
-- Review [external navigation](../guides/04-external-navigation.md) diagnostics.
-- Review [deferred navigation](../guides/05-deferred-navigation.md) persistence events.
+- Interpret [navigation outcomes and failure handling](../guides/04-navigation-outcomes-and-failure-handling.md).
+- Use the symptom-oriented [Troubleshooting guide](../guides/07-troubleshooting.md).
+- Review [external navigation](../guides/05-external-navigation.md) diagnostics.
+- Review [deferred navigation](../guides/06-deferred-navigation.md) persistence events.
 - Interpret routes and provenance with
   [Requests and provenance](../concepts/03-requests-and-provenance.md).

@@ -210,7 +210,7 @@ request serialization and replay behavior, and the
 file-backed implementation registered by
 `AddAppNavFileDeferredNavigationRequests(...)`. Another adapter can bind the
 same core abstraction to storage appropriate for its host. See
-[Deferred navigation](../guides/05-deferred-navigation.md) for the MAUI workflow
+[Deferred navigation](../guides/06-deferred-navigation.md) for the MAUI workflow
 and the advanced [adapter contract](../advanced/adapter-contract.md) for the
 broader core-versus-host boundary.
 

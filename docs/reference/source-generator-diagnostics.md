@@ -59,5 +59,5 @@ passed to `AddAppNav`.
 ## Next steps
 
 - Review [routing and metadata](../concepts/01-routing-and-metadata.md).
-- Use [Troubleshooting](../guides/06-troubleshooting.md) for runtime failures.
+- Use [Troubleshooting](../guides/07-troubleshooting.md) for runtime failures.
 - Return to [Getting started](../guides/01-getting-started.md).

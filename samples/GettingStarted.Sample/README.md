@@ -71,5 +71,7 @@ should not be edited.
 - Read the complete [MAUI integration guide](../../docs/guides/02-maui-integration.md).
 - Learn how to separate and test navigation decisions in
   [Application architecture and testing](../../docs/guides/03-application-architecture-and-testing.md).
+- Understand awaited results, Back, and exceptions in
+  [Navigation outcomes and failure handling](../../docs/guides/04-navigation-outcomes-and-failure-handling.md).
 - Explore tabs, dispositions, transforms, and external ingress in the
   [Commerce sample](../Commerce.Sample/README.md).
