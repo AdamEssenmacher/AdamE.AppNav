@@ -518,6 +518,7 @@ internal sealed class MauiNavigationPresenter :
             VerifyPresentation(_lastState, LifecycleOperationId(), candidateRoot, attachedWindow: null);
             _nativeOperations.SetWindowPage(window, candidateRoot);
             buildCancellation.ThrowIfCancellationRequested();
+            VerifyPresentation(_lastState, LifecycleOperationId(), candidateRoot, attachedWindow: window);
 
             window.Destroying -= HandleWindowDestroying;
             _pendingWindow = null;
@@ -1041,6 +1042,9 @@ internal sealed class MauiNavigationPresenter :
                     [NavigationDiagnosticDataKeys.ExceptionType] = rollbackException.GetType().FullName,
                     [NavigationDiagnosticDataKeys.ExceptionMessage] = rollbackException.Message
                 });
+
+            if (transaction.IsInvalidated)
+                return;
 
             if (_disposed)
                 return;
