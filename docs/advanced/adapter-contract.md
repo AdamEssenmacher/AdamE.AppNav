@@ -45,9 +45,10 @@ the presenter's event stream.
 
 The public adapter-contract test assembly exercises successful apply,
 failure/cancellation without commit, reconciliation, shutdown/event detachment,
-and Stack/BranchHost/Modal topology. A future Blazor adapter should satisfy the
+and Stack/BranchHost/Modal topology. The planned Blazor adapter must satisfy the
 same contract while owning browser history, component mapping, lifecycle, and
-storage rather than MAUI artifacts.
+storage rather than MAUI artifacts. Its accepted design baseline and feasibility
+gates are recorded in the maintainer [Blazor adapter design](../maintainers/blazor-adapter-design.md).
 
 ## Next steps
 

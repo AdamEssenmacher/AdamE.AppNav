@@ -84,6 +84,7 @@ and provenance.
 These documents are for repository maintainers, not application onboarding:
 
 - [Testing](maintainers/testing.md)
+- [Blazor adapter design baseline](maintainers/blazor-adapter-design.md)
 - [Public preview release checklist](maintainers/release-checklist.md)
 - [AppRouteRequest dogfood checkpoint](maintainers/app-route-request-dogfood-checkpoint.md)
 
@@ -108,6 +109,7 @@ Every documentation page is indexed here:
 - [Glossary](reference/glossary.md)
 - [Source-generator diagnostics](reference/source-generator-diagnostics.md)
 - [Testing](maintainers/testing.md)
+- [Blazor adapter design baseline](maintainers/blazor-adapter-design.md)
 - [Public preview release checklist](maintainers/release-checklist.md)
 - [AppRouteRequest dogfood checkpoint](maintainers/app-route-request-dogfood-checkpoint.md)
 - [Release notes](release-notes/index.md)
