@@ -336,6 +336,12 @@ public sealed class MauiPresentationOperationPolicyTests
         public void SetCurrentTab(TabbedPage tabbedPage, Page? page) =>
             MauiNativeNavigationOperations.Instance.SetCurrentTab(tabbedPage, page);
 
+        public void SetFlyoutDetail(FlyoutPage flyoutPage, Page page) =>
+            MauiNativeNavigationOperations.Instance.SetFlyoutDetail(flyoutPage, page);
+
+        public void SetFlyoutPresented(FlyoutPage flyoutPage, bool isPresented) =>
+            MauiNativeNavigationOperations.Instance.SetFlyoutPresented(flyoutPage, isPresented);
+
         public void SetWindowPage(Window window, Page? page) =>
             MauiNativeNavigationOperations.Instance.SetWindowPage(window, page);
     }

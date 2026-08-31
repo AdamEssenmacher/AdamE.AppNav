@@ -3,7 +3,7 @@
 Route-first navigation for .NET MAUI.
 
 Define destinations once, then use the same typed routes for in-app navigation,
-deep links, native stacks and tabs, Back behavior, restoration, and testing.
+deep links, native stacks, tabs, and flyouts, Back behavior, restoration, and testing.
 AppNav owns the navigation model while MAUI keeps rendering native controls.
 
 ## Try the source sample
@@ -266,7 +266,7 @@ Start at the [documentation home](docs/index.md).
 
 [`GettingStarted.Sample`](samples/GettingStarted.Sample/README.md) is the minimal
 onboarding path. [`Commerce.Sample`](samples/Commerce.Sample/README.md) is the
-advanced sample with native tabs, independent stacks, all standard
+advanced sample with a native flyout, independent stacks, all standard
 dispositions, trusted origins, compatibility transforms, and external ingress.
 
 Scavos is the source-level dogfood application used during preview hardening. It

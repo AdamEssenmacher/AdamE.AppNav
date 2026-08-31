@@ -327,6 +327,30 @@ must not re-enter the router. This seam controls MAUI's native animated flag;
 AppNav still does not provide custom, shared-element, or predictive-Back
 transitions.
 
+### Flyout branch hosts
+
+Branch hosts render as `TabbedPage` by default. Map a direct window-root branch
+host to a native `FlyoutPage` when the app uses drawer navigation:
+
+```csharp
+services.AddAppNavMauiPresentation(options =>
+    options.MapFlyoutBranchHost(
+        "store-branches",
+        "Store",
+        FlyoutLayoutBehavior.Default,
+        isGestureEnabled: true));
+```
+
+The built-in menu uses each branch title and root-page icon. Inactive detail
+trees remain alive, so their navigation stacks, binding contexts, and page
+scopes behave like inactive tabs. Selecting a menu item closes the flyout and
+reconciles the logical selected branch with `BranchChanged`.
+
+A mapped flyout branch host must be the direct window root. Nested and modal
+flyouts are rejected before native presentation because `FlyoutPage` is a root
+navigation control. Unmapped branch hosts retain the existing `TabbedPage`
+behavior.
+
 ## Route-owned presentation pages
 
 Workflows that use several native pages for one semantic route are documented

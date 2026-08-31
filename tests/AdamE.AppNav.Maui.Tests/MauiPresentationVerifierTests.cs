@@ -65,6 +65,40 @@ public sealed class MauiPresentationVerifierTests
     }
 
     [Fact]
+    public void VerifyAcceptsMatchingFlyoutBranchHostAndReportsWrongDetail()
+    {
+        BranchHostNode branchHost = BranchHost("branches", "catalog");
+        var options = new MauiRoutePresentationOptions();
+        var flyoutOptions = new MauiFlyoutBranchHostOptions(
+            "Menu",
+            FlyoutLayoutBehavior.Default,
+            true);
+        options.FlyoutBranchHosts.Add("branches", flyoutOptions);
+        var flyoutPage = new MauiBranchFlyoutPage(flyoutOptions);
+        MauiPresentationMetadata.SetHostId(flyoutPage, "branches");
+        var home = StackPage("home-stack", "home");
+        MauiPresentationMetadata.SetBranchId(home, "home");
+        var catalog = StackPage("catalog-stack", "catalog");
+        MauiPresentationMetadata.SetBranchId(catalog, "catalog");
+        flyoutPage.SetBranches(
+        [
+            new MauiFlyoutBranchPresentation("home", "Home", home),
+            new MauiFlyoutBranchPresentation("catalog", "Catalog", catalog)
+        ]);
+        flyoutPage.Detail = catalog;
+        flyoutPage.SetSelectedBranch("catalog");
+
+        Assert.Null(Verify(State(branchHost), flyoutPage, options));
+
+        flyoutPage.Detail = home;
+        MauiPresentationVerificationMismatch? mismatch = Verify(State(branchHost), flyoutPage, options);
+        Assert.NotNull(mismatch);
+        Assert.Equal("$.root.detail", mismatch.Path);
+        Assert.Equal("catalog", mismatch.Expected);
+        Assert.Equal("home", mismatch.Actual);
+    }
+
+    [Fact]
     public async Task VerifyAcceptsMatchingModal()
     {
         var root = Stack("stack", Entry("home"));

@@ -306,7 +306,7 @@ public sealed partial class RepositoryContractTests
 
         Assert.Contains("BranchHostNavigationModel<AppRoute>", readme, StringComparison.Ordinal);
         Assert.Contains("FallbackRouteFactory", readme, StringComparison.Ordinal);
-        Assert.Contains("independent tab stacks", readme, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("independent flyout branch stacks", readme, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("`Auto`", readme, StringComparison.Ordinal);
         Assert.Contains("`Contextual`", readme, StringComparison.Ordinal);
         Assert.Contains("`ReplaceCurrent`", readme, StringComparison.Ordinal);

@@ -26,6 +26,7 @@ public sealed class MauiPublicApiContractTests
                 "AdamE.AppNav.Maui.IMauiRoutePageLifecycleHook",
                 "AdamE.AppNav.Maui.IMauiRoutePageModule",
                 "AdamE.AppNav.Maui.IMauiRoutePresentationNavigator",
+                "AdamE.AppNav.Maui.MauiNavigationPresentationOptions",
                 "AdamE.AppNav.Maui.MauiPresentationConsistencyException",
                 "AdamE.AppNav.Maui.MauiPresentationMotion",
                 "AdamE.AppNav.Maui.MauiPresentationOperationContext",
