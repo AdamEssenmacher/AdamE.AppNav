@@ -123,9 +123,14 @@ internal sealed class MauiPresentationVerifier : IMauiPresentationVerifier
         string path,
         IReadOnlyDictionary<Page, IMauiBranchHost>? branchHosts)
     {
+        if (page is not null && branchHosts?.ContainsKey(page) == true)
+        {
+            return Mismatch(path, $"unregistered stack host '{stack.Id}'", DescribePage(page));
+        }
+
         if (stack.Entries.Count == 0)
         {
-            return page is NavigationPage || (page is not null && branchHosts?.ContainsKey(page) == true)
+            return page is NavigationPage
                 ? Mismatch(path, "empty stack page", DescribePage(page))
                 : null;
         }

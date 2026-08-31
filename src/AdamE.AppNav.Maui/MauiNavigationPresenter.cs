@@ -1175,6 +1175,7 @@ internal sealed class MauiNavigationPresenter :
         }
 
         if (existingPage is not null &&
+            !_branchHostPages.ContainsKey(existingPage) &&
             StringComparer.Ordinal.Equals(GetHostId(existingPage), stack.Id) &&
             StackRootMatches(existingPage, stack))
         {

@@ -193,6 +193,23 @@ public sealed class MauiPresentationVerifierTests
     }
 
     [Fact]
+    public void VerifyRejectsRegisteredBranchHostPageForNonemptyStack()
+    {
+        StackNode stack = Stack("shared-host", Entry("home"));
+        NavigationPage page = StackPage("shared-host", "home");
+        var host = new StaticBranchHost(page);
+
+        MauiPresentationVerificationMismatch? mismatch = Verify(
+            State(stack),
+            page,
+            branchHosts: new Dictionary<Page, IMauiBranchHost> { [page] = host });
+
+        Assert.NotNull(mismatch);
+        Assert.Equal("$.root", mismatch.Path);
+        Assert.Contains("unregistered stack host", mismatch.Expected, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task VerifyAcceptsMatchingModal()
     {
         var root = Stack("stack", Entry("home"));
@@ -584,6 +601,30 @@ public sealed class MauiPresentationVerifierTests
 
             return results[_index++];
         }
+    }
+
+    private sealed class StaticBranchHost(Page page) : IMauiBranchHost
+    {
+        public Page Page { get; } = page;
+
+        public IReadOnlyList<MauiBranchHostBranch> Branches => [];
+
+        public string? SelectedBranchId => null;
+
+        public Page? SelectedBranchPage => null;
+
+        public event EventHandler<MauiBranchHostSelectionChangedEventArgs>? SelectionChanged
+        {
+            add { }
+            remove { }
+        }
+
+        public ValueTask<IMauiBranchHostUpdate> ApplyAsync(
+            MauiBranchHostUpdateContext context,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     private sealed class EchoPlanner : IAppNavigationPlanner

@@ -627,6 +627,39 @@ public sealed class MauiNavigationPresenterLifecycleTests
     }
 
     [Fact]
+    public async Task StackReplacesRegisteredNavigationPageBackedBranchHost()
+    {
+        var factory = new RecordingBranchHostFactory(
+            MauiBranchHostPlacement.WindowRoot,
+            static () =>
+            {
+                var infrastructureRoot = new ContentPage();
+                MauiPresentationMetadata.SetRouteEntryId(infrastructureRoot, "home");
+                return new NavigationPage(infrastructureRoot);
+            });
+        var fixture = new PresenterFixture(configurePresentation: options =>
+            options.BranchHosts.Add("shared-host", new MauiBranchHostRegistration(factory)));
+        var initial = new BranchHostNode(
+            "shared-host",
+            [new NavigationBranch("branch", "Branch", Stack("branch-stack", Entry("branch")))],
+            "branch",
+            "branch");
+        await fixture.Presenter.ApplyAsync(Plan(initial), Context(new TestPageRoute("branch")));
+        RecordingBranchHost host = Assert.Single(factory.CreatedHosts);
+        var hostPage = Assert.IsType<NavigationPage>(host.Page);
+
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("shared-host", Entry("home"))),
+            Context(new TestPageRoute("home"), Plan(initial).TargetState));
+
+        var stackPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        Assert.NotSame(hostPage, stackPage);
+        Assert.Equal("home", MauiPresentationMetadata.GetRouteEntryId(stackPage.CurrentPage));
+        Assert.Equal(1, host.DisposeCount);
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
     public async Task CustomBranchHostCanContainNestedDefaultTabs()
     {
         var factory = new RecordingBranchHostFactory(MauiBranchHostPlacement.WindowRoot | MauiBranchHostPlacement.Nested);
