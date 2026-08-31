@@ -750,9 +750,7 @@ internal sealed class MauiNavigationPresenter :
                     ValidateMauiNode(
                         branch.Content,
                         $"{path} branch '{branch.Id}'",
-                        placement == MauiBranchHostPlacement.WindowRoot
-                            ? MauiBranchHostPlacement.Nested
-                            : placement);
+                        MauiBranchHostPlacement.Nested);
                 }
 
                 return;
@@ -1351,9 +1349,7 @@ internal sealed class MauiNavigationPresenter :
         SetHostId(host.Page, branchHost.Id);
         TrackBranchHost(host);
         var stagedBranches = new List<MauiBranchHostBranch>(branchHost.Branches.Count);
-        MauiBranchHostPlacement childPlacement = placement == MauiBranchHostPlacement.WindowRoot
-            ? MauiBranchHostPlacement.Nested
-            : placement;
+        const MauiBranchHostPlacement childPlacement = MauiBranchHostPlacement.Nested;
         foreach (NavigationBranch branch in branchHost.Branches)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -1955,6 +1951,14 @@ internal sealed class MauiNavigationPresenter :
 
         UntrackModalPage(page);
 
+        foreach (var modalPage in page.Navigation.ModalStack.ToArray())
+        {
+            if (!ReferenceEquals(modalPage, page))
+            {
+                await DetachPageTreeAsync(modalPage, visited, failures);
+            }
+        }
+
         if (_branchHostPages.Remove(page, out IMauiBranchHost? branchHost) && branchHost is not null)
         {
             _branchHostFactories.Remove(page);
@@ -1975,14 +1979,6 @@ internal sealed class MauiNavigationPresenter :
             }
 
             return;
-        }
-
-        foreach (var modalPage in page.Navigation.ModalStack.ToArray())
-        {
-            if (!ReferenceEquals(modalPage, page))
-            {
-                await DetachPageTreeAsync(modalPage, visited, failures);
-            }
         }
 
         switch (page)
@@ -2852,7 +2848,8 @@ internal sealed class MauiNavigationPresenter :
                         null,
                         operationId,
                         isNavigationTarget: window.Modals.Count == 0,
-                        CancellationToken.None);
+                        CancellationToken.None,
+                        placement: MauiBranchHostPlacement.WindowRoot);
                 await ApplyModalsAsync(
                     rebuiltRoot,
                     window.Modals,

@@ -534,11 +534,20 @@ public sealed class MauiNavigationPresenterLifecycleTests
     public async Task ModalBranchHostReceivesModalContentPlacementForCreationAndReuse()
     {
         var factory = new RecordingBranchHostFactory(MauiBranchHostPlacement.ModalContent);
+        var nestedFactory = new RecordingBranchHostFactory(MauiBranchHostPlacement.Nested);
         var fixture = new PresenterFixture(configurePresentation: options =>
-            options.BranchHosts.Add("modal-host", new MauiBranchHostRegistration(factory)));
+        {
+            options.BranchHosts.Add("modal-host", new MauiBranchHostRegistration(factory));
+            options.BranchHosts.Add("nested-host", new MauiBranchHostRegistration(nestedFactory));
+        });
+        var nestedHost = new BranchHostNode(
+            "nested-host",
+            [new NavigationBranch("leaf", "Leaf", Stack("modal-stack", Entry("home")))],
+            "leaf",
+            "leaf");
         var modalHost = new BranchHostNode(
             "modal-host",
-            [new NavigationBranch("home", "Home", Stack("modal-stack", Entry("home")))],
+            [new NavigationBranch("home", "Home", nestedHost)],
             "home",
             "home");
         var state = new NavigationState(
@@ -560,6 +569,35 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.Equal(
             [MauiBranchHostPlacement.ModalContent, MauiBranchHostPlacement.ModalContent],
             host.AppliedPlacements);
+        Assert.Equal([MauiBranchHostPlacement.Nested], nestedFactory.CreationPlacements);
+        Assert.Equal(
+            [MauiBranchHostPlacement.Nested, MauiBranchHostPlacement.Nested],
+            Assert.Single(nestedFactory.CreatedHosts).AppliedPlacements);
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task RetiringBranchHostRootReleasesItsLogicalModals()
+    {
+        var fixture = new PresenterFixture();
+        var state = new NavigationState(
+            [
+                new WindowNode(
+                    "main",
+                    StoreBranchHost("home"),
+                    [new ModalNode("cart", Entry("cart"))])
+            ],
+            "main");
+        await fixture.Presenter.ApplyAsync(
+            new NavigationPlan(state),
+            Context(new TestPageRoute("cart")));
+        Page modalPage = Assert.Single(Assert.IsType<TabbedPage>(fixture.Presenter.CurrentPage).Navigation.ModalStack);
+
+        await fixture.Presenter.ApplyAsync(
+            new NavigationPlan(NavigationState.Empty),
+            Context(new TestPageRoute("empty"), state));
+
+        Assert.Equal(1, fixture.Factory.ReleaseCountFor(modalPage));
         await fixture.Presenter.StartShutdown();
     }
 

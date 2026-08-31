@@ -160,6 +160,39 @@ public sealed class MauiPresentationVerifierTests
     }
 
     [Fact]
+    public async Task VerifyReportsStaleBranchTitle()
+    {
+        BranchHostNode branchHost = BranchHost("tabs", "catalog");
+        var tabbedPage = new TabbedPage();
+        MauiPresentationMetadata.SetHostId(tabbedPage, "tabs");
+        var home = StackPage("home-stack", "home");
+        MauiPresentationMetadata.SetBranchId(home, "home");
+        var catalog = StackPage("catalog-stack", "catalog");
+        MauiPresentationMetadata.SetBranchId(catalog, "catalog");
+        var host = new MauiTabbedBranchHost(tabbedPage);
+        IMauiBranchHostUpdate update = await host.ApplyAsync(new MauiBranchHostUpdateContext(
+            branchHost,
+            MauiBranchHostPlacement.WindowRoot,
+            [
+                new MauiBranchHostBranch("home", "Stale Home", home),
+                new MauiBranchHostBranch("catalog", "Catalog", catalog)
+            ],
+            "catalog",
+            Context(new TestPageRoute("catalog"))));
+        await update.CommitAsync();
+
+        MauiPresentationVerificationMismatch? mismatch = Verify(
+            State(branchHost),
+            tabbedPage,
+            branchHosts: new Dictionary<Page, IMauiBranchHost> { [tabbedPage] = host });
+
+        Assert.NotNull(mismatch);
+        Assert.Equal("$.root.branches[0].title", mismatch.Path);
+        Assert.Equal("Home", mismatch.Expected);
+        Assert.Equal("Stale Home", mismatch.Actual);
+    }
+
+    [Fact]
     public async Task VerifyAcceptsMatchingModal()
     {
         var root = Stack("stack", Entry("home"));

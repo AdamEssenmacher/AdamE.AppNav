@@ -205,6 +205,11 @@ internal sealed class MauiPresentationVerifier : IMauiPresentationVerifier
                 return Mismatch($"{path}.branches[{i}].branchId", branch.Id, presented.Id);
             }
 
+            if (!StringComparer.Ordinal.Equals(presented.Title, branch.Title))
+            {
+                return Mismatch($"{path}.branches[{i}].title", branch.Title, presented.Title);
+            }
+
             string? pageBranchId = MauiPresentationMetadata.GetBranchId(presented.Page);
             if (!StringComparer.Ordinal.Equals(pageBranchId, branch.Id))
             {

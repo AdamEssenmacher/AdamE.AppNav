@@ -505,7 +505,19 @@ public sealed class MauiPresentationTransactionTests
     {
         var nativeOperations = new FaultingNativeOperations();
         var factory = new InstrumentedRoutePageFactory();
-        var presenter = new MauiNavigationPresenter(factory, nativeOperations: nativeOperations);
+        var creationPlacements = new List<MauiBranchHostPlacement>();
+        var presentationOptions = new MauiRoutePresentationOptions();
+        presentationOptions.BranchHosts.Add(
+            "main-tabs",
+            new MauiBranchHostRegistration(new MauiTabbedBranchHostFactory(context =>
+            {
+                creationPlacements.Add(context.Placement);
+                return new TabbedPage();
+            })));
+        var presenter = new MauiNavigationPresenter(
+            factory,
+            presentationOptions: presentationOptions,
+            nativeOperations: nativeOperations);
         NavigationState previousState = BranchState("catalog", "catalog", "orders");
         await presenter.ApplyAsync(new NavigationPlan(previousState), Context("catalog", NavigationState.Empty));
         var previousRoot = Assert.IsType<TabbedPage>(presenter.CurrentPage);
@@ -524,6 +536,9 @@ public sealed class MauiPresentationTransactionTests
             .Select(page => Assert.IsType<string>(MauiPresentationMetadata.GetBranchId(page)))
             .ToArray());
         Assert.Equal("catalog", MauiPresentationMetadata.GetBranchId(recoveredRoot.CurrentPage));
+        Assert.Equal(
+            [MauiBranchHostPlacement.WindowRoot, MauiBranchHostPlacement.WindowRoot],
+            creationPlacements);
         Assert.Equal(1, factory.ReleaseCountFor(Assert.Single(factory.CreatedPresentationPages)));
         await presenter.StartShutdown();
     }
