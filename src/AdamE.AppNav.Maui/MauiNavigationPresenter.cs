@@ -380,6 +380,19 @@ internal sealed class MauiNavigationPresenter :
         }
     }
 
+    private void DetachDestroyedWindowOnMainThread(Window window)
+    {
+        if (!ReferenceEquals(_attachedWindow, window))
+            return;
+
+        // The native window is already being destroyed. Do not write Window.Page here; preserve the
+        // logical page tree for a later replacement-window attachment instead.
+        UnsubscribeWindowLifecycle(window);
+        _externalNavigationDispatcher?.SetForegrounded(false);
+        _attachedWindow = null;
+        _attachedWindowId = null;
+    }
+
     private async ValueTask RunSerializedWindowMutationAsync(
         Action mutation,
         CancellationToken cancellationToken)
@@ -519,7 +532,43 @@ internal sealed class MauiNavigationPresenter :
 
     private void HandleWindowDestroying(object? sender, EventArgs e)
     {
-        _externalNavigationDispatcher?.SetForegrounded(false);
+        if (sender is not Window window || !ReferenceEquals(_attachedWindow, window))
+            return;
+
+        _ = ObserveDestroyedWindowAsync(window);
+    }
+
+    private async Task ObserveDestroyedWindowAsync(Window window)
+    {
+        try
+        {
+            // Stop accepting external navigation immediately while the serialized detach waits behind
+            // any presentation operation already in progress.
+            _externalNavigationDispatcher?.SetForegrounded(false);
+            await RunSerializedWindowMutationAsync(
+                () => DetachDestroyedWindowOnMainThread(window),
+                CancellationToken.None);
+        }
+        catch (OperationCanceledException) when (_disposed)
+        {
+            // Presenter shutdown cancels queued lifecycle cleanup.
+        }
+        catch (ObjectDisposedException) when (_disposed)
+        {
+            // Presenter shutdown may win the race with the window destruction callback.
+        }
+        catch (Exception exception)
+        {
+            _diagnostics.Write(
+                NavigationDiagnosticEventKind.PresentationFailed,
+                LifecycleOperationId(),
+                "Window destruction cleanup failed.",
+                new Dictionary<string, object?>
+                {
+                    [NavigationDiagnosticDataKeys.ExceptionType] = exception.GetType().FullName,
+                    [NavigationDiagnosticDataKeys.ExceptionMessage] = exception.Message
+                });
+        }
     }
 
     public async ValueTask ApplyAsync(

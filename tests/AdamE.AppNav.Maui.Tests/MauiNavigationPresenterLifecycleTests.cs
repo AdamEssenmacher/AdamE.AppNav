@@ -11,6 +11,7 @@ using AdamE.AppNav.Routing;
 using AdamE.AppNav.State;
 using DeviceRunners.UITesting.Xunit3;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Maui;
 using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Controls;
 
@@ -75,6 +76,129 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.Empty(fixture.Factory.ReleasedPages);
 
         _ = fixture.Presenter.StartShutdown();
+    }
+
+    [UIFact]
+    public async Task DestroyingAttachedWindowDetachesWithoutClearingNativePageOrLogicalState()
+    {
+        var nativeOperations = new CountingNativeNavigationOperations();
+        var fixture = new PresenterFixture(nativeOperations: nativeOperations);
+
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("schools", Entry("schools"))),
+            Context(new TestPageRoute("schools")));
+
+        Page currentPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        var window = new Window();
+        var initialHandlerCounts = WindowLifecycleEventNames.ToDictionary(
+            eventName => eventName,
+            eventName => EventHandlerCount(window, eventName),
+            StringComparer.Ordinal);
+        await fixture.Presenter.AttachWindowAsync(window);
+        int windowPageSetCount = nativeOperations.WindowPageSetCount;
+
+        ((IWindow)window).Destroying();
+
+        Assert.Null(fixture.Presenter.AttachedWindow);
+        Assert.Null(fixture.Presenter.AttachedWindowId);
+        Assert.Same(currentPage, fixture.Presenter.CurrentPage);
+        Assert.Equal(windowPageSetCount, nativeOperations.WindowPageSetCount);
+        Assert.All(
+            WindowLifecycleEventNames,
+            eventName => Assert.Equal(initialHandlerCounts[eventName], EventHandlerCount(window, eventName)));
+        Assert.Empty(fixture.Factory.ReleasedPages);
+
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [UIFact]
+    public async Task NavigationAfterWindowDestructionUpdatesLogicalStateAndReplacementReceivesIt()
+    {
+        var nativeOperations = new CountingNativeNavigationOperations();
+        var fixture = new PresenterFixture(nativeOperations: nativeOperations);
+
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("schools", Entry("schools"))),
+            Context(new TestPageRoute("schools")));
+
+        var destroyedWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(destroyedWindow);
+        ((IWindow)destroyedWindow).Destroying();
+        int windowPageSetCount = nativeOperations.WindowPageSetCount;
+
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("account", Entry("account"))),
+            Context(new TestPageRoute("account")));
+
+        Page currentPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        Assert.Null(fixture.Presenter.AttachedWindow);
+        Assert.Equal(windowPageSetCount, nativeOperations.WindowPageSetCount);
+
+        var replacementWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(replacementWindow);
+
+        Assert.Same(currentPage, replacementWindow.Page);
+        Assert.Same(replacementWindow, fixture.Presenter.AttachedWindow);
+
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [UIFact]
+    public async Task DestroyingReplacedWindowDoesNotDetachReplacementWindow()
+    {
+        var fixture = new PresenterFixture();
+
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("schools", Entry("schools"))),
+            Context(new TestPageRoute("schools")));
+
+        var originalWindow = new Window();
+        var replacementWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(originalWindow);
+        await fixture.Presenter.AttachWindowAsync(replacementWindow);
+
+        ((IWindow)originalWindow).Destroying();
+
+        Assert.Same(replacementWindow, fixture.Presenter.AttachedWindow);
+        Assert.Equal("main", fixture.Presenter.AttachedWindowId);
+
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [UIFact]
+    public async Task DestroyingWindowWaitsForActivePresentationOperationBeforeDetaching()
+    {
+        var nativeOperations = new CountingNativeNavigationOperations();
+        var fixture = new PresenterFixture(nativeOperations: nativeOperations);
+
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("schools", Entry("schools"))),
+            Context(new TestPageRoute("schools")));
+
+        Page currentPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        var window = new Window();
+        await fixture.Presenter.AttachWindowAsync(window);
+        int windowPageSetCount = nativeOperations.WindowPageSetCount;
+        SemaphoreSlim operationLock = PresentationOperationLock(fixture.Presenter);
+        await operationLock.WaitAsync();
+        try
+        {
+            ((IWindow)window).Destroying();
+            Assert.Same(window, fixture.Presenter.AttachedWindow);
+        }
+        finally
+        {
+            operationLock.Release();
+        }
+
+        bool detached = await Task.Run(() => SpinWait.SpinUntil(
+            () => fixture.Presenter.AttachedWindow is null,
+            TimeSpan.FromSeconds(5)));
+        Assert.True(detached);
+        Assert.Same(currentPage, fixture.Presenter.CurrentPage);
+        Assert.Equal(windowPageSetCount, nativeOperations.WindowPageSetCount);
+
+        await fixture.Presenter.StartShutdown();
     }
 
     [Fact]
@@ -1889,6 +2013,8 @@ public sealed class MauiNavigationPresenterLifecycleTests
 
         public int ModalPushCount { get; private set; }
 
+        public int WindowPageSetCount { get; private set; }
+
         public async Task PushAsync(NavigationPage navigationPage, Page page, bool animated)
         {
             StackPushCount++;
@@ -1917,7 +2043,13 @@ public sealed class MauiNavigationPresenterLifecycleTests
             MauiNativeNavigationOperations.Instance.SetCurrentTab(tabbedPage, page);
 
         public void SetWindowPage(Window window, Page? page) =>
+            SetWindowPageCore(window, page);
+
+        private void SetWindowPageCore(Window window, Page? page)
+        {
+            WindowPageSetCount++;
             MauiNativeNavigationOperations.Instance.SetWindowPage(window, page);
+        }
     }
 
     private sealed class ThrowingPlanner : IAppNavigationPlanner
