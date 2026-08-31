@@ -1359,6 +1359,73 @@ public sealed class MauiNavigationPresenterLifecycleTests
     }
 
     [UIFact]
+    public async Task NativeStackPopInsideNestedModalContentReconcilesToVisibleNestedRoute()
+    {
+        var fixture = new PresenterFixture();
+
+        await fixture.Presenter.ApplyAsync(
+            Plan(
+                new WindowNode(
+                    "main",
+                    Stack("schools", Entry("schools")),
+                    new[]
+                    {
+                        new ModalNode(
+                            "outer-modal",
+                            new RouteEntry("outer-modal-route", new TestPageRoute("outer-shell")),
+                            new ModalNode(
+                                "inner-modal",
+                                new RouteEntry("inner-modal-route", new TestPageRoute("inner-shell")),
+                                Stack("inner-stack", Entry("inner-root"), Entry("inner-detail"))))
+                    })),
+            Context(new TestPageRoute("inner-detail")));
+
+        var rootNavigationPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        var modalNavigationPage = Assert.IsType<NavigationPage>(Assert.Single(rootNavigationPage.Navigation.ModalStack));
+        var reconciliation = await ReconcileAfterNativeMutationAsync(
+            fixture.Presenter,
+            async () => await modalNavigationPage.Navigation.PopAsync(animated: false));
+
+        var outerModal = Assert.Single(reconciliation.TargetState.ActiveWindow?.Modals ?? []);
+        var innerModal = Assert.IsType<ModalNode>(outerModal.Content);
+        var stack = Assert.IsType<StackNode>(innerModal.Content);
+        Assert.Equal(new[] { "inner-root" }, stack.Entries.Select(entry => entry.Id));
+        Assert.Equal(new TestPageRoute("inner-root"), reconciliation.Route);
+        Assert.Equal(NavigationReconciliationSource.HostBack, reconciliation.Source);
+
+        _ = fixture.Presenter.StartShutdown();
+    }
+
+    [UIFact]
+    public async Task NativeStackPopInsideRootModalContentReconcilesToVisibleRoute()
+    {
+        var fixture = new PresenterFixture();
+
+        await fixture.Presenter.ApplyAsync(
+            Plan(
+                new WindowNode(
+                    "main",
+                    new ModalNode(
+                        "root-modal",
+                        new RouteEntry("root-modal-route", new TestPageRoute("root-shell")),
+                        Stack("root-modal-stack", Entry("root"), Entry("detail"))))),
+            Context(new TestPageRoute("detail")));
+
+        var navigationPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        var reconciliation = await ReconcileAfterNativeMutationAsync(
+            fixture.Presenter,
+            async () => await navigationPage.Navigation.PopAsync(animated: false));
+
+        var rootModal = Assert.IsType<ModalNode>(reconciliation.TargetState.ActiveWindow?.Root);
+        var stack = Assert.IsType<StackNode>(rootModal.Content);
+        Assert.Equal(new[] { "root" }, stack.Entries.Select(entry => entry.Id));
+        Assert.Equal(new TestPageRoute("root"), reconciliation.Route);
+        Assert.Equal(NavigationReconciliationSource.HostBack, reconciliation.Source);
+
+        _ = fixture.Presenter.StartShutdown();
+    }
+
+    [UIFact]
     public async Task NativeStackPopInsideRootlessModalContentReconcilesOwningModalState()
     {
         var nativeOperations = new CountingNativeNavigationOperations();

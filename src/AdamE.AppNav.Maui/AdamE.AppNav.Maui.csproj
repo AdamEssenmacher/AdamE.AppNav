@@ -44,6 +44,12 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<!-- Keep node traversal identical to core without exposing core internals to the production adapter. -->
+		<Compile Include="..\AdamE.AppNav\Navigation\PresentedRouteTraversal.cs"
+		         Link="Navigation\PresentedRouteTraversal.cs" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<ProjectReference Include="..\AdamE.AppNav\AdamE.AppNav.csproj" />
 		<ProjectReference Include="..\AdamE.AppNav.Maui.Generators\AdamE.AppNav.Maui.Generators.csproj"
 		                  OutputItemType="Analyzer"

@@ -2541,11 +2541,11 @@ internal sealed class MauiNavigationPresenter :
             {
                 return modal.Content is null
                     ? modal.RouteEntry.Route
-                    : FindTopRoute(modal.Content) ?? modal.RouteEntry.Route;
+                    : PresentedRouteTraversal.FindTopRoute(modal.Content) ?? modal.RouteEntry.Route;
             }
         }
 
-        return window.Root is null ? null : FindTopRoute(window.Root);
+        return window.Root is null ? null : PresentedRouteTraversal.FindTopRoute(window.Root);
     }
 
     private void RequestReconciliation(
@@ -2654,17 +2654,6 @@ internal sealed class MauiNavigationPresenter :
         return updatedContent is null
             ? null
             : branchHost.ReplaceBranch(selectedBranch with { Content = updatedContent });
-    }
-
-    private static AppRoute? FindTopRoute(NavigationNode node)
-    {
-        return node switch
-        {
-            StackNode stack => stack.Top?.Route,
-            BranchHostNode branchHost when branchHost.SelectedBranch is not null => FindTopRoute(branchHost.SelectedBranch.Content),
-            ModalNode modal => modal.RouteEntry.Route,
-            _ => null
-        };
     }
 
     private async Task RebuildStateFromScratchAsync(NavigationState state, string operationId)
