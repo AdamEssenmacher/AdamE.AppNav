@@ -114,6 +114,12 @@ configured branch fallback. In Glyphmere that means Back dismisses the load
 confirmation before leaving its save slot, pops an item back to Inventory, and
 can finally apply the pause menu's configured branch fallback.
 
+When a candidate Back plan exists, ordered asynchronous
+`IBackNavigationPolicy` services can inspect that exact validated plan and
+cancel before presentation. Policy cancellation leaves presentation, logical
+state, and history unchanged. Host changes that have already committed are
+reconciliation inputs rather than cancellable Back requests.
+
 Native host changes are reconciled with host-neutral sources:
 
 - `HostBack` for completed native stack/back gestures;

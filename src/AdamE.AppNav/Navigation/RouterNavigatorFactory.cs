@@ -52,6 +52,7 @@ public static class RouterNavigatorFactory
                 FallbackRouteFactory = options.FallbackRouteFactory,
                 Diagnostics = options.Diagnostics,
                 BackNavigator = options.BackNavigator,
+                BackNavigationPolicies = options.BackNavigationPolicies,
                 MaxRedirects = options.MaxRedirects,
                 MaxHistoryEntries = options.MaxHistoryEntries,
                 Logger = options.Logger,

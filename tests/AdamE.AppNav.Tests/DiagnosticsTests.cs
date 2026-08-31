@@ -672,7 +672,7 @@ public sealed class DiagnosticsTests
                 {
                     BackNavigationResult result = await navigator.BackAsync();
 
-                    Assert.True(result.Handled);
+                    Assert.Equal(BackNavigationStatus.Completed, result.Status);
                     var stack = Assert.IsType<StackNode>(navigator.CurrentState.ActiveWindow!.Root);
                     Assert.Single(stack.Entries);
                     Assert.Equal("home", Assert.IsType<TestRoutes.StoreRoute>(stack.Top!.Route).StoreId);

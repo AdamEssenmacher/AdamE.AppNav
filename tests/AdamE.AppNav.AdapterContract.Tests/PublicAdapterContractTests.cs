@@ -1,3 +1,4 @@
+using AdamE.AppNav.Back;
 using AdamE.AppNav.Navigation;
 using AdamE.AppNav.Plans;
 using AdamE.AppNav.Policies;
@@ -73,6 +74,47 @@ public sealed class PublicAdapterContractTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => navigation);
         Assert.Equal(initialState, navigator.CurrentState);
         Assert.Null(navigator.History.Current);
+    }
+
+    [Fact]
+    public async Task BackPolicyCancellationDoesNotCrossThePresenterBoundary()
+    {
+        var firstRoute = new ContractRoute("first");
+        NavigationState initialState = new(
+            [
+                new WindowNode(
+                    "main",
+                    new StackNode(
+                        "main-stack",
+                        [new RouteEntry("first", firstRoute), new RouteEntry("second", new ContractRoute("second"))]))
+            ],
+            "main");
+        var presenter = new ContractPresenter();
+        var policy = new CancelBackPolicy();
+        await using IRouterNavigator navigator = CreateNavigator(
+            presenter,
+            StackState(new ContractRoute("unused")),
+            initialState,
+            [policy]);
+
+        BackNavigationResult result = await navigator.BackAsync(
+            new BackNavigationRequest("main", BackNavigationSource.Host));
+
+        Assert.Equal(BackNavigationStatus.Canceled, result.Status);
+        Assert.Null(result.NavigationResult);
+        Assert.Equal(initialState, navigator.CurrentState);
+        Assert.Null(navigator.History.Current);
+        Assert.Equal(0, presenter.ApplyCount);
+        Assert.Equal("main", policy.Context?.Request.WindowId);
+        Assert.Equal(BackNavigationSource.Host, policy.Context?.Request.Source);
+        NavigationState candidateState = Assert.IsType<NavigationState>(policy.Context?.CandidatePlan.TargetState);
+        WindowNode candidateWindow = Assert.Single(candidateState.Windows);
+        var candidateStack = Assert.IsType<StackNode>(candidateWindow.Root);
+        RouteEntry candidateEntry = Assert.Single(candidateStack.Entries);
+        Assert.Equal("main", candidateWindow.Id);
+        Assert.Equal("main-stack", candidateStack.Id);
+        Assert.Equal("first", candidateEntry.Id);
+        Assert.Equal(firstRoute, candidateEntry.Route);
     }
 
     [Fact]
@@ -185,14 +227,19 @@ public sealed class PublicAdapterContractTests
     private static IRouterNavigator CreateNavigator(
         ContractPresenter presenter,
         NavigationState targetState,
-        NavigationState? initialState = null)
+        NavigationState? initialState = null,
+        IReadOnlyList<IBackNavigationPolicy>? backNavigationPolicies = null)
     {
         var planner = new ContractPlanner(targetState);
         return RouterNavigatorFactory.Create(
             new RouteTableBuilder().Build(),
             planner,
             presenter,
-            new RouterNavigatorFactoryOptions { InitialState = initialState });
+            new RouterNavigatorFactoryOptions
+            {
+                InitialState = initialState,
+                BackNavigationPolicies = backNavigationPolicies ?? []
+            });
     }
 
     private static NavigationState StackState(ContractRoute route)
@@ -241,6 +288,20 @@ public sealed class PublicAdapterContractTests
     }
 
     private sealed record ContractRoute(string Name) : AppRoute;
+
+    private sealed class CancelBackPolicy : IBackNavigationPolicy
+    {
+        public BackNavigationPolicyContext? Context { get; private set; }
+
+        public ValueTask<BackNavigationPolicyDecision> EvaluateAsync(
+            BackNavigationPolicyContext context,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Context = context;
+            return ValueTask.FromResult(BackNavigationPolicyDecision.Cancel);
+        }
+    }
 
     private sealed class ContractPlanner(NavigationState targetState) : IAppNavigationPlanner
     {

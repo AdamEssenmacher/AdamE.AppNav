@@ -35,11 +35,12 @@ The target release is `0.1.0-preview.1`.
 - Local package version: `0.1.0-preview.local`
 
 The preview includes typed route generation and formatting, request transforms
-and policy, standard stack and branch-host models, logical history and Back,
-native MAUI presentation and reconciliation, platform-native motion for
-singular visible stack and modal operations, trusted external ingress, bounded
-retry queues, deferred navigation persistence, safe diagnostics, and
-trimming/AOT-oriented validation.
+and policy, standard stack and branch-host models, logical history,
+asynchronous cancelable Back, native MAUI presentation and reconciliation,
+opt-in MAUI host-Back dispatch, platform-native motion for singular visible
+stack and modal operations, trusted external ingress, bounded retry queues,
+deferred navigation persistence, safe diagnostics, and trimming/AOT-oriented
+validation.
 
 The preview deliberately excludes Windows MAUI, Shell and Prism integration, a
 production Blazor adapter, true multi-window MAUI orchestration, a transition
