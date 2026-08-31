@@ -5,7 +5,7 @@
 External navigation is a security boundary. Enable it only after the
 application has defined the production origins it owns and intends to accept.
 The examples continue the fictional RPG
-[Glyphmere](../concepts/routing-and-metadata.md#meet-glyphmere); its `.example`
+[Glyphmere](../concepts/01-routing-and-metadata.md#meet-glyphmere); its `.example`
 host is documentation-only and is not a production domain.
 
 Enable MAUI lifecycle ingress only with `UseAppNavExternalNavigation` and at least one trusted origin.
@@ -91,6 +91,6 @@ register nor trust the sample custom scheme.
 
 ## Next steps
 
-- Define field ownership with [requests and provenance](../concepts/requests-and-provenance.md).
+- Define field ownership with [requests and provenance](../concepts/03-requests-and-provenance.md).
 - Add durable auth recovery with [deferred navigation](04-deferred-navigation.md).
 - Diagnose rejection with [Troubleshooting](05-troubleshooting.md).

@@ -55,7 +55,7 @@ should not be edited.
 
 ## Next steps
 
-- Learn [routing and metadata](../../docs/concepts/routing-and-metadata.md).
+- Learn [routing and metadata](../../docs/concepts/01-routing-and-metadata.md).
 - Read the complete [MAUI integration guide](../../docs/guides/02-maui-integration.md).
 - Explore tabs, dispositions, transforms, and external ingress in the
   [Commerce sample](../Commerce.Sample/README.md).

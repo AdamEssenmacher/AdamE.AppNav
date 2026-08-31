@@ -39,6 +39,6 @@ the same contract while owning browser history, component mapping, lifecycle, an
 
 ## Next steps
 
-- Review [topology and planning](../concepts/topology-and-planning.md).
+- Review [topology and planning](../concepts/02-topology-and-planning.md).
 - Use maintainer [testing](../maintainers/testing.md) to run adapter contracts.
 - Diagnose host failures with [Diagnostics](../reference/diagnostics.md).

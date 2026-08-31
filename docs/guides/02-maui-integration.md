@@ -4,7 +4,7 @@
 
 This guide walks through one common MAUI integration shape for AppNav. It is a
 complete example, not the only public way to use the library. It continues the
-fictional RPG [Glyphmere](../concepts/routing-and-metadata.md#meet-glyphmere)
+fictional RPG [Glyphmere](../concepts/01-routing-and-metadata.md#meet-glyphmere)
 where a concrete domain example makes the boundary clearer.
 
 ## Common Flow
@@ -54,7 +54,7 @@ Keep route-owned metadata app-defined in a `RouteStateRegistry`.
 - restorable metadata belongs in persistence
 - ephemeral metadata belongs only in live in-memory requests and state
 
-See [Choose a metadata lifetime](../concepts/routing-and-metadata.md#choose-a-metadata-lifetime)
+See [Choose a metadata lifetime](../concepts/01-routing-and-metadata.md#choose-a-metadata-lifetime)
 for the URI, persistence, and live-memory decision rules.
 
 Register that registry with navigation persistence when route-owned metadata participates in formatting or restore.
@@ -83,7 +83,7 @@ attributes. Keep provenance out of `AppRoute`, `AppRouteRequest`, route
 formatting, and `RouteStateRegistry`. AppNav records context for platform links
 it handles; apps record context from providers they integrate. For field
 ownership, see
-[Requests and provenance](../concepts/requests-and-provenance.md).
+[Requests and provenance](../concepts/03-requests-and-provenance.md).
 
 A request always has exactly one target. Create it with `FromUri`, `FromRoute`, or `FromRouteRequest`, and use
 `WithTarget(Uri)` or `WithTarget(AppRoute)` when a transformer or policy replaces that target.
@@ -205,7 +205,7 @@ transactional push/pop, rollback, and consistency faults.
 
 ## Next steps
 
-- Define [routing and metadata](../concepts/routing-and-metadata.md).
+- Define [routing and metadata](../concepts/01-routing-and-metadata.md).
 - Configure [external navigation](03-external-navigation.md) only after defining trusted origins.
 - Add [deferred navigation](04-deferred-navigation.md) only for a real auth defer/replay flow.
 - Diagnose integration failures with [Troubleshooting](05-troubleshooting.md).

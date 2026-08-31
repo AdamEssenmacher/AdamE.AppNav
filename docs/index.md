@@ -7,7 +7,7 @@ trying to do.
 ## Evaluate AppNav
 
 - Read the repository [overview and quickstart](../README.md).
-- Review [topology and planning](concepts/topology-and-planning.md) to understand
+- Review [topology and planning](concepts/02-topology-and-planning.md) to understand
   stacks, independent branches, modals, and canonical navigation.
 - Review the [preview release notes](release-notes/index.md) and supported
   limits before adopting the preview.
@@ -19,10 +19,10 @@ independent branch histories, requests, and provenance build on one recognizable
 model. The Getting Started guide then applies the same fundamentals in a
 minimal buildable sample.
 
-1. Learn [routing and metadata](concepts/routing-and-metadata.md).
-2. Understand [topology and planning](concepts/topology-and-planning.md).
+1. Learn [routing and metadata](concepts/01-routing-and-metadata.md).
+2. Understand [topology and planning](concepts/02-topology-and-planning.md).
 3. Choose the right abstraction with
-   [requests and provenance](concepts/requests-and-provenance.md).
+   [requests and provenance](concepts/03-requests-and-provenance.md).
 4. Follow [Getting started](guides/01-getting-started.md).
 5. Continue with [MAUI integration](guides/02-maui-integration.md).
 
@@ -32,7 +32,7 @@ minimal buildable sample.
   QR, and provider ingress.
 - [Deferred navigation](guides/04-deferred-navigation.md): durable auth defer and
   replay.
-- [Requests and provenance](concepts/requests-and-provenance.md): choose the
+- [Requests and provenance](concepts/03-requests-and-provenance.md): choose the
   correct request abstraction and preserve runtime context.
 - [Route-owned presentation pages](advanced/route-owned-presentation-pages.md):
   native subpages that remain one logical route.
@@ -47,7 +47,7 @@ minimal buildable sample.
 ## Write another adapter
 
 - Read the [adapter contract](advanced/adapter-contract.md).
-- Use the host-independent [topology model](concepts/topology-and-planning.md).
+- Use the host-independent [topology model](concepts/02-topology-and-planning.md).
 
 ## Maintain and release AppNav
 
@@ -66,9 +66,9 @@ Every documentation page is indexed here:
 - [External navigation](guides/03-external-navigation.md)
 - [Deferred navigation](guides/04-deferred-navigation.md)
 - [Troubleshooting](guides/05-troubleshooting.md)
-- [Routing and metadata](concepts/routing-and-metadata.md)
-- [Topology and planning](concepts/topology-and-planning.md)
-- [Requests and provenance](concepts/requests-and-provenance.md)
+- [Routing and metadata](concepts/01-routing-and-metadata.md)
+- [Topology and planning](concepts/02-topology-and-planning.md)
+- [Requests and provenance](concepts/03-requests-and-provenance.md)
 - [Route-owned presentation pages](advanced/route-owned-presentation-pages.md)
 - [Adapter contract](advanced/adapter-contract.md)
 - [Diagnostics](reference/diagnostics.md)

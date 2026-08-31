@@ -3,7 +3,7 @@
 [Documentation home](../index.md)
 
 AppNav plans a logical tree before an adapter mutates UI. This guide continues
-the [Glyphmere pause-menu example](routing-and-metadata.md#meet-glyphmere).
+the [Glyphmere pause-menu example](01-routing-and-metadata.md#meet-glyphmere).
 
 Routes say where the player wants to go. Topology describes the native
 navigation shape needed to get there. For example, an
@@ -120,7 +120,7 @@ ID. Preflight validation occurs before page creation or native mutation.
 ## Next steps
 
 - See how Glyphmere's routes enter the pipeline in
-  [requests and provenance](requests-and-provenance.md).
+  [requests and provenance](03-requests-and-provenance.md).
 - Apply the model in [MAUI integration](../guides/02-maui-integration.md).
 - Read the [adapter contract](../advanced/adapter-contract.md) before
   implementing another host.

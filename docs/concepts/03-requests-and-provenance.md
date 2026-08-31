@@ -3,7 +3,7 @@
 [Documentation home](../index.md)
 
 This guide continues the
-[Glyphmere pause-menu example](routing-and-metadata.md#meet-glyphmere).
+[Glyphmere pause-menu example](01-routing-and-metadata.md#meet-glyphmere).
 
 Most Glyphmere code can navigate with a typed route: tapping an item creates an
 `InventoryItemRoute(itemId)`. A complete `RouterNavigationRequest` is needed
@@ -187,8 +187,8 @@ The router should usually see one of these instead:
 
 ## Next steps
 
-- Define [routing and metadata](routing-and-metadata.md).
-- See how routes become [topology and plans](topology-and-planning.md).
+- Define [routing and metadata](01-routing-and-metadata.md).
+- See how routes become [topology and plans](02-topology-and-planning.md).
 - Configure [external navigation](../guides/03-external-navigation.md).
 - Persist only safe fields with
   [deferred navigation](../guides/04-deferred-navigation.md).

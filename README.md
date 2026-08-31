@@ -179,8 +179,8 @@ Start at the [documentation home](docs/index.md).
 
 - [Getting started](docs/guides/01-getting-started.md)
 - [MAUI integration](docs/guides/02-maui-integration.md)
-- [Routing and metadata](docs/concepts/routing-and-metadata.md)
-- [Topology and planning](docs/concepts/topology-and-planning.md)
+- [Routing and metadata](docs/concepts/01-routing-and-metadata.md)
+- [Topology and planning](docs/concepts/02-topology-and-planning.md)
 - [External navigation](docs/guides/03-external-navigation.md)
 - [Deferred navigation](docs/guides/04-deferred-navigation.md)
 - [Troubleshooting](docs/guides/05-troubleshooting.md)

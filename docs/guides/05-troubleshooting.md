@@ -7,7 +7,7 @@ below. Safe diagnostics intentionally omit raw paths, query values, and
 provenance values.
 
 The concrete cases below reuse the fictional RPG
-[Glyphmere](../concepts/routing-and-metadata.md#meet-glyphmere) where a domain
+[Glyphmere](../concepts/01-routing-and-metadata.md#meet-glyphmere) where a domain
 example helps identify the failure.
 
 ## A route does not match

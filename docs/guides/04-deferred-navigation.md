@@ -6,7 +6,7 @@ Deferred persistence supports auth or policy flows that must replay a canonical 
 It is not a raw deep-link cache.
 
 In the fictional RPG
-[Glyphmere](../concepts/routing-and-metadata.md#meet-glyphmere), a cloud-save
+[Glyphmere](../concepts/01-routing-and-metadata.md#meet-glyphmere), a cloud-save
 notification might target `SaveSlotRoute(3)` while the player is signed out.
 The auth flow can defer that navigation and replay it after the player signs in,
 even if the process restarts in between.
@@ -23,7 +23,7 @@ services.AddAppNavFileDeferredNavigationRequests(options =>
 
 `BaseUri` is explicit, required, and absolute. The route-state registry
 determines which metadata is restorable; see
-[Choose a metadata lifetime](../concepts/routing-and-metadata.md#choose-a-metadata-lifetime)
+[Choose a metadata lifetime](../concepts/01-routing-and-metadata.md#choose-a-metadata-lifetime)
 for how canonical, restorable, and ephemeral values differ.
 The configuration callback is required, and invalid options fail immediately during service registration.
 
@@ -51,6 +51,6 @@ starve later valid requests.
 
 ## Next steps
 
-- Keep transport context separate with [requests and provenance](../concepts/requests-and-provenance.md).
+- Keep transport context separate with [requests and provenance](../concepts/03-requests-and-provenance.md).
 - Configure Safe-mode [diagnostics](../reference/diagnostics.md).
 - Diagnose reset and quarantine behavior with [Troubleshooting](05-troubleshooting.md).

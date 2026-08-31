@@ -6,7 +6,7 @@ This guide uses the buildable
 [`GettingStarted.Sample`](../../samples/GettingStarted.Sample/README.md). It is
 deliberately limited to Home -> Detail -> native Back so the core AppNav model
 is visible without external ingress, persistence, tabs, or auth. The concept
-guides use the richer fictional RPG [Glyphmere](../concepts/routing-and-metadata.md#meet-glyphmere)
+guides use the richer fictional RPG [Glyphmere](../concepts/01-routing-and-metadata.md#meet-glyphmere)
 to explain independent branches and nested destinations; Home -> Detail is the
 smallest executable version of the same route -> plan -> presentation flow.
 
@@ -15,12 +15,12 @@ smallest executable version of the same route -> plan -> presentation flow.
 AppNav is easier to understand once three boundaries are clear. Before copying
 the setup code, read these short concept guides in order:
 
-1. [Routing and metadata](../concepts/routing-and-metadata.md) explains why a
+1. [Routing and metadata](../concepts/01-routing-and-metadata.md) explains why a
    route is durable destination identity rather than a page operation.
-2. [Topology and planning](../concepts/topology-and-planning.md) explains how
+2. [Topology and planning](../concepts/02-topology-and-planning.md) explains how
    routes become logical windows, stacks, branches, entries, and modals before
    MAUI changes native UI.
-3. [Requests and provenance](../concepts/requests-and-provenance.md) explains
+3. [Requests and provenance](../concepts/03-requests-and-provenance.md) explains
    when app code should use a typed route and when external events such as app
    links or push notifications need a complete navigation request.
 
@@ -195,7 +195,7 @@ for every `APPNAV` code.
 
 ## Next steps
 
-- Revisit the [core concepts](../concepts/routing-and-metadata.md) as the sample's
+- Revisit the [core concepts](../concepts/01-routing-and-metadata.md) as the sample's
   route and topology choices become concrete.
 - Add application wiring with [MAUI integration](02-maui-integration.md).
 - Explore native tabs and external ingress in the

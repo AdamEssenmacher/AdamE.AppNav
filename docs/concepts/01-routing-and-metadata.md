@@ -235,7 +235,7 @@ when generation fails.
 ## Next steps
 
 - See how Glyphmere's destinations become UI in
-  [topology and planning](topology-and-planning.md).
+  [topology and planning](02-topology-and-planning.md).
 - Choose the right request type with
-  [requests and provenance](requests-and-provenance.md).
+  [requests and provenance](03-requests-and-provenance.md).
 - Follow the buildable [Getting Started guide](../guides/01-getting-started.md).

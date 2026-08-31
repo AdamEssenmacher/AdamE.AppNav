@@ -395,6 +395,9 @@ public sealed partial class RepositoryContractTests
         string[] guides = Directory
             .EnumerateFiles(Path.Combine(root, "docs", "guides"), "*.md", SearchOption.TopDirectoryOnly)
             .ToArray();
+        string[] concepts = Directory
+            .EnumerateFiles(Path.Combine(root, "docs", "concepts"), "*.md", SearchOption.TopDirectoryOnly)
+            .ToArray();
 
         Assert.Equal(
             new[]
@@ -406,9 +409,17 @@ public sealed partial class RepositoryContractTests
                 "05-troubleshooting.md"
             },
             guides.Select(Path.GetFileName).Order(StringComparer.Ordinal));
-        foreach (string guide in guides)
+        Assert.Equal(
+            new[]
+            {
+                "01-routing-and-metadata.md",
+                "02-topology-and-planning.md",
+                "03-requests-and-provenance.md"
+            },
+            concepts.Select(Path.GetFileName).Order(StringComparer.Ordinal));
+        foreach (string document in guides.Concat(concepts))
         {
-            string text = File.ReadAllText(guide);
+            string text = File.ReadAllText(document);
             Assert.Contains("[Documentation home](../index.md)", text, StringComparison.Ordinal);
             Assert.Contains("## Next steps", text, StringComparison.Ordinal);
         }
