@@ -6,6 +6,7 @@ using Microsoft.Maui;
 namespace AdamE.AppNav.Maui.Tests;
 
 [Activity(
+    Name = "com.adame.appnav.maui.tests.MainActivity",
     Theme = "@style/Maui.SplashTheme",
     MainLauncher = true,
     ConfigurationChanges = ConfigChanges.ScreenSize |

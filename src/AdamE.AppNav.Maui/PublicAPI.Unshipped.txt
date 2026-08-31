@@ -28,6 +28,10 @@ override AdamE.AppNav.Maui.MauiPresentationOperationOptions.GetHashCode() -> int
 override AdamE.AppNav.Maui.MauiPresentationOperationOptions.ToString() -> string!
 static AdamE.AppNav.Maui.MauiPresentationOperationOptions.operator !=(AdamE.AppNav.Maui.MauiPresentationOperationOptions? left, AdamE.AppNav.Maui.MauiPresentationOperationOptions? right) -> bool
 static AdamE.AppNav.Maui.MauiPresentationOperationOptions.operator ==(AdamE.AppNav.Maui.MauiPresentationOperationOptions? left, AdamE.AppNav.Maui.MauiPresentationOperationOptions? right) -> bool
+AdamE.AppNav.Maui.MauiNavigationPresentationOptions
+AdamE.AppNav.Maui.MauiNavigationPresentationOptions.MauiNavigationPresentationOptions() -> void
+AdamE.AppNav.Maui.MauiNavigationPresentationOptions.MapFlyoutBranchHost(string! branchHostId, string! menuTitle, Microsoft.Maui.Controls.FlyoutLayoutBehavior layoutBehavior = Microsoft.Maui.Controls.FlyoutLayoutBehavior.Default, bool isGestureEnabled = true) -> AdamE.AppNav.Maui.MauiNavigationPresentationOptions!
+static AdamE.AppNav.Maui.DependencyInjection.AppNavServiceCollectionExtensions.AddAppNavMauiPresentation(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<AdamE.AppNav.Maui.MauiNavigationPresentationOptions!>! configure) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
 AdamE.AppNav.Maui.AppNavNavigatorOptions
 AdamE.AppNav.Maui.AppNavNavigatorOptions.AppNavNavigatorOptions() -> void
 AdamE.AppNav.Maui.AppNavNavigatorOptions.FallbackRouteFactory.get -> System.Func<AdamE.AppNav.Navigation.NavigationFallbackContext!, AdamE.AppNav.AppRoute?>?
