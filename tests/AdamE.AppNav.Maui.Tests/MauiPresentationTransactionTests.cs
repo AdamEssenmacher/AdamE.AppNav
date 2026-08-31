@@ -59,8 +59,16 @@ public sealed class MauiPresentationTransactionTests
     {
         NavigationState previousState = BranchState("catalog", "catalog", "orders");
         NavigationState targetState = BranchState("orders", "catalog", "orders");
+        var initialIcon = new FontImageSource { Glyph = "initial" };
+        var targetIcon = new FontImageSource { Glyph = "target" };
         var nativeOperations = new FaultingNativeOperations();
-        var factory = new InstrumentedRoutePageFactory();
+        var factory = new InstrumentedRoutePageFactory(
+            createPage: entry => new ContentPage
+            {
+                Title = entry.Id,
+                IconImageSource = initialIcon
+            },
+            updatePage: (page, _, _) => page.IconImageSource = targetIcon);
         var options = new MauiRoutePresentationOptions();
         options.FlyoutBranchHosts.Add(
             "main-tabs",
@@ -70,6 +78,9 @@ public sealed class MauiPresentationTransactionTests
             presentationOptions: options,
             nativeOperations: nativeOperations);
         await presenter.ApplyAsync(new NavigationPlan(previousState), Context("catalog", NavigationState.Empty));
+        var flyoutPage = Assert.IsType<MauiBranchFlyoutPage>(presenter.CurrentPage);
+        Button[] menuButtons = FlyoutMenuButtons(flyoutPage);
+        Assert.All(menuButtons, button => Assert.Same(initialIcon, button.ImageSource));
         NativePresentationSnapshot previousPresentation = CapturePresentation(presenter, null);
         Page[] previousPages = factory.CreatedPages.ToArray();
         nativeOperations.FaultAfterMutation = NativeMutation.SetFlyoutDetail;
@@ -79,6 +90,8 @@ public sealed class MauiPresentationTransactionTests
             Context("orders", previousState)).AsTask());
 
         AssertPresentation(previousPresentation, presenter, null);
+        Assert.Equal(menuButtons.Length, FlyoutMenuButtons(flyoutPage).Length);
+        Assert.All(FlyoutMenuButtons(flyoutPage), button => Assert.Same(initialIcon, button.ImageSource));
         Assert.All(previousPages, page => Assert.Equal(0, factory.ReleaseCountFor(page)));
         await presenter.StartShutdown();
     }
@@ -945,6 +958,14 @@ public sealed class MauiPresentationTransactionTests
             window?.Page,
             root is null ? null : CapturePage(root),
             root?.Navigation.ModalStack.Select(CapturePage).ToArray() ?? []);
+    }
+
+    private static Button[] FlyoutMenuButtons(MauiBranchFlyoutPage flyoutPage)
+    {
+        var menuPage = Assert.IsType<ContentPage>(flyoutPage.Flyout);
+        var scrollView = Assert.IsType<ScrollView>(menuPage.Content);
+        var menuItems = Assert.IsType<VerticalStackLayout>(scrollView.Content);
+        return menuItems.Children.Select(Assert.IsType<Button>).ToArray();
     }
 
     private static NativePageSnapshot CapturePage(Page page)

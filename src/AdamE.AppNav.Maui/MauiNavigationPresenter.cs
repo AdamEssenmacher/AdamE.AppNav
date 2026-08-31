@@ -1412,11 +1412,17 @@ internal sealed class MauiNavigationPresenter :
             if (!desiredBranchIds.Contains(stale.Id))
                 retiredPages.Add(stale.Page);
 
+        bool selectedBranchChanged = flyoutPage.SelectedBranchId is not null &&
+                                     !StringComparer.Ordinal.Equals(
+                                         flyoutPage.SelectedBranchId,
+                                         branchHost.SelectedBranchId);
         flyoutPage.SetBranches(stagedBranches);
         MauiFlyoutBranchPresentation selected = stagedBranches.First(branch =>
             StringComparer.Ordinal.Equals(branch.Id, branchHost.SelectedBranchId));
         _nativeOperations.SetFlyoutDetail(flyoutPage, selected.Page);
         flyoutPage.SetSelectedBranch(selected.Id);
+        if (selectedBranchChanged)
+            _nativeOperations.SetFlyoutPresented(flyoutPage, false);
 
         foreach (Page retiredPage in retiredPages)
             await DetachPageTreeAsync(retiredPage);
@@ -3407,16 +3413,6 @@ internal sealed class MauiNavigationPresenter :
                 _presenter._nativeOperations.SetCurrentTab(tabbedPage, snapshot.CurrentPage);
             }
 
-            foreach ((MauiBranchFlyoutPage flyoutPage, FlyoutSnapshot snapshot) in _flyouts)
-            {
-                flyoutPage.SetBranches(snapshot.Branches);
-                if (snapshot.Detail is not null)
-                    _presenter._nativeOperations.SetFlyoutDetail(flyoutPage, snapshot.Detail);
-                if (snapshot.SelectedBranchId is not null)
-                    flyoutPage.SetSelectedBranch(snapshot.SelectedBranchId);
-                _presenter._nativeOperations.SetFlyoutPresented(flyoutPage, snapshot.IsPresented);
-            }
-
             foreach ((NavigationPage navigationPage, Page[] pages) in _navigationStacks)
             {
                 while (navigationPage.Navigation.NavigationStack.Count > 1)
@@ -3468,6 +3464,16 @@ internal sealed class MauiNavigationPresenter :
 
             foreach ((Page page, PageSnapshot snapshot) in _pageSnapshots)
                 snapshot.Restore(page);
+
+            foreach ((MauiBranchFlyoutPage flyoutPage, FlyoutSnapshot snapshot) in _flyouts)
+            {
+                flyoutPage.SetBranches(snapshot.Branches);
+                if (snapshot.Detail is not null)
+                    _presenter._nativeOperations.SetFlyoutDetail(flyoutPage, snapshot.Detail);
+                if (snapshot.SelectedBranchId is not null)
+                    flyoutPage.SetSelectedBranch(snapshot.SelectedBranchId);
+                _presenter._nativeOperations.SetFlyoutPresented(flyoutPage, snapshot.IsPresented);
+            }
 
             _presenter._lastState = PreviousState;
             _presenter.RebuildTrackingFromCurrentPage();

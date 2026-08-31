@@ -443,6 +443,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.Same(catalogPage, flyoutPage.Detail);
         Assert.Equal("catalog", flyoutPage.SelectedBranchId);
 
+        flyoutPage.IsPresented = true;
         await fixture.Presenter.ApplyAsync(
             Plan(branchHost with { SelectedBranchId = "home" }),
             Context(new TestPageRoute("home"), fixture.PresenterState));
@@ -450,6 +451,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.Same(flyoutPage, fixture.Presenter.CurrentPage);
         Assert.Same(homePage, flyoutPage.Detail);
         Assert.Same(catalogPage, flyoutPage.Branches[1].Page);
+        Assert.False(flyoutPage.IsPresented);
         Assert.Empty(fixture.Factory.ReleasedPages);
         _ = fixture.Presenter.StartShutdown();
     }
