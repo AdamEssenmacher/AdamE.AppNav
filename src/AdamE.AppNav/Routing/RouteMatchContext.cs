@@ -39,10 +39,12 @@ public sealed class RouteMatchContext
     // ReSharper disable once MemberCanBePrivate.Global
     public IReadOnlyDictionary<string, IReadOnlyList<string>> QueryValueLists { get; }
 
-    internal IReadOnlyDictionary<string, object?> Metadata =>
-        _metadata is null
+    internal IReadOnlyDictionary<string, object?> SnapshotMetadata()
+    {
+        return _metadata is null
             ? RouteMatchResult.EmptyMetadata
             : new Dictionary<string, object?>(_metadata, StringComparer.Ordinal);
+    }
 
     public string Path(string name)
     {

@@ -301,7 +301,7 @@ public sealed class StackNavigationModelTests
             entry =>
             {
                 Assert.IsType<EditorRoute>(entry.Route);
-                Assert.Equal(true, entry.Metadata!["resume"]);
+                Assert.True(Assert.IsType<bool>(entry.Metadata!["resume"]));
             });
     }
 

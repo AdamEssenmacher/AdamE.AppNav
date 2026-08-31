@@ -40,77 +40,16 @@ internal sealed class RouterRequestResolver(
 
         while (true)
         {
-            var restarted = false;
-
-            foreach (INavigationRequestTransformer transformer in _requestTransformers)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                string transformerName = transformer.GetType().Name;
-                string? transformerType = transformer.GetType().FullName;
-                var timer = Stopwatch.StartNew();
-                _diagnostics.Write(
-                    NavigationDiagnosticEventKind.RequestTransformStarted,
-                    operationId,
-                    transformerName,
-                    RouterNavigationDiagnostics.Data(
-                        (NavigationDiagnosticDataKeys.RequestTransformerType, transformerType)));
-
-                try
-                {
-                    RouterNavigationRequest previousRequest = effectiveRequest;
-                    RequestTargetKey previousTarget = RequestTargetKey.From(previousRequest);
-                    RouterNavigationRequest? candidateRequest = await transformer.TransformAsync(
-                        new NavigationRequestTransformContext(effectiveRequest, currentState, operationId),
-                        cancellationToken).ConfigureAwait(false);
-
-                    if (candidateRequest is null)
-                        throw new InvalidOperationException(
-                            $"Request transformer '{transformer.GetType().FullName}' returned a null navigation request.");
-
-                    ValidateTarget(candidateRequest);
-                    RequestTargetKey candidateTarget = RequestTargetKey.From(candidateRequest);
-                    effectiveRequest = candidateRequest;
-
-                    _diagnostics.Write(
-                        NavigationDiagnosticEventKind.RequestTransformCompleted,
-                        operationId,
-                        transformerName,
-                        RouterNavigationDiagnostics.Duration(
-                            timer,
-                            (NavigationDiagnosticDataKeys.RequestTransformerType, transformerType)));
-
-                    if (candidateTarget == previousTarget)
-                        continue;
-
-                    RecordRedirect(
-                        operationId,
-                        initialRequest,
-                        previousRequest,
-                        candidateRequest,
-                        redirects,
-                        seenTargets,
-                        transformerName,
-                        NavigationDiagnosticDataKeys.RequestTransformerType,
-                        transformerType,
-                        NavigationDiagnosticPhase.RequestTransformation);
-                    restarted = true;
-                    break;
-                }
-                catch (Exception ex)
-                {
-                    _diagnostics.WriteFailure(
-                        NavigationDiagnosticEventKind.RequestTransformFailed,
-                        operationId,
-                        transformerName,
-                        ex,
-                        timer,
-                        (NavigationDiagnosticDataKeys.RequestTransformerType, transformerType));
-                    throw;
-                }
-            }
-
-            if (restarted)
+            RequestStageResult transformResult = await ApplyTransformersAsync(
+                initialRequest,
+                effectiveRequest,
+                currentState,
+                operationId,
+                redirects,
+                seenTargets,
+                cancellationToken).ConfigureAwait(false);
+            effectiveRequest = transformResult.Request;
+            if (transformResult.Restarted)
                 continue;
 
             ResolvedRoute resolvedRoute = ResolveRoute(effectiveRequest, currentState, operationId);
@@ -119,79 +58,17 @@ internal sealed class RouterRequestResolver(
             Activity.Current?.SetTag("navigation.route_type", route.GetType().FullName);
             Activity.Current?.SetTag("navigation.route_template", resolvedRoute.Definition?.Template.Value);
 
-            foreach (INavigationRequestPolicy policy in _requestPolicies)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                string policyName = policy.GetType().Name;
-                string? policyType = policy.GetType().FullName;
-                var timer = Stopwatch.StartNew();
-                _diagnostics.Write(
-                    NavigationDiagnosticEventKind.RequestPolicyStarted,
-                    operationId,
-                    policyName,
-                    RouterNavigationDiagnostics.Data((NavigationDiagnosticDataKeys.PolicyType, policyType)));
-
-                try
-                {
-                    RouterNavigationRequest previousRequest = effectiveRequest;
-                    RequestTargetKey previousTarget = RequestTargetKey.From(previousRequest);
-                    RouterNavigationRequest? candidateRequest = await policy.ApplyAsync(
-                        new NavigationRequestPolicyContext(
-                            effectiveRequest,
-                            route,
-                            resolvedRoute.Metadata,
-                            currentState,
-                            operationId),
-                        cancellationToken).ConfigureAwait(false);
-
-                    if (candidateRequest is null)
-                        throw new InvalidOperationException(
-                            $"Request policy '{policy.GetType().FullName}' returned a null navigation request.");
-
-                    ValidateTarget(candidateRequest);
-                    RequestTargetKey candidateTarget = RequestTargetKey.From(candidateRequest);
-                    effectiveRequest = candidateRequest;
-
-                    _diagnostics.Write(
-                        NavigationDiagnosticEventKind.RequestPolicyCompleted,
-                        operationId,
-                        policyName,
-                        RouterNavigationDiagnostics.Duration(timer,
-                            (NavigationDiagnosticDataKeys.PolicyType, policyType)));
-
-                    if (candidateTarget == previousTarget)
-                        continue;
-
-                    RecordRedirect(
-                        operationId,
-                        initialRequest,
-                        previousRequest,
-                        candidateRequest,
-                        redirects,
-                        seenTargets,
-                        policyName,
-                        NavigationDiagnosticDataKeys.PolicyType,
-                        policyType,
-                        NavigationDiagnosticPhase.RequestPolicy);
-
-                    restarted = true;
-                    break;
-                }
-                catch (Exception ex)
-                {
-                    _diagnostics.WriteFailure(
-                        NavigationDiagnosticEventKind.RequestPolicyFailed,
-                        operationId,
-                        policyName,
-                        ex,
-                        timer,
-                        (NavigationDiagnosticDataKeys.PolicyType, policyType));
-                    throw;
-                }
-            }
-
-            if (!restarted)
+            RequestStageResult policyResult = await ApplyPoliciesAsync(
+                initialRequest,
+                effectiveRequest,
+                resolvedRoute,
+                currentState,
+                operationId,
+                redirects,
+                seenTargets,
+                cancellationToken).ConfigureAwait(false);
+            effectiveRequest = policyResult.Request;
+            if (!policyResult.Restarted)
             {
                 RouterNavigationRequest finalizedRequest = effectiveRequest with
                 {
@@ -200,6 +77,168 @@ internal sealed class RouterRequestResolver(
                 return new ResolvedNavigationRequest(finalizedRequest, route, resolvedRoute.Definition);
             }
         }
+    }
+
+    private async ValueTask<RequestStageResult> ApplyTransformersAsync(
+        RouterNavigationRequest initialRequest,
+        RouterNavigationRequest effectiveRequest,
+        NavigationState currentState,
+        string operationId,
+        List<RouterNavigationRequest> redirects,
+        HashSet<RequestTargetKey> seenTargets,
+        CancellationToken cancellationToken)
+    {
+        foreach (INavigationRequestTransformer transformer in _requestTransformers)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            string transformerName = transformer.GetType().Name;
+            string? transformerType = transformer.GetType().FullName;
+            var timer = Stopwatch.StartNew();
+            _diagnostics.Write(
+                NavigationDiagnosticEventKind.RequestTransformStarted,
+                operationId,
+                transformerName,
+                RouterNavigationDiagnostics.Data(
+                    (NavigationDiagnosticDataKeys.RequestTransformerType, transformerType)));
+
+            try
+            {
+                RouterNavigationRequest previousRequest = effectiveRequest;
+                RequestTargetKey previousTarget = RequestTargetKey.From(previousRequest);
+                RouterNavigationRequest? candidateRequest = await transformer.TransformAsync(
+                    new NavigationRequestTransformContext(effectiveRequest, currentState, operationId),
+                    cancellationToken).ConfigureAwait(false);
+
+                if (candidateRequest is null)
+                    throw new InvalidOperationException(
+                        $"Request transformer '{transformer.GetType().FullName}' returned a null navigation request.");
+
+                ValidateTarget(candidateRequest);
+                RequestTargetKey candidateTarget = RequestTargetKey.From(candidateRequest);
+                effectiveRequest = candidateRequest;
+
+                _diagnostics.Write(
+                    NavigationDiagnosticEventKind.RequestTransformCompleted,
+                    operationId,
+                    transformerName,
+                    RouterNavigationDiagnostics.Duration(
+                        timer,
+                        (NavigationDiagnosticDataKeys.RequestTransformerType, transformerType)));
+
+                if (candidateTarget == previousTarget)
+                    continue;
+
+                RecordRedirect(
+                    operationId,
+                    initialRequest,
+                    previousRequest,
+                    candidateRequest,
+                    redirects,
+                    seenTargets,
+                    transformerName,
+                    NavigationDiagnosticDataKeys.RequestTransformerType,
+                    transformerType,
+                    NavigationDiagnosticPhase.RequestTransformation);
+                return new RequestStageResult(effectiveRequest, true);
+            }
+            catch (Exception ex)
+            {
+                _diagnostics.WriteFailure(
+                    NavigationDiagnosticEventKind.RequestTransformFailed,
+                    operationId,
+                    transformerName,
+                    ex,
+                    timer,
+                    (NavigationDiagnosticDataKeys.RequestTransformerType, transformerType));
+                throw;
+            }
+        }
+
+        return new RequestStageResult(effectiveRequest, false);
+    }
+
+    private async ValueTask<RequestStageResult> ApplyPoliciesAsync(
+        RouterNavigationRequest initialRequest,
+        RouterNavigationRequest effectiveRequest,
+        ResolvedRoute resolvedRoute,
+        NavigationState currentState,
+        string operationId,
+        List<RouterNavigationRequest> redirects,
+        HashSet<RequestTargetKey> seenTargets,
+        CancellationToken cancellationToken)
+    {
+        foreach (INavigationRequestPolicy policy in _requestPolicies)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            string policyName = policy.GetType().Name;
+            string? policyType = policy.GetType().FullName;
+            var timer = Stopwatch.StartNew();
+            _diagnostics.Write(
+                NavigationDiagnosticEventKind.RequestPolicyStarted,
+                operationId,
+                policyName,
+                RouterNavigationDiagnostics.Data((NavigationDiagnosticDataKeys.PolicyType, policyType)));
+
+            try
+            {
+                RouterNavigationRequest previousRequest = effectiveRequest;
+                RequestTargetKey previousTarget = RequestTargetKey.From(previousRequest);
+                RouterNavigationRequest? candidateRequest = await policy.ApplyAsync(
+                    new NavigationRequestPolicyContext(
+                        effectiveRequest,
+                        resolvedRoute.Route,
+                        resolvedRoute.Metadata,
+                        currentState,
+                        operationId),
+                    cancellationToken).ConfigureAwait(false);
+
+                if (candidateRequest is null)
+                    throw new InvalidOperationException(
+                        $"Request policy '{policy.GetType().FullName}' returned a null navigation request.");
+
+                ValidateTarget(candidateRequest);
+                RequestTargetKey candidateTarget = RequestTargetKey.From(candidateRequest);
+                effectiveRequest = candidateRequest;
+
+                _diagnostics.Write(
+                    NavigationDiagnosticEventKind.RequestPolicyCompleted,
+                    operationId,
+                    policyName,
+                    RouterNavigationDiagnostics.Duration(timer,
+                        (NavigationDiagnosticDataKeys.PolicyType, policyType)));
+
+                if (candidateTarget == previousTarget)
+                    continue;
+
+                RecordRedirect(
+                    operationId,
+                    initialRequest,
+                    previousRequest,
+                    candidateRequest,
+                    redirects,
+                    seenTargets,
+                    policyName,
+                    NavigationDiagnosticDataKeys.PolicyType,
+                    policyType,
+                    NavigationDiagnosticPhase.RequestPolicy);
+                return new RequestStageResult(effectiveRequest, true);
+            }
+            catch (Exception ex)
+            {
+                _diagnostics.WriteFailure(
+                    NavigationDiagnosticEventKind.RequestPolicyFailed,
+                    operationId,
+                    policyName,
+                    ex,
+                    timer,
+                    (NavigationDiagnosticDataKeys.PolicyType, policyType));
+                throw;
+            }
+        }
+
+        return new RequestStageResult(effectiveRequest, false);
     }
 
     private void RecordRedirect(
@@ -385,6 +424,10 @@ internal sealed class RouterRequestResolver(
             throw new InvalidOperationException(
                 "RouterNavigationRequest must contain exactly one URI or application-route target.");
     }
+
+    private readonly record struct RequestStageResult(
+        RouterNavigationRequest Request,
+        bool Restarted);
 }
 
 internal sealed record ResolvedRoute(
