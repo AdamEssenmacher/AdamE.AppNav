@@ -63,12 +63,12 @@ startup, restoration, native Back, and tests can all target the same semantic
 destinations without each caller reconstructing the surrounding UI.
 
 The investment also creates a useful application boundary. Routes, topology,
-policy, and navigation-aware view models can live in a plain `net10.0` inner
-project instead of depending on MAUI pages or native target frameworks. That
-can support more than one renderer, but its immediate value is often simpler,
-cheaper testing: most navigation decisions can run without MAUI, a simulator,
-a device, or a UI thread. The outer host remains responsible for native
-presentation, lifecycle ingress, platform configuration, and storage
+policy, and view models that request typed destinations can live in a plain
+`net10.0` inner project instead of depending on MAUI pages or native target
+frameworks. That can support more than one renderer, but its immediate value is
+often simpler, cheaper testing: most navigation decisions can run without MAUI,
+a simulator, a device, or a UI thread. The outer host remains responsible for
+native presentation, lifecycle ingress, platform configuration, and storage
 implementations.
 
 ```text

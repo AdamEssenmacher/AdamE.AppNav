@@ -49,7 +49,7 @@ presentation choices. Treating a view-model type as the route makes those
 choices part of navigation identity and creates the same one-to-one assumption
 as page routing.
 
-Page-keyed and view-model-keyed navigation are convenient while every
+Using page or view-model types as destination keys is convenient while every
 destination maps neatly to one UI object. AppNav deliberately does not make
 that convenience a universal constraint; the distinction matters when a
 destination spans several pages, changes presentation, enters through a URI,
@@ -78,9 +78,9 @@ pipeline for reaching it.
 ## Keep navigation decisions out of the renderer
 
 Because `AdamE.AppNav` targets plain `net10.0`, routes, route-owned state,
-policies, topology planning, Back behavior, and navigation-aware view models
-can live in a render-independent application project. MAUI pages and the
-`AdamE.AppNav.Maui` adapter remain in the outer host.
+policies, topology planning, Back behavior, and view models that request typed
+destinations can live in a render-independent application project. MAUI pages
+and the `AdamE.AppNav.Maui` adapter remain in the outer host.
 
 One application might call its inner layers `Presentation -> Application ->
 Domain`. Those names are illustrative, not required by AppNav. The important
@@ -97,10 +97,11 @@ Avalonia host --/
 ```
 
 This can let multiple renderers share navigation intent, but renderer swapping
-is not required to benefit. Ordinary .NET tests can exercise view-model
-navigation, routing, policy, topology, history, and Back without initializing
-MAUI, a simulator, a device, or a UI thread. Focused host tests remain for
-native presentation, lifecycle, platform ingress, and storage implementations.
+is not required to benefit. Ordinary .NET tests can exercise typed destination
+requests from presentation logic, routing, policy, topology, history, and Back
+without initializing MAUI, a simulator, a device, or a UI thread. Focused host
+tests remain for native presentation, lifecycle, platform ingress, and storage
+implementations.
 
 AppNav currently ships only a production MAUI adapter. Blazor and Avalonia in
 the diagram illustrate the boundary another adapter could use; they are not

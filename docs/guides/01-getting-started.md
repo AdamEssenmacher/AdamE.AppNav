@@ -33,9 +33,9 @@ The sample intentionally keeps routes, the navigation model, pages, and MAUI
 composition in one project. That makes the minimum setup visible; it is not a
 recommendation that a larger application put navigation decisions in its
 rendering layer. A layered application can move its routes, route metadata,
-navigation model, policies, and navigation-aware view models into a plain
-`net10.0` project while the MAUI project retains pages, lifecycle, native
-presentation, and platform services. See [Application architecture and
+navigation model, policies, and view models that request typed destinations
+into a plain `net10.0` project while the MAUI project retains pages, lifecycle,
+native presentation, and platform services. See [Application architecture and
 testing](03-application-architecture-and-testing.md).
 
 ## Requirements

@@ -474,6 +474,33 @@ public sealed partial class RepositoryContractTests
     }
 
     [Fact]
+    public void DocumentationDoesNotDescribeViewModelsAsNavigationUnits()
+    {
+        var root = RepositoryRoot();
+        string[] forbiddenPhrases =
+        [
+            "view-model navigation",
+            "view model navigation",
+            "viewmodel navigation",
+            "navigation-aware view model",
+            "view model navigates",
+            "view-model-keyed navigation"
+        ];
+
+        foreach (string document in DocumentationFiles(root))
+        {
+            string text = File.ReadAllText(document);
+            foreach (string phrase in forbiddenPhrases)
+            {
+                Assert.DoesNotContain(
+                    phrase,
+                    text,
+                    StringComparison.OrdinalIgnoreCase);
+            }
+        }
+    }
+
+    [Fact]
     public void SourceGeneratorDiagnosticReferenceMatchesDeclaredDiagnostics()
     {
         var root = RepositoryRoot();

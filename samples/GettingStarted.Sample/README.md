@@ -7,10 +7,11 @@ external ingress, deferred persistence, tabs, auth, Shell, or Prism.
 
 Routes, the navigation model, pages, and MAUI registration live together here
 so a new reader can see the complete minimum setup. In a larger application,
-routes, policies, topology, and navigation-aware view models can move into a
-plain `net10.0` project while the MAUI project keeps pages, lifecycle, native
-presentation, and platform services. This sample's single-project shape is an
-onboarding convenience, not an architectural requirement.
+routes, policies, topology, and view models that request typed destinations can
+move into a plain `net10.0` project while the MAUI project keeps pages,
+lifecycle, native presentation, and platform services. This sample's
+single-project shape is an onboarding convenience, not an architectural
+requirement.
 
 Its one-route-to-one-page mapping is also an onboarding convenience. Routes
 identify Home and Detail; pages and view models are replaceable presentation

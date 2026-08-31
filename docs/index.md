@@ -32,8 +32,8 @@ minimal buildable sample.
 
 ## Structure and test your application
 
-- Keep routes, topology, policies, and navigation-aware view models in ordinary
-  .NET code with [Application architecture and
+- Keep routes, topology, policies, and presentation logic that requests typed
+  destinations in ordinary .NET code with [Application architecture and
   testing](guides/03-application-architecture-and-testing.md).
 - Use [MAUI integration](guides/02-maui-integration.md) to connect that inner
   model to pages, lifecycle, native presentation, and platform services.

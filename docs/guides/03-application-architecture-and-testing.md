@@ -53,16 +53,16 @@ For Glyphmere, a useful division is:
 | Render-independent application code | Outer host and adapter code |
 | --- | --- |
 | `InventoryRoute`, `InventoryCategoryRoute`, and `InventoryItemRoute` | MAUI page classes and route-to-page mappings |
-| Inventory view models that request typed destinations | Native page construction and transitions |
+| Presentation logic, including Inventory view models, that requests typed destinations | Native page construction and transitions |
 | Stack and branch topology decisions | `NavigationPage`, tab controls, modals, and UI-thread work |
 | Request policies and app-owned transforms | MAUI lifecycle and app-link dispatch |
 | Route metadata keys and lifetime declarations | Android and Apple association and manifest configuration |
 | Tests for routes, policies, planning, Back, and history | File-backed persistence and other platform service implementations |
 
 The exact placement is an application decision. Domain entities should not
-need to depend on AppNav merely because a view model navigates. Conversely,
-platform ingress and native presentation should not be pulled inward just to
-make every navigation-related file shareable.
+need to depend on AppNav merely because presentation logic requests a route.
+Conversely, platform ingress and native presentation should not be pulled
+inward just to make every navigation-related file shareable.
 
 This separation does not turn view models into routes. `InventoryViewModel`
 can request `InventoryItemRoute(itemId)`, and a view model associated with the
@@ -71,11 +71,12 @@ presentation details. The semantic route stays stable if Glyphmere splits the
 destination across view models, removes a view model, or renders the same
 destination differently in another host.
 
-## Navigation from a render-independent view model
+## Request semantic destinations from presentation logic
 
-A Glyphmere inventory view model can depend on the core `IRouterNavigator` and
-request a semantic destination without knowing whether a MAUI page, a split
-view, or another host will render it:
+Render-independent presentation logic can depend on the core
+`IRouterNavigator` and request a semantic destination without knowing whether
+a MAUI page, a split view, or another host will render it. Here that logic
+happens to be an inventory view model:
 
 ```csharp
 public sealed class InventoryViewModel(IRouterNavigator navigator)
@@ -103,11 +104,12 @@ the outer renderer without requiring the inner project to reference
 
 ## Test at the cheapest useful boundary
 
-### 1. Test view-model intent
+### 1. Test requested destinations
 
 Use a mock, spy, or app-owned navigation gateway to verify that an action asks
-for `InventoryItemRoute(itemId)`. This test checks the view model's decision; it
-does not need to construct a page or predict native stack operations.
+for `InventoryItemRoute(itemId)`. This test checks the presentation logic's
+decision; it does not need to construct a page or predict native stack
+operations.
 
 These tests are usually the smallest and fastest. They are valuable even when
 Glyphmere will never have a second renderer.

@@ -74,7 +74,7 @@ AppRoute / AppRouteRequest       RouterNavigationRequest
 `AppRouteRequest` is useful in:
 
 - route factories
-- button handlers and view models
+- presentation actions that request typed destinations
 - URL formatting and sharing
 - compatibility normalization that is still app-authored
 
