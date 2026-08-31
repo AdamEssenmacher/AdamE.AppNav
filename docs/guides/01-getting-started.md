@@ -18,8 +18,8 @@ the setup code, read these short concept guides in order:
    routes become logical windows, stacks, branches, entries, and modals before
    MAUI changes native UI.
 3. [Requests and provenance](../concepts/requests-and-provenance.md) explains
-   when app code should use a typed route and when a transport boundary needs a
-   complete runtime request.
+   when app code should use a typed route and when external events such as app
+   links or push notifications need a complete navigation request.
 
 The minimum mental model is: app code requests a semantic destination, a
 navigation model plans the logical topology for it, and the MAUI presenter
