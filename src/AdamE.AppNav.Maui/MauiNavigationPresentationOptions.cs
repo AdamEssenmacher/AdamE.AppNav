@@ -7,43 +7,42 @@ namespace AdamE.AppNav.Maui;
 /// </summary>
 public sealed class MauiNavigationPresentationOptions
 {
-    private readonly Dictionary<string, MauiFlyoutBranchHostOptions> _flyoutBranchHosts =
+    private readonly Dictionary<string, MauiBranchHostRegistration> _branchHosts =
         new(StringComparer.Ordinal);
 
     /// <summary>
-    /// Maps a root branch host to a native <see cref="FlyoutPage"/>.
+    /// Maps a branch host to a factory that owns its MAUI presentation surface.
     /// </summary>
     /// <param name="branchHostId">The logical <c>BranchHostNode</c> identifier.</param>
-    /// <param name="menuTitle">The localized title displayed by the built-in flyout menu.</param>
-    /// <param name="layoutBehavior">The native flyout layout behavior.</param>
-    /// <param name="isGestureEnabled">Whether the platform flyout gesture is enabled.</param>
+    /// <param name="factory">The factory used to create the host presentation.</param>
     /// <returns>The same options instance for chaining.</returns>
-    public MauiNavigationPresentationOptions MapFlyoutBranchHost(
+    public MauiNavigationPresentationOptions MapBranchHost(
         string branchHostId,
-        string menuTitle,
-        FlyoutLayoutBehavior layoutBehavior = FlyoutLayoutBehavior.Default,
-        bool isGestureEnabled = true)
+        IMauiBranchHostFactory factory)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(branchHostId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(menuTitle);
-        if (!Enum.IsDefined(layoutBehavior))
-            throw new ArgumentOutOfRangeException(nameof(layoutBehavior));
-        if (!_flyoutBranchHosts.TryAdd(
-                branchHostId,
-                new MauiFlyoutBranchHostOptions(menuTitle, layoutBehavior, isGestureEnabled)))
+        ArgumentNullException.ThrowIfNull(factory);
+        if (factory.SupportedPlacements == MauiBranchHostPlacement.None ||
+            (factory.SupportedPlacements & ~MauiBranchHostPlacement.All) != 0)
+            throw new ArgumentOutOfRangeException(nameof(factory), "The branch-host factory declares no valid placement capabilities.");
+        if (!_branchHosts.TryAdd(branchHostId, new MauiBranchHostRegistration(factory)))
         {
             throw new InvalidOperationException(
-                $"A MAUI flyout presentation is already mapped for branch-host id '{branchHostId}'.");
+                $"A MAUI branch-host presentation is already mapped for branch-host id '{branchHostId}'.");
         }
 
         return this;
     }
 
-    internal IReadOnlyDictionary<string, MauiFlyoutBranchHostOptions> FlyoutBranchHosts =>
-        _flyoutBranchHosts;
+    internal IReadOnlyDictionary<string, MauiBranchHostRegistration> BranchHosts => _branchHosts;
+
+    internal bool TryGetBranchHost(string branchHostId, out MauiBranchHostRegistration registration) =>
+        _branchHosts.TryGetValue(branchHostId, out registration!);
 }
 
 internal sealed record MauiFlyoutBranchHostOptions(
     string MenuTitle,
     FlyoutLayoutBehavior LayoutBehavior,
     bool IsGestureEnabled);
+
+internal sealed record MauiBranchHostRegistration(IMauiBranchHostFactory Factory);

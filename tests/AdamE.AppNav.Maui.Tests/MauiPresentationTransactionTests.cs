@@ -70,9 +70,9 @@ public sealed class MauiPresentationTransactionTests
             },
             updatePage: (page, _, _) => page.IconImageSource = targetIcon);
         var options = new MauiRoutePresentationOptions();
-        options.FlyoutBranchHosts.Add(
+        options.BranchHosts.Add(
             "main-tabs",
-            new MauiFlyoutBranchHostOptions("Main", FlyoutLayoutBehavior.Default, true));
+            new MauiBranchHostRegistration(new MauiFlyoutBranchHostFactory("Main", FlyoutLayoutBehavior.Default, true)));
         var presenter = new MauiNavigationPresenter(
             factory,
             presentationOptions: options,

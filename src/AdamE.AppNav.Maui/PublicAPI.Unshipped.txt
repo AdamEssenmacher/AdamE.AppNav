@@ -1,5 +1,18 @@
 #nullable enable
 AdamE.AppNav.Maui.IMauiPresentationOperationPolicy
+AdamE.AppNav.Maui.IMauiBranchHost
+AdamE.AppNav.Maui.IMauiBranchHost.ApplyAsync(AdamE.AppNav.Maui.MauiBranchHostUpdateContext! context, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<AdamE.AppNav.Maui.IMauiBranchHostUpdate!>
+AdamE.AppNav.Maui.IMauiBranchHost.Branches.get -> System.Collections.Generic.IReadOnlyList<AdamE.AppNav.Maui.MauiBranchHostBranch!>!
+AdamE.AppNav.Maui.IMauiBranchHost.Page.get -> Microsoft.Maui.Controls.Page!
+AdamE.AppNav.Maui.IMauiBranchHost.SelectedBranchId.get -> string?
+AdamE.AppNav.Maui.IMauiBranchHost.SelectedBranchPage.get -> Microsoft.Maui.Controls.Page?
+AdamE.AppNav.Maui.IMauiBranchHost.SelectionChanged -> System.EventHandler<AdamE.AppNav.Maui.MauiBranchHostSelectionChangedEventArgs!>?
+AdamE.AppNav.Maui.IMauiBranchHostFactory
+AdamE.AppNav.Maui.IMauiBranchHostFactory.SupportedPlacements.get -> AdamE.AppNav.Maui.MauiBranchHostPlacement
+AdamE.AppNav.Maui.IMauiBranchHostFactory.CreateAsync(AdamE.AppNav.Maui.MauiBranchHostCreationContext! context, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<AdamE.AppNav.Maui.IMauiBranchHost!>
+AdamE.AppNav.Maui.IMauiBranchHostUpdate
+AdamE.AppNav.Maui.IMauiBranchHostUpdate.CommitAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+AdamE.AppNav.Maui.IMauiBranchHostUpdate.RollbackAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
 AdamE.AppNav.Maui.IMauiPresentationOperationPolicy.Resolve(AdamE.AppNav.Maui.MauiPresentationOperationContext! context) -> AdamE.AppNav.Maui.MauiPresentationOperationOptions!
 AdamE.AppNav.Maui.MauiPresentationMotion
 AdamE.AppNav.Maui.MauiPresentationMotion.Automatic = 0 -> AdamE.AppNav.Maui.MauiPresentationMotion
@@ -30,7 +43,7 @@ static AdamE.AppNav.Maui.MauiPresentationOperationOptions.operator !=(AdamE.AppN
 static AdamE.AppNav.Maui.MauiPresentationOperationOptions.operator ==(AdamE.AppNav.Maui.MauiPresentationOperationOptions? left, AdamE.AppNav.Maui.MauiPresentationOperationOptions? right) -> bool
 AdamE.AppNav.Maui.MauiNavigationPresentationOptions
 AdamE.AppNav.Maui.MauiNavigationPresentationOptions.MauiNavigationPresentationOptions() -> void
-AdamE.AppNav.Maui.MauiNavigationPresentationOptions.MapFlyoutBranchHost(string! branchHostId, string! menuTitle, Microsoft.Maui.Controls.FlyoutLayoutBehavior layoutBehavior = Microsoft.Maui.Controls.FlyoutLayoutBehavior.Default, bool isGestureEnabled = true) -> AdamE.AppNav.Maui.MauiNavigationPresentationOptions!
+AdamE.AppNav.Maui.MauiNavigationPresentationOptions.MapBranchHost(string! branchHostId, AdamE.AppNav.Maui.IMauiBranchHostFactory! factory) -> AdamE.AppNav.Maui.MauiNavigationPresentationOptions!
 static AdamE.AppNav.Maui.DependencyInjection.AppNavServiceCollectionExtensions.AddAppNavMauiPresentation(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<AdamE.AppNav.Maui.MauiNavigationPresentationOptions!>! configure) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
 AdamE.AppNav.Maui.AppNavNavigatorOptions
 AdamE.AppNav.Maui.AppNavNavigatorOptions.AppNavNavigatorOptions() -> void
@@ -45,3 +58,49 @@ static AdamE.AppNav.Maui.DependencyInjection.AppNavServiceCollectionExtensions.A
 AdamE.AppNav.Maui.AppNavStartupOutcome.AppLinkNavigated = 4 -> AdamE.AppNav.Maui.AppNavStartupOutcome
 *REMOVED*static AdamE.AppNav.Maui.DependencyInjection.AppNavServiceCollectionExtensions.AddAppNavFileDeferredNavigationRequests(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<AdamE.AppNav.Maui.Requests.MauiFileDeferredNavigationRequestStoreOptions!>? configure = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
 static AdamE.AppNav.Maui.DependencyInjection.AppNavServiceCollectionExtensions.AddAppNavFileDeferredNavigationRequests(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<AdamE.AppNav.Maui.Requests.MauiFileDeferredNavigationRequestStoreOptions!>! configure) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+AdamE.AppNav.Maui.MauiBranchHostBranch
+AdamE.AppNav.Maui.MauiBranchHostBranch.MauiBranchHostBranch(string! Id, string! Title, Microsoft.Maui.Controls.Page! Page) -> void
+AdamE.AppNav.Maui.MauiBranchHostBranch.Id.get -> string!
+AdamE.AppNav.Maui.MauiBranchHostBranch.Id.init -> void
+AdamE.AppNav.Maui.MauiBranchHostBranch.Page.get -> Microsoft.Maui.Controls.Page!
+AdamE.AppNav.Maui.MauiBranchHostBranch.Page.init -> void
+AdamE.AppNav.Maui.MauiBranchHostBranch.Title.get -> string!
+AdamE.AppNav.Maui.MauiBranchHostBranch.Title.init -> void
+AdamE.AppNav.Maui.MauiBranchHostBranch.<Clone>$() -> AdamE.AppNav.Maui.MauiBranchHostBranch!
+AdamE.AppNav.Maui.MauiBranchHostBranch.Deconstruct(out string! Id, out string! Title, out Microsoft.Maui.Controls.Page! Page) -> void
+AdamE.AppNav.Maui.MauiBranchHostBranch.Equals(AdamE.AppNav.Maui.MauiBranchHostBranch? other) -> bool
+override AdamE.AppNav.Maui.MauiBranchHostBranch.Equals(object? obj) -> bool
+override AdamE.AppNav.Maui.MauiBranchHostBranch.GetHashCode() -> int
+override AdamE.AppNav.Maui.MauiBranchHostBranch.ToString() -> string!
+static AdamE.AppNav.Maui.MauiBranchHostBranch.operator !=(AdamE.AppNav.Maui.MauiBranchHostBranch? left, AdamE.AppNav.Maui.MauiBranchHostBranch? right) -> bool
+static AdamE.AppNav.Maui.MauiBranchHostBranch.operator ==(AdamE.AppNav.Maui.MauiBranchHostBranch? left, AdamE.AppNav.Maui.MauiBranchHostBranch? right) -> bool
+AdamE.AppNav.Maui.MauiBranchHostCreationContext
+AdamE.AppNav.Maui.MauiBranchHostCreationContext.MauiBranchHostCreationContext(AdamE.AppNav.State.BranchHostNode! branchHost, AdamE.AppNav.Maui.MauiBranchHostPlacement placement, AdamE.AppNav.Presentation.NavigationPresentationContext! presentationContext, System.IServiceProvider! services) -> void
+AdamE.AppNav.Maui.MauiBranchHostCreationContext.BranchHost.get -> AdamE.AppNav.State.BranchHostNode!
+AdamE.AppNav.Maui.MauiBranchHostCreationContext.Placement.get -> AdamE.AppNav.Maui.MauiBranchHostPlacement
+AdamE.AppNav.Maui.MauiBranchHostCreationContext.PresentationContext.get -> AdamE.AppNav.Presentation.NavigationPresentationContext!
+AdamE.AppNav.Maui.MauiBranchHostCreationContext.Services.get -> System.IServiceProvider!
+AdamE.AppNav.Maui.MauiBranchHostPlacement
+AdamE.AppNav.Maui.MauiBranchHostPlacement.All = AdamE.AppNav.Maui.MauiBranchHostPlacement.WindowRoot | AdamE.AppNav.Maui.MauiBranchHostPlacement.Nested | AdamE.AppNav.Maui.MauiBranchHostPlacement.ModalContent -> AdamE.AppNav.Maui.MauiBranchHostPlacement
+AdamE.AppNav.Maui.MauiBranchHostPlacement.ModalContent = 4 -> AdamE.AppNav.Maui.MauiBranchHostPlacement
+AdamE.AppNav.Maui.MauiBranchHostPlacement.Nested = 2 -> AdamE.AppNav.Maui.MauiBranchHostPlacement
+AdamE.AppNav.Maui.MauiBranchHostPlacement.None = 0 -> AdamE.AppNav.Maui.MauiBranchHostPlacement
+AdamE.AppNav.Maui.MauiBranchHostPlacement.WindowRoot = 1 -> AdamE.AppNav.Maui.MauiBranchHostPlacement
+AdamE.AppNav.Maui.MauiBranchHostSelectionChangedEventArgs
+AdamE.AppNav.Maui.MauiBranchHostSelectionChangedEventArgs.BranchId.get -> string!
+AdamE.AppNav.Maui.MauiBranchHostSelectionChangedEventArgs.MauiBranchHostSelectionChangedEventArgs(string! branchId) -> void
+AdamE.AppNav.Maui.MauiBranchHostUpdateContext
+AdamE.AppNav.Maui.MauiBranchHostUpdateContext.MauiBranchHostUpdateContext(AdamE.AppNav.State.BranchHostNode! branchHost, AdamE.AppNav.Maui.MauiBranchHostPlacement placement, System.Collections.Generic.IReadOnlyList<AdamE.AppNav.Maui.MauiBranchHostBranch!>! branches, string! selectedBranchId, AdamE.AppNav.Presentation.NavigationPresentationContext! presentationContext) -> void
+AdamE.AppNav.Maui.MauiBranchHostUpdateContext.BranchHost.get -> AdamE.AppNav.State.BranchHostNode!
+AdamE.AppNav.Maui.MauiBranchHostUpdateContext.Branches.get -> System.Collections.Generic.IReadOnlyList<AdamE.AppNav.Maui.MauiBranchHostBranch!>!
+AdamE.AppNav.Maui.MauiBranchHostUpdateContext.Placement.get -> AdamE.AppNav.Maui.MauiBranchHostPlacement
+AdamE.AppNav.Maui.MauiBranchHostUpdateContext.PresentationContext.get -> AdamE.AppNav.Presentation.NavigationPresentationContext!
+AdamE.AppNav.Maui.MauiBranchHostUpdateContext.SelectedBranchId.get -> string!
+AdamE.AppNav.Maui.MauiFlyoutBranchHostFactory
+AdamE.AppNav.Maui.MauiFlyoutBranchHostFactory.MauiFlyoutBranchHostFactory(string! menuTitle, Microsoft.Maui.Controls.FlyoutLayoutBehavior layoutBehavior = Microsoft.Maui.Controls.FlyoutLayoutBehavior.Default, bool isGestureEnabled = true) -> void
+AdamE.AppNav.Maui.MauiFlyoutBranchHostFactory.SupportedPlacements.get -> AdamE.AppNav.Maui.MauiBranchHostPlacement
+AdamE.AppNav.Maui.MauiFlyoutBranchHostFactory.CreateAsync(AdamE.AppNav.Maui.MauiBranchHostCreationContext! context, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<AdamE.AppNav.Maui.IMauiBranchHost!>
+AdamE.AppNav.Maui.MauiTabbedBranchHostFactory
+AdamE.AppNav.Maui.MauiTabbedBranchHostFactory.MauiTabbedBranchHostFactory(System.Func<AdamE.AppNav.Maui.MauiBranchHostCreationContext!, Microsoft.Maui.Controls.TabbedPage!>? pageFactory = null) -> void
+AdamE.AppNav.Maui.MauiTabbedBranchHostFactory.SupportedPlacements.get -> AdamE.AppNav.Maui.MauiBranchHostPlacement
+AdamE.AppNav.Maui.MauiTabbedBranchHostFactory.CreateAsync(AdamE.AppNav.Maui.MauiBranchHostCreationContext! context, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<AdamE.AppNav.Maui.IMauiBranchHost!>
