@@ -15,6 +15,9 @@ smallest executable version of the same route -> plan -> presentation flow.
 AppNav is easier to understand once three boundaries are clear. Before copying
 the setup code, read these short concept guides in order:
 
+Use the [Glossary](../reference/glossary.md) whenever a term such as route,
+entry, plan, presentation, or provenance is unfamiliar.
+
 1. [Routing and metadata](../concepts/01-routing-and-metadata.md) explains why a
    route is durable destination identity rather than a page operation.
 2. [Topology and planning](../concepts/02-topology-and-planning.md) explains how

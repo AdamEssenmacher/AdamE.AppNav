@@ -31,6 +31,7 @@
   </Folder>
   <Folder Name="/docs/reference/">
     <File Path="docs/reference/diagnostics.md" />
+    <File Path="docs/reference/glossary.md" />
     <File Path="docs/reference/source-generator-diagnostics.md" />
   </Folder>
   <Folder Name="/docs/release-notes/">

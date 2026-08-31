@@ -260,6 +260,7 @@ There is no durable API that retains raw rejected requests for later inspection.
 
 ## Next steps
 
+- Check diagnostic terminology in the [Glossary](glossary.md).
 - Interpret [navigation outcomes and failure handling](../guides/04-navigation-outcomes-and-failure-handling.md).
 - Use the symptom-oriented [Troubleshooting guide](../guides/07-troubleshooting.md).
 - Review [external navigation](../guides/05-external-navigation.md) diagnostics.

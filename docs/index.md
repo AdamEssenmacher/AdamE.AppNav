@@ -8,6 +8,9 @@ trying to do.
 
 - Start with [Why AppNav?](concepts/00-why-appnav.md) to understand the design
   tradeoffs and decide whether the route-first model fits your application.
+- Keep the [Glossary](reference/glossary.md) nearby for precise definitions and
+  distinctions such as route versus page, plan versus presentation, and source
+  versus provenance.
 - Review [Established ideas, adapted for
   .NET](concepts/00-why-appnav.md#established-ideas-adapted-for-net) for the
   conceptual lineage and comparisons with mature UI ecosystems.
@@ -63,6 +66,7 @@ minimal buildable sample.
 - Start with [Troubleshooting](guides/07-troubleshooting.md).
 - Configure and interpret [logging, tracing, and
   diagnostics](reference/diagnostics.md).
+- Check terminology in the [Glossary](reference/glossary.md).
 - Resolve build-time problems with the
   [source-generator diagnostics](reference/source-generator-diagnostics.md).
 
@@ -97,6 +101,7 @@ Every documentation page is indexed here:
 - [Route-owned presentation pages](advanced/route-owned-presentation-pages.md)
 - [Adapter contract](advanced/adapter-contract.md)
 - [Logging, tracing, and diagnostics](reference/diagnostics.md)
+- [Glossary](reference/glossary.md)
 - [Source-generator diagnostics](reference/source-generator-diagnostics.md)
 - [Testing](maintainers/testing.md)
 - [Public preview release checklist](maintainers/release-checklist.md)

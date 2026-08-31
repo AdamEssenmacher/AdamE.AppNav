@@ -193,6 +193,8 @@ around those application and platform responsibilities.
 
 ## Next steps
 
+- Use the [Glossary](../reference/glossary.md) for precise definitions of the
+  concepts introduced here.
 - Learn how destinations are represented in
   [Routing and metadata](01-routing-and-metadata.md).
 - See how routes become native UI shapes in

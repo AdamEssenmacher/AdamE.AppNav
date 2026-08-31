@@ -588,6 +588,44 @@ public sealed partial class RepositoryContractTests
     }
 
     [Fact]
+    public void GlossaryDefinesCorePublicVocabularyAndDistinctions()
+    {
+        var root = RepositoryRoot();
+        string glossary = File.ReadAllText(
+            Path.Combine(root, "docs", "reference", "glossary.md"));
+
+        foreach (string heading in new[]
+                 {
+                     "### `AppRoute`",
+                     "### `AppRouteRequest`",
+                     "### Navigation plan",
+                     "### Navigation result",
+                     "### Navigation state",
+                     "### Presenter",
+                     "### Provenance",
+                     "### Reconciliation",
+                     "### Route entry",
+                     "### `RouterNavigationRequest`",
+                     "### Semantic destination",
+                     "### Topology"
+                 })
+        {
+            Assert.Contains(heading, glossary, StringComparison.Ordinal);
+        }
+
+        foreach (string lifetime in Enum.GetNames<RouteStateLifetime>())
+            Assert.Contains($"### {lifetime} metadata", glossary, StringComparison.Ordinal);
+
+        foreach (string disposition in Enum.GetNames<AdamE.AppNav.Requests.RouterNavigationDisposition>())
+            Assert.Contains($"`{disposition}`", glossary, StringComparison.Ordinal);
+
+        Assert.Contains("Route and page", glossary, StringComparison.Ordinal);
+        Assert.Contains("Route and view model", glossary, StringComparison.Ordinal);
+        Assert.Contains("Canonical URI and canonical navigation", glossary, StringComparison.Ordinal);
+        Assert.Contains("Diagnostics and outcomes", glossary, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void SourceGeneratorDiagnosticReferenceMatchesDeclaredDiagnostics()
     {
         var root = RepositoryRoot();
