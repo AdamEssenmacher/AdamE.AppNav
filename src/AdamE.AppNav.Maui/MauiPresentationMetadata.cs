@@ -37,6 +37,13 @@ internal static class MauiPresentationMetadata
             typeof(MauiPresentationMetadata),
             null);
 
+    private static readonly BindableProperty PresentationPageInheritBindingContextProperty =
+        BindableProperty.CreateAttached(
+            "RouterPresentationPageInheritBindingContext",
+            typeof(bool),
+            typeof(MauiPresentationMetadata),
+            false);
+
     public static void SetHostId(BindableObject bindableObject, string? id)
     {
         bindableObject.SetValue(HostIdProperty, id);
@@ -105,5 +112,15 @@ internal static class MauiPresentationMetadata
     public static Type? GetPresentationPageType(BindableObject? bindableObject)
     {
         return bindableObject?.GetValue(PresentationPageTypeProperty) as Type;
+    }
+
+    public static void SetPresentationPageInheritBindingContext(BindableObject bindableObject, bool value)
+    {
+        bindableObject.SetValue(PresentationPageInheritBindingContextProperty, value);
+    }
+
+    public static bool GetPresentationPageInheritBindingContext(BindableObject? bindableObject)
+    {
+        return bindableObject?.GetValue(PresentationPageInheritBindingContextProperty) is true;
     }
 }

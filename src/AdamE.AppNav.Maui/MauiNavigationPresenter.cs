@@ -402,11 +402,8 @@ internal sealed class MauiNavigationPresenter :
             _externalNavigationDispatcher?.SetForegrounded(false);
             _attachedWindow = null;
             _attachedWindowId = null;
-            if (ReferenceEquals(_destroyingWindow, window))
-            {
-                _destroyingWindow = null;
-                _destroyingPage = null;
-            }
+            // If destruction was already observed, leave the destroyed-page marker for the queued
+            // destruction cleanup and the next detached navigation to consume.
         }
     }
 
@@ -973,6 +970,7 @@ internal sealed class MauiNavigationPresenter :
             SetPresentationOwnerRouteEntryId(page, owner.RouteEntryId);
             SetPresentationPageKey(page, key);
             SetPresentationPageType(page, pageType);
+            SetPresentationPageInheritBindingContext(page, options.InheritBindingContext);
             transaction.TrackCreated(page);
             WritePageLifecycle(
                 NavigationDiagnosticEventKind.PresentationPageCreated,
@@ -1374,6 +1372,7 @@ internal sealed class MauiNavigationPresenter :
         SetPresentationOwnerRouteEntryId(page, recoveryPage.OwnerRouteEntryId);
         SetPresentationPageKey(page, recoveryPage.Key);
         SetPresentationPageType(page, recoveryPage.ServiceType);
+        SetPresentationPageInheritBindingContext(page, recoveryPage.InheritBindingContext);
         page.Title = recoveryPage.Title;
         page.IconImageSource = recoveryPage.IconImageSource;
 
@@ -3665,6 +3664,16 @@ internal sealed class MauiNavigationPresenter :
         return MauiPresentationMetadata.GetPresentationPageType(bindableObject);
     }
 
+    private static void SetPresentationPageInheritBindingContext(BindableObject bindableObject, bool value)
+    {
+        MauiPresentationMetadata.SetPresentationPageInheritBindingContext(bindableObject, value);
+    }
+
+    private static bool GetPresentationPageInheritBindingContext(BindableObject bindableObject)
+    {
+        return MauiPresentationMetadata.GetPresentationPageInheritBindingContext(bindableObject);
+    }
+
     private static bool IsPresentationPage(BindableObject bindableObject)
     {
         return !string.IsNullOrWhiteSpace(GetPresentationOwnerRouteEntryId(bindableObject)) ||
@@ -4033,7 +4042,7 @@ internal sealed class MauiNavigationPresenter :
                         segment.RouteEntryId,
                         GetPresentationPageKey(page)!,
                         GetPresentationPageType(page) ?? page.GetType(),
-                        ReferenceEquals(page.BindingContext, segment.RoutePage.BindingContext),
+                        GetPresentationPageInheritBindingContext(page),
                         page.Title,
                         page.IconImageSource));
                 }

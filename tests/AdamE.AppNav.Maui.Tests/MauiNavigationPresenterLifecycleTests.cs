@@ -378,6 +378,42 @@ public sealed class MauiNavigationPresenterLifecycleTests
     }
 
     [UIFact]
+    public async Task DetachedRecoveryPreservesExplicitPresentationBindingContextInheritanceOption()
+    {
+        object sharedBindingContext = new();
+        var fixture = new PresenterFixture(
+            createPage: _ => new ContentPage { BindingContext = sharedBindingContext },
+            createPresentationPage: _ => new ContentPage { BindingContext = sharedBindingContext });
+        var plan = Plan(Stack("main-stack", Entry("home")));
+
+        await fixture.Presenter.ApplyAsync(
+            plan,
+            Context(new TestPageRoute("home")));
+        await fixture.Presenter.PushAsync<TestPresentationPage>(
+            "settings",
+            new MauiRoutePresentationPageOptions
+            {
+                Animated = false,
+                InheritBindingContext = false
+            });
+
+        var window = new Window();
+        await fixture.Presenter.AttachWindowAsync(window);
+        ((IWindow)window).Destroying();
+        Assert.True(await Task.Run(() => SpinWait.SpinUntil(
+            () => fixture.Presenter.AttachedWindow is null,
+            TimeSpan.FromSeconds(5))));
+
+        await fixture.Presenter.ApplyAsync(
+            plan,
+            Context(new TestPageRoute("home"), plan.TargetState));
+
+        Assert.Equal([false, false], fixture.Factory.PresentationBindingContextInheritance);
+
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [UIFact]
     public async Task DetachedRecoveryUsesRequestedPresentationServiceType()
     {
         var requestedTypes = new List<Type>();
@@ -481,6 +517,43 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.True(detached);
         Assert.Same(currentPage, fixture.Presenter.CurrentPage);
         Assert.Equal(windowPageSetCount, nativeOperations.WindowPageSetCount);
+
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [UIFact]
+    public async Task QueuedExplicitDetachPreservesDestroyedPageMarkerForDetachedNavigation()
+    {
+        var nativeOperations = new CountingNativeNavigationOperations();
+        var fixture = new PresenterFixture(nativeOperations: nativeOperations);
+        var initialPlan = Plan(Stack("main-stack", Entry("schools")));
+        var targetPlan = Plan(Stack("main-stack", Entry("schools"), Entry("account")));
+
+        await fixture.Presenter.ApplyAsync(
+            initialPlan,
+            Context(new TestPageRoute("schools")));
+
+        var window = new Window();
+        await fixture.Presenter.AttachWindowAsync(window);
+        var destroyedPage = Assert.IsType<NavigationPage>(window.Page);
+
+        SemaphoreSlim operationLock = PresentationOperationLock(fixture.Presenter);
+        await operationLock.WaitAsync();
+        Task detach = fixture.Presenter.DetachWindowAsync(window).AsTask();
+        Assert.False(detach.IsCompleted);
+        ((IWindow)window).Destroying();
+        operationLock.Release();
+
+        await detach;
+        await fixture.Presenter.ApplyAsync(
+            targetPlan,
+            Context(new TestPageRoute("account"), initialPlan.TargetState));
+
+        Assert.NotSame(destroyedPage, fixture.Presenter.CurrentPage);
+        Assert.Single(destroyedPage.Navigation.NavigationStack);
+        Assert.Equal("schools", MauiPresentationMetadata.GetRouteEntryId(
+            destroyedPage.Navigation.NavigationStack[0]));
+        Assert.Equal(0, nativeOperations.StackPushCountFor(destroyedPage));
 
         await fixture.Presenter.StartShutdown();
     }

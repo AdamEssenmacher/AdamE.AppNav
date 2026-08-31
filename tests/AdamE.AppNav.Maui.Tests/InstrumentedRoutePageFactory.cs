@@ -25,10 +25,14 @@ internal sealed class InstrumentedRoutePageFactory : IMauiRoutePageFactory
 
     public IReadOnlyList<Page> ReleasedPresentationPages => _releasedPresentationPages.ToArray();
 
+    public IReadOnlyList<bool> PresentationBindingContextInheritance =>
+        _presentationBindingContextInheritance.ToArray();
+
     private readonly List<Page> _createdPages = new();
     private readonly List<Page> _releasedPages = new();
     private readonly List<Page> _createdPresentationPages = new();
     private readonly List<Page> _releasedPresentationPages = new();
+    private readonly List<bool> _presentationBindingContextInheritance = new();
 
     public InstrumentedRoutePageFactory(
         Func<RouteEntry, Page>? createPage = null,
@@ -71,6 +75,7 @@ internal sealed class InstrumentedRoutePageFactory : IMauiRoutePageFactory
         bool inheritBindingContext,
         CancellationToken cancellationToken = default)
     {
+        _presentationBindingContextInheritance.Add(inheritBindingContext);
         var page = _createPresentationPage?.Invoke(pageType) ??
                    Assert.IsAssignableFrom<Page>(Activator.CreateInstance(pageType));
         if (inheritBindingContext)
