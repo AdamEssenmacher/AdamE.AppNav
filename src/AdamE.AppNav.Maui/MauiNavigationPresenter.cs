@@ -2007,6 +2007,7 @@ internal sealed class MauiNavigationPresenter :
         }
 
         var shouldRelease = MarkPageReleased(page);
+        var pageReleaseSucceeded = shouldRelease;
         if (shouldRelease)
         {
             try
@@ -2016,6 +2017,7 @@ internal sealed class MauiNavigationPresenter :
             catch (Exception ex)
             {
                 failures.Add(ex);
+                pageReleaseSucceeded = false;
             }
         }
 
@@ -2065,13 +2067,15 @@ internal sealed class MauiNavigationPresenter :
                     catch (Exception ex)
                     {
                         failures.Add(ex);
+                        pageReleaseSucceeded = false;
                     }
                 }
 
                 break;
         }
 
-        ForgetPage(page);
+        if (pageReleaseSucceeded)
+            ForgetPage(page);
     }
 
     private bool MarkPageReleased(Page page)
