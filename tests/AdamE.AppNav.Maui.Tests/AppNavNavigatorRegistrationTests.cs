@@ -21,6 +21,23 @@ namespace AdamE.AppNav.Maui.Tests;
 public sealed class AppNavNavigatorRegistrationTests
 {
     [Fact]
+    public void AddAppNavRegistersDefaultPresentationPolicyAndPreservesApplicationReplacement()
+    {
+        var defaultServices = new ServiceCollection();
+        defaultServices.AddAppNav<ThrowingPlanner>(Routes());
+        using ServiceProvider defaultProvider = defaultServices.BuildServiceProvider();
+        Assert.IsType<DefaultMauiPresentationOperationPolicy>(
+            defaultProvider.GetRequiredService<IMauiPresentationOperationPolicy>());
+
+        var replacement = new SuppressingPresentationPolicy();
+        var replacedServices = new ServiceCollection();
+        replacedServices.AddSingleton<IMauiPresentationOperationPolicy>(replacement);
+        replacedServices.AddAppNav<ThrowingPlanner>(Routes());
+        using ServiceProvider replacedProvider = replacedServices.BuildServiceProvider();
+        Assert.Same(replacement, replacedProvider.GetRequiredService<IMauiPresentationOperationPolicy>());
+    }
+
+    [Fact]
     public void AddAppNavDiagnosticsConfiguresResolvedSingletonRegardlessOfRegistrationOrder()
     {
         var services = new ServiceCollection();
@@ -517,6 +534,12 @@ public sealed class AppNavNavigatorRegistrationTests
     private sealed record ContributorRoute(string Id) : AppRoute;
 
     private sealed class TestPage : ContentPage;
+
+    private sealed class SuppressingPresentationPolicy : IMauiPresentationOperationPolicy
+    {
+        public MauiPresentationOperationOptions Resolve(MauiPresentationOperationContext context) =>
+            new() { Motion = MauiPresentationMotion.Suppressed };
+    }
 
     private sealed class AsyncDisposePage(AsyncDisposeMarker marker) : ContentPage
     {

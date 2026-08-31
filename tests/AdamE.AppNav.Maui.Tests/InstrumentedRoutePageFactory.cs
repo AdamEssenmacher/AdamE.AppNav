@@ -7,6 +7,7 @@ namespace AdamE.AppNav.Maui.Tests;
 internal sealed class InstrumentedRoutePageFactory : IMauiRoutePageFactory
 {
     private readonly Func<RouteEntry, Page>? _createPage;
+    private readonly Func<RouteEntry, CancellationToken, ValueTask<Page>>? _createPageAsync;
     private readonly Action<Page, RouteEntry, MauiRoutePageUpdateContext>? _updatePage;
     private readonly Dictionary<Page, int> _releaseCounts = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<Page, int> _updateCounts = new(ReferenceEqualityComparer.Instance);
@@ -30,25 +31,35 @@ internal sealed class InstrumentedRoutePageFactory : IMauiRoutePageFactory
 
     public InstrumentedRoutePageFactory(
         Func<RouteEntry, Page>? createPage = null,
-        Action<Page, RouteEntry, MauiRoutePageUpdateContext>? updatePage = null)
+        Action<Page, RouteEntry, MauiRoutePageUpdateContext>? updatePage = null,
+        Func<RouteEntry, CancellationToken, ValueTask<Page>>? createPageAsync = null)
     {
         _createPage = createPage;
         _updatePage = updatePage;
+        _createPageAsync = createPageAsync;
     }
 
-    public ValueTask<Page> CreatePageAsync(
+    public async ValueTask<Page> CreatePageAsync(
         RouteEntry entry,
         CancellationToken cancellationToken = default)
     {
-        var page = _createPage?.Invoke(entry) ??
+        Page page;
+        if (_createPageAsync is not null)
+        {
+            page = await _createPageAsync(entry, cancellationToken);
+        }
+        else
+        {
+            page = _createPage?.Invoke(entry) ??
                    new ContentPage
                    {
                        Title = entry.Id,
                        Content = new Label { Text = entry.Id }
                    };
+        }
 
         _createdPages.Add(page);
-        return ValueTask.FromResult(page);
+        return page;
     }
 
     public ValueTask<Page> CreatePresentationPageAsync(

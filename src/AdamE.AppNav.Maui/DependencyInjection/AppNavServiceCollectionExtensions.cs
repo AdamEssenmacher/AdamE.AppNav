@@ -293,12 +293,14 @@ public static class AppNavServiceCollectionExtensions
     private static IServiceCollection AddAppNavPresentationServices(this IServiceCollection services)
     {
         services.TryAddSingleton(CreatePresentationOptions);
+        services.TryAddSingleton<IMauiPresentationOperationPolicy, DefaultMauiPresentationOperationPolicy>();
         services.AddSingleton<IMauiRoutePageFactory, MauiRoutePageFactory>();
         services.AddSingleton(provider => new MauiNavigationPresenter(
             provider.GetRequiredService<IMauiRoutePageFactory>(),
             provider.GetService<MauiExternalNavigationDispatcher>(),
             provider.GetService<NavigationDiagnostics>(),
-            provider.GetRequiredService<MauiRoutePresentationOptions>()));
+            provider.GetRequiredService<MauiRoutePresentationOptions>(),
+            presentationOperationPolicy: provider.GetRequiredService<IMauiPresentationOperationPolicy>()));
         services.AddSingleton<IMauiPresentationState>(provider =>
         {
             _ = provider.GetRequiredService<IAppNavRuntime>();
