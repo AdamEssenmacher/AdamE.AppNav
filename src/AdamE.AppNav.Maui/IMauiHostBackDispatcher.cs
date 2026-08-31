@@ -15,9 +15,14 @@ public interface IMauiHostBackDispatcher
     /// <summary>
     /// Queues one safely observed host Back operation for use by synchronous MAUI Back overrides.
     /// </summary>
+    /// <param name="windowId">The router window to navigate within, or <see langword="null"/> for the active window.</param>
+    /// <param name="onUnhandled">
+    /// An optional main-thread callback that performs the platform fallback when neither presentation nor logical Back
+    /// handles the queued request. The callback is associated with the first accepted request when presses are coalesced.
+    /// </param>
     /// <returns>
     /// <see langword="true"/> when the request was accepted or coalesced with an accepted request;
     /// otherwise, <see langword="false"/> when the runtime can no longer accept navigation.
     /// </returns>
-    bool TryBack(string? windowId = null);
+    bool TryBack(string? windowId = null, Action? onUnhandled = null);
 }

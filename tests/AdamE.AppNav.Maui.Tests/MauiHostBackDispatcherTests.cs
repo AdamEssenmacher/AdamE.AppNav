@@ -6,6 +6,8 @@ using AdamE.AppNav.Plans;
 using AdamE.AppNav.Presentation;
 using AdamE.AppNav.Requests;
 using AdamE.AppNav.State;
+using Microsoft.Maui.ApplicationModel;
+using Microsoft.Maui.Controls;
 
 namespace AdamE.AppNav.Maui.Tests;
 
@@ -16,7 +18,11 @@ public sealed class MauiHostBackDispatcherTests
     {
         var runtime = new RecordingRuntime();
         var presentation = new RecordingPresentationNavigator { PopResult = true };
-        using var dispatcher = new MauiHostBackDispatcher(runtime, presentation, NavigationDiagnostics.None);
+        using var dispatcher = new MauiHostBackDispatcher(
+            runtime,
+            presentation,
+            new RecordingPresentationState("main"),
+            NavigationDiagnostics.None);
 
         MauiHostBackResult result = await dispatcher.BackAsync("main");
 
@@ -35,7 +41,11 @@ public sealed class MauiHostBackDispatcherTests
     {
         var runtime = new RecordingRuntime { Result = CoreResult(coreStatus) };
         var presentation = new RecordingPresentationNavigator();
-        using var dispatcher = new MauiHostBackDispatcher(runtime, presentation, NavigationDiagnostics.None);
+        using var dispatcher = new MauiHostBackDispatcher(
+            runtime,
+            presentation,
+            new RecordingPresentationState("main"),
+            NavigationDiagnostics.None);
 
         MauiHostBackResult result = await dispatcher.BackAsync("secondary");
 
@@ -43,6 +53,25 @@ public sealed class MauiHostBackDispatcherTests
         Assert.Equal("secondary", runtime.Request?.WindowId);
         Assert.Equal(BackNavigationSource.Host, runtime.Request?.Source);
         Assert.Equal(coreStatus == BackNavigationStatus.Completed, result.NavigationResult is not null);
+    }
+
+    [Fact]
+    public async Task ExplicitDifferentWindowBypassesAttachedPresentationStack()
+    {
+        var runtime = new RecordingRuntime();
+        var presentation = new RecordingPresentationNavigator { PopResult = true };
+        using var dispatcher = new MauiHostBackDispatcher(
+            runtime,
+            presentation,
+            new RecordingPresentationState("main"),
+            NavigationDiagnostics.None);
+
+        MauiHostBackResult result = await dispatcher.BackAsync("secondary");
+
+        Assert.Equal(MauiHostBackStatus.Unhandled, result.Status);
+        Assert.Equal(0, presentation.PopCalls);
+        Assert.Equal(1, runtime.BackCalls);
+        Assert.Equal("secondary", runtime.Request?.WindowId);
     }
 
     [Fact]
@@ -60,7 +89,11 @@ public sealed class MauiHostBackDispatcherTests
             }
         };
         var runtime = new RecordingRuntime();
-        using var dispatcher = new MauiHostBackDispatcher(runtime, presentation, NavigationDiagnostics.None);
+        using var dispatcher = new MauiHostBackDispatcher(
+            runtime,
+            presentation,
+            new RecordingPresentationState("main"),
+            NavigationDiagnostics.None);
 
         Assert.True(dispatcher.TryBack("main"));
         await entered.Task;
@@ -73,12 +106,49 @@ public sealed class MauiHostBackDispatcherTests
     }
 
     [Fact]
+    public async Task TryBackInvokesUnhandledFallbackOnMainThread()
+    {
+        var fallback = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var runtime = new RecordingRuntime { Result = BackNavigationResult.Unhandled };
+        var presentation = new RecordingPresentationNavigator();
+        using var dispatcher = new MauiHostBackDispatcher(
+            runtime,
+            presentation,
+            new RecordingPresentationState("main"),
+            NavigationDiagnostics.None);
+
+        Assert.True(dispatcher.TryBack("main", () => fallback.TrySetResult(MainThread.IsMainThread)));
+
+        Assert.True(await fallback.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+    }
+
+    [Fact]
+    public async Task TryBackDoesNotInvokeFallbackWhenBackIsCanceled()
+    {
+        var fallbackCalled = false;
+        var runtime = new RecordingRuntime { Result = BackNavigationResult.Canceled };
+        var presentation = new RecordingPresentationNavigator();
+        using var dispatcher = new MauiHostBackDispatcher(
+            runtime,
+            presentation,
+            new RecordingPresentationState("main"),
+            NavigationDiagnostics.None);
+
+        Assert.True(dispatcher.TryBack("main", () => fallbackCalled = true));
+        await runtime.BackCalled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await Task.Yield();
+
+        Assert.False(fallbackCalled);
+    }
+
+    [Fact]
     public void TryBackRejectsDisposedDispatcherOrRuntime()
     {
         var runtime = new RecordingRuntime();
         var dispatcher = new MauiHostBackDispatcher(
             runtime,
             new RecordingPresentationNavigator(),
+            new RecordingPresentationState("main"),
             NavigationDiagnostics.None);
 
         dispatcher.Dispose();
@@ -88,6 +158,7 @@ public sealed class MauiHostBackDispatcherTests
         using var runtimeDisposedDispatcher = new MauiHostBackDispatcher(
             runtime,
             new RecordingPresentationNavigator(),
+            new RecordingPresentationState("main"),
             NavigationDiagnostics.None);
         Assert.False(runtimeDisposedDispatcher.TryBack());
     }
@@ -110,7 +181,11 @@ public sealed class MauiHostBackDispatcherTests
         {
             OnPopAsync = _ => ValueTask.FromException<bool>(new InvalidOperationException("failed"))
         };
-        using var dispatcher = new MauiHostBackDispatcher(new RecordingRuntime(), presentation, diagnostics);
+        using var dispatcher = new MauiHostBackDispatcher(
+            new RecordingRuntime(),
+            presentation,
+            new RecordingPresentationState("main"),
+            diagnostics);
 
         Assert.True(dispatcher.TryBack());
 
@@ -155,6 +230,25 @@ public sealed class MauiHostBackDispatcherTests
             PopCalls++;
             return OnPopAsync?.Invoke(cancellationToken) ?? ValueTask.FromResult(PopResult);
         }
+    }
+
+    private sealed class RecordingPresentationState(string? attachedWindowId) : IMauiPresentationState
+    {
+        event EventHandler<Page?>? IMauiPresentationState.RootPageChanged
+        {
+            add { }
+            remove { }
+        }
+
+        public Window? AttachedWindow => null;
+
+        public string? AttachedWindowId => attachedWindowId;
+
+        public Page? RootPage => null;
+
+        public Page? GetTopPresentedPage() => null;
+
+        public bool IsModalPresented(Page page) => false;
     }
 
     private sealed class RecordingRuntime : IAppNavRuntime

@@ -43,7 +43,7 @@ AdamE.AppNav.Maui.AppNavStartupOutcome.AppLinkNavigated = 4 -> AdamE.AppNav.Maui
 static AdamE.AppNav.Maui.DependencyInjection.AppNavServiceCollectionExtensions.AddAppNavFileDeferredNavigationRequests(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<AdamE.AppNav.Maui.Requests.MauiFileDeferredNavigationRequestStoreOptions!>! configure) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
 AdamE.AppNav.Maui.IMauiHostBackDispatcher
 AdamE.AppNav.Maui.IMauiHostBackDispatcher.BackAsync(string? windowId = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<AdamE.AppNav.Maui.MauiHostBackResult>
-AdamE.AppNav.Maui.IMauiHostBackDispatcher.TryBack(string? windowId = null) -> bool
+AdamE.AppNav.Maui.IMauiHostBackDispatcher.TryBack(string? windowId = null, System.Action? onUnhandled = null) -> bool
 AdamE.AppNav.Maui.MauiHostBackResult
 AdamE.AppNav.Maui.MauiHostBackResult.Equals(AdamE.AppNav.Maui.MauiHostBackResult other) -> bool
 AdamE.AppNav.Maui.MauiHostBackResult.MauiHostBackResult() -> void

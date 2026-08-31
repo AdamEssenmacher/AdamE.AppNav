@@ -179,14 +179,21 @@ logical route would leave:
 MauiHostBackResult result = await hostBackDispatcher.BackAsync();
 ```
 
-A synchronous page override can queue one safely observed operation. Repeated presses are coalesced while it is pending:
+A synchronous page override can queue one safely observed operation. Repeated presses are coalesced while it is pending.
+Because an asynchronous result arrives after `OnBackButtonPressed()` returns, provide a callback that directly performs
+the app's platform fallback when the result is `Unhandled`:
 
 ```csharp
 protected override bool OnBackButtonPressed()
 {
-    return hostBackDispatcher.TryBack() || base.OnBackButtonPressed();
+    return hostBackDispatcher.TryBack(onUnhandled: PerformPlatformBackFallback)
+        || base.OnBackButtonPressed();
 }
 ```
+
+`PerformPlatformBackFallback` is app/platform-owned—for example, it can finish the Android activity at the logical root.
+It must perform the fallback itself; calling `base.OnBackButtonPressed()` later cannot return its result to the original
+platform callback. The fallback is invoked on the MAUI main thread. A canceled policy remains consumed and does not invoke it.
 
 Custom toolbar commands should await `IMauiHostBackDispatcher.BackAsync()`. AppNav does not automatically replace MAUI
 platform handlers or gestures. A native pop, swipe, or modal dismissal that commits without going through this dispatcher

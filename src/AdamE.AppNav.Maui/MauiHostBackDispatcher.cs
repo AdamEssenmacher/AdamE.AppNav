@@ -2,12 +2,14 @@ using AdamE.AppNav.Back;
 using AdamE.AppNav.Diagnostics;
 using AdamE.AppNav.Navigation;
 using Microsoft.Extensions.Logging;
+using Microsoft.Maui.ApplicationModel;
 
 namespace AdamE.AppNav.Maui;
 
 internal sealed class MauiHostBackDispatcher(
     IAppNavRuntime runtime,
     IMauiRoutePresentationNavigator presentationNavigator,
+    IMauiPresentationState presentationState,
     NavigationDiagnostics diagnostics)
     : IMauiHostBackDispatcher, IDisposable
 {
@@ -21,8 +23,13 @@ internal sealed class MauiHostBackDispatcher(
     {
         ThrowIfUnavailable();
 
-        if (await presentationNavigator.PopAsync(cancellationToken: cancellationToken).ConfigureAwait(false))
+        bool targetsAttachedWindow = string.IsNullOrWhiteSpace(windowId) ||
+            StringComparer.Ordinal.Equals(windowId, presentationState.AttachedWindowId);
+        if (targetsAttachedWindow &&
+            await presentationNavigator.PopAsync(cancellationToken: cancellationToken).ConfigureAwait(false))
+        {
             return MauiHostBackResult.PresentationPagePopped;
+        }
 
         BackNavigationResult result = await runtime.BackAsync(
             new BackNavigationRequest(windowId, BackNavigationSource.Host),
@@ -37,7 +44,7 @@ internal sealed class MauiHostBackDispatcher(
         };
     }
 
-    public bool TryBack(string? windowId = null)
+    public bool TryBack(string? windowId = null, Action? onUnhandled = null)
     {
         lock (_gate)
         {
@@ -49,7 +56,7 @@ internal sealed class MauiHostBackDispatcher(
             _queuedBackPending = true;
         }
 
-        _ = ObserveQueuedBackAsync(windowId);
+        _ = ObserveQueuedBackAsync(windowId, onUnhandled);
         return true;
     }
 
@@ -61,11 +68,13 @@ internal sealed class MauiHostBackDispatcher(
         }
     }
 
-    private async Task ObserveQueuedBackAsync(string? windowId)
+    private async Task ObserveQueuedBackAsync(string? windowId, Action? onUnhandled)
     {
         try
         {
-            await BackAsync(windowId).ConfigureAwait(false);
+            MauiHostBackResult result = await BackAsync(windowId).ConfigureAwait(false);
+            if (result.Status == MauiHostBackStatus.Unhandled && onUnhandled is not null)
+                await MainThread.InvokeOnMainThreadAsync(onUnhandled);
         }
         catch (Exception ex)
         {
