@@ -14,6 +14,11 @@ trying to do.
 
 ## Build your first app
 
+The concept guides share **Glyphmere**, a fictional RPG pause menu, so routes,
+independent branch histories, requests, and provenance build on one recognizable
+model. The Getting Started guide then applies the same fundamentals in a
+minimal buildable sample.
+
 1. Learn [routing and metadata](concepts/routing-and-metadata.md).
 2. Understand [topology and planning](concepts/topology-and-planning.md).
 3. Choose the right abstraction with

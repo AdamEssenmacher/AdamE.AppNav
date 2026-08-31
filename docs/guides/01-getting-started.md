@@ -5,7 +5,10 @@
 This guide uses the buildable
 [`GettingStarted.Sample`](../../samples/GettingStarted.Sample/README.md). It is
 deliberately limited to Home -> Detail -> native Back so the core AppNav model
-is visible without external ingress, persistence, tabs, or auth.
+is visible without external ingress, persistence, tabs, or auth. The concept
+guides use the richer fictional RPG [Glyphmere](../concepts/routing-and-metadata.md#meet-glyphmere)
+to explain independent branches and nested destinations; Home -> Detail is the
+smallest executable version of the same route -> plan -> presentation flow.
 
 ## Read the core concepts first
 

@@ -2,12 +2,16 @@
 
 [Documentation home](../index.md)
 
-This guide walks through one common MAUI integration shape for AppNav. It is a complete example, not the only public way to use the library.
+This guide walks through one common MAUI integration shape for AppNav. It is a
+complete example, not the only public way to use the library. It continues the
+fictional RPG [Glyphmere](../concepts/routing-and-metadata.md#meet-glyphmere)
+where a concrete domain example makes the boundary clearer.
 
 ## Common Flow
 
 1. Define durable semantic destinations as `AppRoute`.
-2. Use `AppRoute` or `AppRouteRequest` in app code; construct `RouterNavigationRequest` at runtime or transport boundaries.
+2. Use `AppRoute` or `AppRouteRequest` in app code; construct
+   `RouterNavigationRequest` for external events and runtime infrastructure.
 3. Keep route-owned metadata app-defined in a `RouteStateRegistry` when formatting, persistence, or downstream app behavior depend on it.
 4. Register `AddAppNav(...)`, optional persistence or deferred-request services, and `AddAppNavStartup(...)` as needed by the app.
 5. Use `IAppNavStartupService`, `IMauiExternalNavigationDispatcher`, or direct `IRouterNavigator` calls where MAUI lifecycle or transport-aware boundaries need explicit control.
@@ -33,8 +37,10 @@ Typical app code:
 ```csharp
 await navigator.NavigateAsync(
     AppRouteRequest
-        .For(new ProductDetailRoute("northwind", 123, "blue", "spring"))
-        .WithMetadata(new RouteMetadataKey<string>("campaign"), "spring-sale"),
+        .For(new InventoryItemRoute(itemId))
+        .WithMetadata(
+            GlyphmereRouteMetadata.CompareWithItemId,
+            equippedItemId),
     RouterNavigationDisposition.Contextual);
 ```
 
@@ -67,7 +73,14 @@ Common runtime uses:
 - deferred request replay
 - tests
 
-`RouterNavigationRequest` can carry `NavigationRequestProvenance`, which is runtime request context: provider, original URI, referrer URI, correlation id, cold-start flag when known, and string attributes. Keep provenance out of `AppRoute`, `AppRouteRequest`, route formatting, and `RouteStateRegistry`. AppNav sets transport provenance it owns; apps set provider/business provenance they own. For field ownership, see [Requests and provenance](../concepts/requests-and-provenance.md).
+`RouterNavigationRequest` can carry `NavigationRequestProvenance`, which is
+runtime context describing how a request entered AppNav: provider, original
+URI, referrer URI, correlation ID, cold-start flag when known, and string
+attributes. Keep provenance out of `AppRoute`, `AppRouteRequest`, route
+formatting, and `RouteStateRegistry`. AppNav records context for platform links
+it handles; apps record context from providers they integrate. For field
+ownership, see
+[Requests and provenance](../concepts/requests-and-provenance.md).
 
 A request always has exactly one target. Create it with `FromUri`, `FromRoute`, or `FromRouteRequest`, and use
 `WithTarget(Uri)` or `WithTarget(AppRoute)` when a transformer or policy replaces that target.
@@ -75,13 +88,14 @@ A request always has exactly one target. Create it with `FromUri`, `FromRoute`, 
 Typical boundary code:
 
 ```csharp
-var branchUri = new Uri("https://example.com/stores/northwind/products/123?variant=blue&promo=spring&campaign=spring-launch");
+var mapUri = new Uri(
+    "https://links.glyphmere.example/pause/world-map/regions/ashen-coast");
 var request = RouterNavigationRequest.FromUri(
-    branchUri,
+    mapUri,
     NavigationRequestSource.AppLink,
     provenance: new NavigationRequestProvenance(
         provider: "branch",
-        originalUri: branchUri,
+        originalUri: mapUri,
         correlationId: branchCorrelationId));
 ```
 

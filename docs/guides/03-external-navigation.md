@@ -4,14 +4,17 @@
 
 External navigation is a security boundary. Enable it only after the
 application has defined the production origins it owns and intends to accept.
+The examples continue the fictional RPG
+[Glyphmere](../concepts/routing-and-metadata.md#meet-glyphmere); its `.example`
+host is documentation-only and is not a production domain.
 
 Enable MAUI lifecycle ingress only with `UseAppNavExternalNavigation` and at least one trusted origin.
 
 ```csharp
 builder.UseAppNavExternalNavigation(options =>
 {
-    options.AllowOrigin(new Uri("https://example.com"));
-    options.AllowOrigin(new Uri("myapp://open"));
+    options.AllowOrigin(new Uri("https://links.glyphmere.example"));
+    options.AllowOrigin(new Uri("glyphmere://open"));
 });
 ```
 
@@ -45,6 +48,12 @@ Override `ClassifyFailure` to return `Retry` or `Drop`. A classifier that throws
 Branch, push, QR, and provider SDK integrations create a complete `RouterNavigationRequest`, attach provider provenance,
 then call `IMauiExternalNavigationDispatcher.TryDispatch`. Its boolean result reports whether a new request was accepted.
 Rejected, expired, duplicate, disposed, and null requests return `false`.
+
+For example, a Glyphmere cloud-save notification can target
+`https://links.glyphmere.example/pause/saves/3`, while a shared map link can
+target `/pause/world-map/regions/ashen-coast`. The typed destinations are
+`SaveSlotRoute(3)` and `MapRegionRoute("ashen-coast")`; the complete request
+also preserves whether push, QR, or an app-link provider delivered them.
 
 Diagnostics report structural rejection, retry, expiry, overflow, deduplication, and terminal-drop events without raw
 query strings or provenance values.
