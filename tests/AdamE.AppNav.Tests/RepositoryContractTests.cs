@@ -364,6 +364,31 @@ public sealed partial class RepositoryContractTests
     }
 
     [Fact]
+    public void DocumentationFilesAreIncludedInTheSolutionFolder()
+    {
+        var root = RepositoryRoot();
+        string documentationRoot = Path.Combine(root, "docs");
+        string[] expected = Directory
+            .EnumerateFiles(documentationRoot, "*.md", SearchOption.AllDirectories)
+            .Select(path => Path.GetRelativePath(root, path).Replace('\\', '/'))
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        string[] actual = XDocument
+            .Load(Path.Combine(root, "AdamE.AppNav.slnx"))
+            .Root!
+            .Elements("Folder")
+            .Where(folder => ((string?)folder.Attribute("Name"))?.StartsWith(
+                "/Documentation/",
+                StringComparison.Ordinal) == true)
+            .Elements("File")
+            .Select(file => (string)file.Attribute("Path")!)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
     public void UserGuidesHaveNavigationAndMaintainerMaterialIsNotOnTheOnboardingPath()
     {
         var root = RepositoryRoot();
