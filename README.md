@@ -1,24 +1,10 @@
 # AdamE.AppNav
 
-AdamE.AppNav is a route-first application navigation framework for .NET. Its
-core owns semantic routes, request policy, topology planning, logical state,
-history, diagnostics, and orchestration without depending on a UI framework.
-`AdamE.AppNav.Maui` materializes that state with native .NET MAUI windows,
-navigation stacks, tabs, pages, and modals.
+Route-first navigation for .NET MAUI.
 
-```text
-URI or typed route
-       |
-       v
-transform -> match -> policy -> plan logical topology -> present native UI
-                                      ^                       |
-                                      +---- reconcile Back ---+
-```
-
-The durable contract is a destination, not a page operation. A product route,
-for example, can resolve to a tab, its independent stack, and a detail page
-regardless of whether the request came from app code, an app link, a push
-notification, restoration, or a test.
+Define destinations once, then use the same typed routes for in-app navigation,
+deep links, native stacks and tabs, Back behavior, restoration, and testing.
+AppNav owns the navigation model while MAUI keeps rendering native controls.
 
 ## Preview status
 
