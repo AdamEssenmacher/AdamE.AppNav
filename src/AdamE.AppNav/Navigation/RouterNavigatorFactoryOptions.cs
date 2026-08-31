@@ -51,6 +51,11 @@ public sealed class RouterNavigatorFactoryOptions
     public IBackNavigator? BackNavigator { get; init; }
 
     /// <summary>
+    /// Gets the asynchronous policies evaluated in order after a candidate back plan is created and validated.
+    /// </summary>
+    public IReadOnlyList<IBackNavigationPolicy> BackNavigationPolicies { get; init; } = [];
+
+    /// <summary>
     /// Gets the maximum number of request-target redirects allowed during one navigation operation.
     /// </summary>
     // ReSharper disable once AutoPropertyCanBeMadeGetOnly.Global

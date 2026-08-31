@@ -159,6 +159,39 @@ Safe output without affecting navigation.
 
 `IRouterNavigator` exposes full-envelope navigation, Back, and `ReconcileAsync(...)`. Four typed extension methods cover app-authored routes. Host-owned boundaries construct a complete `RouterNavigationRequest`.
 
+## Cancelable And Deferrable Back
+
+Register singleton `IBackNavigationPolicy` implementations when leaving the current logical destination may require an
+asynchronous save or confirmation. The router first creates and validates the deterministic candidate Back plan, then
+evaluates policies in DI registration order. Each policy receives the exact candidate plan and returns `Continue` or
+`Cancel`. Cancellation is a normal `BackNavigationStatus.Canceled` result: no native presentation, logical state, or
+history mutation occurs. An unhandled Back has no candidate plan and does not invoke policies.
+
+Policies execute inside the serialized router operation. They may await UI or persistence work, but they must not call
+`NavigateAsync`, `BackAsync`, or `ReconcileAsync` on the same navigator. Exceptions and cancellation-token cancellation
+fail the operation without committing navigation.
+
+For application commands, call `IRouterNavigator.BackAsync(...)` normally. For MAUI host Back affordances, use
+`IMauiHostBackDispatcher`; it first pops a route-owned presentation page and invokes guarded logical Back only when the
+logical route would leave:
+
+```csharp
+MauiHostBackResult result = await hostBackDispatcher.BackAsync();
+```
+
+A synchronous page override can queue one safely observed operation. Repeated presses are coalesced while it is pending:
+
+```csharp
+protected override bool OnBackButtonPressed()
+{
+    return hostBackDispatcher.TryBack() || base.OnBackButtonPressed();
+}
+```
+
+Custom toolbar commands should await `IMauiHostBackDispatcher.BackAsync()`. AppNav does not automatically replace MAUI
+platform handlers or gestures. A native pop, swipe, or modal dismissal that commits without going through this dispatcher
+is reconciled afterward and cannot be asynchronously vetoed retroactively.
+
 ## Route-Owned Presentation Pages
 
 Some workflows are one semantic destination but need several native pages. A setup wizard, checkout flow, or editor can remain one `AppRoute` while its steps participate in iOS swipe-back and Android system back.

@@ -12,3 +12,25 @@ static AdamE.AppNav.Maui.DependencyInjection.AppNavServiceCollectionExtensions.A
 AdamE.AppNav.Maui.AppNavStartupOutcome.AppLinkNavigated = 4 -> AdamE.AppNav.Maui.AppNavStartupOutcome
 *REMOVED*static AdamE.AppNav.Maui.DependencyInjection.AppNavServiceCollectionExtensions.AddAppNavFileDeferredNavigationRequests(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<AdamE.AppNav.Maui.Requests.MauiFileDeferredNavigationRequestStoreOptions!>? configure = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
 static AdamE.AppNav.Maui.DependencyInjection.AppNavServiceCollectionExtensions.AddAppNavFileDeferredNavigationRequests(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<AdamE.AppNav.Maui.Requests.MauiFileDeferredNavigationRequestStoreOptions!>! configure) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+AdamE.AppNav.Maui.IMauiHostBackDispatcher
+AdamE.AppNav.Maui.IMauiHostBackDispatcher.BackAsync(string? windowId = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<AdamE.AppNav.Maui.MauiHostBackResult>
+AdamE.AppNav.Maui.IMauiHostBackDispatcher.TryBack(string? windowId = null) -> bool
+AdamE.AppNav.Maui.MauiHostBackResult
+AdamE.AppNav.Maui.MauiHostBackResult.Equals(AdamE.AppNav.Maui.MauiHostBackResult other) -> bool
+AdamE.AppNav.Maui.MauiHostBackResult.MauiHostBackResult() -> void
+AdamE.AppNav.Maui.MauiHostBackResult.NavigationResult.get -> AdamE.AppNav.Navigation.NavigationResult?
+AdamE.AppNav.Maui.MauiHostBackResult.Status.get -> AdamE.AppNav.Maui.MauiHostBackStatus
+AdamE.AppNav.Maui.MauiHostBackStatus
+AdamE.AppNav.Maui.MauiHostBackStatus.Canceled = 3 -> AdamE.AppNav.Maui.MauiHostBackStatus
+AdamE.AppNav.Maui.MauiHostBackStatus.Completed = 2 -> AdamE.AppNav.Maui.MauiHostBackStatus
+AdamE.AppNav.Maui.MauiHostBackStatus.PresentationPagePopped = 1 -> AdamE.AppNav.Maui.MauiHostBackStatus
+AdamE.AppNav.Maui.MauiHostBackStatus.Unhandled = 0 -> AdamE.AppNav.Maui.MauiHostBackStatus
+override AdamE.AppNav.Maui.MauiHostBackResult.GetHashCode() -> int
+static AdamE.AppNav.Maui.MauiHostBackResult.Canceled.get -> AdamE.AppNav.Maui.MauiHostBackResult
+static AdamE.AppNav.Maui.MauiHostBackResult.CompletedBy(AdamE.AppNav.Navigation.NavigationResult! result) -> AdamE.AppNav.Maui.MauiHostBackResult
+static AdamE.AppNav.Maui.MauiHostBackResult.PresentationPagePopped.get -> AdamE.AppNav.Maui.MauiHostBackResult
+static AdamE.AppNav.Maui.MauiHostBackResult.Unhandled.get -> AdamE.AppNav.Maui.MauiHostBackResult
+static AdamE.AppNav.Maui.MauiHostBackResult.operator !=(AdamE.AppNav.Maui.MauiHostBackResult left, AdamE.AppNav.Maui.MauiHostBackResult right) -> bool
+static AdamE.AppNav.Maui.MauiHostBackResult.operator ==(AdamE.AppNav.Maui.MauiHostBackResult left, AdamE.AppNav.Maui.MauiHostBackResult right) -> bool
+~override AdamE.AppNav.Maui.MauiHostBackResult.Equals(object obj) -> bool
+~override AdamE.AppNav.Maui.MauiHostBackResult.ToString() -> string

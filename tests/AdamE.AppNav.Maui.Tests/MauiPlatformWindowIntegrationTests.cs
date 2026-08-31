@@ -174,8 +174,8 @@ public sealed class MauiPlatformWindowIntegrationTests
             BackNavigationResult backResult = await navigator.BackAsync("main");
 
             Assert.True(MainThread.IsMainThread);
-            Assert.True(backResult.Handled);
-            Assert.Equal(NavigationPlanKind.Back, backResult.HandledNavigationResult?.Plan.Kind);
+            Assert.Equal(BackNavigationStatus.Completed, backResult.Status);
+            Assert.Equal(NavigationPlanKind.Back, backResult.NavigationResult?.Plan.Kind);
             StackNode backStack = AssertLogicalStack(navigator, typeof(PlatformHomeRoute));
             Assert.Equal("home", Assert.Single(backStack.Entries).Id);
             Assert.Same(homePage, Assert.Single(nativeStack.Navigation.NavigationStack));

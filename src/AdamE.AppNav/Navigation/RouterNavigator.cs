@@ -20,6 +20,7 @@ internal sealed class RouterNavigator : IRouterNavigator
     private readonly IAppNavigationPlanner _planner;
     private readonly INavigationPresenter _presenter;
     private readonly IBackNavigator _backNavigator;
+    private readonly IReadOnlyList<IBackNavigationPolicy> _backNavigationPolicies;
     private readonly RouterRequestResolver _requestResolver;
     private readonly RouterNavigationDiagnostics _diagnostics;
     private readonly SemaphoreSlim _operationLock = new(1, 1);
@@ -67,6 +68,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             options.MaxRedirects,
             _diagnostics);
         _backNavigator = options.BackNavigator ?? new DefaultBackNavigator(diagnostics: diagnostics);
+        _backNavigationPolicies = options.BackNavigationPolicies.ToArray();
         _maxHistoryEntries = options.MaxHistoryEntries;
 
         _presenter.ReconciliationRequested += OnPresenterReconciliationRequested;
@@ -108,6 +110,17 @@ internal sealed class RouterNavigator : IRouterNavigator
         string? windowId = null,
         CancellationToken cancellationToken = default)
     {
+        return await BackAsync(
+            new BackNavigationRequest(windowId, BackNavigationSource.ApplicationCommand),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public async ValueTask<BackNavigationResult> BackAsync(
+        BackNavigationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
         RouterOperationContext? operationContext = null;
         var operationAdmitted = false;
         var lockTaken = false;
@@ -122,7 +135,7 @@ internal sealed class RouterNavigator : IRouterNavigator
                 out linkedCancellation);
             await _operationLock.WaitAsync(operationCancellation).ConfigureAwait(false);
             lockTaken = true;
-            return await BackCoreAsync(windowId, operationCancellation).ConfigureAwait(false);
+            return await BackCoreAsync(request, operationCancellation).ConfigureAwait(false);
         }
         finally
         {
@@ -301,15 +314,15 @@ internal sealed class RouterNavigator : IRouterNavigator
     }
 
     private async ValueTask<BackNavigationResult> BackCoreAsync(
-        string? windowId,
+        BackNavigationRequest backRequest,
         CancellationToken cancellationToken)
     {
         var operationId = Guid.NewGuid().ToString("N");
         using Activity? activity =
-            _diagnostics.StartActivity("Navigation.Back", operationId, nameof(NavigationRequestSource.InAppCommand));
+            _diagnostics.StartActivity("Navigation.Back", operationId, backRequest.Source.ToString());
         var timer = Stopwatch.StartNew();
 
-        var backContext = new BackNavigationContext(CurrentState, windowId, operationId);
+        var backContext = new BackNavigationContext(CurrentState, backRequest.WindowId, operationId);
         string? diagnosticWindowId =
             backContext.ResolvedWindowId ?? backContext.RequestedWindowId ?? CurrentState.ActiveWindowId;
         string diagnosticWindowName = diagnosticWindowId ?? "active";
@@ -336,6 +349,65 @@ internal sealed class RouterNavigator : IRouterNavigator
             }
 
             NavigationStateValidator.ValidatePlan(plan, $"Back navigator '{_backNavigator.GetType().Name}'");
+            var policyContext = new BackNavigationPolicyContext(backRequest, backContext, plan);
+            foreach (IBackNavigationPolicy policy in _backNavigationPolicies)
+            {
+                var policyTimer = Stopwatch.StartNew();
+                string policyName = policy.GetType().FullName ?? policy.GetType().Name;
+                _diagnostics.Write(
+                    NavigationDiagnosticEventKind.BackPolicyStarted,
+                    operationId,
+                    policyName,
+                    RouterNavigationDiagnostics.Data(
+                        (NavigationDiagnosticDataKeys.PolicyType, policyName),
+                        (NavigationDiagnosticDataKeys.BackSource, backRequest.Source.ToString())));
+
+                BackNavigationPolicyDecision decision;
+                try
+                {
+                    decision = await policy.EvaluateAsync(policyContext, cancellationToken).ConfigureAwait(false);
+                    if (!Enum.IsDefined(decision))
+                    {
+                        throw new InvalidOperationException(
+                            $"Back policy '{policyName}' returned unknown decision value '{(int)decision}'.");
+                    }
+
+                    _diagnostics.Write(
+                        NavigationDiagnosticEventKind.BackPolicyCompleted,
+                        operationId,
+                        decision.ToString(),
+                        RouterNavigationDiagnostics.Duration(
+                            policyTimer,
+                            (NavigationDiagnosticDataKeys.PolicyType, policyName),
+                            (NavigationDiagnosticDataKeys.Decision, decision.ToString())));
+                }
+                catch (Exception ex)
+                {
+                    _diagnostics.WriteFailure(
+                        NavigationDiagnosticEventKind.BackPolicyFailed,
+                        operationId,
+                        policyName,
+                        ex,
+                        policyTimer,
+                        (NavigationDiagnosticDataKeys.PolicyType, policyName));
+                    throw;
+                }
+
+                if (decision == BackNavigationPolicyDecision.Cancel)
+                {
+                    _diagnostics.Write(
+                        NavigationDiagnosticEventKind.BackCanceled,
+                        operationId,
+                        policyName,
+                        RouterNavigationDiagnostics.Duration(
+                            timer,
+                            (NavigationDiagnosticDataKeys.PolicyType, policyName),
+                            (NavigationDiagnosticDataKeys.WindowId, diagnosticWindowId)));
+                    activity?.SetStatus(ActivityStatusCode.Ok);
+                    return BackNavigationResult.Canceled;
+                }
+            }
+
             string? resolvedWindowId = backContext.ResolvedWindowId ?? backContext.RequestedWindowId;
             AppRoute route = ResolvePresentedRoute(plan.TargetState, resolvedWindowId, new BackRoute());
             RouterNavigationRequest request =
@@ -383,7 +455,7 @@ internal sealed class RouterNavigator : IRouterNavigator
                 RouterNavigationDiagnostics.Duration(timer,
                     (NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
             activity?.SetStatus(ActivityStatusCode.Ok);
-            return BackNavigationResult.HandledBy(new NavigationResult(route, plan, CurrentState, true));
+            return BackNavigationResult.CompletedBy(new NavigationResult(route, plan, CurrentState, true));
         }
         catch (Exception ex)
         {
@@ -391,7 +463,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             _diagnostics.WriteFailure(
                 NavigationDiagnosticEventKind.BackFailed,
                 operationId,
-                windowId ?? "active",
+                backRequest.WindowId ?? "active",
                 ex,
                 timer);
             throw;

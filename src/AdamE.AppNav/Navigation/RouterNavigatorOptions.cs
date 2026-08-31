@@ -23,6 +23,8 @@ internal sealed class RouterNavigatorOptions
 
     public IBackNavigator? BackNavigator { get; init; }
 
+    public IReadOnlyList<IBackNavigationPolicy> BackNavigationPolicies { get; init; } = [];
+
     public int MaxRedirects { get; init; } = 16;
 
     public int MaxHistoryEntries { get; init; } = 128;

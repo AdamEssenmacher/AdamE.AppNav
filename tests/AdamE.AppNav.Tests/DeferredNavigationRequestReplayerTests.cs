@@ -1,3 +1,4 @@
+using AdamE.AppNav.Back;
 using AdamE.AppNav.History;
 using AdamE.AppNav.Navigation;
 using AdamE.AppNav.Plans;
@@ -206,7 +207,7 @@ public sealed class DeferredNavigationRequestReplayerTests
             return _navigate(request, cancellationToken);
         }
 
-        public ValueTask<BackNavigationResult> BackAsync(string? windowId = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<BackNavigationResult> BackAsync(BackNavigationRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<NavigationResult> ReconcileAsync(NavigationReconciliation reconciliation, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public void Dispose() { }
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;

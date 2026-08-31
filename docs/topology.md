@@ -32,6 +32,9 @@ Use `IAppNavigationPlanner` directly when an app coordinates multiple models or 
 ## Back and reconciliation
 
 Logical Back first handles modal content, then modal dismissal, stack pop, and configured branch fallback.
+When a candidate Back plan exists, ordered asynchronous `IBackNavigationPolicy` services may inspect that exact plan and
+cancel before presentation. Policy cancellation leaves logical state and history unchanged. Host changes that have already
+committed are reconciliation inputs rather than cancellable Back requests.
 Native host changes are reconciled with host-neutral sources:
 
 - `HostBack` for completed native stack/back gestures;
