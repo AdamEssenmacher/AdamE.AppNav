@@ -44,6 +44,39 @@ AppNav separates the concerns in that pipeline:
 The result is one place to define what a destination means and one predictable
 pipeline for reaching it.
 
+## Keep navigation decisions out of the renderer
+
+Because `AdamE.AppNav` targets plain `net10.0`, routes, route-owned state,
+policies, topology planning, Back behavior, and navigation-aware view models
+can live in a render-independent application project. MAUI pages and the
+`AdamE.AppNav.Maui` adapter remain in the outer host.
+
+One application might call its inner layers `Presentation -> Application ->
+Domain`. Those names are illustrative, not required by AppNav. The important
+dependency direction is that the outer renderer depends on the inner
+navigation decisions; the inner projects do not require MAUI or a native target
+framework.
+
+```text
+MAUI host ------\
+Blazor host -----+---> render-independent Presentation -> Application -> Domain
+Avalonia host --/
+                         |
+                         +---> AdamE.AppNav (net10.0)
+```
+
+This can let multiple renderers share navigation intent, but renderer swapping
+is not required to benefit. Ordinary .NET tests can exercise view-model
+navigation, routing, policy, topology, history, and Back without initializing
+MAUI, a simulator, a device, or a UI thread. Focused host tests remain for
+native presentation, lifecycle, platform ingress, and storage implementations.
+
+AppNav currently ships only a production MAUI adapter. Blazor and Avalonia in
+the diagram illustrate the boundary another adapter could use; they are not
+included integrations. See [Application architecture and
+testing](../guides/03-application-architecture-and-testing.md) for a concrete
+Glyphmere project boundary and testing strategy.
+
 ## Why plan topology explicitly?
 
 A route such as `InventoryItemRoute(itemId)` can require more than one page. The
@@ -110,5 +143,7 @@ around those application and platform responsibilities.
   [Routing and metadata](01-routing-and-metadata.md).
 - See how routes become native UI shapes in
   [Topology and planning](02-topology-and-planning.md).
+- Keep application navigation render-independent with
+  [Application architecture and testing](../guides/03-application-architecture-and-testing.md).
 - Review the current [preview release notes](../release-notes/index.md) before
   adopting AppNav.

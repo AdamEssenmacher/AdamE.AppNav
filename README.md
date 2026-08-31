@@ -60,6 +60,15 @@ directly. The investment is deliberate: buttons, deep links, notifications,
 startup, restoration, native Back, and tests can all target the same semantic
 destinations without each caller reconstructing the surrounding UI.
 
+The investment also creates a useful application boundary. Routes, topology,
+policy, and navigation-aware view models can live in a plain `net10.0` inner
+project instead of depending on MAUI pages or native target frameworks. That
+can support more than one renderer, but its immediate value is often simpler,
+cheaper testing: most navigation decisions can run without MAUI, a simulator,
+a device, or a UI thread. The outer host remains responsible for native
+presentation, lifecycle ingress, platform configuration, and storage
+implementations.
+
 ```text
 intent -> typed route or complete request -> transform/match -> policy
        -> logical plan -> native presentation -> commit/reconciliation
@@ -75,6 +84,11 @@ Before copying the setup code, follow the concepts in order:
    destinations become native navigation shapes.
 4. [Requests and provenance](docs/concepts/03-requests-and-provenance.md)
    separates ordinary app navigation from complete runtime requests.
+
+Then use [Application architecture and
+testing](docs/guides/03-application-architecture-and-testing.md) to decide which
+navigation concerns belong in a render-independent project and which remain in
+the MAUI host.
 
 If a small application is adequately served by a few direct page operations,
 AppNav may not be the right tradeoff. If navigation must remain coherent across
@@ -220,11 +234,12 @@ Start at the [documentation home](docs/index.md).
 - [Why AppNav?](docs/concepts/00-why-appnav.md)
 - [Getting started](docs/guides/01-getting-started.md)
 - [MAUI integration](docs/guides/02-maui-integration.md)
+- [Application architecture and testing](docs/guides/03-application-architecture-and-testing.md)
 - [Routing and metadata](docs/concepts/01-routing-and-metadata.md)
 - [Topology and planning](docs/concepts/02-topology-and-planning.md)
-- [External navigation](docs/guides/03-external-navigation.md)
-- [Deferred navigation](docs/guides/04-deferred-navigation.md)
-- [Troubleshooting](docs/guides/05-troubleshooting.md)
+- [External navigation](docs/guides/04-external-navigation.md)
+- [Deferred navigation](docs/guides/05-deferred-navigation.md)
+- [Troubleshooting](docs/guides/06-troubleshooting.md)
 
 ## Samples
 

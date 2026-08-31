@@ -27,12 +27,24 @@ minimal buildable sample.
    [requests and provenance](concepts/03-requests-and-provenance.md).
 4. Follow [Getting started](guides/01-getting-started.md).
 5. Continue with [MAUI integration](guides/02-maui-integration.md).
+6. Structure inner application code with
+   [Application architecture and testing](guides/03-application-architecture-and-testing.md).
+
+## Structure and test your application
+
+- Keep routes, topology, policies, and navigation-aware view models in ordinary
+  .NET code with [Application architecture and
+  testing](guides/03-application-architecture-and-testing.md).
+- Use [MAUI integration](guides/02-maui-integration.md) to connect that inner
+  model to pages, lifecycle, native presentation, and platform services.
+- Treat the [adapter contract](advanced/adapter-contract.md) as advanced
+  material when implementing a non-MAUI host.
 
 ## Add advanced capabilities
 
-- [External navigation](guides/03-external-navigation.md): trusted app-link, push,
+- [External navigation](guides/04-external-navigation.md): trusted app-link, push,
   QR, and provider ingress.
-- [Deferred navigation](guides/04-deferred-navigation.md): durable auth defer and
+- [Deferred navigation](guides/05-deferred-navigation.md): durable auth defer and
   replay.
 - [Requests and provenance](concepts/03-requests-and-provenance.md): choose the
   correct request abstraction and preserve runtime context.
@@ -41,7 +53,7 @@ minimal buildable sample.
 
 ## Debug an integration
 
-- Start with [Troubleshooting](guides/05-troubleshooting.md).
+- Start with [Troubleshooting](guides/06-troubleshooting.md).
 - Use the [diagnostics reference](reference/diagnostics.md).
 - Resolve build-time problems with the
   [source-generator diagnostics](reference/source-generator-diagnostics.md).
@@ -65,9 +77,10 @@ Every documentation page is indexed here:
 
 - [Getting started](guides/01-getting-started.md)
 - [MAUI integration](guides/02-maui-integration.md)
-- [External navigation](guides/03-external-navigation.md)
-- [Deferred navigation](guides/04-deferred-navigation.md)
-- [Troubleshooting](guides/05-troubleshooting.md)
+- [Application architecture and testing](guides/03-application-architecture-and-testing.md)
+- [External navigation](guides/04-external-navigation.md)
+- [Deferred navigation](guides/05-deferred-navigation.md)
+- [Troubleshooting](guides/06-troubleshooting.md)
 - [Why AppNav?](concepts/00-why-appnav.md)
 - [Routing and metadata](concepts/01-routing-and-metadata.md)
 - [Topology and planning](concepts/02-topology-and-planning.md)

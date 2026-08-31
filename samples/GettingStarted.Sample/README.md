@@ -5,6 +5,13 @@ generated typed routes, two generated pages, one stack navigation model, a
 typed startup fallback, and native Back reconciliation. It intentionally has no
 external ingress, deferred persistence, tabs, auth, Shell, or Prism.
 
+Routes, the navigation model, pages, and MAUI registration live together here
+so a new reader can see the complete minimum setup. In a larger application,
+routes, policies, topology, and navigation-aware view models can move into a
+plain `net10.0` project while the MAUI project keeps pages, lifecycle, native
+presentation, and platform services. This sample's single-project shape is an
+onboarding convenience, not an architectural requirement.
+
 Read the full [Getting started guide](../../docs/guides/01-getting-started.md) or
 return to the [repository README](../../README.md).
 
@@ -57,5 +64,7 @@ should not be edited.
 
 - Learn [routing and metadata](../../docs/concepts/01-routing-and-metadata.md).
 - Read the complete [MAUI integration guide](../../docs/guides/02-maui-integration.md).
+- Learn how to separate and test navigation decisions in
+  [Application architecture and testing](../../docs/guides/03-application-architecture-and-testing.md).
 - Explore tabs, dispositions, transforms, and external ingress in the
   [Commerce sample](../Commerce.Sample/README.md).

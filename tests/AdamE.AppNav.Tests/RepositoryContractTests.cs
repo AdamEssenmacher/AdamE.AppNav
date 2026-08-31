@@ -404,9 +404,10 @@ public sealed partial class RepositoryContractTests
             {
                 "01-getting-started.md",
                 "02-maui-integration.md",
-                "03-external-navigation.md",
-                "04-deferred-navigation.md",
-                "05-troubleshooting.md"
+                "03-application-architecture-and-testing.md",
+                "04-external-navigation.md",
+                "05-deferred-navigation.md",
+                "06-troubleshooting.md"
             },
             guides.Select(Path.GetFileName).Order(StringComparer.Ordinal));
         Assert.Equal(
@@ -432,6 +433,44 @@ public sealed partial class RepositoryContractTests
             File.ReadAllText(Path.Combine(root, "samples", "GettingStarted.Sample", "README.md")));
         Assert.DoesNotContain("maintainers/", onboarding, StringComparison.Ordinal);
         Assert.DoesNotContain("dogfood checkpoint", onboarding, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ArchitectureDocumentationMatchesPackageBoundaries()
+    {
+        var root = RepositoryRoot();
+        XDocument coreProject = XDocument.Load(
+            Path.Combine(root, "src", "AdamE.AppNav", "AdamE.AppNav.csproj"));
+        XDocument mauiProject = XDocument.Load(
+            Path.Combine(root, "src", "AdamE.AppNav.Maui", "AdamE.AppNav.Maui.csproj"));
+
+        Assert.Equal("net10.0", coreProject.Descendants("TargetFramework").Single().Value);
+        Assert.Empty(coreProject.Descendants("UseMaui"));
+
+        string[] mauiFrameworks = mauiProject
+            .Descendants("TargetFrameworks")
+            .Single()
+            .Value
+            .Split(';', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(
+            new[] { "net10.0", "net10.0-android", "net10.0-ios", "net10.0-maccatalyst" },
+            mauiFrameworks);
+        Assert.Equal("true", mauiProject.Descendants("UseMaui").Single().Value);
+        Assert.Contains(
+            mauiProject.Descendants("ProjectReference"),
+            reference => ((string?)reference.Attribute("Include"))?
+                .Replace('\\', '/') == "../AdamE.AppNav/AdamE.AppNav.csproj");
+
+        string whyAppNav = File.ReadAllText(
+            Path.Combine(root, "docs", "concepts", "00-why-appnav.md"));
+        string architectureGuide = File.ReadAllText(
+            Path.Combine(root, "docs", "guides", "03-application-architecture-and-testing.md"));
+
+        Assert.Contains("`AdamE.AppNav` targets plain `net10.0`", whyAppNav, StringComparison.Ordinal);
+        Assert.Contains(
+            "`AdamE.AppNav.Maui` is the production adapter supplied by this preview",
+            architectureGuide,
+            StringComparison.Ordinal);
     }
 
     [Fact]

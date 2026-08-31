@@ -194,9 +194,15 @@ request serialization and replay behavior, and the
 file-backed implementation registered by
 `AddAppNavFileDeferredNavigationRequests(...)`. Another adapter can bind the
 same core abstraction to storage appropriate for its host. See
-[Deferred navigation](../guides/04-deferred-navigation.md) for the MAUI workflow
+[Deferred navigation](../guides/05-deferred-navigation.md) for the MAUI workflow
 and the advanced [adapter contract](../advanced/adapter-contract.md) for the
 broader core-versus-host boundary.
+
+This is the same controlled edge used by render-independent application
+architecture: inner code depends on a core port and its semantics, while the
+outer host selects the platform implementation. See [Application architecture
+and testing](../guides/03-application-architecture-and-testing.md) for the
+broader project boundary.
 
 Use this decision rule for each route-owned value:
 

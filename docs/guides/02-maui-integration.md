@@ -7,6 +7,32 @@ complete example, not the only public way to use the library. It continues the
 fictional RPG [Glyphmere](../concepts/01-routing-and-metadata.md#meet-glyphmere)
 where a concrete domain example makes the boundary clearer.
 
+## Choose project boundaries deliberately
+
+`AdamE.AppNav` targets plain `net10.0`; `AdamE.AppNav.Maui` owns the MAUI and
+native target frameworks. A larger application can preserve that boundary in
+its own projects:
+
+| Pure inner project, for example `Glyphmere.Presentation` | Outer `Glyphmere.Maui` project |
+| --- | --- |
+| References `AdamE.AppNav` | References `AdamE.AppNav.Maui` and the inner project |
+| Typed routes and route metadata | MAUI pages and generated page mappings |
+| Navigation model, policies, and app transforms | `AddAppNav(...)`, startup, and lifecycle ingress |
+| Render-independent view models that request typed routes | Native presentation and UI-thread work |
+| Fast routing, policy, topology, history, and Back tests | Focused adapter, platform, and UI tests |
+
+The MAUI composition root joins the generated route table and logical model to
+the generated page module and native presenter. The inner project therefore
+does not need to reference a `Page` or a platform target such as
+`net10.0-ios`. This layering is optional; the minimal sample keeps everything
+together to reduce onboarding ceremony.
+
+Read [Application architecture and
+testing](03-application-architecture-and-testing.md) for the full Glyphmere
+example. `Presentation` there means an application layer containing
+render-independent view models; it is not the same thing as AppNav's host-facing
+`INavigationPresenter` adapter contract.
+
 ## Common Flow
 
 1. Define durable semantic destinations as `AppRoute`.
@@ -206,6 +232,8 @@ transactional push/pop, rollback, and consistency faults.
 ## Next steps
 
 - Define [routing and metadata](../concepts/01-routing-and-metadata.md).
-- Configure [external navigation](03-external-navigation.md) only after defining trusted origins.
-- Add [deferred navigation](04-deferred-navigation.md) only for a real auth defer/replay flow.
-- Diagnose integration failures with [Troubleshooting](05-troubleshooting.md).
+- Keep navigation decisions testable with
+  [Application architecture and testing](03-application-architecture-and-testing.md).
+- Configure [external navigation](04-external-navigation.md) only after defining trusted origins.
+- Add [deferred navigation](05-deferred-navigation.md) only for a real auth defer/replay flow.
+- Diagnose integration failures with [Troubleshooting](06-troubleshooting.md).
