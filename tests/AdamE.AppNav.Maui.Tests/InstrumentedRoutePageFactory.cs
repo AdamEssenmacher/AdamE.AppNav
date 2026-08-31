@@ -6,7 +6,11 @@ namespace AdamE.AppNav.Maui.Tests;
 
 internal sealed class InstrumentedRoutePageFactory : IMauiRoutePageFactory
 {
-    public MauiPageAbandonment? CaptureAbandonment(Page page) => null;
+    public MauiPageAbandonment? CaptureAbandonment(Page page)
+    {
+        _abandonedPages.Add(page);
+        return new MauiPageAbandonment(null, page.GetType().FullName ?? page.GetType().Name);
+    }
 
     private readonly Func<RouteEntry, Page>? _createPage;
     private readonly Action<Page, RouteEntry, MauiRoutePageUpdateContext>? _updatePage;
@@ -25,10 +29,13 @@ internal sealed class InstrumentedRoutePageFactory : IMauiRoutePageFactory
 
     public IReadOnlyList<Page> ReleasedPresentationPages => _releasedPresentationPages.ToArray();
 
+    public IReadOnlyList<Page> AbandonedPages => _abandonedPages.ToArray();
+
     private readonly List<Page> _createdPages = new();
     private readonly List<Page> _releasedPages = new();
     private readonly List<Page> _createdPresentationPages = new();
     private readonly List<Page> _releasedPresentationPages = new();
+    private readonly List<Page> _abandonedPages = new();
 
     public InstrumentedRoutePageFactory(
         Func<RouteEntry, Page>? createPage = null,

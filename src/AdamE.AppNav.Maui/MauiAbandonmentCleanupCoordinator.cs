@@ -9,10 +9,14 @@ internal sealed class MauiAbandonmentCleanupCoordinator(
 
     public void Enqueue(IEnumerable<MauiPageAbandonment> abandonments)
     {
+        EnqueueAfter(Task.CompletedTask, abandonments);
+    }
+
+    public void EnqueueAfter(Task prerequisite, IEnumerable<MauiPageAbandonment> abandonments)
+    {
+        ArgumentNullException.ThrowIfNull(prerequisite);
         ArgumentNullException.ThrowIfNull(abandonments);
         MauiPageAbandonment[] captured = abandonments.ToArray();
-        if (captured.Length == 0)
-            return;
 
         lock (_gate)
         {
@@ -21,7 +25,7 @@ internal sealed class MauiAbandonmentCleanupCoordinator(
 
             Task preceding = _tail;
             _tail = Task.Run(
-                () => DisposeAfterAsync(preceding, captured),
+                () => DisposeAfterAsync(preceding, prerequisite, captured),
                 CancellationToken.None);
         }
     }
@@ -37,9 +41,19 @@ internal sealed class MauiAbandonmentCleanupCoordinator(
 
     private async Task DisposeAfterAsync(
         Task preceding,
+        Task prerequisite,
         IReadOnlyList<MauiPageAbandonment> abandonments)
     {
         await preceding.ConfigureAwait(false);
+        try
+        {
+            await prerequisite.ConfigureAwait(false);
+        }
+        catch
+        {
+            // Resource disposal must continue even if the operation-drain observer failed.
+        }
+
         foreach (MauiPageAbandonment abandonment in abandonments)
         {
             try

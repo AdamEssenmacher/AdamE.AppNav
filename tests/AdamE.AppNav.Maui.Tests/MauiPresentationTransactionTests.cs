@@ -1,3 +1,4 @@
+using System.Reflection;
 using AdamE.AppNav.Diagnostics;
 using AdamE.AppNav.Navigation;
 using AdamE.AppNav.Plans;
@@ -285,6 +286,76 @@ public sealed class MauiPresentationTransactionTests
         Assert.Same(committedRoot, replacementWindow.Page);
         Assert.Same(replacementWindow, presenter.AttachedWindow);
         Assert.Empty(factory.ReleasedPages);
+        await presenter.StartShutdown();
+    }
+
+    [UIFact]
+    public async Task DestructionCancelsInFlightPresentationWithoutRollbackIntoOldTree()
+    {
+        var factory = new GatedRoutePageFactory();
+        factory.ReleaseCreate();
+        var presenter = new MauiNavigationPresenter(factory);
+        NavigationState committedState = StackState("home");
+        await presenter.ApplyAsync(
+            new NavigationPlan(committedState),
+            Context("home", NavigationState.Empty));
+        factory.GateNextCreate();
+        var destroyedWindow = new Window();
+        await presenter.AttachWindowAsync(destroyedWindow);
+        Page destroyedRoot = Assert.IsAssignableFrom<Page>(presenter.CurrentPage);
+
+        Task apply = presenter.ApplyAsync(
+            new NavigationPlan(StackState("replacement")),
+            Context("replacement", committedState)).AsTask();
+        await factory.CreateStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        RaiseWindowDestroying(destroyedWindow);
+        factory.ReleaseCreate();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => apply);
+        Assert.Null(presenter.CurrentPage);
+        Assert.Null(presenter.AttachedWindow);
+        Assert.Same(destroyedRoot, destroyedWindow.Page);
+
+        var replacementWindow = new Window();
+        await presenter.AttachWindowAsync(replacementWindow);
+        var replacementRoot = Assert.IsType<NavigationPage>(presenter.CurrentPage);
+        Assert.Equal("home", Assert.Single(replacementRoot.Navigation.NavigationStack).Title);
+        Assert.Same(replacementRoot, replacementWindow.Page);
+        await presenter.StartShutdown();
+    }
+
+    [UIFact]
+    public async Task CandidateWindowDestroyedDuringMaterializationIsAbandonedAndRetryable()
+    {
+        var factory = new GatedRoutePageFactory();
+        factory.ReleaseCreate();
+        var presenter = new MauiNavigationPresenter(factory);
+        NavigationState committedState = StackState("home");
+        await presenter.ApplyAsync(
+            new NavigationPlan(committedState),
+            Context("home", NavigationState.Empty));
+        var originalWindow = new Window();
+        await presenter.AttachWindowAsync(originalWindow);
+        RaiseWindowDestroying(originalWindow);
+
+        factory.GateNextCreate();
+        var destroyedCandidate = new Window();
+        Task attach = presenter.AttachWindowAsync(destroyedCandidate).AsTask();
+        await factory.CreateStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        RaiseWindowDestroying(destroyedCandidate);
+        factory.ReleaseCreate();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => attach);
+        Assert.Null(presenter.CurrentPage);
+        Assert.Null(presenter.AttachedWindow);
+        Assert.Null(destroyedCandidate.Page);
+        Assert.Contains(factory.CreatedPages[^1], factory.AbandonedPages);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            presenter.AttachWindowAsync(destroyedCandidate).AsTask());
+
+        var replacementWindow = new Window();
+        await presenter.AttachWindowAsync(replacementWindow);
+        Assert.Same(presenter.CurrentPage, replacementWindow.Page);
         await presenter.StartShutdown();
     }
 
@@ -1065,6 +1136,21 @@ public sealed class MauiPresentationTransactionTests
             Guid.NewGuid().ToString("N"));
     }
 
+    private static void RaiseWindowDestroying(Window window)
+    {
+        for (Type? type = window.GetType(); type is not null; type = type.BaseType)
+        {
+            FieldInfo? field = type.GetField("Destroying", BindingFlags.Instance | BindingFlags.NonPublic);
+            if (field?.GetValue(window) is EventHandler handlers)
+            {
+                handlers(window, EventArgs.Empty);
+                return;
+            }
+        }
+
+        throw new InvalidOperationException("Window Destroying event backing field was not found.");
+    }
+
     private sealed class StackPlanner : IAppNavigationPlanner
     {
         public ValueTask<NavigationPlan> CreatePlanAsync(
@@ -1183,12 +1269,12 @@ public sealed class MauiPresentationTransactionTests
 
     private sealed class GatedRoutePageFactory : IMauiRoutePageFactory
     {
-        public MauiPageAbandonment? CaptureAbandonment(Page page) => null;
+        public MauiPageAbandonment? CaptureAbandonment(Page page) => _inner.CaptureAbandonment(page);
 
         private readonly InstrumentedRoutePageFactory _inner = new();
-        private readonly TaskCompletionSource _createStarted =
+        private TaskCompletionSource _createStarted =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private readonly TaskCompletionSource _releaseCreate =
+        private TaskCompletionSource _releaseCreate =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private bool _gateNextCreate = true;
 
@@ -1198,9 +1284,18 @@ public sealed class MauiPresentationTransactionTests
 
         public IReadOnlyList<Page> ReleasedPages => _inner.ReleasedPages;
 
+        public IReadOnlyList<Page> AbandonedPages => _inner.AbandonedPages;
+
         public void ReleaseCreate()
         {
             _releaseCreate.TrySetResult();
+        }
+
+        public void GateNextCreate()
+        {
+            _createStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _releaseCreate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _gateNextCreate = true;
         }
 
         public async ValueTask<Page> CreatePageAsync(
