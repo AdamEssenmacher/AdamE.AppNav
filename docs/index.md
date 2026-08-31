@@ -14,9 +14,12 @@ trying to do.
 
 ## Build your first app
 
-1. Follow [Getting started](guides/01-getting-started.md).
-2. Learn [routing and metadata](concepts/routing-and-metadata.md).
-3. Continue with [MAUI integration](guides/02-maui-integration.md).
+1. Learn [routing and metadata](concepts/routing-and-metadata.md).
+2. Understand [topology and planning](concepts/topology-and-planning.md).
+3. Choose the right abstraction with
+   [requests and provenance](concepts/requests-and-provenance.md).
+4. Follow [Getting started](guides/01-getting-started.md).
+5. Continue with [MAUI integration](guides/02-maui-integration.md).
 
 ## Add advanced capabilities
 

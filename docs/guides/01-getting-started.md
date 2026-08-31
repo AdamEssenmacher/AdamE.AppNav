@@ -7,6 +7,25 @@ This guide uses the buildable
 deliberately limited to Home -> Detail -> native Back so the core AppNav model
 is visible without external ingress, persistence, tabs, or auth.
 
+## Read the core concepts first
+
+AppNav is easier to integrate once three boundaries are clear. Before copying
+the setup code, read these short concept guides in order:
+
+1. [Routing and metadata](../concepts/routing-and-metadata.md) explains why a
+   route is durable destination identity rather than a page operation.
+2. [Topology and planning](../concepts/topology-and-planning.md) explains how
+   routes become logical windows, stacks, branches, entries, and modals before
+   MAUI changes native UI.
+3. [Requests and provenance](../concepts/requests-and-provenance.md) explains
+   when app code should use a typed route and when a transport boundary needs a
+   complete runtime request.
+
+The minimum mental model is: app code requests a semantic destination, a
+navigation model plans the logical topology for it, and the MAUI presenter
+materializes that topology with native controls. The walkthrough below puts
+those concepts together in the smallest supported application.
+
 ## Requirements
 
 - .NET SDK `10.0.400`
@@ -173,7 +192,8 @@ for every `APPNAV` code.
 
 ## Next steps
 
-- Learn [routing and metadata](../concepts/routing-and-metadata.md).
+- Revisit the [core concepts](../concepts/routing-and-metadata.md) as the sample's
+  route and topology choices become concrete.
 - Add application wiring with [MAUI integration](02-maui-integration.md).
 - Explore native tabs and external ingress in the
   [Commerce sample](../../samples/Commerce.Sample/README.md).
