@@ -12,20 +12,12 @@ smallest executable version of the same route -> plan -> presentation flow.
 
 ## Read the core concepts first
 
-AppNav is easier to understand once three boundaries are clear. Before copying
-the setup code, read these short concept guides in order:
-
-Use the [Glossary](../reference/glossary.md) whenever a term such as route,
-entry, plan, presentation, or provenance is unfamiliar.
-
-1. [Routing and metadata](../concepts/01-routing-and-metadata.md) explains why a
-   route is durable destination identity rather than a page operation.
-2. [Topology and planning](../concepts/02-topology-and-planning.md) explains how
-   routes become logical windows, stacks, branches, entries, and modals before
-   MAUI changes native UI.
-3. [Requests and provenance](../concepts/03-requests-and-provenance.md) explains
-   when app code should use a typed route and when external events such as app
-   links or push notifications need a complete navigation request.
+Before copying the setup code, understand the three boundaries introduced by
+[routing and metadata](../concepts/01-routing-and-metadata.md), [topology and
+planning](../concepts/02-topology-and-planning.md), and [requests and
+provenance](../concepts/03-requests-and-provenance.md). Use the
+[Glossary](../reference/glossary.md) whenever a term such as route, entry, plan,
+presentation, or provenance is unfamiliar.
 
 The minimum mental model is: app code requests a semantic destination, a
 navigation model plans the logical topology for it, and the MAUI presenter
@@ -108,7 +100,8 @@ public static StackNavigationModel<AppRoute> Create()
         // "main-stack" becomes StackNode.Id for the NavigationPage-backed stack.
         builder.CanonicalSurface("main", "main-stack");
 
-        // Home has one stable entry on the shared "main" stack scope.
+        // "main" makes Home and Detail eligible for contextual navigation
+        // within the current stack; it is not the "main-stack" structural ID.
         builder.Map<HomeRoute>(recipe => recipe
             .EntryId(_ => "home")
             .ScopeKey(_ => "main"));

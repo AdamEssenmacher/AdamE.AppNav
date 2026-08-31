@@ -88,7 +88,7 @@ react to failure. Common categories include:
 
 Argument errors, use after disposal, and same-navigator reentrancy are also
 programming errors rather than alternate navigation outcomes. Avoid a blanket
-catch that silently converts them into “nothing happened.”
+catch that silently converts them into "nothing happened."
 
 Policies deserve one distinction: `AccessGateNavigationPolicy` expresses a
 denial by redirecting, optionally after deferring the original request. A

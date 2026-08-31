@@ -15,7 +15,8 @@ public static class GettingStartedNavigationModel
             // "main-stack" becomes StackNode.Id for the NavigationPage-backed stack.
             builder.CanonicalSurface("main", "main-stack");
 
-            // Home has one stable entry on the shared "main" stack scope.
+            // "main" makes Home and Detail eligible for contextual navigation
+            // within the current stack; it is not the "main-stack" structural ID.
             builder.Map<HomeRoute>(recipe => recipe
                 .EntryId(_ => "home")
                 .ScopeKey(_ => "main"));

@@ -2,7 +2,7 @@
 
 [Documentation home](../index.md)
 
-- [0.1.0-preview.1](0.1.0-preview.1.md) — first public MAUI preview.
+- [0.1.0-preview.1](0.1.0-preview.1.md) - first public MAUI preview.
 
 Repository maintainers should use the
 [public preview release checklist](../maintainers/release-checklist.md) before

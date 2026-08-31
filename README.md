@@ -68,8 +68,7 @@ this preview. See [MAUI integration](docs/guides/02-maui-integration.md#one-navi
 
 ## Learn the model first
 
-Powerful application navigation requires a learning investment. AppNav is not
-a page-push helper; it asks an application to model three things explicitly:
+AppNav treats navigation as an application model with three explicit parts:
 
 1. **Destinations**: typed routes describe where the user wants to go without
    naming the page, view model, or UI operation that gets there. A route can be
@@ -81,13 +80,13 @@ a page-push helper; it asks an application to model three things explicitly:
    and host boundaries preserve source, policy, disposition, and provenance in
    a complete request.
 
-That model requires more learning and configuration than calling `PushAsync`
-directly. The investment is deliberate: buttons, deep links, notifications,
-startup, restoration, native Back, and tests can all target the same semantic
-destinations without each caller reconstructing the surrounding UI.
+This model takes more setup than a direct page push, and it gives every entry
+path the same vocabulary. Buttons, deep links, notifications, startup,
+restoration, native Back, and tests can all target the same semantic
+destinations without reconstructing the surrounding UI.
 
-The investment also creates a useful application boundary. Routes, topology,
-policy, and view models that request typed destinations can live in a plain
+The same model creates a useful application boundary. Routes, topology, policy,
+and view models that request typed destinations can live in a plain
 `net10.0` inner project instead of depending on MAUI pages or native target
 frameworks. That can support more than one renderer, but its immediate value is
 often simpler, cheaper testing: most navigation decisions can run without MAUI,
@@ -102,14 +101,10 @@ intent -> typed route or complete request -> transform/match -> policy
 
 Before copying the setup code, follow the concepts in order:
 
-1. [Why AppNav?](docs/concepts/00-why-appnav.md) explains the design tradeoffs
-   and when the model is worth adopting.
-2. [Routing and metadata](docs/concepts/01-routing-and-metadata.md) defines
-   typed semantic destinations and route-owned state.
-3. [Topology and planning](docs/concepts/02-topology-and-planning.md) shows how
-   destinations become native navigation shapes.
+1. [Why AppNav?](docs/concepts/00-why-appnav.md)
+2. [Routing and metadata](docs/concepts/01-routing-and-metadata.md)
+3. [Topology and planning](docs/concepts/02-topology-and-planning.md)
 4. [Requests and provenance](docs/concepts/03-requests-and-provenance.md)
-   separates ordinary app navigation from complete runtime requests.
 
 Then use [Application architecture and
 testing](docs/guides/03-application-architecture-and-testing.md) to decide which
@@ -163,7 +158,8 @@ public static StackNavigationModel<AppRoute> Create()
         // "main-stack" becomes StackNode.Id for the NavigationPage-backed stack.
         builder.CanonicalSurface("main", "main-stack");
 
-        // Home has one stable entry on the shared "main" stack scope.
+        // "main" makes Home and Detail eligible for contextual navigation
+        // within the current stack; it is not the "main-stack" structural ID.
         builder.Map<HomeRoute>(recipe => recipe
             .EntryId(_ => "home")
             .ScopeKey(_ => "main"));

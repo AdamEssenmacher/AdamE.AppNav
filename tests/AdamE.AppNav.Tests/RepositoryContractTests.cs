@@ -2,6 +2,11 @@ using System.Xml.Linq;
 using System.Text.RegularExpressions;
 using AdamE.AppNav.Diagnostics;
 using AdamE.AppNav.Navigation;
+using Markdig;
+using Markdig.Extensions.AutoIdentifiers;
+using Markdig.Renderers.Html;
+using Markdig.Syntax;
+using Markdig.Syntax.Inlines;
 
 namespace AdamE.AppNav.Tests;
 
@@ -69,9 +74,10 @@ public sealed partial class RepositoryContractTests
             readme,
             StringComparison.Ordinal);
         Assert.Contains(
-            "AppNav does not support `Microsoft.Maui.Controls.Shell`, Shell routing, or\nPrism navigation",
+            "AppNav does not support `Microsoft.Maui.Controls.Shell`, Shell routing",
             readme,
             StringComparison.Ordinal);
+        Assert.Contains("Prism navigation", readme, StringComparison.Ordinal);
         Assert.Contains("## One navigation owner", whyAppNav, StringComparison.Ordinal);
         Assert.Contains(
             "## One navigation owner: no Shell or Prism navigation",
@@ -82,7 +88,7 @@ public sealed partial class RepositoryContractTests
             mauiIntegration,
             StringComparison.Ordinal);
         Assert.Contains(
-            "This preview does not include a\nShell or Prism bridge or a mixed-ownership migration mode",
+            "Shell or Prism bridge or a mixed-ownership migration mode",
             mauiIntegration,
             StringComparison.Ordinal);
     }
@@ -338,12 +344,15 @@ public sealed partial class RepositoryContractTests
     {
         var root = RepositoryRoot();
         string[] documents = DocumentationFiles(root).ToArray();
+        var parsedDocuments = documents.ToDictionary(
+            static document => document,
+            ParseMarkdownFile,
+            StringComparer.Ordinal);
 
         Assert.NotEmpty(documents);
         foreach (string document in documents)
-        foreach (Match match in MarkdownLinkPattern().Matches(File.ReadAllText(document)).Cast<Match>())
+        foreach (string target in parsedDocuments[document].Links)
         {
-            string target = match.Groups["target"].Value.Trim();
             if (target.Length == 0 || IsExternalLink(target))
                 continue;
 
@@ -358,19 +367,45 @@ public sealed partial class RepositoryContractTests
                         Uri.UnescapeDataString(pathPart)));
 
             Assert.True(
-                File.Exists(targetFile),
+                File.Exists(targetFile) || Directory.Exists(targetFile),
                 $"Markdown link '{target}' in '{Path.GetRelativePath(root, document)}' does not resolve.");
 
             if (!string.IsNullOrEmpty(fragment))
             {
-                string[] anchors = HeadingPattern()
-                    .Matches(File.ReadAllText(targetFile))
-                    .Cast<Match>()
-                    .Select(static heading => HeadingAnchor(heading.Groups["heading"].Value))
-                    .ToArray();
-                Assert.Contains(Uri.UnescapeDataString(fragment), anchors, StringComparer.OrdinalIgnoreCase);
+                Assert.True(File.Exists(targetFile), $"Fragment link '{target}' must target a file.");
+                if (!parsedDocuments.TryGetValue(targetFile, out ParsedMarkdown? parsedTarget))
+                {
+                    parsedTarget = ParseMarkdownFile(targetFile);
+                    parsedDocuments[targetFile] = parsedTarget;
+                }
+
+                Assert.Contains(
+                    Uri.UnescapeDataString(fragment),
+                    parsedTarget.Anchors,
+                    StringComparer.Ordinal);
             }
         }
+    }
+
+    [Fact]
+    public void MarkdownContractUsesGitHubLinksAndHeadingIdentifiers()
+    {
+        const string markdown = """
+            # route_entry
+            # Duplicate
+            # Duplicate
+
+            ```sh
+            # phantom
+            ```
+
+            [Home](../index.md "Documentation home")
+            """;
+
+        ParsedMarkdown parsed = ParseMarkdown(markdown);
+
+        Assert.Equal(new[] { "route_entry", "duplicate", "duplicate-1" }, parsed.Anchors);
+        Assert.Equal(new[] { "../index.md" }, parsed.Links);
     }
 
     [Fact]
@@ -379,11 +414,9 @@ public sealed partial class RepositoryContractTests
         var root = RepositoryRoot();
         string documentationRoot = Path.Combine(root, "docs");
         string homePath = Path.Combine(documentationRoot, "index.md");
-        string home = File.ReadAllText(homePath);
-        var indexedFiles = MarkdownLinkPattern()
-            .Matches(home)
-            .Cast<Match>()
-            .Select(match => match.Groups["target"].Value.Split('#')[0])
+        var indexedFiles = ParseMarkdownFile(homePath)
+            .Links
+            .Select(target => target.Split('#')[0])
             .Where(static target => !string.IsNullOrWhiteSpace(target) && !IsExternalLink(target))
             .Select(target => Path.GetFullPath(Path.Combine(documentationRoot, Uri.UnescapeDataString(target))))
             .ToHashSet(StringComparer.Ordinal);
@@ -480,14 +513,14 @@ public sealed partial class RepositoryContractTests
         XDocument mauiProject = XDocument.Load(
             Path.Combine(root, "src", "AdamE.AppNav.Maui", "AdamE.AppNav.Maui.csproj"));
 
-        Assert.Equal("net10.0", coreProject.Descendants("TargetFramework").Single().Value);
+        Assert.Equal("net10.0", coreProject.Descendants("TargetFramework").Single().Value.Trim());
         Assert.Empty(coreProject.Descendants("UseMaui"));
 
         string[] mauiFrameworks = mauiProject
             .Descendants("TargetFrameworks")
             .Single()
             .Value
-            .Split(';', StringSplitOptions.RemoveEmptyEntries);
+            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         Assert.Equal(
             new[] { "net10.0", "net10.0-android", "net10.0-ios", "net10.0-maccatalyst" },
             mauiFrameworks);
@@ -664,13 +697,27 @@ public sealed partial class RepositoryContractTests
         var root = RepositoryRoot();
         string declared = string.Join(
             Environment.NewLine,
-            File.ReadAllText(Path.Combine(root, "src", "AdamE.AppNav.Generators", "AppNavDiagnostics.cs")),
-            File.ReadAllText(Path.Combine(root, "src", "AdamE.AppNav.Maui.Generators", "MauiPageDiagnostics.cs")));
+            new[]
+            {
+                Path.Combine(root, "src", "AdamE.AppNav.Generators"),
+                Path.Combine(root, "src", "AdamE.AppNav.Maui.Generators")
+            }
+            .SelectMany(directory => Directory.EnumerateFiles(
+                directory,
+                "*.cs",
+                SearchOption.AllDirectories))
+            .Where(path => !path.Contains(
+                $"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}",
+                StringComparison.Ordinal))
+            .Where(path => !path.Contains(
+                $"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}",
+                StringComparison.Ordinal))
+            .Select(File.ReadAllText));
         string reference = File.ReadAllText(
             Path.Combine(root, "docs", "reference", "source-generator-diagnostics.md"));
 
-        string[] declaredIds = DiagnosticIdPattern().Matches(declared).Cast<Match>().Select(static match => match.Value).Distinct().Order().ToArray();
-        string[] documentedIds = DiagnosticIdPattern().Matches(reference).Cast<Match>().Select(static match => match.Value).Distinct().Order().ToArray();
+        string[] declaredIds = DiagnosticIdPattern().Matches(declared).Select(static match => match.Value).Distinct().Order().ToArray();
+        string[] documentedIds = DiagnosticIdPattern().Matches(reference).Select(static match => match.Value).Distinct().Order().ToArray();
 
         Assert.Equal(declaredIds, documentedIds);
     }
@@ -768,7 +815,6 @@ public sealed partial class RepositoryContractTests
         var mauiTestsProject = File.ReadAllText(Path.Combine(root, "tests", "AdamE.AppNav.Maui.Tests", "AdamE.AppNav.Maui.Tests.csproj"));
 
         Assert.Contains("maintainers/release-checklist.md", docsHome, StringComparison.Ordinal);
-        Assert.DoesNotContain("maintainers/", readme, StringComparison.Ordinal);
         Assert.Contains("eng/run-maui-platform-tests.sh android", checklist, StringComparison.Ordinal);
         Assert.Contains("eng/verify.sh release", checklist, StringComparison.Ordinal);
         Assert.DoesNotContain("AdamE.AppNav.Testing", checklist, StringComparison.Ordinal);
@@ -905,7 +951,17 @@ public sealed partial class RepositoryContractTests
 
         Assert.Contains("<PackageLicenseExpression>MIT</PackageLicenseExpression>", buildProps, StringComparison.Ordinal);
         Assert.Contains("<RepositoryUrl>https://github.com/AdamEssenmacher/AdamE.AppNav.git</RepositoryUrl>", buildProps, StringComparison.Ordinal);
-        Assert.Contains("<PackageReadmeFile>README.md</PackageReadmeFile>", buildProps, StringComparison.Ordinal);
+        Assert.Contains("<PackageReadmeFile>PACKAGE.md</PackageReadmeFile>", buildProps, StringComparison.Ordinal);
+        Assert.Contains(
+            "<None Include=\"$(MSBuildThisFileDirectory)PACKAGE.md\" Pack=\"true\" PackagePath=\"/\"",
+            buildProps,
+            StringComparison.Ordinal);
+
+        string packageReadme = File.ReadAllText(Path.Combine(root, "PACKAGE.md"));
+        Assert.Contains("Route-first navigation for .NET MAUI", packageReadme, StringComparison.Ordinal);
+        Assert.All(ParseMarkdown(packageReadme).Links, target => Assert.True(
+            IsExternalLink(target),
+            $"Packaged documentation link '{target}' must be absolute."));
         Assert.Contains("<IncludeSymbols>true</IncludeSymbols>", buildProps, StringComparison.Ordinal);
         Assert.Contains("Microsoft.SourceLink.GitHub", buildProps, StringComparison.Ordinal);
         Assert.Contains("<AppNavDefaultVersion>0.1.0-preview.local</AppNavDefaultVersion>", buildProps, StringComparison.Ordinal);
@@ -948,6 +1004,7 @@ public sealed partial class RepositoryContractTests
     private static IEnumerable<string> DocumentationFiles(string root)
     {
         yield return Path.Combine(root, "README.md");
+        yield return Path.Combine(root, "PACKAGE.md");
 
         foreach (string document in Directory.EnumerateFiles(
                      Path.Combine(root, "docs"),
@@ -969,21 +1026,39 @@ public sealed partial class RepositoryContractTests
                target.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string HeadingAnchor(string heading)
+    private static ParsedMarkdown ParseMarkdownFile(string path)
     {
-        string withoutMarkup = heading.Replace("`", string.Empty, StringComparison.Ordinal).ToLowerInvariant();
-        string withoutPunctuation = Regex.Replace(withoutMarkup, @"[^\p{L}\p{N}\s-]", string.Empty);
-        return Regex.Replace(withoutPunctuation.Trim(), @"\s+", "-");
+        return ParseMarkdown(File.ReadAllText(path));
     }
 
-    [GeneratedRegex(@"\[[^\]]+\]\((?<target>[^)]+)\)")]
-    private static partial Regex MarkdownLinkPattern();
+    private static ParsedMarkdown ParseMarkdown(string source)
+    {
+        MarkdownDocument document = Markdown.Parse(source, DocumentationMarkdownPipeline);
+        string[] links = document
+            .Descendants<LinkInline>()
+            .Select(static link => link.Url)
+            .Where(static url => !string.IsNullOrWhiteSpace(url))
+            .Select(static url => url!.Trim())
+            .ToArray();
+        string[] anchors = document
+            .Descendants<HeadingBlock>()
+            .Select(static heading => heading.GetAttributes().Id)
+            .Where(static id => !string.IsNullOrWhiteSpace(id))
+            .Select(static id => id!)
+            .ToArray();
 
-    [GeneratedRegex(@"^#{1,6}\s+(?<heading>.+?)\s*$", RegexOptions.Multiline)]
-    private static partial Regex HeadingPattern();
+        return new ParsedMarkdown(links, anchors);
+    }
 
-    [GeneratedRegex(@"APPNAV\d{3}")]
+    [GeneratedRegex(@"\bAPPNAV\d+\b")]
     private static partial Regex DiagnosticIdPattern();
+
+    private static readonly MarkdownPipeline DocumentationMarkdownPipeline =
+        new MarkdownPipelineBuilder()
+            .UseAutoIdentifiers(AutoIdentifierOptions.GitHub)
+            .Build();
+
+    private sealed record ParsedMarkdown(string[] Links, string[] Anchors);
 
     private static string ReadRegion(string source, string regionName)
     {

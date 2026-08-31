@@ -21,8 +21,8 @@ renders the hierarchy.
 AppNav routes are typed semantic destinations:
 
 - **Semantic** means a route describes where the player wants to go, such as
-  “the iron key in Inventory.” It does not say “push this page” or “select this
-  tab.” The navigation model and MAUI presenter decide how to display it.
+  "the iron key in Inventory." It does not say "push this page" or "select this
+  tab." The navigation model and MAUI presenter decide how to display it.
 - **Typed** means app code represents that destination with a compiler-known
   `AppRoute`, including the durable values that identify it.
 
@@ -190,7 +190,7 @@ var routeStateRegistry = RouteStateRegistry.Create(builder => builder
 | --- | --- | --- | --- | --- |
 | `Canonical` | Yes, when mapped with `AppNavQueryMetadata` | Recovered by rematching the stored canonical URI | Yes | The comparison item, because it is needed to reproduce the shared comparison |
 | `Restorable` | No | Yes, as separate typed metadata | Yes | The selected `stats` panel, because local replay should return to it but a shared link should not impose it on someone else |
-| `Ephemeral` | No | No | Yes, while the request or route entry remains live | The “new item” highlight, because losing or replaying its one-time visual cue after a restart is preferable to persisting it |
+| `Ephemeral` | No | No | Yes, while the request or route entry remains live | The "new item" highlight, because losing or replaying its one-time visual cue after a restart is preferable to persisting it |
 
 In a deferred-navigation snapshot, the canonical comparison item is encoded in
 the route URI. The selected panel is stored separately and reattached when the
@@ -226,7 +226,7 @@ Use this decision rule for each route-owned value:
    `AppNavQueryMetadata` mapping, and treat the value as publicly visible.
 2. Should a persisted request recover it after process restart, but should a
    shared URI omit it? Use `Restorable`.
-3. Is it safe—and preferable—for the value to disappear if the live navigation
+3. Is it safe, and preferable, for the value to disappear if the live navigation
    state is lost? Use `Ephemeral`.
 4. Does it describe where the request came from rather than the destination?
    It is not route metadata; use request provenance instead.

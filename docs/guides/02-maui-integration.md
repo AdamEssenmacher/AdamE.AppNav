@@ -85,14 +85,18 @@ type or require a one-route-to-one-view-model relationship. A custom host
 adapter may map logical entries to non-page artifacts; the MAUI adapter uses
 pages so it can participate in MAUI's native navigation containers.
 
-## Common Flow
+## Common flow
 
 1. Define durable semantic destinations as `AppRoute`.
 2. Use `AppRoute` or `AppRouteRequest` in app code; construct
    `RouterNavigationRequest` for external events and runtime infrastructure.
-3. Keep route-owned metadata app-defined in a `RouteStateRegistry` when formatting, persistence, or downstream app behavior depend on it.
-4. Register `AddAppNav(...)`, optional persistence or deferred-request services, and `AddAppNavStartup(...)` as needed by the app.
-5. Use `IAppNavStartupService`, `IMauiExternalNavigationDispatcher`, or direct `IRouterNavigator` calls where MAUI lifecycle or transport-aware boundaries need explicit control.
+3. Keep route-owned metadata app-defined in a `RouteStateRegistry` when
+   formatting, persistence, or downstream app behavior depend on it.
+4. Register `AddAppNav(...)`, optional persistence or deferred-request
+   services, and `AddAppNavStartup(...)` as needed by the app.
+5. Use `IAppNavStartupService`, `IMauiExternalNavigationDispatcher`, or direct
+   `IRouterNavigator` calls where MAUI lifecycle or runtime boundaries need
+   explicit control.
 
 ```text
 App code / host code     Boundary / lifecycle        Router runtime
@@ -101,7 +105,7 @@ AppRoute / AppRouteRequest       RouterNavigationRequest
                                               ->    transformers -> match -> policies -> planner -> presenter
 ```
 
-## App-Authored Navigation
+## App-authored navigation
 
 `AppRouteRequest` is useful in:
 
@@ -122,9 +126,10 @@ await navigator.NavigateAsync(
     RouterNavigationDisposition.Contextual);
 ```
 
-Use plain `AppRoute` when no route-owned metadata is involved and the simpler overload is clearer.
+Use plain `AppRoute` when no route-owned metadata is involved and the simpler
+overload is clearer.
 
-## Route-Owned Metadata
+## Route-owned metadata
 
 Keep route-owned metadata app-defined in a `RouteStateRegistry`.
 
@@ -132,16 +137,21 @@ Keep route-owned metadata app-defined in a `RouteStateRegistry`.
 - restorable metadata belongs in persistence
 - ephemeral metadata belongs only in live in-memory requests and state
 
-See [Choose a metadata lifetime](../concepts/01-routing-and-metadata.md#choose-a-metadata-lifetime)
-for the URI, persistence, and live-memory decision rules.
+See [Choose a metadata
+lifetime](../concepts/01-routing-and-metadata.md#choose-a-metadata-lifetime) for
+the URI, persistence, and live-memory decision rules.
 
-Register that registry with navigation persistence when route-owned metadata participates in formatting or restore.
+Register that registry with navigation persistence when route-owned metadata
+participates in formatting or restore.
 
-MAUI page constructors still receive `AppRoute`, not route-entry metadata. If a page needs route-entry metadata, use `IMauiRoutePageLifecycleHook` or app-specific mapping.
+MAUI page constructors still receive `AppRoute`, not route-entry metadata. If
+a page needs route-entry metadata, use `IMauiRoutePageLifecycleHook` or
+app-specific mapping.
 
-## Runtime And External Boundaries
+## Runtime and external boundaries
 
-`RouterNavigationRequest` is useful when URI, source, provenance, disposition, request metadata, or window targeting matter explicitly.
+`RouterNavigationRequest` is useful when URI, source, provenance, disposition,
+request metadata, or window targeting matter explicitly.
 
 Common runtime uses:
 
@@ -163,8 +173,9 @@ it handles; apps record context from providers they integrate. For field
 ownership, see
 [Requests and provenance](../concepts/03-requests-and-provenance.md).
 
-A request always has exactly one target. Create it with `FromUri`, `FromRoute`, or `FromRouteRequest`, and use
-`WithTarget(Uri)` or `WithTarget(AppRoute)` when a transformer or policy replaces that target.
+A request always has exactly one target. Create it with `FromUri`, `FromRoute`,
+or `FromRouteRequest`, and use `WithTarget(Uri)` or `WithTarget(AppRoute)` when
+a transformer or policy replaces that target.
 
 Typical boundary code:
 
@@ -180,7 +191,7 @@ var request = RouterNavigationRequest.FromUri(
         correlationId: branchCorrelationId));
 ```
 
-## MAUI Wiring And Startup
+## MAUI wiring and startup
 
 One common MAUI setup uses:
 
@@ -207,20 +218,23 @@ If no fallback is configured, startup still attaches the window. Deferred
 request detection reports pending protected work; the owning auth flow decides
 when to invoke replay.
 
-App-link lifecycle ingress targets one active AppNav MAUI host per process. The most recently created host receives
-platform callbacks. Disposing that host cancels its in-flight external navigation and drops its queued requests;
-callbacks arriving after disposal remain buffered until a replacement host is created. Disposing an older host does
-not unregister a newer one.
+App-link lifecycle ingress targets one active AppNav MAUI host per process. The
+most recently created host receives platform callbacks. Disposing that host
+cancels its in-flight external navigation and drops its queued requests.
+Callbacks arriving after disposal remain buffered until a replacement host is
+created. Disposing an older host does not unregister a newer one.
 
-`AddAppNav(...)` owns the unkeyed `IRouterNavigator` registration because that navigator must share the runtime's
-built-in MAUI presenter. Do not register or replace an unkeyed navigator when using `AddAppNav(...)`; keyed navigators
-may coexist for unrelated flows. Advanced hosts that need a custom navigator must instead own the complete
-navigator/presenter pair through `RouterNavigatorFactory` and skip the MAUI `AddAppNav(...)` composition helper.
+`AddAppNav(...)` owns the unkeyed `IRouterNavigator` registration because that
+navigator must share the runtime's built-in MAUI presenter. Do not register or
+replace an unkeyed navigator when using `AddAppNav(...)`; keyed navigators may
+coexist for unrelated flows. Advanced hosts that need a custom navigator must
+instead own the complete navigator/presenter pair through
+`RouterNavigatorFactory` and skip the MAUI `AddAppNav(...)` composition helper.
 
 The final `AddAppNav(...)` callback configures the three app-owned router settings. Its
 `FallbackRouteFactory` runs only when a URI has no matching route; `MaxRedirects` and
-`MaxHistoryEntries` default to 16 and 128. Startup fallback remains a separate concern configured through
-`AddAppNavStartup(...)`:
+`MaxHistoryEntries` default to 16 and 128. Startup fallback remains a separate
+concern configured through `AddAppNavStartup(...)`:
 
 ```csharp
 services.AddAppNav(
@@ -235,40 +249,53 @@ services.AddAppNav(
     });
 ```
 
-Diagnostics, logging, request transformers, request policies, back navigation, presenter ownership, and initial state
-remain owned by the MAUI composition root and are not replaceable through this callback.
+Diagnostics, logging, request transformers, request policies, Back navigation,
+presenter ownership, and initial state remain owned by the MAUI composition
+root and are not replaceable through this callback.
 
-`AddAppNav(...)` discovers `INavigationRequestTransformer` and `INavigationRequestPolicy` registrations in order.
-Transformers run before route matching, including for unmatched and redirected targets. Policies run after matching and
-use `NavigationRequestPolicyContext.Route` for the resolved route and `RouteMetadata` for metadata produced by the
-current match. `Request.Metadata` contains only explicit request-envelope metadata. Returning `WithTarget(...)`
-preserves the request envelope; returning a newly constructed request authoritatively replaces it. Route metadata from
-an old target never crosses a redirect.
+`AddAppNav(...)` discovers `INavigationRequestTransformer` and
+`INavigationRequestPolicy` registrations in order. Transformers run before
+route matching, including for unmatched and redirected targets. Policies run
+after matching and use `NavigationRequestPolicyContext.Route` for the resolved
+route and `RouteMetadata` for metadata produced by the current match.
+`Request.Metadata` contains only explicit request-envelope metadata. Returning
+`WithTarget(...)` preserves the request envelope; returning a newly constructed
+request authoritatively replaces it. Route metadata from an old target never
+crosses a redirect.
 
-The MAUI `AppNavRuntime` is the sole shutdown owner for its factory-created navigator and presenter. Both disposal
-forms stop admission and cancel accepted work; asynchronous disposal additionally waits for rollback, native cleanup,
-page release, and async scope disposal. Work past the presentation commit point completes successfully. Public
-presentation surfaces force runtime creation so DI cannot dispose presenter dependencies independently.
+The MAUI `AppNavRuntime` is the sole shutdown owner for its factory-created
+navigator and presenter. Both disposal forms stop admission and cancel accepted
+work; asynchronous disposal additionally waits for rollback, native cleanup,
+page release, and async scope disposal. Work past the presentation commit point
+completes successfully. Public presentation surfaces force runtime creation so
+DI cannot dispose presenter dependencies independently.
 
-Deferred replay is lease-based and at-least-once. Acquiring a lease does not remove persisted requests; successful
-navigation is removed only after durable acknowledgement. A crash between presentation and acknowledgement may replay
-once more but cannot lose the request. Schema 3 persists canonical route-backed requests and safe provider provenance.
-Schema-2 preview data is reset once; future schema data is quarantined byte-for-byte for downgrade safety. Malformed or
-oversized data is quarantined. A quarantine failure preserves the original and fails safely.
+Deferred replay is lease-based and at-least-once. Acquiring a lease does not
+remove persisted requests; successful navigation is removed only after durable
+acknowledgement. A crash between presentation and acknowledgement may replay
+once more but cannot lose the request. Schema 3 persists canonical route-backed
+requests and safe provider provenance. Schema-2 preview data is reset once;
+future schema data is quarantined byte-for-byte for downgrade safety. Malformed
+or oversized data is quarantined. A quarantine failure preserves the original
+and fails safely.
 
-Diagnostics use `NavigationDiagnosticDataMode.Safe` by default for observers, logging, and activities. Safe mode emits
-structural types, templates, codes, counts, and timings; it reduces absolute URIs to their origin and omits raw paths,
-application-defined navigation ids, and presentation mismatch values. Call `AddAppNavDiagnostics(...)` to opt into Full
-mode, and register `INavigationDiagnosticRedactor` for app-specific redaction. Redactor failures fall back to built-in
-Safe output without affecting navigation.
+Diagnostics use `NavigationDiagnosticDataMode.Safe` by default for observers,
+logging, and activities. Safe mode emits structural types, templates, codes,
+counts, and timings; it reduces absolute URIs to their origin and omits raw
+paths, application-defined navigation IDs, and presentation mismatch values.
+Call `AddAppNavDiagnostics(...)` to opt into Full mode, and register
+`INavigationDiagnosticRedactor` for app-specific redaction. Redactor failures
+fall back to built-in Safe output without affecting navigation.
 
 See [Logging, tracing, and diagnostics](../reference/diagnostics.md) for the
 `AdamE.AppNav.Diagnostics` logger category, event observers, activity source,
 severity mapping, privacy comparison, and operation-level troubleshooting.
 
-## Other Public Runtime Seams
+## Other public runtime seams
 
-`IRouterNavigator` exposes full-envelope navigation, Back, and `ReconcileAsync(...)`. Four typed extension methods cover app-authored routes. Host-owned boundaries construct a complete `RouterNavigationRequest`.
+`IRouterNavigator` exposes full-envelope navigation, Back, and
+`ReconcileAsync(...)`. Four typed extension methods cover app-authored routes.
+Host-owned boundaries construct a complete `RouterNavigationRequest`.
 
 ## Route-owned presentation pages
 
@@ -280,10 +307,15 @@ transactional push/pop, rollback, and consistency faults.
 ## Notes
 
 - Built-in MAUI app-link ingress sets provenance automatically.
-- App-owned external sources should resolve `IMauiExternalNavigationDispatcher`, attach explicit `NavigationRequestProvenance`, and call `TryDispatch(...)`.
-- Interactive foreground boundaries may call `IRouterNavigator.NavigateAsync(RouterNavigationRequest)` directly when the caller must observe navigation failure to recover UI state.
+- App-owned external sources should resolve
+  `IMauiExternalNavigationDispatcher`, attach explicit
+  `NavigationRequestProvenance`, and call `TryDispatch(...)`.
+- Interactive foreground boundaries may call
+  `IRouterNavigator.NavigateAsync(RouterNavigationRequest)` directly when the
+  caller must observe navigation failure to recover UI state.
 - AppNav does not ship Branch, push, QR scanner, or auth-provider SDK integrations.
-- Raw auth callbacks belong to the auth subsystem; the router should usually see deferred replay or an app-authored post-auth request.
+- Raw auth callbacks belong to the auth subsystem; the router should usually
+  see deferred replay or an app-authored post-auth request.
 
 ## Next steps
 
@@ -292,6 +324,7 @@ transactional push/pop, rollback, and consistency faults.
   [Application architecture and testing](03-application-architecture-and-testing.md).
 - Handle [navigation outcomes and failures](04-navigation-outcomes-and-failure-handling.md)
   at the boundary that can recover the initiating UI.
-- Configure [external navigation](05-external-navigation.md) only after defining trusted origins.
+- Configure [external navigation](05-external-navigation.md) only after defining
+  trusted origins.
 - Add [deferred navigation](06-deferred-navigation.md) only for a real auth defer/replay flow.
 - Diagnose integration failures with [Troubleshooting](07-troubleshooting.md).

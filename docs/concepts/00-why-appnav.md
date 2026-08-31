@@ -8,15 +8,17 @@ push notification, startup, auth recovery, or process restoration. Each entry
 path can otherwise accumulate its own rules for constructing pages and fixing
 the surrounding UI.
 
-AppNav makes the destination—not the page operation—the common unit of
+AppNav makes the destination, rather than the page operation, the common unit of
 navigation.
 
 ```csharp
 await navigator.NavigateAsync(new InventoryItemRoute(itemId));
 ```
 
-In the fictional RPG Glyphmere, that route means “show this inventory item.” It
-does not mean “select Inventory, push the Weapons page, then push an item page.”
+In the fictional RPG
+[Glyphmere](01-routing-and-metadata.md#meet-glyphmere), that route means "show
+this inventory item." It does not mean "select Inventory, push the Weapons
+page, then push an item page."
 The navigation model decides the required logical topology, and the MAUI
 adapter presents it with native controls.
 
@@ -28,7 +30,7 @@ how the current UI is arranged.
 
 A route identifies application meaning; pages and view models are possible
 ways to present and interact with that meaning. `InventoryItemRoute(itemId)`
-still means “show this inventory item” whether Glyphmere renders it as:
+still means "show this inventory item" whether Glyphmere renders it as:
 
 - one MAUI page configured for that item;
 - a native segment containing an overview page and a comparison page;

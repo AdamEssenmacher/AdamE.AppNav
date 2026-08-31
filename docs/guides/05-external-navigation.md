@@ -8,7 +8,8 @@ The examples continue the fictional RPG
 [Glyphmere](../concepts/01-routing-and-metadata.md#meet-glyphmere); its `.example`
 host is documentation-only and is not a production domain.
 
-Enable MAUI lifecycle ingress only with `UseAppNavExternalNavigation` and at least one trusted origin.
+Enable MAUI lifecycle ingress only with `UseAppNavExternalNavigation` and at
+least one trusted origin.
 
 ```csharp
 builder.UseAppNavExternalNavigation(options =>
@@ -20,12 +21,15 @@ builder.UseAppNavExternalNavigation(options =>
 
 ## Origin rules
 
-Configured origins must be absolute root origins with a scheme and host. Credentials, non-root paths, query strings,
-and fragments are rejected. Comparison uses normalized scheme, IDN host, and effective port. Default and explicit ports
-therefore compare consistently, while a wrong port fails closed.
+Configured origins must be absolute root origins with a scheme and host.
+Credentials, non-root paths, query strings, and fragments are rejected.
+Comparison uses normalized scheme, IDN host, and effective port. Default and
+explicit ports therefore compare consistently, while a wrong port fails
+closed.
 
-Before route matching, persistence, analytics, or `ShouldDispatch`, AppNav rejects relative, oversized,
-credential-bearing, wrong-port, and untrusted URIs. An empty allowlist prevents enablement.
+Before route matching, persistence, analytics, or `ShouldDispatch`, AppNav
+rejects relative, oversized, credential-bearing, wrong-port, and untrusted
+URIs. An empty allowlist prevents enablement.
 
 ## Queue and retry policy
 
@@ -37,17 +41,22 @@ credential-bearing, wrong-port, and untrusted URIs. An empty allowlist prevents 
 - `RetryDelay = 250ms`
 - `MaximumRequestAge = 5 minutes`
 
-Both bootstrap and runtime queues drop the oldest item on overflow. Retryable failures move to the tail with a
-next-attempt timestamp, allowing later intent to proceed. Lifecycle cancellation preserves a request without consuming
-an attempt. Known routing, configuration, argument, and consistency failures drop immediately; unknown failures retry.
+Both bootstrap and runtime queues drop the oldest item on overflow. Retryable
+failures move to the tail with a next-attempt timestamp, allowing later intent
+to proceed. Lifecycle cancellation preserves a request without consuming an
+attempt. Known routing, configuration, argument, and consistency failures drop
+immediately; unknown failures retry.
 
-Override `ClassifyFailure` to return `Retry` or `Drop`. A classifier that throws fails closed to `Drop`.
+Override `ClassifyFailure` to return `Retry` or `Drop`. A classifier that throws
+fails closed to `Drop`.
 
 ## App-owned providers
 
-Branch, push, QR, and provider SDK integrations create a complete `RouterNavigationRequest`, attach provider provenance,
-then call `IMauiExternalNavigationDispatcher.TryDispatch`. Its boolean result reports whether a new request was accepted.
-Rejected, expired, duplicate, disposed, and null requests return `false`.
+Branch, push, QR, and provider SDK integrations create a complete
+`RouterNavigationRequest`, attach provider provenance, then call
+`IMauiExternalNavigationDispatcher.TryDispatch`. Its boolean result reports
+whether a new request was accepted. Rejected, expired, duplicate, disposed, and
+null requests return `false`.
 
 For example, a Glyphmere cloud-save notification can target
 `https://links.glyphmere.example/pause/saves/3`, while a shared map link can
@@ -55,8 +64,9 @@ target `/pause/world-map/regions/ashen-coast`. The typed destinations are
 `SaveSlotRoute(3)` and `MapRegionRoute("ashen-coast")`; the complete request
 also preserves whether push, QR, or an app-link provider delivered them.
 
-Diagnostics report structural rejection, retry, expiry, overflow, deduplication, and terminal-drop events without raw
-query strings or provenance values.
+Diagnostics report structural rejection, retry, expiry, overflow,
+deduplication, and terminal-drop events without raw query strings or provenance
+values.
 
 ## Platform ownership
 
@@ -91,7 +101,8 @@ register nor trust the sample custom scheme.
 
 ## Next steps
 
-- Define field ownership with [requests and provenance](../concepts/03-requests-and-provenance.md).
+- Define field ownership with [requests and
+  provenance](../concepts/03-requests-and-provenance.md).
 - Distinguish queue acceptance from completion in
   [Navigation outcomes and failure handling](04-navigation-outcomes-and-failure-handling.md).
 - Add durable auth recovery with [deferred navigation](06-deferred-navigation.md).

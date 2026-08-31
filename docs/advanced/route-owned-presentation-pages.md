@@ -42,14 +42,18 @@ modal without a navigation stack cannot push presentation pages.
 
 ## Lifecycle hooks
 
-Route pages can receive scoped `IMauiRoutePageLifecycleHook` services.
-`OnPageCreatedAsync`, `OnPageUpdatedAsync`, and `OnPageReleasedAsync` run on the
-MAUI main thread. A rollback may issue a compensating update with the previous
-route entry, so update hooks must support that call.
+Route pages can receive constructor-injected, scoped
+`IMauiRoutePageLifecycleHook` services. AppNav enters `OnPageCreatedAsync`,
+`OnPageUpdatedAsync`, and `OnPageReleasedAsync` on the MAUI main thread and
+restores main-thread affinity before invoking the next callback or touching the
+page afterward. A hook remains responsible for its own continuation choices.
+A rollback may issue a compensating update with the previous route entry, so
+update hooks must support that call.
 
 A hook cannot synchronously or asynchronously re-enter `NavigateAsync`,
 `BackAsync`, or `ReconcileAsync` on the same `IRouterNavigator`. Begin any
 follow-up navigation after the hook and its owning router operation complete.
+Reentrant calls fail immediately with `InvalidOperationException`.
 
 ## Transaction and Back behavior
 

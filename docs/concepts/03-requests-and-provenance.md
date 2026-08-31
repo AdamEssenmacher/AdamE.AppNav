@@ -174,9 +174,9 @@ Do not use provenance attributes for secrets or route state.
 
 ## Auth callbacks
 
-Do not add or simulate a `NavigationRequestSource.AuthCallback` for raw auth
-provider callbacks. The auth callback should terminate in the app's auth
-subsystem.
+`NavigationRequestSource` deliberately has no `AuthCallback` member. A raw auth
+provider callback should terminate in the app's auth subsystem rather than
+entering the router as a fabricated navigation source.
 
 The router should usually see one of these instead:
 

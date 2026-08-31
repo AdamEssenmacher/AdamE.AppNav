@@ -3,7 +3,7 @@
 [Documentation home](../index.md)
 
 AppNav uses route, request, state, plan, and presentation as separate concepts.
-Keeping those boundaries precise makes the API easier to reason about—most
+Keeping those boundaries precise makes the API easier to reason about. Most
 importantly, a route is neither a page nor a view model.
 
 API type names appear in `code`. General architectural terms appear in plain
@@ -133,7 +133,7 @@ current topology. `RouterNavigationDisposition` supports `Auto`,
 
 Route-owned metadata declared with `RouteStateLifetime.Ephemeral`. It exists
 only in live navigation state. It is omitted from canonical formatting and
-configured persistence—for example, a one-time highlight or animation hint.
+configured persistence, for example, a one-time highlight or animation hint.
 
 ### External navigation
 
@@ -242,8 +242,8 @@ coordination or domain-specific planning.
 ### Policy
 
 An `INavigationRequestPolicy` evaluated after route matching and before
-planning. A policy can preserve a request, redirect it, or—in the access-gate
-policy—defer the original request and redirect. A policy decides whether and
+planning. A policy can preserve a request, redirect it, or, in the access-gate
+policy, defer the original request and redirect. A policy decides whether and
 where navigation may proceed; it does not present UI.
 
 ### Presenter
@@ -304,7 +304,7 @@ are omitted from canonical URIs; model a shareable value as canonical instead.
 ### Route
 
 See [`AppRoute`](#approute). In prose, route means a typed semantic
-destination—not a URI string, page registration, view-model type, or command
+destination, not a URI string, page registration, view-model type, or command
 to manipulate native navigation.
 
 ### Route definition
@@ -348,8 +348,8 @@ one URI or typed-route target. Ordinary in-app code should prefer `AppRoute` or
 ### Semantic destination
 
 A description of where the user wants to go in application terms, independent
-of the UI operations needed to render it. “Show inventory item 42” is semantic;
-“select tab 1 and push `ItemPage`” is presentation procedure.
+of the UI operations needed to render it. "Show inventory item 42" is semantic;
+"select tab 1 and push `ItemPage`" is presentation procedure.
 
 ### Stack
 
@@ -366,7 +366,7 @@ meaning; topology expresses the structure required to reach and retain it.
 ### Transformer
 
 An `INavigationRequestTransformer` evaluated before route matching. It can
-normalize or replace a request target while preserving its runtime context—for
+normalize or replace a request target while preserving its runtime context, for
 example, rewriting a legacy Glyphmere URI to its canonical form.
 
 ## Related reading
