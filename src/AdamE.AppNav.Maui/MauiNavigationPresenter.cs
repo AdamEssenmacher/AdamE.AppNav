@@ -38,6 +38,7 @@ internal sealed class MauiNavigationPresenter :
     private NavigationState _lastState = NavigationState.Empty;
     private Window? _attachedWindow;
     private string? _attachedWindowId;
+    private Window? _destroyingWindow;
     private string _lifecycleOperationId = CreateOperationId();
     private string? _activeOperationId;
     private bool _suppressReconciliation;
@@ -306,6 +307,7 @@ internal sealed class MauiNavigationPresenter :
 
         _attachedWindow = null;
         _attachedWindowId = null;
+        _destroyingWindow = null;
         _navigationPageStackIds.Clear();
         _navigationPageKnownPages.Clear();
         _suppressedNavigationPops.Clear();
@@ -356,6 +358,8 @@ internal sealed class MauiNavigationPresenter :
         if (previousWindow is not null && !ReferenceEquals(previousWindow, window))
         {
             UnsubscribeWindowLifecycle(previousWindow);
+            if (ReferenceEquals(_destroyingWindow, previousWindow))
+                _destroyingWindow = null;
         }
 
         bool alreadyAttached = ReferenceEquals(previousWindow, window);
@@ -377,13 +381,19 @@ internal sealed class MauiNavigationPresenter :
             _externalNavigationDispatcher?.SetForegrounded(false);
             _attachedWindow = null;
             _attachedWindowId = null;
+            if (ReferenceEquals(_destroyingWindow, window))
+                _destroyingWindow = null;
         }
     }
 
     private void DetachDestroyedWindowOnMainThread(Window window)
     {
         if (!ReferenceEquals(_attachedWindow, window))
+        {
+            if (ReferenceEquals(_destroyingWindow, window))
+                _destroyingWindow = null;
             return;
+        }
 
         // The native window is already being destroyed. Do not write Window.Page here; preserve the
         // logical page tree for a later replacement-window attachment instead.
@@ -391,6 +401,7 @@ internal sealed class MauiNavigationPresenter :
         _externalNavigationDispatcher?.SetForegrounded(false);
         _attachedWindow = null;
         _attachedWindowId = null;
+        _destroyingWindow = null;
     }
 
     private async ValueTask RunSerializedWindowMutationAsync(
@@ -433,10 +444,18 @@ internal sealed class MauiNavigationPresenter :
         if (currentPage is null)
             return;
 
-        Page? sourcePage = sourceWindow?.Page;
-        Page? destinationPage = destinationWindow?.Page;
-        bool clearSource = sourceWindow is not null && ReferenceEquals(sourcePage, currentPage);
-        bool assignDestination = destinationWindow is not null && !ReferenceEquals(destinationPage, currentPage);
+        bool sourceIsDestroying = ReferenceEquals(sourceWindow, _destroyingWindow);
+        bool destinationIsDestroying = ReferenceEquals(destinationWindow, _destroyingWindow);
+        Page? sourcePage = sourceWindow is not null && !sourceIsDestroying
+            ? sourceWindow.Page
+            : null;
+        Page? destinationPage = destinationWindow is not null && !destinationIsDestroying
+            ? destinationWindow.Page
+            : null;
+        bool clearSource = sourceWindow is not null && !sourceIsDestroying &&
+                           ReferenceEquals(sourcePage, currentPage);
+        bool assignDestination = destinationWindow is not null && !destinationIsDestroying &&
+                                 !ReferenceEquals(destinationPage, currentPage);
         if (!clearSource && !assignDestination)
             return;
 
@@ -450,7 +469,8 @@ internal sealed class MauiNavigationPresenter :
         catch (Exception transferException)
         {
             var rollbackFailures = new List<Exception>();
-            if (destinationWindow is not null && !ReferenceEquals(destinationWindow.Page, destinationPage))
+            if (destinationWindow is not null && !destinationIsDestroying &&
+                !ReferenceEquals(destinationWindow.Page, destinationPage))
             {
                 try
                 {
@@ -462,7 +482,8 @@ internal sealed class MauiNavigationPresenter :
                 }
             }
 
-            if (sourceWindow is not null && !ReferenceEquals(sourceWindow.Page, sourcePage))
+            if (sourceWindow is not null && !sourceIsDestroying &&
+                !ReferenceEquals(sourceWindow.Page, sourcePage))
             {
                 try
                 {
@@ -535,6 +556,9 @@ internal sealed class MauiNavigationPresenter :
         if (sender is not Window window || !ReferenceEquals(_attachedWindow, window))
             return;
 
+        // Mark the window before waiting for the serialized cleanup. An active presentation may resume after
+        // this callback and must not write Window.Page while the native window is being destroyed.
+        _destroyingWindow = window;
         _ = ObserveDestroyedWindowAsync(window);
     }
 
@@ -1571,7 +1595,8 @@ internal sealed class MauiNavigationPresenter :
 
     private void SetAttachedWindowPage(Page? page)
     {
-        if (_attachedWindow is null || ReferenceEquals(_attachedWindow.Page, page))
+        if (_attachedWindow is null || ReferenceEquals(_attachedWindow, _destroyingWindow) ||
+            ReferenceEquals(_attachedWindow.Page, page))
         {
             return;
         }
@@ -2860,10 +2885,13 @@ internal sealed class MauiNavigationPresenter :
 
     private void VerifyPresentation(NavigationState targetState, string operationId)
     {
+        Window? windowForVerification = ReferenceEquals(_attachedWindow, _destroyingWindow)
+            ? null
+            : _attachedWindow;
         var mismatch = _presentationVerifier.Verify(new MauiPresentationVerificationContext(
             targetState,
             CurrentPage,
-            _attachedWindow,
+            windowForVerification,
             _presentationOptions));
         if (mismatch is null)
         {
@@ -3184,7 +3212,8 @@ internal sealed class MauiNavigationPresenter :
             }
 
             _presenter.CurrentPage = _previousCurrentPage;
-            if (_previousAttachedWindow is not null)
+            if (_previousAttachedWindow is not null &&
+                !ReferenceEquals(_presenter._destroyingWindow, _previousAttachedWindow))
                 _presenter._nativeOperations.SetWindowPage(
                     _previousAttachedWindow,
                     _previousWindowPage);

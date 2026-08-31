@@ -201,6 +201,47 @@ public sealed class MauiNavigationPresenterLifecycleTests
         await fixture.Presenter.StartShutdown();
     }
 
+    [UIFact]
+    public async Task DestroyingDuringActivePresentationSkipsLaterWindowPageMutation()
+    {
+        var nativeOperations = new CountingNativeNavigationOperations();
+        var fixture = new PresenterFixture(nativeOperations: nativeOperations);
+
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("schools", Entry("schools"))),
+            Context(new TestPageRoute("schools")));
+
+        var window = new Window();
+        await fixture.Presenter.AttachWindowAsync(window);
+        int windowPageSetCount = nativeOperations.WindowPageSetCount;
+        nativeOperations.BlockNextStackPush();
+
+        Task presentation = fixture.Presenter.ApplyAsync(
+            Plan(Stack("account", Entry("account"), Entry("account-detail"))),
+            Context(new TestPageRoute("account"))).AsTask();
+
+        try
+        {
+            await nativeOperations.StackPushStarted.WaitAsync(TimeSpan.FromSeconds(5));
+            ((IWindow)window).Destroying();
+        }
+        finally
+        {
+            nativeOperations.ReleaseStackPush();
+        }
+
+        await presentation;
+
+        bool detached = await Task.Run(() => SpinWait.SpinUntil(
+            () => fixture.Presenter.AttachedWindow is null,
+            TimeSpan.FromSeconds(5)));
+        Assert.True(detached);
+        Assert.Equal(windowPageSetCount, nativeOperations.WindowPageSetCount);
+        Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+
+        await fixture.Presenter.StartShutdown();
+    }
+
     [Fact]
     public async Task AttachWindowReplacementTransfersCurrentPageAndLifecycleHandlers()
     {
@@ -2009,16 +2050,41 @@ public sealed class MauiNavigationPresenterLifecycleTests
 
     private sealed class CountingNativeNavigationOperations : IMauiNativeNavigationOperations
     {
+        private readonly TaskCompletionSource _stackPushStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _releaseStackPush =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private bool _blockNextStackPush;
+
         public int StackPushCount { get; private set; }
 
         public int ModalPushCount { get; private set; }
 
         public int WindowPageSetCount { get; private set; }
 
+        public Task StackPushStarted => _stackPushStarted.Task;
+
+        public void BlockNextStackPush()
+        {
+            _blockNextStackPush = true;
+        }
+
+        public void ReleaseStackPush()
+        {
+            _releaseStackPush.TrySetResult();
+        }
+
         public async Task PushAsync(NavigationPage navigationPage, Page page, bool animated)
         {
             StackPushCount++;
             await MauiNativeNavigationOperations.Instance.PushAsync(navigationPage, page, animated);
+
+            if (!_blockNextStackPush)
+                return;
+
+            _blockNextStackPush = false;
+            _stackPushStarted.TrySetResult();
+            await _releaseStackPush.Task;
         }
 
         public Task<Page?> PopAsync(NavigationPage navigationPage, bool animated) =>
