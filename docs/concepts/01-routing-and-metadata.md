@@ -187,6 +187,17 @@ such as the deferred-navigation store with this `RouteStateRegistry`. It does
 not automatically save arbitrary page controls, view models, or the complete UI
 tree.
 
+This is where AppNav first crosses into platform-specific storage through a
+controlled boundary. `AdamE.AppNav` defines the metadata lifetimes, deferred
+request serialization and replay behavior, and the
+`IDeferredNavigationRequestStore` abstraction. `AdamE.AppNav.Maui` supplies the
+file-backed implementation registered by
+`AddAppNavFileDeferredNavigationRequests(...)`. Another adapter can bind the
+same core abstraction to storage appropriate for its host. See
+[Deferred navigation](../guides/04-deferred-navigation.md) for the MAUI workflow
+and the advanced [adapter contract](../advanced/adapter-contract.md) for the
+broader core-versus-host boundary.
+
 Use this decision rule for each route-owned value:
 
 1. Must a formatted or shared URI reproduce it? Use `Canonical`, give it an
