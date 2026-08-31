@@ -326,7 +326,7 @@ public sealed class RouterNavigatorReentrancyTests
     {
         var childContextCaptured = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseChildContext = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        Task<Exception>? parentReentry = null;
+        Task<Exception?>? parentReentry = null;
         RouterNavigator parentNavigator = null!;
 
         var childPresenter = new RecordingNavigationPresenter
@@ -359,8 +359,7 @@ public sealed class RouterNavigatorReentrancyTests
                 releaseChildContext.TrySetResult();
 
                 Exception exception = Assert.IsType<InvalidOperationException>(
-                    await Assert.IsAssignableFrom<Task<Exception>>(parentReentry)
-                        .WaitAsync(TimeSpan.FromSeconds(5)));
+                    await parentReentry!.WaitAsync(TimeSpan.FromSeconds(5)));
                 Assert.Contains("Reentrant router operations are not supported", exception.Message,
                     StringComparison.Ordinal);
             }

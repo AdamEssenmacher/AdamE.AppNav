@@ -6,7 +6,7 @@ using AdamE.AppNav.Presentation;
 using AdamE.AppNav.Requests;
 using AdamE.AppNav.Routing;
 using AdamE.AppNav.State;
-using DeviceRunners.UITesting.Xunit;
+using DeviceRunners.UITesting.Xunit3;
 using Microsoft.Maui.Controls;
 
 namespace AdamE.AppNav.Maui.Tests;

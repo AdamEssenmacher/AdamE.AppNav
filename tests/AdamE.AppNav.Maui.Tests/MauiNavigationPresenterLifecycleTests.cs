@@ -9,7 +9,7 @@ using AdamE.AppNav.Presentation;
 using AdamE.AppNav.Requests;
 using AdamE.AppNav.Routing;
 using AdamE.AppNav.State;
-using DeviceRunners.UITesting.Xunit;
+using DeviceRunners.UITesting.Xunit3;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Controls;

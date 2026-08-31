@@ -546,7 +546,8 @@ public sealed class MauiPageSourceGeneratorTests
             MetadataReference.CreateFromFile(typeof(RouteTable).Assembly.Location),
             MetadataReference.CreateFromFile(typeof(MauiRoutePageAttribute).Assembly.Location),
             MetadataReference.CreateFromFile(typeof(Page).Assembly.Location),
-            MetadataReference.CreateFromFile(typeof(ServiceProviderServiceExtensions).Assembly.Location)
+            MetadataReference.CreateFromFile(typeof(ServiceProviderServiceExtensions).Assembly.Location),
+            MetadataReference.CreateFromFile(typeof(IServiceProvider).Assembly.Location)
         ];
 
         return explicitReferences
