@@ -107,8 +107,10 @@ the intended behavior.
 A `Contextual` or `ReplaceCurrent` request that cannot be satisfied falls back
 to canonical topology, which discards the accumulated stack and branch state
 those dispositions were asked to preserve. That fallback is reported in the
-plan's reason and on the `PlanningCompleted` diagnostic, so it is observable
-rather than silent.
+plan's `ContextualFallback` flag, which the `PlanningCompleted` diagnostic
+reports as a structural value in every data mode, so the fallback is observable
+rather than silent. The plan's reason carries the prose explanation; because a
+custom planner controls that text, it is not emitted as diagnostic data.
 
 Use `IAppNavigationPlanner` directly when an app coordinates multiple models or
 has domain-specific topology rules.

@@ -70,7 +70,10 @@ public sealed class NavigationModelPlanner<TRoute> : IAppNavigationPlanner
         return ValueTask.FromResult(new NavigationPlan(
             targetState,
             NavigationPlanKind.Navigate,
-            reason));
+            reason)
+        {
+            ContextualFallback = fellBackToCanonical
+        });
     }
 
     private NavigationState? TryCreateContextualState(

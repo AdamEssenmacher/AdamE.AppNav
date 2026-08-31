@@ -322,6 +322,58 @@ public sealed class DiagnosticsTests
     }
 
     [Fact]
+    public async Task SafeModeReportsContextualFallbackStructurallyWithoutLeakingPlannerReason()
+    {
+        const string secret = "customer-4815162342";
+        var diagnostics = new NavigationDiagnostics();
+        var observed = new List<NavigationDiagnosticEvent>();
+        diagnostics.EventWritten += (_, diagnosticEvent) => observed.Add(diagnosticEvent);
+
+        // A custom planner controls NavigationPlan.Reason, so it may carry anything the app puts
+        // there. The structural fallback flag must be reported without the prose reaching Safe data.
+        var planner = new TestNavigationPlanner((context, _) =>
+            ValueTask.FromResult(new NavigationPlan(
+                TestNavigationState.State(
+                    "main",
+                    TestNavigationState.Window(
+                        "main",
+                        TestNavigationState.Stack(
+                            "stack",
+                            TestNavigationState.Entry("route", context.Route)))),
+                NavigationPlanKind.Navigate,
+                $"rebuilt canonical topology for {secret}")
+            {
+                ContextualFallback = true
+            }));
+        var navigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            planner,
+            new RecordingNavigationPresenter(),
+            new RouterNavigatorOptions { Diagnostics = diagnostics });
+
+        await navigator.NavigateAsync(new TestRoutes.StoreRoute("home"));
+
+        NavigationDiagnosticEvent planningCompleted = Assert.Single(
+            observed,
+            e => e.Kind == NavigationDiagnosticEventKind.PlanningCompleted);
+        Assert.True(Assert.IsType<bool>(
+            planningCompleted.Data[NavigationDiagnosticDataKeys.ContextualFallback]));
+        Assert.False(planningCompleted.Data.ContainsKey(NavigationDiagnosticDataKeys.Reason));
+
+        foreach (NavigationDiagnosticEvent diagnosticEvent in observed)
+        {
+            Assert.DoesNotContain(secret, diagnosticEvent.Message, StringComparison.Ordinal);
+            foreach (object? value in diagnosticEvent.Data.Values)
+            {
+                Assert.DoesNotContain(
+                    secret,
+                    value?.ToString() ?? string.Empty,
+                    StringComparison.Ordinal);
+            }
+        }
+    }
+
+    [Fact]
     public void FullModeExposesRawEventAndRedactorFailureFallsBackToSafeData()
     {
         var capturingRedactor = new CapturingRedactor();

@@ -64,6 +64,7 @@ public sealed class NavigationModelPlannerTests
             Context(NavigationRequestSource.InAppCommand, RouterNavigationDisposition.Contextual));
 
         Assert.Equal("canonical", plan.TargetState.ActiveWindow!.Id);
+        Assert.True(plan.ContextualFallback);
         Assert.NotNull(plan.Reason);
         Assert.Contains("fell back to canonical", plan.Reason, StringComparison.Ordinal);
         Assert.Contains("discarded", plan.Reason, StringComparison.Ordinal);
@@ -79,6 +80,7 @@ public sealed class NavigationModelPlannerTests
             Context(NavigationRequestSource.InAppCommand, RouterNavigationDisposition.Contextual));
 
         Assert.Same(model.ContextualResult, plan.TargetState);
+        Assert.False(plan.ContextualFallback);
         Assert.NotNull(plan.Reason);
         Assert.DoesNotContain("fell back", plan.Reason, StringComparison.Ordinal);
     }
@@ -93,6 +95,7 @@ public sealed class NavigationModelPlannerTests
             Context(NavigationRequestSource.InAppCommand, RouterNavigationDisposition.Canonical));
 
         Assert.Equal("canonical", plan.TargetState.ActiveWindow!.Id);
+        Assert.False(plan.ContextualFallback);
         Assert.NotNull(plan.Reason);
         Assert.DoesNotContain("fell back", plan.Reason, StringComparison.Ordinal);
     }

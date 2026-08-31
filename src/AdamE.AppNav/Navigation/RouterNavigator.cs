@@ -250,7 +250,7 @@ internal sealed class RouterNavigator : IRouterNavigator
                     plan.Kind.ToString(),
                     RouterNavigationDiagnostics.Duration(planningTimer,
                         (NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString()),
-                        (NavigationDiagnosticDataKeys.Reason, plan.Reason)));
+                        (NavigationDiagnosticDataKeys.ContextualFallback, plan.ContextualFallback)));
             }
             catch (Exception ex)
             {

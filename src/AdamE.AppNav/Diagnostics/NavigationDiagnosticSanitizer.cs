@@ -20,6 +20,7 @@ internal static class NavigationDiagnosticSanitizer
         NavigationDiagnosticDataKeys.RouteDiagnosticCode,
         NavigationDiagnosticDataKeys.CandidateCount,
         NavigationDiagnosticDataKeys.PlanKind,
+        NavigationDiagnosticDataKeys.ContextualFallback,
         NavigationDiagnosticDataKeys.PolicyType,
         NavigationDiagnosticDataKeys.Decision,
         NavigationDiagnosticDataKeys.RequestTransformerType,
