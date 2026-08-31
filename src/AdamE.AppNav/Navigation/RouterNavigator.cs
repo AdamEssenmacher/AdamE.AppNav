@@ -98,6 +98,7 @@ internal sealed class RouterNavigator : IRouterNavigator
                 out linkedCancellation);
             await _operationLock.WaitAsync(operationCancellation).ConfigureAwait(false);
             lockTaken = true;
+            operationCancellation.ThrowIfCancellationRequested();
             return await NavigateCoreAsync(request, operationCancellation).ConfigureAwait(false);
         }
         finally
@@ -135,6 +136,7 @@ internal sealed class RouterNavigator : IRouterNavigator
                 out linkedCancellation);
             await _operationLock.WaitAsync(operationCancellation).ConfigureAwait(false);
             lockTaken = true;
+            operationCancellation.ThrowIfCancellationRequested();
             return await BackCoreAsync(request, operationCancellation).ConfigureAwait(false);
         }
         finally
@@ -163,6 +165,7 @@ internal sealed class RouterNavigator : IRouterNavigator
                 out linkedCancellation);
             await _operationLock.WaitAsync(operationCancellation).ConfigureAwait(false);
             lockTaken = true;
+            operationCancellation.ThrowIfCancellationRequested();
             return await ReconcileAdmittedAsync(reconciliation, operationCancellation).ConfigureAwait(false);
         }
         finally
@@ -574,6 +577,7 @@ internal sealed class RouterNavigator : IRouterNavigator
                                 await navigator._operationLock.WaitAsync(
                                     navigator._shutdownCancellation.Token).ConfigureAwait(false);
                                 lockTaken = true;
+                                navigator._shutdownCancellation.Token.ThrowIfCancellationRequested();
                                 operationContext = navigator.EnterOperationContext();
                                 await navigator.ReconcileAdmittedAsync(
                                     nextReconciliation,
