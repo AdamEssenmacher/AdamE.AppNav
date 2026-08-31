@@ -78,6 +78,33 @@ public sealed class MauiNavigationPresenterLifecycleTests
     }
 
     [Fact]
+    public async Task FailedNormalReleaseRemainsOwnedByItsEpoch()
+    {
+        var factory = new ThrowingReleaseRoutePageFactory();
+        var presenter = new MauiNavigationPresenter(factory);
+        await presenter.ApplyAsync(
+            Plan(Stack("schools", Entry("schools"))),
+            Context(new TestPageRoute("schools")));
+        var root = Assert.IsType<NavigationPage>(presenter.CurrentPage);
+        Page routePage = Assert.Single(root.Navigation.NavigationStack);
+        MethodInfo detach = typeof(MauiNavigationPresenter).GetMethod(
+            "DetachPageTreeWithFailuresAsync",
+            BindingFlags.Instance | BindingFlags.NonPublic) ??
+            throw new InvalidOperationException("DetachPageTreeWithFailuresAsync was not found.");
+
+        ValueTask release = Assert.IsType<ValueTask>(detach.Invoke(presenter, [routePage]));
+        await Assert.ThrowsAsync<AggregateException>(() => release.AsTask());
+
+        FieldInfo epochField = typeof(MauiNavigationPresenter).GetField(
+            "_nativeTreeEpoch",
+            BindingFlags.Instance | BindingFlags.NonPublic) ??
+            throw new InvalidOperationException("Native-tree epoch field was not found.");
+        var epoch = Assert.IsType<MauiNativeTreeEpoch>(epochField.GetValue(presenter));
+        Assert.True(epoch.Owns(routePage));
+        await presenter.StartShutdown();
+    }
+
+    [Fact]
     public async Task AttachWindowReplacementTransfersCurrentPageAndLifecycleHandlers()
     {
         var fixture = new PresenterFixture();
@@ -2478,7 +2505,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
 
         try
         {
-            await nativeMutation();
+            await MainThread.InvokeOnMainThreadAsync(nativeMutation);
             return await completion.Task.WaitAsync(TimeSpan.FromSeconds(5));
         }
         finally
@@ -2605,8 +2632,46 @@ public sealed class MauiNavigationPresenterLifecycleTests
         public void SetFlyoutPresented(FlyoutPage flyoutPage, bool isPresented) =>
             MauiNativeNavigationOperations.Instance.SetFlyoutPresented(flyoutPage, isPresented);
 
+        public void SetFlyoutBranches(
+            MauiBranchFlyoutPage flyoutPage,
+            IReadOnlyList<MauiFlyoutBranchPresentation> branches) =>
+            MauiNativeNavigationOperations.Instance.SetFlyoutBranches(flyoutPage, branches);
+
+        public void SetSelectedFlyoutBranch(MauiBranchFlyoutPage flyoutPage, string branchId) =>
+            MauiNativeNavigationOperations.Instance.SetSelectedFlyoutBranch(flyoutPage, branchId);
+
         public void SetWindowPage(Window window, Page? page) =>
             MauiNativeNavigationOperations.Instance.SetWindowPage(window, page);
+    }
+
+    private sealed class ThrowingReleaseRoutePageFactory : IMauiRoutePageFactory
+    {
+        public ValueTask<Page> CreatePageAsync(
+            RouteEntry entry,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<Page>(new ContentPage { Title = entry.Id });
+
+        public ValueTask<Page> CreatePresentationPageAsync(
+            Type pageType,
+            Page ownerRoutePage,
+            bool inheritBindingContext,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public ValueTask UpdatePageAsync(
+            Page page,
+            RouteEntry entry,
+            MauiRoutePageUpdateContext context,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.CompletedTask;
+
+        public ValueTask ReleasePageAsync(Page page) =>
+            ValueTask.FromException(new InvalidOperationException("Release failed before relinquishing resources."));
+
+        public ValueTask ReleasePresentationPageAsync(Page page) =>
+            ValueTask.FromException(new InvalidOperationException("Release failed before relinquishing resources."));
+
+        public MauiPageAbandonment? CaptureAbandonment(Page page) => null;
     }
 
     private sealed class ThrowingPlanner : IAppNavigationPlanner

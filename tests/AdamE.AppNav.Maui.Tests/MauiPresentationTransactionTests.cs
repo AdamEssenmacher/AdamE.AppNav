@@ -1229,6 +1229,8 @@ public sealed class MauiPresentationTransactionTests
 
     private sealed class CommitPopRoutePageFactory : IMauiRoutePageFactory
     {
+        public MauiPageAbandonment? CaptureAbandonment(Page page) => null;
+
         private readonly InstrumentedRoutePageFactory _inner = new();
         private Page? _releaseTrigger;
         private NavigationPage? _navigationPage;
@@ -1290,6 +1292,8 @@ public sealed class MauiPresentationTransactionTests
 
     private sealed class GatedRoutePageFactory : IMauiRoutePageFactory
     {
+        public MauiPageAbandonment? CaptureAbandonment(Page page) => null;
+
         private readonly InstrumentedRoutePageFactory _inner = new();
         private readonly TaskCompletionSource _createStarted =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1482,6 +1486,14 @@ public sealed class MauiPresentationTransactionTests
             MauiNativeNavigationOperations.Instance.SetFlyoutPresented(flyoutPage, isPresented);
             ThrowAfterMutation(NativeMutation.SetFlyoutPresented);
         }
+
+        public void SetFlyoutBranches(
+            MauiBranchFlyoutPage flyoutPage,
+            IReadOnlyList<MauiFlyoutBranchPresentation> branches) =>
+            MauiNativeNavigationOperations.Instance.SetFlyoutBranches(flyoutPage, branches);
+
+        public void SetSelectedFlyoutBranch(MauiBranchFlyoutPage flyoutPage, string branchId) =>
+            MauiNativeNavigationOperations.Instance.SetSelectedFlyoutBranch(flyoutPage, branchId);
 
         public void SetWindowPage(Window window, Page? page)
         {

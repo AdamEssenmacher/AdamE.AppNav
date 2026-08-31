@@ -37,6 +37,28 @@ internal interface IMauiRoutePageFactory
     ValueTask ReleasePageAsync(Page page);
 
     ValueTask ReleasePresentationPageAsync(Page page);
+
+    MauiPageAbandonment? CaptureAbandonment(Page page);
+}
+
+internal sealed class MauiPageAbandonment : IAsyncDisposable
+{
+    private IAsyncDisposable? _scope;
+
+    public MauiPageAbandonment(IAsyncDisposable? scope, string pageTypeName)
+    {
+        _scope = scope;
+        PageTypeName = pageTypeName;
+    }
+
+    public string PageTypeName { get; }
+
+    public async ValueTask DisposeAsync()
+    {
+        IAsyncDisposable? scope = Interlocked.Exchange(ref _scope, null);
+        if (scope is not null)
+            await scope.DisposeAsync().ConfigureAwait(false);
+    }
 }
 
 /// <summary>
@@ -48,6 +70,10 @@ internal interface IMauiRoutePageFactory
 /// <see cref="IRouterNavigator.BackAsync(string?, CancellationToken)"/>,
 /// or <see cref="IRouterNavigator.ReconcileAsync"/> on the same navigator. Schedule follow-up navigation to run after
 /// the callback and its owning router operation have completed.
+/// <para>
+/// <see cref="OnPageReleasedAsync"/> represents normal page retirement. The internal page-free abandonment path does
+/// not invoke this page-based callback.
+/// </para>
 /// </remarks>
 public interface IMauiRoutePageLifecycleHook
 {
@@ -108,7 +134,7 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
                     services.GetServices<IMauiRoutePageLifecycleHook>().ToArray());
                 SetPageHandle(page, handle);
                 scope = null;
-                foreach (IMauiRoutePageLifecycleHook hook in handle.Hooks)
+                foreach (IMauiRoutePageLifecycleHook hook in handle.GetActiveHooks())
                     await hook.OnPageCreatedAsync(page, entry, cancellationToken);
 
                 return page;
@@ -202,7 +228,7 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
 
         PageHandle handle = GetPageHandle(page) ??
             throw new InvalidOperationException("The route page is not owned by this page factory.");
-        foreach (IMauiRoutePageLifecycleHook hook in handle.Hooks)
+        foreach (IMauiRoutePageLifecycleHook hook in handle.GetActiveHooks())
             await hook.OnPageUpdatedAsync(page, entry, context, cancellationToken);
     }
 
@@ -216,6 +242,14 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
     {
         ArgumentNullException.ThrowIfNull(page);
         return ReleaseCoreAsync(page);
+    }
+
+    public MauiPageAbandonment? CaptureAbandonment(Page page)
+    {
+        ArgumentNullException.ThrowIfNull(page);
+        PageHandle? handle = GetPageHandle(page);
+        return handle?.TryClaimAbandonment(
+            page.GetType().FullName ?? page.GetType().Name);
     }
 
     private static async ValueTask CleanupFailedCreationAsync(Page? page, IAsyncDisposable? unattachedScope)
@@ -258,7 +292,7 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
             return;
         }
 
-        if (Interlocked.Exchange(ref handle.ReleaseStarted, 1) != 0)
+        if (!handle.TryClaimRelease(out PageReleaseResources resources))
             return;
 
         var failures = new List<Exception>();
@@ -271,7 +305,7 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
             failures.Add(ex);
         }
 
-        foreach (IMauiRoutePageLifecycleHook hook in handle.Hooks)
+        foreach (IMauiRoutePageLifecycleHook hook in resources.Hooks)
         {
             try
             {
@@ -292,11 +326,11 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
             failures.Add(ex);
         }
 
-        if (handle.Scope is not null)
+        if (resources.Scope is not null)
         {
             try
             {
-                await handle.Scope.DisposeAsync().ConfigureAwait(false);
+                await resources.Scope.DisposeAsync().ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -318,14 +352,78 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
         return page.GetValue(PageHandleProperty) as PageHandle;
     }
 
-    private sealed class PageHandle(
-        IAsyncDisposable? scope,
-        IReadOnlyList<IMauiRoutePageLifecycleHook> hooks)
+    private sealed class PageHandle
     {
-        public IAsyncDisposable? Scope { get; } = scope;
+        private readonly Lock _gate = new();
+        private IAsyncDisposable? _scope;
+        private IReadOnlyList<IMauiRoutePageLifecycleHook> _hooks;
+        private PageOwnershipState _state;
 
-        public IReadOnlyList<IMauiRoutePageLifecycleHook> Hooks { get; } = hooks;
+        public PageHandle(
+            IAsyncDisposable? scope,
+            IReadOnlyList<IMauiRoutePageLifecycleHook> hooks)
+        {
+            _scope = scope;
+            _hooks = hooks;
+        }
 
-        public int ReleaseStarted;
+        public IReadOnlyList<IMauiRoutePageLifecycleHook> GetActiveHooks()
+        {
+            lock (_gate)
+            {
+                if (_state != PageOwnershipState.Active)
+                    throw new InvalidOperationException("The route page is no longer active.");
+
+                return _hooks;
+            }
+        }
+
+        public bool TryClaimRelease(out PageReleaseResources resources)
+        {
+            lock (_gate)
+            {
+                if (_state != PageOwnershipState.Active)
+                {
+                    resources = default;
+                    return false;
+                }
+
+                _state = PageOwnershipState.Released;
+                resources = TakeResources();
+                return true;
+            }
+        }
+
+        public MauiPageAbandonment? TryClaimAbandonment(string pageTypeName)
+        {
+            lock (_gate)
+            {
+                if (_state != PageOwnershipState.Active)
+                    return null;
+
+                _state = PageOwnershipState.Abandoned;
+                PageReleaseResources resources = TakeResources();
+                return new MauiPageAbandonment(resources.Scope, pageTypeName);
+            }
+        }
+
+        private PageReleaseResources TakeResources()
+        {
+            var resources = new PageReleaseResources(_scope, _hooks);
+            _scope = null;
+            _hooks = [];
+            return resources;
+        }
+    }
+
+    private readonly record struct PageReleaseResources(
+        IAsyncDisposable? Scope,
+        IReadOnlyList<IMauiRoutePageLifecycleHook> Hooks);
+
+    private enum PageOwnershipState
+    {
+        Active,
+        Released,
+        Abandoned
     }
 }
