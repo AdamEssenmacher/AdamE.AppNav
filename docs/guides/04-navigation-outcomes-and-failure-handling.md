@@ -23,7 +23,7 @@ NavigationResult result = await navigator.NavigateAsync(
     new InventoryItemRoute(itemId),
     cancellationToken);
 
-AppRoute finalRoute = result.Route;
+AppRoute presentedRoute = result.Route;
 NavigationPlan appliedPlan = result.Plan;
 NavigationState committedState = result.State;
 ```
@@ -32,13 +32,20 @@ The result describes what actually completed:
 
 | Member | Meaning |
 | --- | --- |
-| `Route` | The final accepted semantic route after matching, transforms, redirects, and policies |
-| `Plan` | The logical plan AppNav applied for that route |
+| `Route` | The route presented at the top of the selected window in the committed target state |
+| `Plan` | The logical plan AppNav applied to produce that state |
 | `State` | The committed router state after the operation |
 | `Presented` | Whether this result represents presenter-driven navigation |
 
 `NavigationResult` is not a success/failure union. If `NavigateAsync` returns
 one, the operation succeeded. A failure is reported by an exception.
+
+`Route` normally matches the destination accepted after matching and policy,
+but target-state presentation is authoritative. For example, if a planner
+updates an underlying stack while retaining an existing modal, `Route` is the
+modal route that remains visibly presented. When the target state has no
+presented route, AppNav falls back to the resolved request route. Do not use
+`result.Route` as a record of the original request target.
 
 Do not treat `Presented == false` as failure. `ReconcileAsync` returns a
 successful result with `Presented == false` because it records a state change

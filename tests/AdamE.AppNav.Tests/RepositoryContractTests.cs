@@ -583,6 +583,29 @@ public sealed partial class RepositoryContractTests
     }
 
     [Fact]
+    public void RequestResultAndDiagnosticsDocumentationMatchesRuntimeSemantics()
+    {
+        var root = RepositoryRoot();
+        string requests = File.ReadAllText(
+            Path.Combine(root, "docs", "concepts", "03-requests-and-provenance.md"));
+        string outcomes = File.ReadAllText(
+            Path.Combine(root, "docs", "guides", "04-navigation-outcomes-and-failure-handling.md"));
+        string diagnostics = File.ReadAllText(
+            Path.Combine(root, "docs", "reference", "diagnostics.md"));
+
+        Assert.Contains("`WithTarget(...)`", requests, StringComparison.Ordinal);
+        Assert.Contains("preserves `Request.Metadata`", requests, StringComparison.Ordinal);
+        Assert.Contains("match-produced `RouteMetadata` is recomputed", requests, StringComparison.Ordinal);
+        Assert.Contains("target-state presentation is authoritative", outcomes, StringComparison.Ordinal);
+        Assert.Contains("as a record of the original request target", outcomes, StringComparison.Ordinal);
+        Assert.Contains(
+            "LogLevel.Warning or LogLevel.Error or LogLevel.Critical",
+            diagnostics,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("Severity >= LogLevel.Warning", diagnostics, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void DiagnosticsReferenceMatchesRuntimeIdentifiers()
     {
         var root = RepositoryRoot();

@@ -64,9 +64,12 @@ context.
 
 Policies run after a successful match. `NavigationRequestPolicyContext.Route`
 is the resolved route; `RouteMetadata` comes from that match;
-`Request.Metadata` is explicit request metadata. Metadata from an old target
-does not cross a redirect. Presentation must succeed before logical state and
-history commit.
+`Request.Metadata` is explicit request-envelope metadata. `WithTarget(...)`
+preserves `Request.Metadata`, including metadata copied from an
+`AppRouteRequest`, while match-produced `RouteMetadata` is recomputed for the
+redirected target. A policy that must clear or replace request metadata should
+construct a new envelope instead. Presentation must succeed before logical
+state and history commit.
 
 ## Field ownership
 

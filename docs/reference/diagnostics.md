@@ -108,7 +108,8 @@ void RecordFailure(
     object? sender,
     NavigationDiagnosticEvent diagnosticEvent)
 {
-    if (diagnosticEvent.Severity >= LogLevel.Warning)
+    if (diagnosticEvent.Severity is
+        LogLevel.Warning or LogLevel.Error or LogLevel.Critical)
     {
         failureBuffer.Enqueue(diagnosticEvent);
     }
