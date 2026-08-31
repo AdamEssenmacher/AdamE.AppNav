@@ -42,12 +42,52 @@ path is ready; this preview does not publish to NuGet.org.
 Referencing `AdamE.AppNav.Maui` brings both source generators transitively: the
 core route generator and the MAUI page generator.
 
-## Quickstart
+## Learn the model first
+
+Powerful application navigation requires a learning investment. AppNav is not
+a page-push helper; it asks an application to model three things explicitly:
+
+1. **Destinations**: typed routes describe where the user wants to go without
+   naming the page operation that gets there.
+2. **Topology**: a navigation model declares the valid windows, stacks,
+   independent branches, entries, and modals for those destinations.
+3. **Request context**: app code uses the narrow typed route API, while external
+   and host boundaries preserve source, policy, disposition, and provenance in
+   a complete request.
+
+That model requires more learning and configuration than calling `PushAsync`
+directly. The investment is deliberate: buttons, deep links, notifications,
+startup, restoration, native Back, and tests can all target the same semantic
+destinations without each caller reconstructing the surrounding UI.
+
+```text
+intent -> typed route or complete request -> transform/match -> policy
+       -> logical plan -> native presentation -> commit/reconciliation
+```
+
+Before copying the setup code, follow the concepts in order:
+
+1. [Why AppNav?](docs/concepts/00-why-appnav.md) explains the design tradeoffs
+   and when the model is worth adopting.
+2. [Routing and metadata](docs/concepts/01-routing-and-metadata.md) defines
+   typed semantic destinations and route-owned state.
+3. [Topology and planning](docs/concepts/02-topology-and-planning.md) shows how
+   destinations become native navigation shapes.
+4. [Requests and provenance](docs/concepts/03-requests-and-provenance.md)
+   separates ordinary app navigation from complete runtime requests.
+
+If a small application is adequately served by a few direct page operations,
+AppNav may not be the right tradeoff. If navigation must remain coherent across
+several entry paths and native UI structures, the explicit model is the source
+of that coherence.
+
+## Buildable quickstart
 
 The complete buildable onboarding app is
 [`samples/GettingStarted.Sample`](samples/GettingStarted.Sample/README.md). It
 has Home -> Detail -> native Back and intentionally contains no external
-navigation or persistence.
+navigation or persistence. It is the smallest executable application of the
+concepts above, not a substitute for them.
 
 ### 1. Define typed routes
 
