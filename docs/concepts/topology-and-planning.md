@@ -1,5 +1,7 @@
 # Topology and planning
 
+[Documentation home](../README.md)
+
 AppNav plans a logical tree before an adapter mutates UI.
 
 ## Supported v1 shapes
@@ -45,3 +47,9 @@ Cancelled native gestures do not commit logical state.
 Core retains multi-window types for future adapters. The v1 MAUI presenter rejects plans containing multiple windows.
 Unattached startup presentation is allowed. Once attached, the plan window ID must match the attached MAUI window ID.
 Preflight validation occurs before page creation or native mutation.
+
+## Next steps
+
+- Apply the model in [MAUI integration](../guides/maui-integration.md).
+- Choose the right envelope with [requests and provenance](requests-and-provenance.md).
+- Read the [adapter contract](../advanced/adapter-contract.md) before implementing another host.

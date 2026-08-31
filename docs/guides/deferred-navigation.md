@@ -1,5 +1,7 @@
 # Deferred navigation
 
+[Documentation home](../README.md)
+
 Deferred persistence supports auth or policy flows that must replay a canonical destination after process restart.
 It is not a raw deep-link cache.
 
@@ -32,3 +34,9 @@ preserves the original and fails safely.
 Replay is lease-based and at-least-once. A request is removed only after durable acknowledgement. A crash between
 presentation and acknowledgement can replay once more, but cannot lose the request. Terminal poison requests must not
 starve later valid requests.
+
+## Next steps
+
+- Keep transport context separate with [requests and provenance](../concepts/requests-and-provenance.md).
+- Configure Safe-mode [diagnostics](../reference/diagnostics.md).
+- Diagnose reset and quarantine behavior with [Troubleshooting](troubleshooting.md).

@@ -1,4 +1,9 @@
-# External navigation security
+# External navigation
+
+[Documentation home](../README.md)
+
+External navigation is a security boundary. Enable it only after the
+application has defined the production origins it owns and intends to accept.
 
 Enable MAUI lifecycle ingress only with `UseAppNavExternalNavigation` and at least one trusted origin.
 
@@ -43,3 +48,40 @@ Rejected, expired, duplicate, disposed, and null requests return `false`.
 
 Diagnostics report structural rejection, retry, expiry, overflow, deduplication, and terminal-drop events without raw
 query strings or provenance values.
+
+## Platform ownership
+
+`UseAppNavExternalNavigation` validates and dispatches URIs delivered to the
+MAUI host. It does not prove domain ownership or configure operating-system
+association on the application's behalf.
+
+For production HTTPS links, the application still owns:
+
+- Android intent filters and the hosted Digital Asset Links association;
+- Apple Associated Domains entitlements and the hosted site association;
+- signing identities, package or bundle identifiers, and deployed-domain verification;
+- cold- and warm-start testing on every supported platform.
+
+The [Commerce sample](../../samples/Commerce.Sample/README.md) registers a
+Debug-only custom scheme for runnable local checks. Its HTTPS origins illustrate
+AppNav trust configuration, but become production links only after the app owns
+the domains and completes the platform association work. Release builds neither
+register nor trust the sample custom scheme.
+
+## Boundary checklist
+
+1. Register the platform link or provider integration.
+2. Configure only root origins in AppNav.
+3. Convert app-owned provider output into one complete
+   `RouterNavigationRequest` with explicit source and provenance.
+4. Use `TryDispatch` for fire-and-forget host ingress, or direct navigator
+   navigation when interactive UI must observe failure.
+5. Test trusted, wrong-host, wrong-port, credential-bearing, oversized,
+   duplicate, expired, and retryable requests.
+6. Confirm diagnostics remain structural in Safe mode.
+
+## Next steps
+
+- Define field ownership with [requests and provenance](../concepts/requests-and-provenance.md).
+- Add durable auth recovery with [deferred navigation](deferred-navigation.md).
+- Diagnose rejection with [Troubleshooting](troubleshooting.md).

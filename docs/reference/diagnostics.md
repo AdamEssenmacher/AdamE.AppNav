@@ -1,5 +1,7 @@
 # Diagnostics
 
+[Documentation home](../README.md)
+
 `NavigationDiagnostics` reports each pipeline and presentation phase. Safe mode is the default for observers, logging,
 and activities.
 
@@ -17,3 +19,9 @@ not interrupt navigation.
 
 Do not log raw external query strings, original/referrer URIs, correlation IDs, arbitrary provenance attributes, or
 credential-bearing configuration values.
+
+## Next steps
+
+- Use the symptom-oriented [Troubleshooting guide](../guides/troubleshooting.md).
+- Review [external navigation](../guides/external-navigation.md) diagnostics.
+- Review [deferred navigation](../guides/deferred-navigation.md) persistence events.

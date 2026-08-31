@@ -1,4 +1,9 @@
-# Public Preview Release Checklist
+# Public preview release checklist
+
+[Documentation home](../README.md)
+
+This checklist is for AppNav repository maintainers, not application
+integration.
 
 This checklist validates a `0.1.0-preview.*` candidate. Stable qualification and NuGet.org publication are separate
 work. The supported baseline is .NET 10, Android API 28+, iOS 15+, and Mac Catalyst 15+.
@@ -64,7 +69,7 @@ and record the required local command; do not waive the gate.
 ## Package and publication checks
 
 The API and schema changes for this candidate are recorded in
-[`docs/release-notes/0.1.0-preview.1.md`](release-notes/0.1.0-preview.1.md).
+[`docs/release-notes/0.1.0-preview.1.md`](../release-notes/0.1.0-preview.1.md).
 
 - Exactly one `.nupkg` and `.snupkg` exist for both `AdamE.AppNav` and `AdamE.AppNav.Maui`.
 - Packages contain only the documented .NET 10 target assets and their assigned source generators.
@@ -82,3 +87,8 @@ The API and schema changes for this candidate are recorded in
 - No full MAUI multi-window orchestration.
 - No transition system.
 - Android predictive back is not implemented.
+
+## Next steps
+
+- Run the complete [testing matrix](testing.md).
+- Validate the [0.1.0-preview.1 release notes](../release-notes/0.1.0-preview.1.md).

@@ -1,5 +1,10 @@
 # Testing
 
+[Documentation home](../README.md)
+
+This document is for AppNav repository maintainers. Application consumers do
+not need to run the release gates.
+
 ## Deterministic gate
 
 Run twice from a clean worktree:
@@ -30,3 +35,8 @@ tests. Nightly runs latest Android/iOS/Mac Catalyst; weekly and release runs als
 Cover cold/warm ingress, startup buffering, burst overflow, tab changes, Back/swipe, modal dismissal, deferred restore,
 retry bypass, cancellation, injected presentation failure, rollback/rebuild, and disposal. Scavos provides the advanced
 five-branch dogfood matrix; the in-memory lab is preferred for deterministic native automation.
+
+## Next steps
+
+- Follow the [public preview release checklist](release-checklist.md).
+- Review the current [release notes](../release-notes/README.md).

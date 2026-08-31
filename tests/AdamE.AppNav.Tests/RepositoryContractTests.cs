@@ -1,8 +1,9 @@
 using System.Xml.Linq;
+using System.Text.RegularExpressions;
 
 namespace AdamE.AppNav.Tests;
 
-public sealed class RepositoryContractTests
+public sealed partial class RepositoryContractTests
 {
     [Fact]
     public void SamplesDoNotUseShell()
@@ -287,10 +288,121 @@ public sealed class RepositoryContractTests
     {
         var root = RepositoryRoot();
         var readme = File.ReadAllText(Path.Combine(root, "README.md"));
+        var gettingStarted = File.ReadAllText(
+            Path.Combine(root, "docs", "guides", "getting-started.md"));
         var sample = File.ReadAllText(
             Path.Combine(root, "samples", "GettingStarted.Sample", fileName));
 
-        Assert.Contains(ReadRegion(sample, regionName), readme, StringComparison.Ordinal);
+        string region = ReadRegion(sample, regionName);
+        Assert.Contains(region, readme, StringComparison.Ordinal);
+        Assert.Contains(region, gettingStarted, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DocumentationLinksAndHeadingFragmentsResolve()
+    {
+        var root = RepositoryRoot();
+        string[] documents = DocumentationFiles(root).ToArray();
+
+        Assert.NotEmpty(documents);
+        foreach (string document in documents)
+        foreach (Match match in MarkdownLinkPattern().Matches(File.ReadAllText(document)).Cast<Match>())
+        {
+            string target = match.Groups["target"].Value.Trim();
+            if (target.Length == 0 || IsExternalLink(target))
+                continue;
+
+            int fragmentIndex = target.IndexOf('#', StringComparison.Ordinal);
+            string pathPart = fragmentIndex >= 0 ? target[..fragmentIndex] : target;
+            string? fragment = fragmentIndex >= 0 ? target[(fragmentIndex + 1)..] : null;
+            string targetFile = pathPart.Length == 0
+                ? document
+                : Path.GetFullPath(
+                    Path.Combine(
+                        Path.GetDirectoryName(document)!,
+                        Uri.UnescapeDataString(pathPart)));
+
+            Assert.True(
+                File.Exists(targetFile),
+                $"Markdown link '{target}' in '{Path.GetRelativePath(root, document)}' does not resolve.");
+
+            if (!string.IsNullOrEmpty(fragment))
+            {
+                string[] anchors = HeadingPattern()
+                    .Matches(File.ReadAllText(targetFile))
+                    .Cast<Match>()
+                    .Select(static heading => HeadingAnchor(heading.Groups["heading"].Value))
+                    .ToArray();
+                Assert.Contains(Uri.UnescapeDataString(fragment), anchors, StringComparer.OrdinalIgnoreCase);
+            }
+        }
+    }
+
+    [Fact]
+    public void DocumentationHomeIndexesEveryDocumentationPage()
+    {
+        var root = RepositoryRoot();
+        string documentationRoot = Path.Combine(root, "docs");
+        string homePath = Path.Combine(documentationRoot, "README.md");
+        string home = File.ReadAllText(homePath);
+        var indexedFiles = MarkdownLinkPattern()
+            .Matches(home)
+            .Cast<Match>()
+            .Select(match => match.Groups["target"].Value.Split('#')[0])
+            .Where(static target => !string.IsNullOrWhiteSpace(target) && !IsExternalLink(target))
+            .Select(target => Path.GetFullPath(Path.Combine(documentationRoot, Uri.UnescapeDataString(target))))
+            .ToHashSet(StringComparer.Ordinal);
+
+        string[] pages = Directory
+            .EnumerateFiles(documentationRoot, "*.md", SearchOption.AllDirectories)
+            .Where(path => !string.Equals(path, homePath, StringComparison.Ordinal))
+            .ToArray();
+
+        Assert.NotEmpty(pages);
+        foreach (string page in pages)
+            Assert.Contains(page, indexedFiles);
+    }
+
+    [Fact]
+    public void UserGuidesHaveNavigationAndMaintainerMaterialIsNotOnTheOnboardingPath()
+    {
+        var root = RepositoryRoot();
+        string[] guides = Directory
+            .EnumerateFiles(Path.Combine(root, "docs", "guides"), "*.md", SearchOption.TopDirectoryOnly)
+            .ToArray();
+
+        Assert.NotEmpty(guides);
+        foreach (string guide in guides)
+        {
+            string text = File.ReadAllText(guide);
+            Assert.Contains("[Documentation home](../README.md)", text, StringComparison.Ordinal);
+            Assert.Contains("## Next steps", text, StringComparison.Ordinal);
+        }
+
+        string onboarding = string.Join(
+            Environment.NewLine,
+            File.ReadAllText(Path.Combine(root, "README.md")),
+            File.ReadAllText(Path.Combine(root, "docs", "guides", "getting-started.md")),
+            File.ReadAllText(Path.Combine(root, "samples", "GettingStarted.Sample", "README.md")));
+        Assert.DoesNotContain("maintainers/", onboarding, StringComparison.Ordinal);
+        Assert.DoesNotContain("dogfood checkpoint", onboarding, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void SourceGeneratorDiagnosticReferenceMatchesDeclaredDiagnostics()
+    {
+        var root = RepositoryRoot();
+        string declared = string.Join(
+            Environment.NewLine,
+            File.ReadAllText(Path.Combine(root, "src", "AdamE.AppNav.Generators", "AppNavDiagnostics.cs")),
+            File.ReadAllText(Path.Combine(root, "src", "AdamE.AppNav.Maui.Generators", "MauiPageDiagnostics.cs")));
+        string reference = File.ReadAllText(
+            Path.Combine(root, "docs", "reference", "source-generator-diagnostics.md"));
+
+        string[] declaredIds = DiagnosticIdPattern().Matches(declared).Cast<Match>().Select(static match => match.Value).Distinct().Order().ToArray();
+        string[] documentedIds = DiagnosticIdPattern().Matches(reference).Cast<Match>().Select(static match => match.Value).Distinct().Order().ToArray();
+
+        Assert.Equal(declaredIds, documentedIds);
     }
 
     [Fact]
@@ -361,7 +473,7 @@ public sealed class RepositoryContractTests
         Assert.Contains("FallbackRequestFactory", readme, StringComparison.Ordinal);
         Assert.Contains("There are no URI/source convenience overloads", readme, StringComparison.Ordinal);
         Assert.Contains("RouterNavigatorExtensions", readme, StringComparison.Ordinal);
-        Assert.Contains("ReconcileAsync", File.ReadAllText(Path.Combine(root, "docs", "adapter-contract.md")), StringComparison.Ordinal);
+        Assert.Contains("ReconcileAsync", File.ReadAllText(Path.Combine(root, "docs", "advanced", "adapter-contract.md")), StringComparison.Ordinal);
         Assert.DoesNotContain("AdamE.AppNav.Testing", readme, StringComparison.Ordinal);
         Assert.DoesNotContain("RouterTestNavigator", readme, StringComparison.Ordinal);
         Assert.DoesNotContain("NavigationSnapshotTestSerializer", readme, StringComparison.Ordinal);
@@ -376,7 +488,8 @@ public sealed class RepositoryContractTests
     {
         var root = RepositoryRoot();
         var readme = File.ReadAllText(Path.Combine(root, "README.md"));
-        var checklist = File.ReadAllText(Path.Combine(root, "docs", "release-checklist.md"));
+        var docsHome = File.ReadAllText(Path.Combine(root, "docs", "README.md"));
+        var checklist = File.ReadAllText(Path.Combine(root, "docs", "maintainers", "release-checklist.md"));
         var runner = File.ReadAllText(Path.Combine(root, "eng", "run-maui-platform-tests.sh"));
         var packageVerifier = File.ReadAllText(Path.Combine(root, "eng", "verify-package-assets.sh"));
         var releaseVerifier = File.ReadAllText(Path.Combine(root, "eng", "verify.sh"));
@@ -384,7 +497,8 @@ public sealed class RepositoryContractTests
         var releaseNotes = File.ReadAllText(Path.Combine(root, "docs", "release-notes", "0.1.0-preview.1.md"));
         var mauiTestsProject = File.ReadAllText(Path.Combine(root, "tests", "AdamE.AppNav.Maui.Tests", "AdamE.AppNav.Maui.Tests.csproj"));
 
-        Assert.Contains("docs/release-checklist.md", readme, StringComparison.Ordinal);
+        Assert.Contains("maintainers/release-checklist.md", docsHome, StringComparison.Ordinal);
+        Assert.DoesNotContain("maintainers/", readme, StringComparison.Ordinal);
         Assert.Contains("eng/run-maui-platform-tests.sh android", checklist, StringComparison.Ordinal);
         Assert.Contains("eng/verify.sh release", checklist, StringComparison.Ordinal);
         Assert.DoesNotContain("AdamE.AppNav.Testing", checklist, StringComparison.Ordinal);
@@ -531,6 +645,46 @@ public sealed class RepositoryContractTests
 
         throw new InvalidOperationException("Could not locate repository root.");
     }
+
+    private static IEnumerable<string> DocumentationFiles(string root)
+    {
+        yield return Path.Combine(root, "README.md");
+
+        foreach (string document in Directory.EnumerateFiles(
+                     Path.Combine(root, "docs"),
+                     "*.md",
+                     SearchOption.AllDirectories))
+            yield return document;
+
+        foreach (string sampleReadme in Directory.EnumerateFiles(
+                     Path.Combine(root, "samples"),
+                     "README.md",
+                     SearchOption.AllDirectories))
+            yield return sampleReadme;
+    }
+
+    private static bool IsExternalLink(string target)
+    {
+        return target.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
+               target.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+               target.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string HeadingAnchor(string heading)
+    {
+        string withoutMarkup = heading.Replace("`", string.Empty, StringComparison.Ordinal).ToLowerInvariant();
+        string withoutPunctuation = Regex.Replace(withoutMarkup, @"[^\p{L}\p{N}\s-]", string.Empty);
+        return Regex.Replace(withoutPunctuation.Trim(), @"\s+", "-");
+    }
+
+    [GeneratedRegex(@"\[[^\]]+\]\((?<target>[^)]+)\)")]
+    private static partial Regex MarkdownLinkPattern();
+
+    [GeneratedRegex(@"^#{1,6}\s+(?<heading>.+?)\s*$", RegexOptions.Multiline)]
+    private static partial Regex HeadingPattern();
+
+    [GeneratedRegex(@"APPNAV\d{3}")]
+    private static partial Regex DiagnosticIdPattern();
 
     private static string ReadRegion(string source, string regionName)
     {

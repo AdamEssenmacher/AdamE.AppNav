@@ -1,4 +1,6 @@
-# MAUI Integration
+# MAUI integration
+
+[Documentation home](../README.md)
 
 This guide walks through one common MAUI integration shape for AppNav. It is a complete example, not the only public way to use the library.
 
@@ -65,7 +67,7 @@ Common runtime uses:
 - deferred request replay
 - tests
 
-`RouterNavigationRequest` can carry `NavigationRequestProvenance`, which is runtime request context: provider, original URI, referrer URI, correlation id, cold-start flag when known, and string attributes. Keep provenance out of `AppRoute`, `AppRouteRequest`, route formatting, and `RouteStateRegistry`. AppNav sets transport provenance it owns; apps set provider/business provenance they own. For field ownership, see [provenance.md](provenance.md).
+`RouterNavigationRequest` can carry `NavigationRequestProvenance`, which is runtime request context: provider, original URI, referrer URI, correlation id, cold-start flag when known, and string attributes. Keep provenance out of `AppRoute`, `AppRouteRequest`, route formatting, and `RouteStateRegistry`. AppNav sets transport provenance it owns; apps set provider/business provenance they own. For field ownership, see [Requests and provenance](../concepts/requests-and-provenance.md).
 
 A request always has exactly one target. Create it with `FromUri`, `FromRoute`, or `FromRouteRequest`, and use
 `WithTarget(Uri)` or `WithTarget(AppRoute)` when a transformer or policy replaces that target.
@@ -93,12 +95,22 @@ One common MAUI setup uses:
 - `AddAppNavStartup(...)`
 - `IAppNavStartupService.Start(window, windowId)` from `CreateWindow`
 
-A common cold-start sequence is:
+Startup ordering depends on the request source:
 
-1. buffered app links
-2. deferred request detection
-3. fallback request
-4. window attachment
+```text
+buffered app link -> attach window -> await that dispatch epoch
+                                       | success: startup completes
+                                       + terminal: continue
+
+no successful app link -> detect deferred work -> create fallback if configured
+                                                   |
+                                                   v
+                                      present fallback -> attach window
+```
+
+If no fallback is configured, startup still attaches the window. Deferred
+request detection reports pending protected work; the owning auth flow decides
+when to invoke replay.
 
 App-link lifecycle ingress targets one active AppNav MAUI host per process. The most recently created host receives
 platform callbacks. Disposing that host cancels its in-flight external navigation and drops its queued requests;
@@ -159,50 +171,12 @@ Safe output without affecting navigation.
 
 `IRouterNavigator` exposes full-envelope navigation, Back, and `ReconcileAsync(...)`. Four typed extension methods cover app-authored routes. Host-owned boundaries construct a complete `RouterNavigationRequest`.
 
-## Route-Owned Presentation Pages
+## Route-owned presentation pages
 
-Some workflows are one semantic destination but need several native pages. A setup wizard, checkout flow, or editor can remain one `AppRoute` while its steps participate in iOS swipe-back and Android system back.
-
-Register each presentation page with DI, then inject `IMauiRoutePresentationNavigator` into the route page or its presentation model:
-
-```csharp
-services.AddTransient<ShippingPage>();
-services.AddTransient<ReviewPage>();
-
-await presentationNavigator.PushAsync<ShippingPage>("shipping");
-await presentationNavigator.PushAsync<ReviewPage>("review");
-```
-
-Each logical route entry owns a native segment consisting of its route page followed by its presentation pages. AppNav preserves that segment while the route entry remains in the logical stack, even when another logical route temporarily covers it. Removing the owner route releases the entire segment.
-
-Presentation pages:
-
-- do not add routes, route entries, or logical history
-- inherit the owning route page binding context by default
-- are resolved in independent DI scopes and released when popped
-- require a nonblank key unique within their owner segment
-- are transient and are not restored after process recreation
-
-Route pages can implement scoped, asynchronous lifecycle behavior through constructor-injected
-`IMauiRoutePageLifecycleHook` services. Its `OnPageCreatedAsync`, `OnPageUpdatedAsync`, and `OnPageReleasedAsync`
-methods receive cancellation where appropriate and no `IServiceProvider`. A rollback may issue a compensating update
-with the prior route entry, so update hooks must support that call. AppNav enters each callback on the MAUI main thread
-and restores main-thread affinity before invoking the next callback or touching the page afterward; hooks remain
-responsible for their own continuation choices. A lifecycle callback runs inside the router operation presenting the
-page and cannot synchronously or asynchronously re-enter `NavigateAsync`, `BackAsync`, or `ReconcileAsync` on the same
-`IRouterNavigator`. Schedule follow-up navigation to begin after the callback and its owning router operation complete;
-reentrant calls fail immediately with `InvalidOperationException`.
-
-Logical presentation is transactional. AppNav stages replacements, retains removed pages until commit, suppresses
-transient reconciliation, verifies the target, and only then releases retired pages. Before commit, failure or
-cancellation restores the prior native/logical state. A failed rollback triggers a verified full rebuild; failure of
-both recovery paths faults the presenter closed with `MauiPresentationConsistencyException`.
-
-Native back automatically pops the presentation page without reconciling away the logical route. For an explicit presentation-only back command, call `IMauiRoutePresentationNavigator.PopAsync()`. `IRouterNavigator.BackAsync()` remains deliberately logical and can remove the owning route.
-
-Direct presentation pushes and pops are transactional. AppNav commits them only after the native operation completes and the resulting stack and route projection match exactly. A failure or cancellation before that point restores the previous native stack and leaves the operation failed; if both rollback and full-state recovery fail, the presenter faults with `MauiPresentationConsistencyException`.
-
-The active route must be hosted by a router-owned `NavigationPage`. Route-only modals without a navigation stack cannot push route-owned pages.
+Workflows that use several native pages for one semantic route are documented
+separately in [Route-owned presentation pages](../advanced/route-owned-presentation-pages.md).
+That advanced guide covers DI scopes, lifecycle hooks, reentrancy, native Back,
+transactional push/pop, rollback, and consistency faults.
 
 ## Notes
 
@@ -211,3 +185,10 @@ The active route must be hosted by a router-owned `NavigationPage`. Route-only m
 - Interactive foreground boundaries may call `IRouterNavigator.NavigateAsync(RouterNavigationRequest)` directly when the caller must observe navigation failure to recover UI state.
 - AppNav does not ship Branch, push, QR scanner, or auth-provider SDK integrations.
 - Raw auth callbacks belong to the auth subsystem; the router should usually see deferred replay or an app-authored post-auth request.
+
+## Next steps
+
+- Define [routing and metadata](../concepts/routing-and-metadata.md).
+- Configure [external navigation](external-navigation.md) only after defining trusted origins.
+- Add [deferred navigation](deferred-navigation.md) only for a real auth defer/replay flow.
+- Diagnose integration failures with [Troubleshooting](troubleshooting.md).

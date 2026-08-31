@@ -1,5 +1,10 @@
 # Adapter contract
 
+[Documentation home](../README.md)
+
+This is advanced material for adapter authors. Application integrations should
+start with [Getting started](../guides/getting-started.md).
+
 AppNav core is host-independent. An adapter implements `INavigationPresenter` using only public core APIs and is created
 with the router through `RouterNavigatorFactory`.
 
@@ -31,3 +36,9 @@ does not originate from the presenter's event stream.
 The public adapter-contract test assembly exercises successful apply, failure/cancellation without commit,
 reconciliation, shutdown/event detachment, and Stack/BranchHost/Modal topology. A future Blazor adapter should satisfy
 the same contract while owning browser history, component mapping, lifecycle, and storage rather than MAUI artifacts.
+
+## Next steps
+
+- Review [topology and planning](../concepts/topology-and-planning.md).
+- Use maintainer [testing](../maintainers/testing.md) to run adapter contracts.
+- Diagnose host failures with [Diagnostics](../reference/diagnostics.md).
