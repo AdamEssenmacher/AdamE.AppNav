@@ -36,7 +36,8 @@ The target release is `0.1.0-preview.1`.
 
 The preview includes typed route generation and formatting, request transforms
 and policy, standard stack and branch-host models, logical history and Back,
-native MAUI presentation and reconciliation, trusted external ingress, bounded
+native MAUI presentation and reconciliation, platform-native motion for
+singular visible stack and modal operations, trusted external ingress, bounded
 retry queues, deferred navigation persistence, safe diagnostics, and
 trimming/AOT-oriented validation.
 
