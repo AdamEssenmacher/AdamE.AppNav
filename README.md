@@ -42,6 +42,30 @@ path is ready; this preview does not publish to NuGet.org.
 Referencing `AdamE.AppNav.Maui` brings both source generators transitively: the
 core route generator and the MAUI page generator.
 
+## Navigation ownership: no Shell or Prism navigation
+
+**AppNav does not support `Microsoft.Maui.Controls.Shell`, Shell routing, or
+Prism navigation.** It is not an add-on router that can share one window's
+navigation authority with another navigation framework.
+
+For an AppNav-managed window, `AdamE.AppNav` owns the semantic routes, logical
+topology, planning, Back behavior, state, and history. `AdamE.AppNav.Maui` owns
+the corresponding native stacks, branches, modals, lifecycle reconciliation,
+and presentation transactions. Do not also use `AppShell`,
+`Shell.Current.GoToAsync`, Shell route registration, Prism's navigation
+service, or another library that independently owns those same concerns.
+
+Two navigation owners would create competing versions of the current route,
+stack, and Back behavior. AppNav cannot make transactional or reconciliation
+guarantees around native changes issued behind its presenter.
+
+This boundary does not prescribe the rest of the application architecture.
+MVVM libraries, dependency-injection containers, messaging libraries, and
+other non-navigation features may coexist when they do not mutate the
+AppNav-managed navigation surface. Moving an existing Shell- or Prism-navigated
+window to AppNav is a replacement migration, not an interoperability switch in
+this preview. See [MAUI integration](docs/guides/02-maui-integration.md#one-navigation-owner-no-shell-or-prism-navigation).
+
 ## Learn the model first
 
 Powerful application navigation requires a learning investment. AppNav is not

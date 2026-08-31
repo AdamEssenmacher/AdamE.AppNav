@@ -33,6 +33,38 @@ example. `Presentation` there means an application layer containing
 render-independent view models; it is not the same thing as AppNav's host-facing
 `INavigationPresenter` adapter contract.
 
+## One navigation owner: no Shell or Prism navigation
+
+**Do not combine an AppNav-managed window with
+`Microsoft.Maui.Controls.Shell`, Shell routing, or Prism navigation.** AppNav
+does not adapt to or synchronize with another navigation framework's route
+table, stack, history, or Back handling.
+
+For the window attached to AppNav:
+
+- do not use `AppShell`, `Shell.Current`, `Shell.Current.GoToAsync`, or Shell
+  route registration;
+- do not issue navigation through Prism's navigation service;
+- do not let another router push, pop, replace, select, or dismiss content on
+  the native stacks and modals owned by the AppNav presenter;
+- do use AppNav routes and `IRouterNavigator` for semantic navigation, and let
+  host-originated native actions return through AppNav reconciliation.
+
+AppNav commits logical state only after its presenter successfully applies a
+plan. Native mutations issued through another owner bypass that transaction,
+so AppNav can no longer guarantee that logical state, visible UI, history, and
+Back agree.
+
+This rule is intentionally scoped to navigation ownership. The application can
+use an MVVM toolkit, dependency-injection container, messaging system, or
+non-navigation parts of another framework. Route-owned presentation pages also
+remain inside AppNav's MAUI transaction; they are not a second navigator.
+
+An existing Shell- or Prism-navigated window therefore needs a deliberate
+migration: replace its route registrations and navigation calls with AppNav
+routes, topology, page mappings, and startup. This preview does not include a
+Shell or Prism bridge or a mixed-ownership migration mode.
+
 ## Map routes to MAUI presentation
 
 The built-in MAUI adapter maps each logical route entry to one anchor `Page`.

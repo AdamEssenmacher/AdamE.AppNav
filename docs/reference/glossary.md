@@ -191,6 +191,15 @@ topology. Standard stack and branch-host models define canonical recipes plus
 contextual push or replacement behavior. A model plans structure; it does not
 construct pages.
 
+### Navigation owner
+
+The single system authoritative for one managed surface's routes, topology,
+state, history, Back behavior, and native navigation mutations. AppNav core and
+its host adapter form that one owner together. Shell routing, Prism navigation,
+or another independent router cannot also own the same AppNav-managed window.
+Non-navigation libraries and framework features may coexist. See [MAUI
+integration](../guides/02-maui-integration.md#one-navigation-owner-no-shell-or-prism-navigation).
+
 ### Navigation plan
 
 A `NavigationPlan` containing the complete target `NavigationState`, a plan

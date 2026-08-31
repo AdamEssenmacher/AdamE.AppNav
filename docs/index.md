@@ -11,6 +11,9 @@ trying to do.
 - Keep the [Glossary](reference/glossary.md) nearby for precise definitions and
   distinctions such as route versus page, plan versus presentation, and source
   versus provenance.
+- Confirm the [one-navigation-owner boundary](guides/02-maui-integration.md#one-navigation-owner-no-shell-or-prism-navigation):
+  AppNav does not support Shell routing, Prism navigation, or mixed ownership
+  of the same window.
 - Review [Established ideas, adapted for
   .NET](concepts/00-why-appnav.md#established-ideas-adapted-for-net) for the
   conceptual lineage and comparisons with mature UI ecosystems.

@@ -165,6 +165,27 @@ owns Android and Apple domain association, provider SDK integrations, signing,
 and app-specific security decisions. It keeps that work at a controlled edge
 instead of spreading platform assumptions through the navigation model.
 
+## One navigation owner
+
+AppNav's guarantees require it to be the navigation authority for the surface
+it manages. Core owns semantic routes, logical topology, planning, state,
+history, and Back; the host adapter owns the corresponding native presentation
+and reconciliation. A second router cannot independently mutate the same
+surface without creating a second, conflicting account of what is current.
+
+For the MAUI adapter, this means no `Microsoft.Maui.Controls.Shell`, Shell
+routing, or Prism navigation. AppNav is not a bridge over `AppShell`,
+`Shell.Current.GoToAsync`, Prism's navigation service, or another framework's
+route and back-stack ownership. Adopting AppNav for an existing window requires
+migrating that window's navigation to AppNav.
+
+This is a navigation boundary, not a required application architecture. An app
+may still use Prism or another library for unrelated services if it can do so
+without invoking that library's navigation system or mutating the
+AppNav-managed native surface. See [MAUI
+integration](../guides/02-maui-integration.md#one-navigation-owner-no-shell-or-prism-navigation)
+for the concrete rule.
+
 ## When AppNav is a good fit
 
 Consider AppNav when an application needs several of these together:
@@ -183,7 +204,7 @@ for a small application whose navigation is adequately expressed by a few
 direct page operations.
 
 The current preview is also not a fit when an application requires Windows
-MAUI, Shell or Prism integration, true multi-window MAUI presentation, a
+MAUI, Shell or Prism navigation integration, true multi-window MAUI presentation, a
 transition/shared-element system, a production Blazor adapter, NuGet.org
 availability, or stable `1.0` compatibility guarantees.
 

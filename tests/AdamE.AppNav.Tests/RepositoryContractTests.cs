@@ -55,6 +55,39 @@ public sealed partial class RepositoryContractTests
     }
 
     [Fact]
+    public void DocumentationRequiresOneNavigationOwnerAndRejectsShellAndPrismNavigation()
+    {
+        var root = RepositoryRoot();
+        string readme = File.ReadAllText(Path.Combine(root, "README.md"));
+        string whyAppNav = File.ReadAllText(
+            Path.Combine(root, "docs", "concepts", "00-why-appnav.md"));
+        string mauiIntegration = File.ReadAllText(
+            Path.Combine(root, "docs", "guides", "02-maui-integration.md"));
+
+        Assert.Contains(
+            "Navigation ownership: no Shell or Prism navigation",
+            readme,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "AppNav does not support `Microsoft.Maui.Controls.Shell`, Shell routing, or\nPrism navigation",
+            readme,
+            StringComparison.Ordinal);
+        Assert.Contains("## One navigation owner", whyAppNav, StringComparison.Ordinal);
+        Assert.Contains(
+            "## One navigation owner: no Shell or Prism navigation",
+            mauiIntegration,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "This rule is intentionally scoped to navigation ownership",
+            mauiIntegration,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "This preview does not include a\nShell or Prism bridge or a mixed-ownership migration mode",
+            mauiIntegration,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void SampleAndTestsDoNotUsePreviousSampleTheme()
     {
         var root = RepositoryRoot();
