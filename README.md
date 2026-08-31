@@ -48,6 +48,7 @@ The preview includes:
 - a public custom-planner escape hatch;
 - logical window, stack, branch-host, and modal state;
 - native MAUI presentation and reconciliation;
+- platform-native motion for singular visible stack and modal operations;
 - trusted-origin external navigation;
 - bounded retrying ingress queues;
 - schema-3 deferred navigation persistence;
