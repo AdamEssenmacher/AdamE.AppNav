@@ -278,6 +278,156 @@ public sealed class MauiNavigationPresenterLifecycleTests
     }
 
     [UIFact]
+    public async Task DetachedRecoveryRestoresPresentationPagesBesideTheirOwningRoutes()
+    {
+        var fixture = new PresenterFixture();
+        var ownerPlan = Plan(Stack("main-stack", Entry("home"), Entry("owner")));
+        var laterPlan = Plan(Stack(
+            "main-stack",
+            Entry("home"),
+            Entry("owner"),
+            Entry("later")));
+
+        await fixture.Presenter.ApplyAsync(
+            ownerPlan,
+            Context(new TestPageRoute("owner")));
+        await fixture.Presenter.PushAsync<TestPresentationPage>(
+            "settings",
+            new MauiRoutePresentationPageOptions { Animated = false });
+        await fixture.Presenter.ApplyAsync(
+            laterPlan,
+            Context(new TestPageRoute("later"), ownerPlan.TargetState));
+
+        var window = new Window();
+        await fixture.Presenter.AttachWindowAsync(window);
+        ((IWindow)window).Destroying();
+        Assert.True(await Task.Run(() => SpinWait.SpinUntil(
+            () => fixture.Presenter.AttachedWindow is null,
+            TimeSpan.FromSeconds(5))));
+
+        await fixture.Presenter.ApplyAsync(
+            laterPlan,
+            Context(new TestPageRoute("later"), laterPlan.TargetState));
+
+        var recoveredNavigationPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        Assert.Equal(
+            ["home", "owner", "settings", "later"],
+            recoveredNavigationPage.Navigation.NavigationStack
+                .Select(page => (MauiPresentationMetadata.GetRouteEntryId(page) ??
+                    MauiPresentationMetadata.GetPresentationPageKey(page))!)
+                .ToArray());
+
+        var replacementWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(replacementWindow);
+        Assert.Same(recoveredNavigationPage, replacementWindow.Page);
+
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [UIFact]
+    public async Task DetachedRecoveryPreservesIndependentPresentationBindingContext()
+    {
+        var fixture = new PresenterFixture();
+        var plan = Plan(Stack(
+            "main-stack",
+            Entry("home"),
+            Entry("owner"),
+            Entry("later")));
+
+        await fixture.Presenter.ApplyAsync(
+            plan,
+            Context(new TestPageRoute("later")));
+        await fixture.Presenter.PushAsync<IndependentBindingPresentationPage>(
+            "settings",
+            new MauiRoutePresentationPageOptions
+            {
+                Animated = false,
+                InheritBindingContext = false
+            });
+
+        var navigationPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        var originalPage = Assert.IsType<IndependentBindingPresentationPage>(
+            navigationPage.Navigation.NavigationStack[^1]);
+        object originalBindingContext = originalPage.OwnBindingContext;
+        Assert.Same(originalBindingContext, originalPage.BindingContext);
+
+        var window = new Window();
+        await fixture.Presenter.AttachWindowAsync(window);
+        ((IWindow)window).Destroying();
+        Assert.True(await Task.Run(() => SpinWait.SpinUntil(
+            () => fixture.Presenter.AttachedWindow is null,
+            TimeSpan.FromSeconds(5))));
+
+        await fixture.Presenter.ApplyAsync(
+            plan,
+            Context(new TestPageRoute("later"), plan.TargetState));
+
+        var recoveredNavigationPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        Assert.Equal(2, fixture.Factory.CreatedPresentationPages.Count);
+        var latestCreatedPage = Assert.IsType<IndependentBindingPresentationPage>(
+            fixture.Factory.CreatedPresentationPages[^1]);
+        Assert.Same(latestCreatedPage.OwnBindingContext, latestCreatedPage.BindingContext);
+        var recoveredPage = Assert.IsType<IndependentBindingPresentationPage>(
+            recoveredNavigationPage.Navigation.NavigationStack.Single(page =>
+                MauiPresentationMetadata.GetPresentationPageKey(page) == "settings"));
+        Assert.NotSame(originalPage, recoveredPage);
+        Assert.NotSame(originalBindingContext, recoveredPage.BindingContext);
+        Assert.Same(recoveredPage.OwnBindingContext, recoveredPage.BindingContext);
+
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [UIFact]
+    public async Task DetachedRecoveryUsesRequestedPresentationServiceType()
+    {
+        var requestedTypes = new List<Type>();
+        var fixture = new PresenterFixture(
+            createPresentationPage: pageType =>
+            {
+                requestedTypes.Add(pageType);
+                if (pageType != typeof(RequestedPresentationPage))
+                {
+                    throw new InvalidOperationException(
+                        $"Unexpected presentation service type '{pageType.FullName}'.");
+                }
+
+                return new ResolvedPresentationPage();
+            });
+        var plan = Plan(Stack(
+            "main-stack",
+            Entry("home"),
+            Entry("owner"),
+            Entry("later")));
+
+        await fixture.Presenter.ApplyAsync(
+            plan,
+            Context(new TestPageRoute("later")));
+        await fixture.Presenter.PushAsync<RequestedPresentationPage>(
+            "settings",
+            new MauiRoutePresentationPageOptions { Animated = false });
+
+        var window = new Window();
+        await fixture.Presenter.AttachWindowAsync(window);
+        ((IWindow)window).Destroying();
+        Assert.True(await Task.Run(() => SpinWait.SpinUntil(
+            () => fixture.Presenter.AttachedWindow is null,
+            TimeSpan.FromSeconds(5))));
+
+        await fixture.Presenter.ApplyAsync(
+            plan,
+            Context(new TestPageRoute("later"), plan.TargetState));
+
+        Assert.Equal(
+            [typeof(RequestedPresentationPage), typeof(RequestedPresentationPage)],
+            requestedTypes);
+        var recoveredNavigationPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        Assert.IsType<ResolvedPresentationPage>(recoveredNavigationPage.Navigation.NavigationStack.Single(page =>
+            MauiPresentationMetadata.GetPresentationPageKey(page) == "settings"));
+
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [UIFact]
     public async Task DestroyingReplacedWindowDoesNotDetachReplacementWindow()
     {
         var fixture = new PresenterFixture();
@@ -2397,13 +2547,18 @@ public sealed class MauiNavigationPresenterLifecycleTests
             Func<RouteEntry, Page>? createPage = null,
             Action<Page, RouteEntry, MauiRoutePageUpdateContext>? updatePage = null,
             IMauiNativeNavigationOperations? nativeOperations = null,
-            Func<RouteEntry, CancellationToken, ValueTask<Page>>? createPageAsync = null)
+            Func<RouteEntry, CancellationToken, ValueTask<Page>>? createPageAsync = null,
+            Func<Type, Page>? createPresentationPage = null)
         {
             Diagnostics = new NavigationDiagnostics();
             Diagnostics.AddObserver(Observer);
             PresentationOptions = new MauiRoutePresentationOptions();
             configurePages?.Invoke(PresentationOptions.Pages);
-            Factory = new InstrumentedRoutePageFactory(createPage, updatePage, createPageAsync);
+            Factory = new InstrumentedRoutePageFactory(
+                createPage,
+                updatePage,
+                createPageAsync,
+                createPresentationPage);
             Presenter = new MauiNavigationPresenter(
                 Factory,
                 diagnostics: Diagnostics,
@@ -2526,6 +2681,20 @@ public sealed class MauiNavigationPresenterLifecycleTests
     {
         public PresentationScopeMarker Marker { get; } = marker;
     }
+
+    public sealed class IndependentBindingPresentationPage : ContentPage
+    {
+        public object OwnBindingContext { get; } = new();
+
+        public IndependentBindingPresentationPage()
+        {
+            BindingContext = OwnBindingContext;
+        }
+    }
+
+    public abstract class RequestedPresentationPage : ContentPage;
+
+    public sealed class ResolvedPresentationPage : RequestedPresentationPage;
 
     private sealed class PresentationScopeMarker : IDisposable
     {

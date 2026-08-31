@@ -8,6 +8,7 @@ internal sealed class InstrumentedRoutePageFactory : IMauiRoutePageFactory
 {
     private readonly Func<RouteEntry, Page>? _createPage;
     private readonly Func<RouteEntry, CancellationToken, ValueTask<Page>>? _createPageAsync;
+    private readonly Func<Type, Page>? _createPresentationPage;
     private readonly Action<Page, RouteEntry, MauiRoutePageUpdateContext>? _updatePage;
     private readonly Dictionary<Page, int> _releaseCounts = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<Page, int> _updateCounts = new(ReferenceEqualityComparer.Instance);
@@ -32,11 +33,13 @@ internal sealed class InstrumentedRoutePageFactory : IMauiRoutePageFactory
     public InstrumentedRoutePageFactory(
         Func<RouteEntry, Page>? createPage = null,
         Action<Page, RouteEntry, MauiRoutePageUpdateContext>? updatePage = null,
-        Func<RouteEntry, CancellationToken, ValueTask<Page>>? createPageAsync = null)
+        Func<RouteEntry, CancellationToken, ValueTask<Page>>? createPageAsync = null,
+        Func<Type, Page>? createPresentationPage = null)
     {
         _createPage = createPage;
         _updatePage = updatePage;
         _createPageAsync = createPageAsync;
+        _createPresentationPage = createPresentationPage;
     }
 
     public async ValueTask<Page> CreatePageAsync(
@@ -68,7 +71,8 @@ internal sealed class InstrumentedRoutePageFactory : IMauiRoutePageFactory
         bool inheritBindingContext,
         CancellationToken cancellationToken = default)
     {
-        var page = Assert.IsAssignableFrom<Page>(Activator.CreateInstance(pageType));
+        var page = _createPresentationPage?.Invoke(pageType) ??
+                   Assert.IsAssignableFrom<Page>(Activator.CreateInstance(pageType));
         if (inheritBindingContext)
         {
             page.BindingContext = ownerRoutePage.BindingContext;

@@ -30,6 +30,13 @@ internal static class MauiPresentationMetadata
             typeof(MauiPresentationMetadata),
             null);
 
+    private static readonly BindableProperty PresentationPageTypeProperty =
+        BindableProperty.CreateAttached(
+            "RouterPresentationPageType",
+            typeof(Type),
+            typeof(MauiPresentationMetadata),
+            null);
+
     public static void SetHostId(BindableObject bindableObject, string? id)
     {
         bindableObject.SetValue(HostIdProperty, id);
@@ -88,5 +95,15 @@ internal static class MauiPresentationMetadata
     public static string? GetPresentationPageKey(BindableObject? bindableObject)
     {
         return bindableObject?.GetValue(PresentationPageKeyProperty) as string;
+    }
+
+    public static void SetPresentationPageType(BindableObject bindableObject, Type? type)
+    {
+        bindableObject.SetValue(PresentationPageTypeProperty, type);
+    }
+
+    public static Type? GetPresentationPageType(BindableObject? bindableObject)
+    {
+        return bindableObject?.GetValue(PresentationPageTypeProperty) as Type;
     }
 }
