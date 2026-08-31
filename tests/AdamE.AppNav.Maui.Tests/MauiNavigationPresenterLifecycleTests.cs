@@ -242,6 +242,51 @@ public sealed class MauiNavigationPresenterLifecycleTests
         await fixture.Presenter.StartShutdown();
     }
 
+    [UIFact]
+    public async Task DestroyingDuringExistingStackReconciliationStopsNativeNavigationOnDestroyedPage()
+    {
+        var nativeOperations = new CountingNativeNavigationOperations();
+        var fixture = new PresenterFixture(nativeOperations: nativeOperations);
+
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("schools", Entry("schools"))),
+            Context(new TestPageRoute("schools")));
+
+        var window = new Window();
+        await fixture.Presenter.AttachWindowAsync(window);
+        var navigationPage = Assert.IsType<NavigationPage>(window.Page);
+        nativeOperations.BlockNextStackPush();
+
+        Task presentation = fixture.Presenter.ApplyAsync(
+            Plan(Stack(
+                "schools",
+                Entry("schools"),
+                Entry("school-riverside"),
+                Entry("school-middleton"))),
+            Context(new TestPageRoute("school-middleton"))).AsTask();
+
+        await nativeOperations.StackPushStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        int pushesAtDestruction = nativeOperations.StackPushCountFor(navigationPage);
+        ((IWindow)window).Destroying();
+        nativeOperations.ReleaseStackPush();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => presentation);
+
+        bool detached = await Task.Run(() => SpinWait.SpinUntil(
+            () => fixture.Presenter.AttachedWindow is null,
+            TimeSpan.FromSeconds(5)));
+        Assert.True(detached);
+        Assert.Equal(pushesAtDestruction, nativeOperations.StackPushCountFor(navigationPage));
+
+        var replacementWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(replacementWindow);
+        var replacementPage = Assert.IsType<NavigationPage>(replacementWindow.Page);
+        Assert.Same(fixture.Presenter.CurrentPage, replacementPage);
+        Assert.Single(replacementPage.Navigation.NavigationStack);
+
+        await fixture.Presenter.StartShutdown();
+    }
+
     [Fact]
     public async Task AttachWindowReplacementTransfersCurrentPageAndLifecycleHandlers()
     {
@@ -2054,6 +2099,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _releaseStackPush =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly List<NavigationPage> _stackPushPages = [];
         private bool _blockNextStackPush;
 
         public int StackPushCount { get; private set; }
@@ -2063,6 +2109,9 @@ public sealed class MauiNavigationPresenterLifecycleTests
         public int WindowPageSetCount { get; private set; }
 
         public Task StackPushStarted => _stackPushStarted.Task;
+
+        public int StackPushCountFor(NavigationPage navigationPage) =>
+            _stackPushPages.Count(page => ReferenceEquals(page, navigationPage));
 
         public void BlockNextStackPush()
         {
@@ -2077,6 +2126,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         public async Task PushAsync(NavigationPage navigationPage, Page page, bool animated)
         {
             StackPushCount++;
+            _stackPushPages.Add(navigationPage);
             await MauiNativeNavigationOperations.Instance.PushAsync(navigationPage, page, animated);
 
             if (!_blockNextStackPush)

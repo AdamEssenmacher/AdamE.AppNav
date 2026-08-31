@@ -39,6 +39,7 @@ internal sealed class MauiNavigationPresenter :
     private Window? _attachedWindow;
     private string? _attachedWindowId;
     private Window? _destroyingWindow;
+    private Page? _destroyingPage;
     private string _lifecycleOperationId = CreateOperationId();
     private string? _activeOperationId;
     private bool _suppressReconciliation;
@@ -308,6 +309,7 @@ internal sealed class MauiNavigationPresenter :
         _attachedWindow = null;
         _attachedWindowId = null;
         _destroyingWindow = null;
+        _destroyingPage = null;
         _navigationPageStackIds.Clear();
         _navigationPageKnownPages.Clear();
         _suppressedNavigationPops.Clear();
@@ -359,7 +361,10 @@ internal sealed class MauiNavigationPresenter :
         {
             UnsubscribeWindowLifecycle(previousWindow);
             if (ReferenceEquals(_destroyingWindow, previousWindow))
+            {
                 _destroyingWindow = null;
+                _destroyingPage = null;
+            }
         }
 
         bool alreadyAttached = ReferenceEquals(previousWindow, window);
@@ -382,7 +387,10 @@ internal sealed class MauiNavigationPresenter :
             _attachedWindow = null;
             _attachedWindowId = null;
             if (ReferenceEquals(_destroyingWindow, window))
+            {
                 _destroyingWindow = null;
+                _destroyingPage = null;
+            }
         }
     }
 
@@ -391,7 +399,10 @@ internal sealed class MauiNavigationPresenter :
         if (!ReferenceEquals(_attachedWindow, window))
         {
             if (ReferenceEquals(_destroyingWindow, window))
+            {
                 _destroyingWindow = null;
+                _destroyingPage = null;
+            }
             return;
         }
 
@@ -402,6 +413,7 @@ internal sealed class MauiNavigationPresenter :
         _attachedWindow = null;
         _attachedWindowId = null;
         _destroyingWindow = null;
+        _destroyingPage = null;
     }
 
     private async ValueTask RunSerializedWindowMutationAsync(
@@ -558,6 +570,7 @@ internal sealed class MauiNavigationPresenter :
 
         // Mark the window before waiting for the serialized cleanup. An active presentation may resume after
         // this callback and must not write Window.Page while the native window is being destroyed.
+        _destroyingPage = window.Page ?? CurrentPage;
         _destroyingWindow = window;
         _ = ObserveDestroyedWindowAsync(window);
     }
@@ -795,7 +808,16 @@ internal sealed class MauiNavigationPresenter :
 
         try
         {
-            await transaction.RollbackAsync();
+            if (IsDestroyingAttachedWindow(transaction.PreviousAttachedWindow))
+            {
+                await RebuildStateFromScratchAsync(transaction.PreviousState, operationId);
+                await transaction.ReleaseCreatedPagesAsync();
+            }
+            else
+            {
+                await transaction.RollbackAsync();
+            }
+
             _diagnostics.Write(
                 NavigationDiagnosticEventKind.PresentationRollbackCompleted,
                 operationId,
@@ -915,6 +937,7 @@ internal sealed class MauiNavigationPresenter :
                 "Route-owned presentation page was created.");
 
             cancellationToken.ThrowIfCancellationRequested();
+            ThrowIfNativeNavigationBlocked(navigationPage);
             await _nativeOperations.PushAsync(navigationPage, page, options.Animated);
             cancellationToken.ThrowIfCancellationRequested();
             SuppressedNavigationPopFold popFold = await FoldSuppressedNavigationPopsAsync(
@@ -985,6 +1008,7 @@ internal sealed class MauiNavigationPresenter :
         transaction.Retire(expectedPage);
         try
         {
+            ThrowIfNativeNavigationBlocked(navigationPage);
             Page? removed = await _nativeOperations.PopAsync(navigationPage, animated);
             cancellationToken.ThrowIfCancellationRequested();
             SuppressedNavigationPopFold popFold = await FoldSuppressedNavigationPopsAsync(
@@ -1183,6 +1207,7 @@ internal sealed class MauiNavigationPresenter :
         for (var i = 1; i < stack.Entries.Count; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            ThrowIfNativeNavigationBlocked(navigationPage);
             var page = await CreateRoutePageAsync(stack.Entries[i], cancellationToken);
             await _nativeOperations.PushAsync(navigationPage, page, animated: false);
         }
@@ -1212,6 +1237,7 @@ internal sealed class MauiNavigationPresenter :
         while (navigationPage.Navigation.NavigationStack.Count > retainedNativePageCount)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            ThrowIfNativeNavigationBlocked(navigationPage);
             var removed = await _nativeOperations.PopAsync(navigationPage, animated: false);
             if (removed is not null)
             {
@@ -1222,6 +1248,7 @@ internal sealed class MauiNavigationPresenter :
         foreach (Page page in replacementPages)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            ThrowIfNativeNavigationBlocked(navigationPage);
             await _nativeOperations.PushAsync(navigationPage, page, animated: false);
         }
 
@@ -1311,6 +1338,7 @@ internal sealed class MauiNavigationPresenter :
                      .Where(child => GetBranchId(child) is not { } branchId || !desiredBranchIds.Contains(branchId))
                      .ToArray())
         {
+            ThrowIfNativeNavigationBlocked(tabbedPage);
             _nativeOperations.RemoveTab(tabbedPage, stalePage);
             await DetachPageTreeAsync(stalePage);
         }
@@ -1324,6 +1352,7 @@ internal sealed class MauiNavigationPresenter :
 
             if (existingBranchPage is not null && !ReferenceEquals(existingBranchPage, page))
             {
+                ThrowIfNativeNavigationBlocked(tabbedPage);
                 _nativeOperations.RemoveTab(tabbedPage, existingBranchPage);
                 await DetachPageTreeAsync(existingBranchPage);
             }
@@ -1331,11 +1360,14 @@ internal sealed class MauiNavigationPresenter :
             var currentIndex = tabbedPage.Children.IndexOf(page);
             if (currentIndex < 0)
             {
+                ThrowIfNativeNavigationBlocked(tabbedPage);
                 _nativeOperations.InsertTab(tabbedPage, Math.Min(i, tabbedPage.Children.Count), page);
             }
             else if (currentIndex != i)
             {
+                ThrowIfNativeNavigationBlocked(tabbedPage);
                 _nativeOperations.RemoveTab(tabbedPage, page);
+                ThrowIfNativeNavigationBlocked(tabbedPage);
                 _nativeOperations.InsertTab(tabbedPage, Math.Min(i, tabbedPage.Children.Count), page);
             }
 
@@ -1345,6 +1377,7 @@ internal sealed class MauiNavigationPresenter :
             }
         }
 
+        ThrowIfNativeNavigationBlocked(tabbedPage);
         _nativeOperations.SetCurrentTab(tabbedPage, selectedPage ?? tabbedPage.Children.FirstOrDefault());
         return tabbedPage;
     }
@@ -1389,6 +1422,7 @@ internal sealed class MauiNavigationPresenter :
         while (root.Navigation.ModalStack.Count > commonCount)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            ThrowIfNativeNavigationBlocked(root);
             var removed = await _nativeOperations.PopModalAsync(root, animated: false);
             if (removed is not null)
             {
@@ -1399,6 +1433,7 @@ internal sealed class MauiNavigationPresenter :
         foreach (Page modalPage in replacementModals)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            ThrowIfNativeNavigationBlocked(root);
             await _nativeOperations.PushModalAsync(root, modalPage, animated: false);
         }
 
@@ -1602,6 +1637,25 @@ internal sealed class MauiNavigationPresenter :
         }
 
         _nativeOperations.SetWindowPage(_attachedWindow, page);
+    }
+
+    private bool IsDestroyingAttachedWindow(Window? window)
+    {
+        return window is not null &&
+               ReferenceEquals(_attachedWindow, window) &&
+               ReferenceEquals(_destroyingWindow, window);
+    }
+
+    private void ThrowIfNativeNavigationBlocked(Page page)
+    {
+        if (_destroyingWindow is null || !ReferenceEquals(_attachedWindow, _destroyingWindow) ||
+            _destroyingPage is null || !ContainsPageInStructuralTree(_destroyingPage, page))
+        {
+            return;
+        }
+
+        throw new OperationCanceledException(
+            "Native MAUI navigation was canceled because the attached window is being destroyed.");
     }
 
     private void InvokeRootPageChanged(Page? page)
@@ -2164,6 +2218,7 @@ internal sealed class MauiNavigationPresenter :
             while (navigationPage.Navigation.NavigationStack.Count > pendingPop.RemainingPages.Count)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                ThrowIfNativeNavigationBlocked(navigationPage);
                 Page? removed = await _nativeOperations.PopAsync(navigationPage, animated: false);
                 if (removed is null)
                     throw new InvalidOperationException("Native stack pop did not return the removed page.");
@@ -3169,6 +3224,8 @@ internal sealed class MauiNavigationPresenter :
 
         public NavigationState PreviousState { get; }
 
+        public Window? PreviousAttachedWindow => _previousAttachedWindow;
+
         public void TrackCreated(Page page) => _createdPages.Add(page);
 
         public void Retire(Page page) => _retiredPages.Add(page);
@@ -3221,9 +3278,16 @@ internal sealed class MauiNavigationPresenter :
             foreach ((TabbedPage tabbedPage, TabSnapshot snapshot) in _tabs)
             {
                 foreach (Page currentPage in tabbedPage.Children.ToArray())
+                {
+                    _presenter.ThrowIfNativeNavigationBlocked(tabbedPage);
                     _presenter._nativeOperations.RemoveTab(tabbedPage, currentPage);
+                }
                 for (var index = 0; index < snapshot.Children.Length; index++)
+                {
+                    _presenter.ThrowIfNativeNavigationBlocked(tabbedPage);
                     _presenter._nativeOperations.InsertTab(tabbedPage, index, snapshot.Children[index]);
+                }
+                _presenter.ThrowIfNativeNavigationBlocked(tabbedPage);
                 _presenter._nativeOperations.SetCurrentTab(tabbedPage, snapshot.CurrentPage);
             }
 
@@ -3232,6 +3296,7 @@ internal sealed class MauiNavigationPresenter :
                 while (navigationPage.Navigation.NavigationStack.Count > 1)
                 {
                     int previousCount = navigationPage.Navigation.NavigationStack.Count;
+                    _presenter.ThrowIfNativeNavigationBlocked(navigationPage);
                     await _presenter._nativeOperations.PopAsync(navigationPage, animated: false);
                     if (navigationPage.Navigation.NavigationStack.Count >= previousCount)
                         throw new InvalidOperationException("Native stack rollback did not remove a page.");
@@ -3246,7 +3311,10 @@ internal sealed class MauiNavigationPresenter :
                 }
 
                 for (var index = 1; index < pages.Length; index++)
+                {
+                    _presenter.ThrowIfNativeNavigationBlocked(navigationPage);
                     await _presenter._nativeOperations.PushAsync(navigationPage, pages[index], animated: false);
+                }
             }
 
             if (_previousCurrentPage is not null)
@@ -3254,16 +3322,20 @@ internal sealed class MauiNavigationPresenter :
                 while (_previousCurrentPage.Navigation.ModalStack.Count > 0)
                 {
                     int previousCount = _previousCurrentPage.Navigation.ModalStack.Count;
+                    _presenter.ThrowIfNativeNavigationBlocked(_previousCurrentPage);
                     await _presenter._nativeOperations.PopModalAsync(_previousCurrentPage, animated: false);
                     if (_previousCurrentPage.Navigation.ModalStack.Count >= previousCount)
                         throw new InvalidOperationException("Modal rollback did not remove a page.");
                 }
 
                 foreach (Page modal in _previousModals)
+                {
+                    _presenter.ThrowIfNativeNavigationBlocked(_previousCurrentPage);
                     await _presenter._nativeOperations.PushModalAsync(
                         _previousCurrentPage,
                         modal,
                         animated: false);
+                }
             }
 
             foreach ((Page page, RouteEntry entry) in _updatedPages)
