@@ -1,7 +1,7 @@
 # Commerce sample
 
 Commerce is the advanced MAUI sample for AdamE.AppNav. It uses a
-`BranchHostNavigationModel<AppRoute>` to present four native tabs, generated route and page
+`BranchHostNavigationModel<AppRoute>` to present four branches through a native flyout, generated route and page
 modules, typed in-app requests, a typed startup fallback, and opt-in external URI ingress. It
 does not use Shell, Prism, deferred persistence, or an app-specific planner.
 
@@ -33,10 +33,10 @@ Route identity and route-entry metadata remain separate. For example,
 `ProductDetailRoute` and optional typed `campaign` metadata. The generated route table formats
 that metadata as the canonical query without adding it to the page-constructor route type.
 
-## Topology and independent tab stacks
+## Topology and independent flyout branch stacks
 
-`CommerceNavigationModel` declares one canonical `store-tabs` branch host. Each branch owns a
-distinct native navigation stack:
+`CommerceNavigationModel` declares one canonical `store-tabs` branch host and maps that host to
+`FlyoutPage` presentation in `MauiProgram`. Each branch owns a distinct retained native navigation stack:
 
 | Branch | Root | Canonical detail shape |
 | --- | --- | --- |
@@ -49,12 +49,12 @@ Contextual navigation changes only the owning branch and selects it. Other branc
 dormant rather than being rebuilt. To see that behavior:
 
 1. Start the app; the typed fallback builds Catalog -> Product 123.
-2. Select Cart in the native tab bar.
-3. Select Catalog again; Product 123 is still the visible Catalog entry.
+2. Open the native flyout and select Cart.
+3. Open the flyout and select Catalog again; Product 123 is still the visible Catalog entry.
 4. Use the native or system Back action; Catalog becomes visible without changing the other
    branches.
 
-Selecting a native tab reconciles the logical state with `BranchChanged`. Completing a native
+Selecting a native flyout branch reconciles the logical state with `BranchChanged`. Completing a native
 Back gesture reconciles with `HostBack`. The synthesized history request is recorded with the
 host-neutral `HostReconciliation` source.
 

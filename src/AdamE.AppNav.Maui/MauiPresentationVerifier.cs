@@ -92,12 +92,18 @@ internal sealed class MauiPresentationVerifier : IMauiPresentationVerifier
             return true;
         }
 
+        if (page is MauiBranchFlyoutPage flyoutPage &&
+            flyoutPage.Branches.Any(branch => ContainsRouterOwnedPage(branch.Page, visited)))
+        {
+            return true;
+        }
+
         return page.Navigation.ModalStack.Any(modal => ContainsRouterOwnedPage(modal, visited));
     }
 
     private static MauiPresentationVerificationMismatch? VerifyRootlessModalHost(Page page)
     {
-        return page is NavigationPage or TabbedPage
+        return page is NavigationPage or TabbedPage or FlyoutPage
             ? Mismatch("$.root", "synthetic root page", DescribePage(page))
             : null;
     }
@@ -111,6 +117,8 @@ internal sealed class MauiPresentationVerifier : IMauiPresentationVerifier
         return node switch
         {
             StackNode stack => VerifyStack(stack, page, path),
+            BranchHostNode branchHost when presentationOptions.TryGetFlyout(branchHost.Id, out _) =>
+                VerifyFlyoutBranchHost(branchHost, page, path, presentationOptions),
             BranchHostNode branchHost => VerifyTabbedBranchHost(branchHost, page, path, presentationOptions),
             ModalNode modal => modal.Content is null
                 ? VerifyRoutePage(modal.RouteEntry, page, path)
@@ -123,7 +131,7 @@ internal sealed class MauiPresentationVerifier : IMauiPresentationVerifier
     {
         if (stack.Entries.Count == 0)
         {
-            return page is NavigationPage or TabbedPage
+            return page is NavigationPage or TabbedPage or FlyoutPage
                 ? Mismatch(path, "empty stack page", DescribePage(page))
                 : null;
         }
@@ -217,6 +225,68 @@ internal sealed class MauiPresentationVerifier : IMauiPresentationVerifier
         return StringComparer.Ordinal.Equals(selectedBranchId, branchHost.SelectedBranchId)
             ? null
             : Mismatch($"{path}.selectedBranchId", branchHost.SelectedBranchId, selectedBranchId ?? "null");
+    }
+
+    private static MauiPresentationVerificationMismatch? VerifyFlyoutBranchHost(
+        BranchHostNode branchHost,
+        Page? page,
+        string path,
+        MauiRoutePresentationOptions presentationOptions)
+    {
+        if (page is not MauiBranchFlyoutPage flyoutPage)
+            return Mismatch(path, $"FlyoutPage host '{branchHost.Id}'", DescribePage(page));
+
+        var hostMismatch = VerifyHostId(flyoutPage, branchHost.Id, path);
+        if (hostMismatch is not null)
+            return hostMismatch;
+        if (flyoutPage.Branches.Count != branchHost.Branches.Count)
+        {
+            return Mismatch(
+                $"{path}.branches.count",
+                branchHost.Branches.Count.ToString(),
+                flyoutPage.Branches.Count.ToString());
+        }
+
+        for (var i = 0; i < branchHost.Branches.Count; i++)
+        {
+            NavigationBranch branch = branchHost.Branches[i];
+            MauiFlyoutBranchPresentation presented = flyoutPage.Branches[i];
+            if (!StringComparer.Ordinal.Equals(presented.Id, branch.Id))
+            {
+                return Mismatch($"{path}.branches[{i}].branchId", branch.Id, presented.Id);
+            }
+
+            string? pageBranchId = MauiPresentationMetadata.GetBranchId(presented.Page);
+            if (!StringComparer.Ordinal.Equals(pageBranchId, branch.Id))
+            {
+                return Mismatch($"{path}.branches[{i}].page.branchId", branch.Id, pageBranchId ?? "null");
+            }
+
+            var childMismatch = VerifyNode(
+                branch.Content,
+                presented.Page,
+                $"{path}.branches[{i}].content",
+                presentationOptions);
+            if (childMismatch is not null)
+                return childMismatch;
+        }
+
+        MauiFlyoutBranchPresentation? selected = flyoutPage.Branches.FirstOrDefault(branch =>
+            StringComparer.Ordinal.Equals(branch.Id, branchHost.SelectedBranchId));
+        if (selected is null || !ReferenceEquals(flyoutPage.Detail, selected.Page))
+        {
+            return Mismatch(
+                $"{path}.detail",
+                branchHost.SelectedBranchId,
+                MauiPresentationMetadata.GetBranchId(flyoutPage.Detail) ?? "null");
+        }
+
+        return StringComparer.Ordinal.Equals(flyoutPage.SelectedBranchId, branchHost.SelectedBranchId)
+            ? null
+            : Mismatch(
+                $"{path}.selectedBranchId",
+                branchHost.SelectedBranchId,
+                flyoutPage.SelectedBranchId ?? "null");
     }
 
     private static MauiPresentationVerificationMismatch? VerifyModals(

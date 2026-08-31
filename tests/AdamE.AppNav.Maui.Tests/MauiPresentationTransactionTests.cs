@@ -54,6 +54,48 @@ public sealed class MauiPresentationTransactionTests
         await presenter.StartShutdown();
     }
 
+    [Fact]
+    public async Task FlyoutDetailFailureAfterMutationRestoresCachedBranchesAndSelection()
+    {
+        NavigationState previousState = BranchState("catalog", "catalog", "orders");
+        NavigationState targetState = BranchState("orders", "catalog", "orders");
+        var initialIcon = new FontImageSource { Glyph = "initial" };
+        var targetIcon = new FontImageSource { Glyph = "target" };
+        var nativeOperations = new FaultingNativeOperations();
+        var factory = new InstrumentedRoutePageFactory(
+            createPage: entry => new ContentPage
+            {
+                Title = entry.Id,
+                IconImageSource = initialIcon
+            },
+            updatePage: (page, _, _) => page.IconImageSource = targetIcon);
+        var options = new MauiRoutePresentationOptions();
+        options.FlyoutBranchHosts.Add(
+            "main-tabs",
+            new MauiFlyoutBranchHostOptions("Main", FlyoutLayoutBehavior.Default, true));
+        var presenter = new MauiNavigationPresenter(
+            factory,
+            presentationOptions: options,
+            nativeOperations: nativeOperations);
+        await presenter.ApplyAsync(new NavigationPlan(previousState), Context("catalog", NavigationState.Empty));
+        var flyoutPage = Assert.IsType<MauiBranchFlyoutPage>(presenter.CurrentPage);
+        Button[] menuButtons = FlyoutMenuButtons(flyoutPage);
+        Assert.All(menuButtons, button => Assert.Same(initialIcon, button.ImageSource));
+        NativePresentationSnapshot previousPresentation = CapturePresentation(presenter, null);
+        Page[] previousPages = factory.CreatedPages.ToArray();
+        nativeOperations.FaultAfterMutation = NativeMutation.SetFlyoutDetail;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => presenter.ApplyAsync(
+            new NavigationPlan(targetState),
+            Context("orders", previousState)).AsTask());
+
+        AssertPresentation(previousPresentation, presenter, null);
+        Assert.Equal(menuButtons.Length, FlyoutMenuButtons(flyoutPage).Length);
+        Assert.All(FlyoutMenuButtons(flyoutPage), button => Assert.Same(initialIcon, button.ImageSource));
+        Assert.All(previousPages, page => Assert.Equal(0, factory.ReleaseCountFor(page)));
+        await presenter.StartShutdown();
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
@@ -918,18 +960,28 @@ public sealed class MauiPresentationTransactionTests
             root?.Navigation.ModalStack.Select(CapturePage).ToArray() ?? []);
     }
 
+    private static Button[] FlyoutMenuButtons(MauiBranchFlyoutPage flyoutPage)
+    {
+        var menuPage = Assert.IsType<ContentPage>(flyoutPage.Flyout);
+        var scrollView = Assert.IsType<ScrollView>(menuPage.Content);
+        var menuItems = Assert.IsType<VerticalStackLayout>(scrollView.Content);
+        return menuItems.Children.Select(Assert.IsType<Button>).ToArray();
+    }
+
     private static NativePageSnapshot CapturePage(Page page)
     {
         Page[] children = page switch
         {
             NavigationPage navigationPage => navigationPage.Navigation.NavigationStack.ToArray(),
             TabbedPage tabbedPage => tabbedPage.Children.ToArray(),
+            MauiBranchFlyoutPage flyoutPage => flyoutPage.Branches.Select(static branch => branch.Page).ToArray(),
             _ => []
         };
         Page? currentPage = page switch
         {
             NavigationPage navigationPage => navigationPage.CurrentPage,
             TabbedPage tabbedPage => tabbedPage.CurrentPage,
+            MauiBranchFlyoutPage flyoutPage => flyoutPage.Detail,
             _ => null
         };
 
@@ -987,12 +1039,14 @@ public sealed class MauiPresentationTransactionTests
         {
             NavigationPage navigationPage => navigationPage.Navigation.NavigationStack.ToArray(),
             TabbedPage tabbedPage => tabbedPage.Children.ToArray(),
+            MauiBranchFlyoutPage flyoutPage => flyoutPage.Branches.Select(static branch => branch.Page).ToArray(),
             _ => []
         };
         Page? actualCurrentPage = actual switch
         {
             NavigationPage navigationPage => navigationPage.CurrentPage,
             TabbedPage tabbedPage => tabbedPage.CurrentPage,
+            MauiBranchFlyoutPage flyoutPage => flyoutPage.Detail,
             _ => null
         };
         Assert.Same(expected.CurrentPage, actualCurrentPage);
@@ -1059,6 +1113,8 @@ public sealed class MauiPresentationTransactionTests
         RemoveTab,
         InsertTab,
         SetCurrentTab,
+        SetFlyoutDetail,
+        SetFlyoutPresented,
         SetWindowPage
     }
 
@@ -1304,6 +1360,18 @@ public sealed class MauiPresentationTransactionTests
         {
             MauiNativeNavigationOperations.Instance.SetCurrentTab(tabbedPage, page);
             ThrowAfterMutation(NativeMutation.SetCurrentTab);
+        }
+
+        public void SetFlyoutDetail(FlyoutPage flyoutPage, Page page)
+        {
+            MauiNativeNavigationOperations.Instance.SetFlyoutDetail(flyoutPage, page);
+            ThrowAfterMutation(NativeMutation.SetFlyoutDetail);
+        }
+
+        public void SetFlyoutPresented(FlyoutPage flyoutPage, bool isPresented)
+        {
+            MauiNativeNavigationOperations.Instance.SetFlyoutPresented(flyoutPage, isPresented);
+            ThrowAfterMutation(NativeMutation.SetFlyoutPresented);
         }
 
         public void SetWindowPage(Window window, Page? page)

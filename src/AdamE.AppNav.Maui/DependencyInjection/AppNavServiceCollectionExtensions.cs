@@ -150,6 +150,36 @@ public static class AppNavServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>
+    /// Configures MAUI-specific presentation of host-neutral navigation topology.
+    /// </summary>
+    public static IServiceCollection AddAppNavMauiPresentation(
+        this IServiceCollection services,
+        Action<MauiNavigationPresentationOptions> configure)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(configure);
+
+        var options = new MauiNavigationPresentationOptions();
+        configure(options);
+        foreach (ServiceDescriptor descriptor in services.Where(static descriptor =>
+                     descriptor.ServiceType == typeof(IMauiNavigationPresentationContributor)))
+        {
+            if (descriptor.ImplementationInstance is not DelegateMauiNavigationPresentationContributor existing)
+                continue;
+            string? duplicate = options.FlyoutBranchHosts.Keys.FirstOrDefault(existing.ContainsFlyout);
+            if (duplicate is not null)
+            {
+                throw new InvalidOperationException(
+                    $"A MAUI flyout presentation is already mapped for branch-host id '{duplicate}'.");
+            }
+        }
+
+        services.AddSingleton<IMauiNavigationPresentationContributor>(
+            new DelegateMauiNavigationPresentationContributor(options));
+        return services;
+    }
+
     public static IServiceCollection AddAppNavFileDeferredNavigationRequests(
         this IServiceCollection services,
         Action<MauiFileDeferredNavigationRequestStoreOptions> configure)
@@ -327,6 +357,12 @@ public static class AppNavServiceCollectionExtensions
             contributor.Contribute(options.Pages);
         }
 
+        foreach (IMauiNavigationPresentationContributor contributor in
+                 provider.GetServices<IMauiNavigationPresentationContributor>())
+        {
+            contributor.Contribute(options);
+        }
+
         return options;
     }
 
@@ -338,6 +374,11 @@ public static class AppNavServiceCollectionExtensions
     private interface INavigationDiagnosticsOptionsContributor
     {
         void Contribute(NavigationDiagnosticsOptions options);
+    }
+
+    private interface IMauiNavigationPresentationContributor
+    {
+        void Contribute(MauiRoutePresentationOptions options);
     }
 
     private sealed class DelegateNavigationDiagnosticsOptionsContributor(
@@ -353,6 +394,25 @@ public static class AppNavServiceCollectionExtensions
         public void Contribute(MauiRoutePageRegistry registry)
         {
             configure(registry);
+        }
+    }
+
+    private sealed class DelegateMauiNavigationPresentationContributor(
+        MauiNavigationPresentationOptions configuredOptions)
+        : IMauiNavigationPresentationContributor
+    {
+        public bool ContainsFlyout(string id) => configuredOptions.FlyoutBranchHosts.ContainsKey(id);
+
+        public void Contribute(MauiRoutePresentationOptions options)
+        {
+            foreach ((string id, MauiFlyoutBranchHostOptions flyout) in configuredOptions.FlyoutBranchHosts)
+            {
+                if (!options.FlyoutBranchHosts.TryAdd(id, flyout))
+                {
+                    throw new InvalidOperationException(
+                        $"A MAUI flyout presentation is already mapped for branch-host id '{id}'.");
+                }
+            }
         }
     }
 }

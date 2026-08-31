@@ -71,6 +71,11 @@ as one particular inventory subgroup or item within a stack.
 before presentation. A non-null `ActiveWindowId` must identify an existing
 window.
 
+Branch-host topology remains host-neutral. Adapter presentation configuration
+may map a stable branch-host ID to a host-specific container without changing
+the logical model. The MAUI adapter renders branch hosts as `TabbedPage` by
+default and can map a direct window-root host to `FlyoutPage`.
+
 ## Standard models
 
 `StackNavigationModel<TRoute>` declares a canonical stack and contextual
