@@ -98,6 +98,77 @@ public sealed class MauiRoutePageFactoryTests
     }
 
     [Fact]
+    public async Task AbandonmentDisposesScopeWithoutMutatingPageOrInvokingReleaseHook()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<LifecycleTracker>();
+        services.AddScoped<AsyncScopedMarker>();
+        services.AddScoped<IMauiRoutePageLifecycleHook, AsyncRecordingLifecycleHook>();
+        services.AddTransient<AsyncScopedPage>();
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        var options = new MauiRoutePresentationOptions { UseScopedPages = true };
+        options.Pages.MapPageFromServices<TestPageRoute, AsyncScopedPage>();
+        var factory = new MauiRoutePageFactory(provider, options);
+        var bindingContext = new object();
+        var page = Assert.IsType<AsyncScopedPage>(await factory.CreatePageAsync(Entry("abandoned")));
+        page.BindingContext = bindingContext;
+
+        MauiPageAbandonment abandonment = Assert.IsType<MauiPageAbandonment>(
+            factory.CaptureAbandonment(page));
+        await factory.ReleasePageAsync(page);
+
+        Assert.Same(bindingContext, page.BindingContext);
+        Assert.Equal(["async-created:abandoned"], provider.GetRequiredService<LifecycleTracker>().Events);
+        Assert.Equal(0, page.Marker.DisposeCount);
+
+        await abandonment.DisposeAsync();
+        await abandonment.DisposeAsync();
+
+        Assert.Equal(1, page.Marker.DisposeCount);
+        Assert.Same(bindingContext, page.BindingContext);
+        Assert.Equal(["async-created:abandoned"], provider.GetRequiredService<LifecycleTracker>().Events);
+    }
+
+    [Fact]
+    public async Task NormalReleaseAndAbandonmentHaveExactlyOneWinner()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<LifecycleTracker>();
+        services.AddScoped<AsyncScopedMarker>();
+        services.AddScoped<IMauiRoutePageLifecycleHook, AsyncRecordingLifecycleHook>();
+        services.AddTransient<AsyncScopedPage>();
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        var options = new MauiRoutePresentationOptions { UseScopedPages = true };
+        options.Pages.MapPageFromServices<TestPageRoute, AsyncScopedPage>();
+        var factory = new MauiRoutePageFactory(provider, options);
+        var page = Assert.IsType<AsyncScopedPage>(await factory.CreatePageAsync(Entry("race")));
+        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        Task<MauiPageAbandonment?> capture = Task.Run(async () =>
+        {
+            await start.Task;
+            return factory.CaptureAbandonment(page);
+        });
+        Task release = Task.Run(async () =>
+        {
+            await start.Task;
+            await factory.ReleasePageAsync(page);
+        });
+        start.TrySetResult();
+
+        MauiPageAbandonment? capturedAbandonment = await capture;
+        await release;
+        if (capturedAbandonment is { } abandonment)
+            await abandonment.DisposeAsync();
+
+        Assert.Equal(1, page.Marker.DisposeCount);
+        int releasedCallbacks = provider.GetRequiredService<LifecycleTracker>().Events
+            .Count(static value => value.StartsWith("async-released:", StringComparison.Ordinal));
+        Assert.Equal(capturedAbandonment is null ? 1 : 0, releasedCallbacks);
+        Assert.Null(factory.CaptureAbandonment(page));
+    }
+
+    [Fact]
     public Task AsyncCreateHookCompletion_RestoresMainThreadBeforeNextHook()
     {
         return MainThread.InvokeOnMainThreadAsync(async () =>

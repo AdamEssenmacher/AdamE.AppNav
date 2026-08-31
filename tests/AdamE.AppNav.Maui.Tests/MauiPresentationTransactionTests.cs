@@ -1120,6 +1120,8 @@ public sealed class MauiPresentationTransactionTests
 
     private sealed class CommitPopRoutePageFactory : IMauiRoutePageFactory
     {
+        public MauiPageAbandonment? CaptureAbandonment(Page page) => null;
+
         private readonly InstrumentedRoutePageFactory _inner = new();
         private Page? _releaseTrigger;
         private NavigationPage? _navigationPage;
@@ -1181,6 +1183,8 @@ public sealed class MauiPresentationTransactionTests
 
     private sealed class GatedRoutePageFactory : IMauiRoutePageFactory
     {
+        public MauiPageAbandonment? CaptureAbandonment(Page page) => null;
+
         private readonly InstrumentedRoutePageFactory _inner = new();
         private readonly TaskCompletionSource _createStarted =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
