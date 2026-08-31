@@ -162,7 +162,7 @@ internal sealed class AppNavStartupService : IAppNavStartupService
                         windowId,
                         (NavigationDiagnosticDataKeys.StartupOutcome, AppNavStartupOutcome.AppLinkPending.ToString())));
 
-                Attach(window, windowId, ref attached);
+                attached = await AttachAsync(window, windowId, attached, cancellationToken);
                 MauiExternalNavigationPendingEpochOutcome appLinkOutcome = await pendingAppLinkEpoch
                     .Completion
                     .WaitAsync(cancellationToken);
@@ -211,7 +211,7 @@ internal sealed class AppNavStartupService : IAppNavStartupService
                         (NavigationDiagnosticDataKeys.RequestSource, fallbackRequest.Source.ToString()),
                         (NavigationDiagnosticDataKeys.Uri, fallbackRequest.Uri?.ToString())));
 
-                Attach(window, windowId, ref attached);
+                attached = await AttachAsync(window, windowId, attached, cancellationToken);
                 return Complete(
                     operationId,
                     windowId,
@@ -219,7 +219,7 @@ internal sealed class AppNavStartupService : IAppNavStartupService
                     fallbackResult);
             }
 
-            Attach(window, windowId, ref attached);
+            attached = await AttachAsync(window, windowId, attached, cancellationToken);
             return Complete(
                 operationId,
                 windowId,
@@ -231,7 +231,7 @@ internal sealed class AppNavStartupService : IAppNavStartupService
         }
         catch (Exception ex)
         {
-            TryAttach(window, windowId, ref attached);
+            attached = await TryAttachAsync(window, windowId, attached);
 
             _diagnostics.Write(
                 NavigationDiagnosticEventKind.StartupFailed,
@@ -348,29 +348,34 @@ internal sealed class AppNavStartupService : IAppNavStartupService
             Exception: null);
     }
 
-    private void Attach(Window window, string windowId, ref bool attached)
+    private async ValueTask<bool> AttachAsync(
+        Window window,
+        string windowId,
+        bool attached,
+        CancellationToken cancellationToken)
     {
         if (attached)
-            return;
+            return true;
 
-        _windowAttachment.AttachWindow(window, windowId);
-        attached = true;
+        await _windowAttachment.AttachWindowAsync(window, windowId, cancellationToken);
+        return true;
     }
 
-    private void TryAttach(Window window, string windowId, ref bool attached)
+    private async ValueTask<bool> TryAttachAsync(Window window, string windowId, bool attached)
     {
         if (attached)
         {
-            return;
+            return true;
         }
 
         try
         {
-            Attach(window, windowId, ref attached);
+            return await AttachAsync(window, windowId, attached, CancellationToken.None);
         }
         catch
         {
             // The original startup failure remains the actionable failure.
+            return false;
         }
     }
 

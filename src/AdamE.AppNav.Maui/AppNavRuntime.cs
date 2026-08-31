@@ -10,12 +10,18 @@ namespace AdamE.AppNav.Maui;
 
 internal interface IMauiWindowAttachment
 {
-    void AttachWindow(Window window, string windowId);
+    ValueTask AttachWindowAsync(
+        Window window,
+        string windowId,
+        CancellationToken cancellationToken = default);
 }
 
 internal interface IAppNavRuntime : IRouterNavigator
 {
-    void AttachWindow(Window window, string windowId);
+    ValueTask AttachWindowAsync(
+        Window window,
+        string windowId,
+        CancellationToken cancellationToken = default);
 }
 
 internal sealed class AppNavRuntime(
@@ -87,8 +93,11 @@ internal sealed class AppNavRuntime(
             ExceptionDispatchInfo.Capture(navigatorFailure).Throw();
     }
 
-    public void AttachWindow(Window window, string windowId)
+    public ValueTask AttachWindowAsync(
+        Window window,
+        string windowId,
+        CancellationToken cancellationToken = default)
     {
-        presenter.AttachWindow(window, windowId);
+        return presenter.AttachWindowAsync(window, windowId, cancellationToken);
     }
 }

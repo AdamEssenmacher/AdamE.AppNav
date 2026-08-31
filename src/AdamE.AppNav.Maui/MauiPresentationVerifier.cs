@@ -49,12 +49,50 @@ internal sealed class MauiPresentationVerifier : IMauiPresentationVerifier
             return Mismatch("$.currentPage", "null", DescribePage(context.CurrentPage));
         }
 
-        if (context.AttachedWindow?.Page is not null)
+        if (context.AttachedWindow?.Page is { } attachedPage && ContainsRouterOwnedPage(attachedPage))
         {
-            return Mismatch("$.attachedWindow.Page", "null", DescribePage(context.AttachedWindow.Page));
+            return Mismatch(
+                "$.attachedWindow.Page",
+                "null or host-owned page",
+                DescribePage(attachedPage));
         }
 
         return null;
+    }
+
+    private static bool ContainsRouterOwnedPage(Page page)
+    {
+        return ContainsRouterOwnedPage(page, new HashSet<Page>(ReferenceEqualityComparer.Instance));
+    }
+
+    private static bool ContainsRouterOwnedPage(Page page, HashSet<Page> visited)
+    {
+        if (!visited.Add(page))
+            return false;
+
+        if (!string.IsNullOrWhiteSpace(MauiPresentationMetadata.GetHostId(page)) ||
+            !string.IsNullOrWhiteSpace(MauiPresentationMetadata.GetBranchId(page)) ||
+            !string.IsNullOrWhiteSpace(MauiPresentationMetadata.GetRouteEntryId(page)) ||
+            !string.IsNullOrWhiteSpace(MauiPresentationMetadata.GetModalId(page)) ||
+            !string.IsNullOrWhiteSpace(MauiPresentationMetadata.GetPresentationOwnerRouteEntryId(page)) ||
+            !string.IsNullOrWhiteSpace(MauiPresentationMetadata.GetPresentationPageKey(page)))
+        {
+            return true;
+        }
+
+        if (page is NavigationPage navigationPage &&
+            navigationPage.Navigation.NavigationStack.Any(child => ContainsRouterOwnedPage(child, visited)))
+        {
+            return true;
+        }
+
+        if (page is TabbedPage tabbedPage &&
+            tabbedPage.Children.Any(child => ContainsRouterOwnedPage(child, visited)))
+        {
+            return true;
+        }
+
+        return page.Navigation.ModalStack.Any(modal => ContainsRouterOwnedPage(modal, visited));
     }
 
     private static MauiPresentationVerificationMismatch? VerifyRootlessModalHost(Page page)
