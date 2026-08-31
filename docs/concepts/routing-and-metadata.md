@@ -117,8 +117,15 @@ AppRouteRequest request = AppRouteRequest
     .WithMetadata(GlyphmereRouteMetadata.HighlightNewItem, true);
 ```
 
-Use `AppNavQueryMetadata` when registered metadata should round-trip through a
-canonical URI. The referenced member must be an accessible static
+These three values are all owned by the item-route occurrence, but they should
+not all survive in the same places. A metadata lifetime is not a timeout. It
+answers whether AppNav may retain the value in a canonical URI, in configured
+persistent storage, or only in live memory.
+
+### Canonical metadata and URI mapping
+
+Use `AppNavQueryMetadata` when metadata should round-trip through the route's
+URI. The referenced member must be an accessible static
 `RouteMetadataKey<T>`:
 
 ```csharp
@@ -129,9 +136,30 @@ canonical URI. The referenced member must be an accessible static
 public sealed record InventoryItemRoute(Guid ItemId) : AppRoute;
 ```
 
-Canonical formatting then includes `compareWithItemId` in a shareable item URI.
-The restorable selected panel and ephemeral highlight are deliberately omitted
-from that canonical URI.
+For example, formatting the request can produce:
+
+```text
+/pause/inventory/items/{itemId}?compareWithItemId={equippedItemId}
+```
+
+The path identifies the item being viewed. `compareWithItemId` carries the
+second item needed to reproduce the comparison. A recipient opening that URI
+therefore reaches the same meaningful comparison, so the value is appropriate
+for canonical, shareable state.
+
+URI mapping and lifetime registration are separate declarations:
+
+- `AppNavQueryMetadata` tells the route table how to write and read the value
+  as a query parameter.
+- `RouteStateRegistry.Canonical(...)` marks the value as part of canonical
+  state when a configured persistence component reduces a live request to the
+  URI it will store.
+
+Canonical values should be stable, safe to expose in a URI, and meaningful to
+a later launch, another device, or a recipient. Never use canonical metadata
+for secrets or incidental UI state.
+
+### Choose a metadata lifetime
 
 Define each metadata lifetime in a `RouteStateRegistry`:
 
@@ -142,11 +170,33 @@ var routeStateRegistry = RouteStateRegistry.Create(builder => builder
     .Ephemeral(GlyphmereRouteMetadata.HighlightNewItem));
 ```
 
-| Glyphmere state | Lifetime | Meaning |
-| --- | --- | --- |
-| Item being compared | `Canonical` | Participates in canonical formatting and sharing |
-| Selected details panel | `Restorable` | May be persisted and restored, but is not canonical URL identity |
-| “New item” highlight | `Ephemeral` | Remains only in live in-memory navigation state |
+| Lifetime | Shareable canonical URI | Deferred persistent store | Live route state | Glyphmere example |
+| --- | --- | --- | --- | --- |
+| `Canonical` | Yes, when mapped with `AppNavQueryMetadata` | Recovered by rematching the stored canonical URI | Yes | The comparison item, because it is needed to reproduce the shared comparison |
+| `Restorable` | No | Yes, as separate typed metadata | Yes | The selected `stats` panel, because local replay should return to it but a shared link should not impose it on someone else |
+| `Ephemeral` | No | No | Yes, while the request or route entry remains live | The “new item” highlight, because losing or replaying its one-time visual cue after a restart is preferable to persisting it |
+
+In a deferred-navigation snapshot, the canonical comparison item is encoded in
+the route URI. The selected panel is stored separately and reattached when the
+request is restored. The highlight is omitted entirely. It is still available
+during live navigation, including while its route entry remains in an inactive
+Glyphmere branch, but AppNav does not write it to the deferred store.
+
+`Restorable` means eligible for persistence when the app configures a component
+such as the deferred-navigation store with this `RouteStateRegistry`. It does
+not automatically save arbitrary page controls, view models, or the complete UI
+tree.
+
+Use this decision rule for each route-owned value:
+
+1. Must a formatted or shared URI reproduce it? Use `Canonical`, give it an
+   `AppNavQueryMetadata` mapping, and treat the value as publicly visible.
+2. Should a persisted request recover it after process restart, but should a
+   shared URI omit it? Use `Restorable`.
+3. Is it safe—and preferable—for the value to disappear if the live navigation
+   state is lost? Use `Ephemeral`.
+4. Does it describe where the request came from rather than the destination?
+   It is not route metadata; use request provenance instead.
 
 Do not put request source, referrer, correlation IDs, auth tokens, or other
 external-request context in route metadata. Those values belong to runtime

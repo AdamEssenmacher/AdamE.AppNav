@@ -21,7 +21,10 @@ services.AddAppNavFileDeferredNavigationRequests(options =>
 });
 ```
 
-`BaseUri` is explicit, required, and absolute. The route-state registry determines which metadata is restorable.
+`BaseUri` is explicit, required, and absolute. The route-state registry
+determines which metadata is restorable; see
+[Choose a metadata lifetime](../concepts/routing-and-metadata.md#choose-a-metadata-lifetime)
+for how canonical, restorable, and ephemeral values differ.
 The configuration callback is required, and invalid options fail immediately during service registration.
 
 ## Schema 3

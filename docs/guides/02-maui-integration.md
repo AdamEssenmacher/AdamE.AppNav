@@ -54,6 +54,9 @@ Keep route-owned metadata app-defined in a `RouteStateRegistry`.
 - restorable metadata belongs in persistence
 - ephemeral metadata belongs only in live in-memory requests and state
 
+See [Choose a metadata lifetime](../concepts/routing-and-metadata.md#choose-a-metadata-lifetime)
+for the URI, persistence, and live-memory decision rules.
+
 Register that registry with navigation persistence when route-owned metadata participates in formatting or restore.
 
 MAUI page constructors still receive `AppRoute`, not route-entry metadata. If a page needs route-entry metadata, use `IMauiRoutePageLifecycleHook` or app-specific mapping.
