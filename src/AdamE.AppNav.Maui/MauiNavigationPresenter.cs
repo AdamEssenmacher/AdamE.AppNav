@@ -1055,7 +1055,8 @@ internal sealed class MauiNavigationPresenter :
                 existingPage as NavigationPage,
                 operationId,
                 isNavigationTarget,
-                cancellationToken),
+                cancellationToken,
+                wasResurfacedTarget),
             BranchHostNode branchHost => await MaterializeTabbedBranchHostAsync(
                 branchHost,
                 existingPage as TabbedPage,
@@ -1106,7 +1107,8 @@ internal sealed class MauiNavigationPresenter :
         NavigationPage? existingPage,
         string operationId,
         bool isNavigationTarget,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool wasResurfacedTarget = false)
     {
         if (stack.Entries.Count == 0)
         {
@@ -1122,7 +1124,8 @@ internal sealed class MauiNavigationPresenter :
                 existingPage,
                 stack,
                 isNavigationTarget,
-                cancellationToken);
+                cancellationToken,
+                wasResurfacedTarget);
             UpdateKnownNavigationPages(existingPage);
             return existingPage;
         }
@@ -1150,7 +1153,8 @@ internal sealed class MauiNavigationPresenter :
         NavigationPage navigationPage,
         StackNode stack,
         bool isNavigationTarget,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool wasResurfacedTarget = false)
     {
         var currentStack = navigationPage.Navigation.NavigationStack;
         var currentProjection = RequireValidProjection(currentStack);
@@ -1187,6 +1191,7 @@ internal sealed class MauiNavigationPresenter :
             commonCount,
             isNavigationTarget,
             previousStackCount,
+            wasResurfacedTarget,
             cancellationToken);
         UpdateKnownNavigationPages(navigationPage);
     }
@@ -1431,6 +1436,7 @@ internal sealed class MauiNavigationPresenter :
         int commonCount,
         bool isNavigationTarget,
         int previousStackCount,
+        bool wasResurfacedTarget,
         CancellationToken cancellationToken)
     {
         var count = Math.Min(commonCount, Math.Min(segments.Count, entries.Count));
@@ -1442,7 +1448,7 @@ internal sealed class MauiNavigationPresenter :
                 new MauiRoutePageUpdateContext(
                     ClassifyReuseKind(
                         isNavigationTarget && i == entries.Count - 1,
-                        previousStackCount > entries.Count)),
+                        wasResurfacedTarget || previousStackCount > entries.Count)),
                 cancellationToken);
         }
     }
