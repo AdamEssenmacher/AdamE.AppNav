@@ -412,6 +412,7 @@ public sealed partial class RepositoryContractTests
         Assert.Equal(
             new[]
             {
+                "00-why-appnav.md",
                 "01-routing-and-metadata.md",
                 "02-topology-and-planning.md",
                 "03-requests-and-provenance.md"

@@ -10,6 +10,7 @@
     <File Path="docs/advanced/route-owned-presentation-pages.md" />
   </Folder>
   <Folder Name="/docs/concepts/">
+    <File Path="docs/concepts/00-why-appnav.md" />
     <File Path="docs/concepts/01-routing-and-metadata.md" />
     <File Path="docs/concepts/02-topology-and-planning.md" />
     <File Path="docs/concepts/03-requests-and-provenance.md" />

@@ -177,6 +177,7 @@ Native user actions reconcile through host-neutral `HostBack`,
 
 Start at the [documentation home](docs/index.md).
 
+- [Why AppNav?](docs/concepts/00-why-appnav.md)
 - [Getting started](docs/guides/01-getting-started.md)
 - [MAUI integration](docs/guides/02-maui-integration.md)
 - [Routing and metadata](docs/concepts/01-routing-and-metadata.md)

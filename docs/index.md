@@ -6,6 +6,8 @@ trying to do.
 
 ## Evaluate AppNav
 
+- Start with [Why AppNav?](concepts/00-why-appnav.md) to understand the design
+  tradeoffs and decide whether the route-first model fits your application.
 - Read the repository [overview and quickstart](../README.md).
 - Review [topology and planning](concepts/02-topology-and-planning.md) to understand
   stacks, independent branches, modals, and canonical navigation.
@@ -66,6 +68,7 @@ Every documentation page is indexed here:
 - [External navigation](guides/03-external-navigation.md)
 - [Deferred navigation](guides/04-deferred-navigation.md)
 - [Troubleshooting](guides/05-troubleshooting.md)
+- [Why AppNav?](concepts/00-why-appnav.md)
 - [Routing and metadata](concepts/01-routing-and-metadata.md)
 - [Topology and planning](concepts/02-topology-and-planning.md)
 - [Requests and provenance](concepts/03-requests-and-provenance.md)
