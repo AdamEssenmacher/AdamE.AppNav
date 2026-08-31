@@ -35,7 +35,13 @@ Presentation pages:
 - inherit the owner page binding context by default;
 - are resolved in independent DI scopes and released when popped;
 - require a nonblank key unique within the owner segment;
-- are transient and are not restored after process recreation.
+- are transient and are not restored after process or native-window recreation.
+
+When an attached MAUI window is destroyed, AppNav abandons that window's native
+page tree immediately and keeps the last committed `NavigationState`. A later
+navigation or replacement-window attachment materializes a fresh tree from that
+logical state. Route-owned presentation pages are intentionally omitted because
+they are native presentation details rather than restorable navigation state.
 
 The active route must be hosted by a router-owned `NavigationPage`. A route-only
 modal without a navigation stack cannot push presentation pages.

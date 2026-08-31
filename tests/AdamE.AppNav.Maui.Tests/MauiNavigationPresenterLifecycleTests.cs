@@ -78,6 +78,186 @@ public sealed class MauiNavigationPresenterLifecycleTests
     }
 
     [Fact]
+    public async Task DestroyingWindowAbandonsNativeTreeAndRebuildsCommittedStateForReplacement()
+    {
+        var fixture = new PresenterFixture();
+        NavigationPlan plan = Plan(Stack("schools", Entry("schools")));
+        await fixture.Presenter.ApplyAsync(
+            plan,
+            Context(new TestPageRoute("schools")));
+
+        var destroyedRoot = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        var destroyedWindow = new Window();
+        int initialDestroyingHandlers = EventHandlerCount(destroyedWindow, "Destroying");
+        await fixture.Presenter.AttachWindowAsync(destroyedWindow);
+
+        RaiseWindowLifecycleEvent(destroyedWindow, "Destroying");
+
+        Assert.Null(fixture.Presenter.AttachedWindow);
+        Assert.Null(fixture.Presenter.AttachedWindowId);
+        Assert.Null(fixture.Presenter.CurrentPage);
+        Assert.Same(destroyedRoot, destroyedWindow.Page);
+        Assert.Equal(initialDestroyingHandlers, EventHandlerCount(destroyedWindow, "Destroying"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Presenter.AttachWindowAsync(destroyedWindow).AsTask());
+
+        var replacementWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(replacementWindow);
+
+        var replacementRoot = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        Assert.NotSame(destroyedRoot, replacementRoot);
+        Assert.Same(replacementRoot, replacementWindow.Page);
+        Assert.Same(destroyedRoot, destroyedWindow.Page);
+        Assert.Equal("schools", Assert.Single(replacementRoot.Navigation.NavigationStack).Title);
+
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task FailedReplacementRebuildDoesNotPublishReleasedTree()
+    {
+        var verifier = new TogglePresentationVerifier();
+        var fixture = new PresenterFixture(presentationVerifier: verifier);
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("schools", Entry("schools"))),
+            Context(new TestPageRoute("schools")));
+        var destroyedRoot = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        var destroyedWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(destroyedWindow);
+        RaiseWindowLifecycleEvent(destroyedWindow, "Destroying");
+
+        verifier.Fail = true;
+        var rejectedWindow = new Window();
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Presenter.AttachWindowAsync(rejectedWindow).AsTask());
+
+        Assert.Null(fixture.Presenter.CurrentPage);
+        Assert.Null(fixture.Presenter.AttachedWindow);
+        Assert.Null(rejectedWindow.Page);
+        Assert.Same(destroyedRoot, destroyedWindow.Page);
+
+        verifier.Fail = false;
+        var replacementWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(replacementWindow);
+        Assert.Same(fixture.Presenter.CurrentPage, replacementWindow.Page);
+
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task NavigationAfterWindowDestructionUsesFreshDetachedTree()
+    {
+        var fixture = new PresenterFixture();
+        NavigationPlan initialPlan = Plan(Stack("schools", Entry("schools")));
+        await fixture.Presenter.ApplyAsync(
+            initialPlan,
+            Context(new TestPageRoute("schools")));
+
+        var destroyedRoot = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        var destroyedWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(destroyedWindow);
+        RaiseWindowLifecycleEvent(destroyedWindow, "Destroying");
+
+        NavigationPlan updatedPlan = Plan(Stack("schools", Entry("schools"), Entry("details")));
+        await fixture.Presenter.ApplyAsync(
+            updatedPlan,
+            Context(new TestPageRoute("details"), initialPlan.TargetState));
+
+        var detachedRoot = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        Assert.NotSame(destroyedRoot, detachedRoot);
+        Assert.Equal(2, detachedRoot.Navigation.NavigationStack.Count);
+        Assert.Same(destroyedRoot, destroyedWindow.Page);
+
+        var replacementWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(replacementWindow);
+
+        Assert.Same(detachedRoot, replacementWindow.Page);
+        Assert.Same(destroyedRoot, destroyedWindow.Page);
+
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task DestroyingWindowDropsTransientPresentationPages()
+    {
+        var fixture = new PresenterFixture();
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("schools", Entry("schools"))),
+            Context(new TestPageRoute("schools")));
+        await fixture.Presenter.PushAsync<TestPresentationPage>("details");
+
+        var destroyedRoot = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        Page presentationPage = Assert.Single(fixture.Factory.CreatedPresentationPages);
+        Assert.Equal(2, destroyedRoot.Navigation.NavigationStack.Count);
+        var released = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Factory.PresentationPageReleased += page =>
+        {
+            if (ReferenceEquals(page, presentationPage))
+                released.TrySetResult();
+        };
+
+        var destroyedWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(destroyedWindow);
+        RaiseWindowLifecycleEvent(destroyedWindow, "Destroying");
+        await released.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var replacementWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(replacementWindow);
+
+        var replacementRoot = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        Assert.Single(replacementRoot.Navigation.NavigationStack);
+        Assert.DoesNotContain(presentationPage, replacementRoot.Navigation.NavigationStack);
+        Assert.Contains(presentationPage, fixture.Factory.ReleasedPresentationPages);
+        Assert.Same(destroyedRoot, destroyedWindow.Page);
+
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task DestroyingWindowDiscardsQueuedCallbacksFromPreviousNativeTree()
+    {
+        var fixture = new PresenterFixture();
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("schools", Entry("schools"))),
+            Context(new TestPageRoute("schools")));
+        var window = new Window();
+        await fixture.Presenter.AttachWindowAsync(window);
+
+        SemaphoreSlim operationLock = PresentationOperationLock(fixture.Presenter);
+        await operationLock.WaitAsync();
+        MethodInfo queueNativeCleanup = typeof(MauiNavigationPresenter).GetMethod(
+            "QueueNativeCleanup",
+            BindingFlags.Instance | BindingFlags.NonPublic) ??
+            throw new InvalidOperationException("QueueNativeCleanup was not found.");
+        var staleCallbackCount = 0;
+        queueNativeCleanup.Invoke(
+            fixture.Presenter,
+            [new Func<Task>(() =>
+            {
+                staleCallbackCount++;
+                return Task.CompletedTask;
+            })]);
+
+        RaiseWindowLifecycleEvent(window, "Destroying");
+
+        var currentGenerationCompleted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        queueNativeCleanup.Invoke(
+            fixture.Presenter,
+            [new Func<Task>(() =>
+            {
+                currentGenerationCompleted.TrySetResult();
+                return Task.CompletedTask;
+            })]);
+        operationLock.Release();
+
+        await currentGenerationCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(0, staleCallbackCount);
+
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
     public async Task AttachWindowReplacementTransfersCurrentPageAndLifecycleHandlers()
     {
         var fixture = new PresenterFixture();
@@ -2054,6 +2234,21 @@ public sealed class MauiNavigationPresenterLifecycleTests
         throw new InvalidOperationException($"Window event backing field '{eventName}' was not found.");
     }
 
+    private static void RaiseWindowLifecycleEvent(Window window, string eventName)
+    {
+        for (var type = window.GetType(); type is not null; type = type.BaseType)
+        {
+            var field = type.GetField(eventName, BindingFlags.Instance | BindingFlags.NonPublic);
+            if (field?.GetValue(window) is EventHandler handlers)
+            {
+                handlers(window, EventArgs.Empty);
+                return;
+            }
+        }
+
+        throw new InvalidOperationException($"Window event backing field '{eventName}' was not found.");
+    }
+
     private static StackNode Stack(string id, params RouteEntry[] entries)
     {
         return new StackNode(id, entries);
@@ -2145,7 +2340,8 @@ public sealed class MauiNavigationPresenterLifecycleTests
             Func<RouteEntry, Page>? createPage = null,
             Action<Page, RouteEntry, MauiRoutePageUpdateContext>? updatePage = null,
             IMauiNativeNavigationOperations? nativeOperations = null,
-            Action<MauiRoutePresentationOptions>? configurePresentation = null)
+            Action<MauiRoutePresentationOptions>? configurePresentation = null,
+            IMauiPresentationVerifier? presentationVerifier = null)
         {
             Diagnostics = new NavigationDiagnostics();
             Diagnostics.AddObserver(Observer);
@@ -2157,6 +2353,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
                 Factory,
                 diagnostics: Diagnostics,
                 presentationOptions: PresentationOptions,
+                presentationVerifier: presentationVerifier,
                 nativeOperations: nativeOperations);
         }
 
@@ -2220,6 +2417,14 @@ public sealed class MauiNavigationPresenterLifecycleTests
         public void SetFlyoutPresented(FlyoutPage flyoutPage, bool isPresented) =>
             MauiNativeNavigationOperations.Instance.SetFlyoutPresented(flyoutPage, isPresented);
 
+        public void SetFlyoutBranches(
+            MauiBranchFlyoutPage flyoutPage,
+            IReadOnlyList<MauiFlyoutBranchPresentation> branches) =>
+            MauiNativeNavigationOperations.Instance.SetFlyoutBranches(flyoutPage, branches);
+
+        public void SetSelectedFlyoutBranch(MauiBranchFlyoutPage flyoutPage, string branchId) =>
+            MauiNativeNavigationOperations.Instance.SetSelectedFlyoutBranch(flyoutPage, branchId);
+
         public void SetWindowPage(Window window, Page? page) =>
             MauiNativeNavigationOperations.Instance.SetWindowPage(window, page);
     }
@@ -2252,6 +2457,16 @@ public sealed class MauiNavigationPresenterLifecycleTests
         {
             DisposeCount++;
         }
+    }
+
+    private sealed class TogglePresentationVerifier : IMauiPresentationVerifier
+    {
+        public bool Fail { get; set; }
+
+        public MauiPresentationVerificationMismatch? Verify(MauiPresentationVerificationContext context) =>
+            Fail
+                ? new MauiPresentationVerificationMismatch("$.root", "valid", "invalid")
+                : null;
     }
 
     public sealed class TestPresentationPage : ContentPage;
