@@ -56,9 +56,16 @@ or `ILoggerFactory` through `RouterNavigatorFactoryOptions`.
 | `ActivitySource` | Distributed tracing and performance correlation | Listen to source `AdamE.AppNav`; router activities are named `Navigation.Navigate`, `Navigation.Back`, and `Navigation.Reconcile` |
 
 Logger, tracing, event-handler, observer, and redactor failures are isolated
-from navigation. A failed observer produces a `DiagnosticObserverFailed` event
-for the remaining diagnostic sinks, without recursively calling the observer
-that failed.
+from navigation. This includes exceptions escaping `ActivityListener` sampling,
+start, or stop callbacks; AppNav abandons the affected activity and restores
+the previous `Activity.Current` when it can identify its own failed activity.
+A tracing listener is process-global third-party code, so it must still avoid
+throwing: AppNav cannot undo arbitrary side effects performed inside a failed
+callback.
+
+A failed diagnostic observer produces a `DiagnosticObserverFailed` event for
+the remaining diagnostic sinks, without recursively calling the observer that
+failed.
 
 Callbacks should still do little synchronous work. Copy the fields needed by a
 telemetry bridge and enqueue expensive processing elsewhere.

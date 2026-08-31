@@ -570,6 +570,19 @@ public sealed partial class RepositoryContractTests
     }
 
     [Fact]
+    public void HistoryDocumentationDescribesAnObservationalRecordRatherThanBackTraversal()
+    {
+        var root = RepositoryRoot();
+        string glossary = File.ReadAllText(
+            Path.Combine(root, "docs", "reference", "glossary.md"));
+
+        Assert.Contains("bounded observational record", glossary, StringComparison.Ordinal);
+        Assert.Contains("Logical Back plans from the current", glossary, StringComparison.Ordinal);
+        Assert.Contains("does not traverse prior history entries", glossary, StringComparison.Ordinal);
+        Assert.DoesNotContain("used by navigation behavior", glossary, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void DiagnosticsReferenceMatchesRuntimeIdentifiers()
     {
         var root = RepositoryRoot();

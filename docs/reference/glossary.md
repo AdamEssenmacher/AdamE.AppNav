@@ -152,10 +152,11 @@ generated mappings.
 
 ### History
 
-The bounded sequence of committed navigation entries maintained by the
-router. History is logical AppNav state used by navigation behavior; it is not
-the same as a browser history, operating-system task history, or a raw list of
-MAUI pages.
+The bounded observational record of committed Navigate, Back, and Reconcile
+operations maintained by the router. Each entry captures the request, resolved
+route, and resulting `NavigationState`. Logical Back plans from the current
+`NavigationState`; it does not traverse prior history entries. History is not a
+browser history, operating-system task history, or raw list of MAUI pages.
 
 ### Host
 

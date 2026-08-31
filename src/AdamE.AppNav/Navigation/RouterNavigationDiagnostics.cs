@@ -25,22 +25,45 @@ internal sealed class RouterNavigationDiagnostics(
         _diagnostics.Write(kind, operationId, message, data, phase: phase);
     }
 
-    public Activity? StartActivity(string name, string operationId, RouterNavigationRequest request)
+    public RouterNavigationActivityScope StartActivity(
+        string name,
+        string operationId,
+        RouterNavigationRequest request)
     {
         return StartActivity(name, operationId, request.Source.ToString(), request.Disposition);
     }
 
-    public Activity? StartActivity(
+    public RouterNavigationActivityScope StartActivity(
         string name,
         string operationId,
         string source,
         RouterNavigationDisposition disposition = RouterNavigationDisposition.Auto)
     {
-        Activity? activity = _activitySource.StartActivity(name);
-        activity?.SetTag("navigation.operation_id", operationId);
-        activity?.SetTag("navigation.source", source);
-        activity?.SetTag("navigation.disposition", disposition.ToString());
-        return activity;
+        Activity? previousActivity = Activity.Current;
+        try
+        {
+            Activity? activity = _activitySource.StartActivity(name);
+            var scope = new RouterNavigationActivityScope(activity, previousActivity);
+            scope.SetTag("navigation.operation_id", operationId);
+            scope.SetTag("navigation.source", source);
+            scope.SetTag("navigation.disposition", disposition);
+            return scope;
+        }
+        catch
+        {
+            Activity? failedActivity = Activity.Current;
+            if (failedActivity is not null &&
+                !ReferenceEquals(failedActivity, previousActivity) &&
+                ReferenceEquals(failedActivity.Source, _activitySource) &&
+                string.Equals(failedActivity.OperationName, name, StringComparison.Ordinal))
+            {
+                RouterNavigationActivityScope.TryDisposeAndRestore(
+                    failedActivity,
+                    previousActivity);
+            }
+
+            return new RouterNavigationActivityScope(null, previousActivity);
+        }
     }
 
     public void WriteFailure(
@@ -51,7 +74,9 @@ internal sealed class RouterNavigationDiagnostics(
         Stopwatch timer,
         params (string Key, object? Value)[] data)
     {
-        Activity.Current?.SetTag("navigation.failure.type", exception.GetType().FullName);
+        RouterNavigationActivityScope.TrySetCurrentTag(
+            "navigation.failure.type",
+            exception.GetType().FullName);
         _diagnostics.Write(kind, operationId, message, FailureData(exception, timer, data));
     }
 
@@ -120,7 +145,7 @@ internal sealed class RouterNavigationDiagnostics(
         string message,
         NavigationDiagnosticPhase phase)
     {
-        Activity.Current?.SetTag("navigation.redirect_count", redirectCount);
+        RouterNavigationActivityScope.TrySetCurrentTag("navigation.redirect_count", redirectCount);
         _diagnostics.Write(
             NavigationDiagnosticEventKind.RequestRedirectLoopDetected,
             operationId,
@@ -221,5 +246,116 @@ internal sealed class RouterNavigationDiagnostics(
     {
         if (!string.IsNullOrWhiteSpace(value))
             data[key] = value;
+    }
+}
+
+internal readonly struct RouterNavigationActivityScope(
+    Activity? activity,
+    Activity? previousActivity) : IDisposable
+{
+    private readonly Activity? _activity = activity;
+    private readonly Activity? _previousActivity = previousActivity;
+
+    public void SetTag(string name, object? value)
+    {
+        try
+        {
+            _activity?.SetTag(name, value);
+        }
+        catch
+        {
+            // Tracing providers are external observers and cannot participate in navigation control flow.
+        }
+    }
+
+    public void SetTag<T>(string name, T value)
+        where T : struct, Enum
+    {
+        if (_activity is null)
+            return;
+
+        try
+        {
+            _activity.SetTag(name, value.ToString());
+        }
+        catch
+        {
+            // Tracing providers are external observers and cannot participate in navigation control flow.
+        }
+    }
+
+    public void SetStatus(ActivityStatusCode status)
+    {
+        try
+        {
+            _activity?.SetStatus(status);
+        }
+        catch
+        {
+            // Tracing providers are external observers and cannot participate in navigation control flow.
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_activity is null)
+            return;
+
+        TryDisposeAndRestore(_activity, _previousActivity);
+    }
+
+    internal static void TrySetCurrentTag(string name, object? value)
+    {
+        try
+        {
+            Activity.Current?.SetTag(name, value);
+        }
+        catch
+        {
+            // Tracing providers are external observers and cannot participate in navigation control flow.
+        }
+    }
+
+    internal static void TrySetCurrentTag<T>(string name, T value)
+        where T : struct
+    {
+        Activity? activity = Activity.Current;
+        if (activity is null)
+            return;
+
+        try
+        {
+            activity.SetTag(name, value);
+        }
+        catch
+        {
+            // Tracing providers are external observers and cannot participate in navigation control flow.
+        }
+    }
+
+    internal static void TryDisposeAndRestore(Activity activity, Activity? previousActivity)
+    {
+        try
+        {
+            activity.Dispose();
+        }
+        catch
+        {
+            // ActivityListener stop callbacks are external observers and cannot fail navigation.
+        }
+        finally
+        {
+            if (ReferenceEquals(Activity.Current, activity))
+            {
+                try
+                {
+                    Activity.Current = previousActivity;
+                }
+                catch
+                {
+                    // Restoring ambient tracing state is best effort when external callbacks also fail.
+                }
+            }
+        }
     }
 }
