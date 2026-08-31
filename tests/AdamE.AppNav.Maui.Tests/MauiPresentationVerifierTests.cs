@@ -46,7 +46,7 @@ public sealed class MauiPresentationVerifierTests
     }
 
     [Fact]
-    public void VerifyAcceptsMatchingTabbedBranchHost()
+    public async Task VerifyAcceptsMatchingTabbedBranchHost()
     {
         var branchHost = BranchHost("tabs", "catalog");
         var tabbedPage = new TabbedPage();
@@ -56,7 +56,7 @@ public sealed class MauiPresentationVerifierTests
         var catalog = StackPage("catalog-stack", "catalog");
         MauiPresentationMetadata.SetBranchId(catalog, "catalog");
         var host = new MauiTabbedBranchHost(tabbedPage);
-        host.ApplyAsync(new MauiBranchHostUpdateContext(
+        IMauiBranchHostUpdate update = await host.ApplyAsync(new MauiBranchHostUpdateContext(
             branchHost,
             MauiBranchHostPlacement.WindowRoot,
             [
@@ -65,7 +65,8 @@ public sealed class MauiPresentationVerifierTests
             ],
             "catalog",
             Context(new TestPageRoute("catalog"))),
-            CancellationToken.None).GetAwaiter().GetResult().CommitAsync().GetAwaiter().GetResult();
+            CancellationToken.None);
+        await update.CommitAsync();
 
         var mismatch = Verify(
             State(branchHost),
@@ -76,7 +77,7 @@ public sealed class MauiPresentationVerifierTests
     }
 
     [Fact]
-    public void VerifyAcceptsMatchingFlyoutBranchHostAndReportsWrongDetail()
+    public async Task VerifyAcceptsMatchingFlyoutBranchHostAndReportsWrongDetail()
     {
         BranchHostNode branchHost = BranchHost("branches", "catalog");
         var options = new MauiRoutePresentationOptions();
@@ -89,7 +90,7 @@ public sealed class MauiPresentationVerifierTests
         MauiPresentationMetadata.SetBranchId(home, "home");
         var catalog = StackPage("catalog-stack", "catalog");
         MauiPresentationMetadata.SetBranchId(catalog, "catalog");
-        host.ApplyAsync(new MauiBranchHostUpdateContext(
+        IMauiBranchHostUpdate update = await host.ApplyAsync(new MauiBranchHostUpdateContext(
             branchHost,
             MauiBranchHostPlacement.WindowRoot,
             [
@@ -98,7 +99,8 @@ public sealed class MauiPresentationVerifierTests
             ],
             "catalog",
             Context(new TestPageRoute("catalog"))),
-            CancellationToken.None).GetAwaiter().GetResult().CommitAsync().GetAwaiter().GetResult();
+            CancellationToken.None);
+        await update.CommitAsync();
         var branchHosts = new Dictionary<Page, IMauiBranchHost> { [flyoutPage] = host };
 
         Assert.Null(Verify(State(branchHost), flyoutPage, options, branchHosts: branchHosts));
@@ -116,7 +118,7 @@ public sealed class MauiPresentationVerifierTests
     }
 
     [Fact]
-    public void VerifyReportsWrongBranchPageMetadata()
+    public async Task VerifyReportsWrongBranchPageMetadata()
     {
         BranchHostNode branchHost = BranchHost("branches", "catalog");
         var options = new MauiRoutePresentationOptions();
@@ -133,7 +135,7 @@ public sealed class MauiPresentationVerifierTests
         tabbedPage.CurrentPage = catalog;
 
         var host = new MauiTabbedBranchHost(tabbedPage);
-        host.ApplyAsync(new MauiBranchHostUpdateContext(
+        IMauiBranchHostUpdate update = await host.ApplyAsync(new MauiBranchHostUpdateContext(
             branchHost,
             MauiBranchHostPlacement.WindowRoot,
             [
@@ -142,7 +144,8 @@ public sealed class MauiPresentationVerifierTests
             ],
             "catalog",
             Context(new TestPageRoute("catalog"))),
-            CancellationToken.None).GetAwaiter().GetResult().CommitAsync().GetAwaiter().GetResult();
+            CancellationToken.None);
+        await update.CommitAsync();
         MauiPresentationMetadata.SetBranchId(home, "wrong");
 
         var mismatch = Verify(State(branchHost), tabbedPage, options, branchHosts: new Dictionary<Page, IMauiBranchHost>
@@ -235,7 +238,7 @@ public sealed class MauiPresentationVerifierTests
     }
 
     [Fact]
-    public void VerifyReportsWrongSelectedTab()
+    public async Task VerifyReportsWrongSelectedTab()
     {
         var branchHost = BranchHost("tabs", "catalog");
         var tabbedPage = new TabbedPage();
@@ -245,7 +248,7 @@ public sealed class MauiPresentationVerifierTests
         var catalog = StackPage("catalog-stack", "catalog");
         MauiPresentationMetadata.SetBranchId(catalog, "catalog");
         var host = new MauiTabbedBranchHost(tabbedPage);
-        host.ApplyAsync(new MauiBranchHostUpdateContext(
+        IMauiBranchHostUpdate update = await host.ApplyAsync(new MauiBranchHostUpdateContext(
             branchHost,
             MauiBranchHostPlacement.WindowRoot,
             [
@@ -254,7 +257,8 @@ public sealed class MauiPresentationVerifierTests
             ],
             "catalog",
             Context(new TestPageRoute("catalog"))),
-            CancellationToken.None).GetAwaiter().GetResult().CommitAsync().GetAwaiter().GetResult();
+            CancellationToken.None);
+        await update.CommitAsync();
         tabbedPage.CurrentPage = home;
 
         var mismatch = Verify(

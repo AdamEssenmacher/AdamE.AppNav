@@ -1,4 +1,5 @@
 ﻿using AdamE.AppNav;
+using AdamE.AppNav.Maui;
 using AdamE.AppNav.Maui.DependencyInjection;
 using AdamE.AppNav.Maui.AppLinks;
 using AdamE.AppNav.Policies;

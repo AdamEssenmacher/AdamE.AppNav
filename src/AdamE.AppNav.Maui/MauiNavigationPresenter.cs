@@ -49,6 +49,7 @@ internal sealed class MauiNavigationPresenter :
     private string _lifecycleOperationId = CreateOperationId();
     private string? _activeOperationId;
     private NavigationPresentationContext? _activeNavigationPresentationContext;
+    private NavigationPresentationContext? _lastNavigationPresentationContext;
     private bool _suppressReconciliation;
     private bool _suppressedNavigationPopDrainQueued;
     private bool _hostBackReconciliationPending;
@@ -654,6 +655,7 @@ internal sealed class MauiNavigationPresenter :
             _lastState = popFold.EffectiveState;
             _activeTransaction = null;
             await transaction.CommitAsync();
+            _lastNavigationPresentationContext = context;
             if (popFold.LogicalStateChanged)
                 MarkHostBackReconciliationPending(popFold.Route);
         }
@@ -1086,13 +1088,12 @@ internal sealed class MauiNavigationPresenter :
             return ResolveTopNavigationPage(topModal);
         }
 
-        if (page is NavigationPage navigationPage)
-            return navigationPage;
+        if (_branchHostPages.TryGetValue(page, out IMauiBranchHost? host))
+            return host.SelectedBranchPage is { } selectedPage
+                ? ResolveTopNavigationPage(selectedPage)
+                : null;
 
-        return _branchHostPages.TryGetValue(page, out IMauiBranchHost? host) &&
-               host.SelectedBranchPage is { } selectedPage
-            ? ResolveTopNavigationPage(selectedPage)
-            : null;
+        return page as NavigationPage;
     }
 
     private async Task<Page> MaterializeNodeAsync(
@@ -1140,7 +1141,8 @@ internal sealed class MauiNavigationPresenter :
                 operationId,
                 isNavigationTarget,
                 cancellationToken,
-                wasResurfacedTarget),
+                wasResurfacedTarget,
+                MauiBranchHostPlacement.ModalContent),
             _ => throw new NotSupportedException($"Navigation node '{node.GetType().Name}' is not supported by the MAUI presenter.")
         };
     }
@@ -1441,7 +1443,8 @@ internal sealed class MauiNavigationPresenter :
                     null,
                     operationId,
                     isNavigationTarget: i == modals.Count - 1,
-                    cancellationToken);
+                    cancellationToken,
+                    placement: MauiBranchHostPlacement.ModalContent);
             SetModalId(modalPage, modals[i].Id);
             TrackModalPage(modalPage);
             replacementModals.Add(modalPage);
@@ -1599,7 +1602,8 @@ internal sealed class MauiNavigationPresenter :
                 operationId,
                 isNavigationTarget: i == modals.Count - 1,
                 cancellationToken,
-                wasResurfacedTarget: previousModalCount > modals.Count);
+                wasResurfacedTarget: previousModalCount > modals.Count,
+                placement: MauiBranchHostPlacement.ModalContent);
         }
     }
 
@@ -1727,10 +1731,10 @@ internal sealed class MauiNavigationPresenter :
                 continue;
             }
 
-            Page? next = current is NavigationPage navigationPage
-                ? navigationPage.CurrentPage
-                : _branchHostPages.TryGetValue(current, out IMauiBranchHost? host)
-                    ? host.SelectedBranchPage
+            Page? next = _branchHostPages.TryGetValue(current, out IMauiBranchHost? host)
+                ? host.SelectedBranchPage
+                : current is NavigationPage navigationPage
+                    ? navigationPage.CurrentPage
                     : null;
 
             if (next is null || ReferenceEquals(next, current))
@@ -2694,9 +2698,9 @@ internal sealed class MauiNavigationPresenter :
 
         return root switch
         {
-            NavigationPage navigationPage => navigationPage.Navigation.NavigationStack.Any(page => ContainsPageInStructuralTree(page, target)),
             _ when _branchHostPages.TryGetValue(root, out IMauiBranchHost? host) => host.Branches.Any(branch =>
                 ContainsPageInStructuralTree(branch.Page, target)),
+            NavigationPage navigationPage => navigationPage.Navigation.NavigationStack.Any(page => ContainsPageInStructuralTree(page, target)),
             _ => false
         };
     }
@@ -2829,6 +2833,11 @@ internal sealed class MauiNavigationPresenter :
     {
         Page? failedRoot = CurrentPage;
         Page? rebuiltRoot = null;
+        NavigationPresentationContext? previousPresentationContext = _activeNavigationPresentationContext;
+        _activeNavigationPresentationContext ??= _lastNavigationPresentationContext is { } lastContext
+            ? lastContext with { CurrentState = state, OperationId = operationId }
+            : throw new InvalidOperationException(
+                "Branch-host recovery requires a prior navigation presentation context.");
         var recoveryTransaction = new MauiPresentationTransaction(this);
         _activeTransaction = recoveryTransaction;
         try
@@ -2880,6 +2889,10 @@ internal sealed class MauiNavigationPresenter :
 
             throw;
         }
+        finally
+        {
+            _activeNavigationPresentationContext = previousPresentationContext;
+        }
     }
 
     private HashSet<Page> CollectLivePages(Page? root)
@@ -2899,16 +2912,18 @@ internal sealed class MauiNavigationPresenter :
         if (!pages.Add(page))
             return;
 
+        if (_branchHostPages.TryGetValue(page, out IMauiBranchHost? host))
+        {
+            foreach (MauiBranchHostBranch branch in host.Branches)
+                CollectStructuralPages(branch.Page, pages);
+            return;
+        }
+
         switch (page)
         {
             case NavigationPage navigationPage:
                 foreach (Page child in navigationPage.Navigation.NavigationStack)
                     CollectStructuralPages(child, pages);
-                break;
-            default:
-                if (_branchHostPages.TryGetValue(page, out IMauiBranchHost? host))
-                    foreach (MauiBranchHostBranch branch in host.Branches)
-                        CollectStructuralPages(branch.Page, pages);
                 break;
         }
     }
@@ -2941,6 +2956,14 @@ internal sealed class MauiNavigationPresenter :
         if (!visited.Add(page))
             return;
 
+        if (_branchHostPages.TryGetValue(page, out IMauiBranchHost? host))
+        {
+            TrackBranchHost(host);
+            foreach (MauiBranchHostBranch branch in host.Branches)
+                TrackStructuralPage(branch.Page, visited);
+            return;
+        }
+
         switch (page)
         {
             case NavigationPage navigationPage:
@@ -2948,14 +2971,6 @@ internal sealed class MauiNavigationPresenter :
                     TrackNavigationPage(navigationPage, stackId);
                 foreach (Page child in navigationPage.Navigation.NavigationStack)
                     TrackStructuralPage(child, visited);
-                break;
-            default:
-                if (_branchHostPages.TryGetValue(page, out IMauiBranchHost? host))
-                {
-                    TrackBranchHost(host);
-                    foreach (MauiBranchHostBranch branch in host.Branches)
-                        TrackStructuralPage(branch.Page, visited);
-                }
                 break;
         }
     }
@@ -3479,6 +3494,13 @@ internal sealed class MauiNavigationPresenter :
                 return;
 
             _pageSnapshots[page] = PageSnapshot.Capture(page);
+            if (_presenter._branchHostPages.TryGetValue(page, out IMauiBranchHost? host))
+            {
+                foreach (MauiBranchHostBranch branch in host.Branches)
+                    CapturePage(branch.Page, visited);
+                return;
+            }
+
             switch (page)
             {
                 case NavigationPage navigationPage:
@@ -3486,11 +3508,6 @@ internal sealed class MauiNavigationPresenter :
                     _navigationStacks[navigationPage] = stack;
                     foreach (Page child in stack)
                         CapturePage(child, visited);
-                    break;
-                default:
-                    if (_presenter._branchHostPages.TryGetValue(page, out IMauiBranchHost? host))
-                        foreach (MauiBranchHostBranch branch in host.Branches)
-                            CapturePage(branch.Page, visited);
                     break;
             }
         }

@@ -320,9 +320,12 @@ internal sealed class MauiTabbedBranchHost : IMauiBranchHost, IMauiBranchHostNat
         MauiBranchHostBranch[] previousBranches = _branches.ToArray();
         Page? previousCurrentPage = _page.CurrentPage;
         string? previousSelected = SelectedBranchId;
+        MauiTabbedBranchPageSnapshot[] pageSnapshots = branches
+            .Select(static branch => MauiTabbedBranchPageSnapshot.Capture(branch.Page))
+            .ToArray();
         _branches = branches;
         var update = new MauiTabbedBranchHostUpdate(this, _nativeOperations, previousBranches,
-            previousChildren, previousCurrentPage, previousSelected);
+            previousChildren, previousCurrentPage, previousSelected, pageSnapshots);
         _suppressSelectionChanged = true;
         try
         {
@@ -392,7 +395,8 @@ internal sealed class MauiTabbedBranchHost : IMauiBranchHost, IMauiBranchHostNat
         IReadOnlyList<MauiBranchHostBranch> branches,
         IReadOnlyList<Page> children,
         Page? currentPage,
-        string? selectedBranchId) : IMauiBranchHostUpdate
+        string? selectedBranchId,
+        IReadOnlyList<MauiTabbedBranchPageSnapshot> pageSnapshots) : IMauiBranchHostUpdate
     {
         private bool _completed;
 
@@ -419,6 +423,8 @@ internal sealed class MauiTabbedBranchHost : IMauiBranchHost, IMauiBranchHostNat
                 host._branches = branches.ToArray();
                 host.SelectedBranchId = selectedBranchId;
                 nativeOperations.SetCurrentTab(host._page, currentPage);
+                foreach (MauiTabbedBranchPageSnapshot snapshot in pageSnapshots)
+                    snapshot.Restore();
                 _completed = true;
             }
             finally
@@ -430,6 +436,21 @@ internal sealed class MauiTabbedBranchHost : IMauiBranchHost, IMauiBranchHostNat
         }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed record MauiTabbedBranchPageSnapshot(
+        Page Page,
+        string? Title,
+        string? BranchId)
+    {
+        public static MauiTabbedBranchPageSnapshot Capture(Page page) =>
+            new(page, page.Title, MauiPresentationMetadata.GetBranchId(page));
+
+        public void Restore()
+        {
+            Page.Title = Title;
+            MauiPresentationMetadata.SetBranchId(Page, BranchId);
+        }
     }
 }
 
@@ -454,6 +475,7 @@ internal sealed class MauiFlyoutBranchHost : IMauiBranchHost, IMauiBranchHostNat
             throw new ArgumentOutOfRangeException(nameof(layoutBehavior));
 
         _page = new MauiBranchFlyoutPage(new MauiFlyoutBranchHostOptions(menuTitle, layoutBehavior, isGestureEnabled));
+        _page.Detail = new ContentPage { IsVisible = false };
         _page.BranchSelected += HandleBranchSelected;
     }
 
@@ -466,7 +488,7 @@ internal sealed class MauiFlyoutBranchHost : IMauiBranchHost, IMauiBranchHostNat
 
     public string? SelectedBranchId { get; private set; }
 
-    public Page? SelectedBranchPage => _page.Detail;
+    public Page? SelectedBranchPage => _branches.Count == 0 ? null : _page.Detail;
 
     public event EventHandler<MauiBranchHostSelectionChangedEventArgs>? SelectionChanged;
 
@@ -479,17 +501,28 @@ internal sealed class MauiFlyoutBranchHost : IMauiBranchHost, IMauiBranchHostNat
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         MauiBranchHostBranch[] previousBranches = _branches.ToArray();
+        MauiFlyoutBranchPresentation[] previousPresentations = _page.Branches.ToArray();
         Page? previousDetail = _page.Detail;
         string? previousSelected = SelectedBranchId;
         bool previousPresented = _page.IsPresented;
         _branches = context.Branches.ToArray();
-        var update = new MauiFlyoutBranchHostUpdate(this, _nativeOperations, previousBranches, previousDetail,
-            previousSelected, previousPresented);
+        var update = new MauiFlyoutBranchHostUpdate(
+            this,
+            _nativeOperations,
+            previousBranches,
+            previousPresentations,
+            previousDetail,
+            previousSelected,
+            previousPresented);
         _suppressSelectionChanged = true;
         try
         {
             var presentations = _branches.Select(branch =>
-                new MauiFlyoutBranchPresentation(branch.Id, branch.Title, branch.Page)).ToArray();
+                new MauiFlyoutBranchPresentation(
+                    branch.Id,
+                    branch.Title,
+                    branch.Page,
+                    branch.Page.IconImageSource)).ToArray();
             _page.SetBranches(presentations);
             SelectedBranchId = context.SelectedBranchId;
             Page? selectedPage = _branches.FirstOrDefault(branch =>
@@ -554,6 +587,7 @@ internal sealed class MauiFlyoutBranchHost : IMauiBranchHost, IMauiBranchHostNat
         MauiFlyoutBranchHost host,
         IMauiNativeNavigationOperations nativeOperations,
         IReadOnlyList<MauiBranchHostBranch> branches,
+        IReadOnlyList<MauiFlyoutBranchPresentation> presentations,
         Page? detail,
         string? selectedBranchId,
         bool isPresented) : IMauiBranchHostUpdate
@@ -577,8 +611,7 @@ internal sealed class MauiFlyoutBranchHost : IMauiBranchHost, IMauiBranchHostNat
             try
             {
                 host._branches = branches.ToArray();
-                host._page.SetBranches(host._branches.Select(branch =>
-                    new MauiFlyoutBranchPresentation(branch.Id, branch.Title, branch.Page)).ToArray());
+                host._page.SetBranches(presentations);
                 host.SelectedBranchId = selectedBranchId;
                 nativeOperations.SetFlyoutDetail(host._page, detail);
                 if (selectedBranchId is not null)

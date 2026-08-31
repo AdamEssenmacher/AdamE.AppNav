@@ -98,7 +98,7 @@ public sealed class MauiPresentationTransactionTests
     }
 
     [Fact]
-    public async Task FirstFlyoutDetailFailureRestoresNullDetail()
+    public async Task FirstFlyoutDetailFailureRestoresInitialInfrastructureDetail()
     {
         NavigationState targetState = BranchState("catalog", "catalog", "orders");
         var branchHost = Assert.IsType<BranchHostNode>(targetState.ActiveWindow?.Root);
@@ -114,6 +114,7 @@ public sealed class MauiPresentationTransactionTests
         };
         Assert.IsAssignableFrom<IMauiBranchHostNativeOperations>(host).SetNativeOperations(nativeOperations);
         var flyoutPage = Assert.IsType<MauiBranchFlyoutPage>(host.Page);
+        Page initialDetail = flyoutPage.Detail;
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => host.ApplyAsync(
             new MauiBranchHostUpdateContext(
@@ -126,9 +127,38 @@ public sealed class MauiPresentationTransactionTests
                 "catalog",
                 creationContext.PresentationContext)).AsTask());
 
-        Assert.Null(flyoutPage.Detail);
+        Assert.Same(initialDetail, flyoutPage.Detail);
         Assert.Empty(host.Branches);
         Assert.Null(host.SelectedBranchId);
+        Assert.Null(host.SelectedBranchPage);
+        await host.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task TabHostRollbackRestoresBranchPageChromeAndMetadata()
+    {
+        NavigationState targetState = BranchState("catalog", "catalog");
+        var branchHost = Assert.IsType<BranchHostNode>(targetState.ActiveWindow?.Root);
+        var page = new ContentPage { Title = "Original" };
+        MauiPresentationMetadata.SetBranchId(page, "original-branch");
+        var host = new MauiTabbedBranchHost();
+
+        IMauiBranchHostUpdate update = await host.ApplyAsync(
+            new MauiBranchHostUpdateContext(
+                branchHost,
+                MauiBranchHostPlacement.WindowRoot,
+                [new MauiBranchHostBranch("catalog", "Catalog", page)],
+                "catalog",
+                Context("catalog", NavigationState.Empty)));
+        Assert.Equal("Catalog", page.Title);
+        Assert.Equal("catalog", MauiPresentationMetadata.GetBranchId(page));
+
+        await update.RollbackAsync();
+
+        Assert.Equal("Original", page.Title);
+        Assert.Equal("original-branch", MauiPresentationMetadata.GetBranchId(page));
+        Assert.Empty(host.Branches);
+        await update.DisposeAsync();
         await host.DisposeAsync();
     }
 
@@ -466,6 +496,34 @@ public sealed class MauiPresentationTransactionTests
             recoveredRoot.Navigation.NavigationStack
                 .Select(page => Assert.IsType<string>(MauiPresentationMetadata.GetRouteEntryId(page)))
                 .ToArray());
+        Assert.Equal(1, factory.ReleaseCountFor(Assert.Single(factory.CreatedPresentationPages)));
+        await presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task DirectPushRollbackFailureRebuildsBranchHostWithRetainedPresentationContext()
+    {
+        var nativeOperations = new FaultingNativeOperations();
+        var factory = new InstrumentedRoutePageFactory();
+        var presenter = new MauiNavigationPresenter(factory, nativeOperations: nativeOperations);
+        NavigationState previousState = BranchState("catalog", "catalog", "orders");
+        await presenter.ApplyAsync(new NavigationPlan(previousState), Context("catalog", NavigationState.Empty));
+        var previousRoot = Assert.IsType<TabbedPage>(presenter.CurrentPage);
+        nativeOperations.FaultAfterMutation = NativeMutation.PushStack;
+        nativeOperations.PopFailuresRemaining = 1;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => presenter
+            .PushAsync<TestPresentationPage>(
+                "settings",
+                new MauiRoutePresentationPageOptions { Animated = false })
+            .AsTask());
+
+        var recoveredRoot = Assert.IsType<TabbedPage>(presenter.CurrentPage);
+        Assert.NotSame(previousRoot, recoveredRoot);
+        Assert.Equal(["catalog", "orders"], recoveredRoot.Children
+            .Select(page => Assert.IsType<string>(MauiPresentationMetadata.GetBranchId(page)))
+            .ToArray());
+        Assert.Equal("catalog", MauiPresentationMetadata.GetBranchId(recoveredRoot.CurrentPage));
         Assert.Equal(1, factory.ReleaseCountFor(Assert.Single(factory.CreatedPresentationPages)));
         await presenter.StartShutdown();
     }

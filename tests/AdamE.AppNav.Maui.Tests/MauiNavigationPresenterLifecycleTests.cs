@@ -531,6 +531,64 @@ public sealed class MauiNavigationPresenterLifecycleTests
     }
 
     [Fact]
+    public async Task ModalBranchHostReceivesModalContentPlacementForCreationAndReuse()
+    {
+        var factory = new RecordingBranchHostFactory(MauiBranchHostPlacement.ModalContent);
+        var fixture = new PresenterFixture(configurePresentation: options =>
+            options.BranchHosts.Add("modal-host", new MauiBranchHostRegistration(factory)));
+        var modalHost = new BranchHostNode(
+            "modal-host",
+            [new NavigationBranch("home", "Home", Stack("modal-stack", Entry("home")))],
+            "home",
+            "home");
+        var state = new NavigationState(
+            [
+                new WindowNode(
+                    "main",
+                    Stack("root-stack", Entry("root")),
+                    [new ModalNode("modal", Entry("modal-route"), modalHost)])
+            ],
+            "main");
+
+        await fixture.Presenter.ApplyAsync(new NavigationPlan(state), Context(new TestPageRoute("home")));
+        await fixture.Presenter.ApplyAsync(
+            new NavigationPlan(state),
+            Context(new TestPageRoute("home"), state));
+
+        Assert.Equal([MauiBranchHostPlacement.ModalContent], factory.CreationPlacements);
+        RecordingBranchHost host = Assert.Single(factory.CreatedHosts);
+        Assert.Equal(
+            [MauiBranchHostPlacement.ModalContent, MauiBranchHostPlacement.ModalContent],
+            host.AppliedPlacements);
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task CustomNavigationPageHostOwnsItsTopologyBeforeItsPageSubtype()
+    {
+        var factory = new RecordingBranchHostFactory(
+            MauiBranchHostPlacement.WindowRoot,
+            static () => new NavigationPage(new ContentPage()));
+        var fixture = new PresenterFixture(configurePresentation: options =>
+            options.BranchHosts.Add("custom-root", new MauiBranchHostRegistration(factory)));
+        var state = new BranchHostNode(
+            "custom-root",
+            [
+                new NavigationBranch("home", "Home", Stack("home-stack", Entry("home"))),
+                new NavigationBranch("catalog", "Catalog", Stack("catalog-stack", Entry("catalog")))
+            ],
+            "home",
+            "home");
+
+        await fixture.Presenter.ApplyAsync(Plan(state), Context(new TestPageRoute("home")));
+
+        RecordingBranchHost host = Assert.Single(factory.CreatedHosts);
+        Assert.IsType<NavigationPage>(host.Page);
+        Assert.All(fixture.Factory.CreatedPages, page => Assert.Equal(0, fixture.Factory.ReleaseCountFor(page)));
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
     public async Task CustomBranchHostCanContainNestedDefaultTabs()
     {
         var factory = new RecordingBranchHostFactory(MauiBranchHostPlacement.WindowRoot | MauiBranchHostPlacement.Nested);
@@ -694,13 +752,18 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.Equal(1, tabEvents);
         await tabHost.DisposeAsync();
 
+        var flyoutBranches = new[]
+        {
+            new MauiBranchHostBranch("home", "Home", new ContentPage()),
+            new MauiBranchHostBranch("catalog", "Catalog", new ContentPage())
+        };
         IMauiBranchHost flyoutHost = await new MauiFlyoutBranchHostFactory("Menu").CreateAsync(context);
         var flyoutEvents = 0;
         flyoutHost.SelectionChanged += (_, _) => flyoutEvents++;
         await (await flyoutHost.ApplyAsync(new MauiBranchHostUpdateContext(
             branchHost,
             MauiBranchHostPlacement.WindowRoot,
-            branches,
+            flyoutBranches,
             "catalog",
             context.PresentationContext))).CommitAsync();
         Assert.Equal(0, flyoutEvents);
@@ -2505,12 +2568,16 @@ public sealed class MauiNavigationPresenterLifecycleTests
         }
     }
 
-    private sealed class RecordingBranchHostFactory(MauiBranchHostPlacement supportedPlacements)
+    private sealed class RecordingBranchHostFactory(
+        MauiBranchHostPlacement supportedPlacements,
+        Func<Page>? createHostPage = null)
         : IMauiBranchHostFactory
     {
         public MauiBranchHostPlacement SupportedPlacements => supportedPlacements;
 
         public List<RecordingBranchHost> CreatedHosts { get; } = [];
+
+        public List<MauiBranchHostPlacement> CreationPlacements { get; } = [];
 
         public bool FailNextCommit { get; set; }
 
@@ -2519,6 +2586,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            CreationPlacements.Add(context.Placement);
             var host = new RecordingBranchHost(() =>
             {
                 if (!FailNextCommit)
@@ -2526,7 +2594,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
 
                 FailNextCommit = false;
                 return true;
-            });
+            }, createHostPage?.Invoke());
             CreatedHosts.Add(host);
             return ValueTask.FromResult<IMauiBranchHost>(host);
         }
@@ -2538,12 +2606,13 @@ public sealed class MauiNavigationPresenterLifecycleTests
         private IReadOnlyList<MauiBranchHostBranch> _branches = [];
         private bool _disposed;
 
-        public RecordingBranchHost(Func<bool> shouldFailCommit)
+        public RecordingBranchHost(Func<bool> shouldFailCommit, Page? page = null)
         {
             _shouldFailCommit = shouldFailCommit;
+            Page = page ?? new ContentPage();
         }
 
-        public Page Page { get; } = new ContentPage();
+        public Page Page { get; }
 
         public IReadOnlyList<MauiBranchHostBranch> Branches
         {
@@ -2558,6 +2627,8 @@ public sealed class MauiNavigationPresenterLifecycleTests
 
         public int DisposeCount { get; private set; }
 
+        public List<MauiBranchHostPlacement> AppliedPlacements { get; } = [];
+
         public string? SelectedBranchId { get; private set; }
 
         public Page? SelectedBranchPage => _branches.FirstOrDefault(branch =>
@@ -2571,6 +2642,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             ObjectDisposedException.ThrowIf(_disposed, this);
+            AppliedPlacements.Add(context.Placement);
             var previousBranches = _branches;
             string? previousSelected = SelectedBranchId;
             _branches = context.Branches.ToArray();
