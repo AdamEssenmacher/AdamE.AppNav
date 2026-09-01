@@ -25,7 +25,7 @@ public sealed class MauiRoutePageRegistry
     public MauiRoutePageRegistry MapPage<
         TRoute,
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
-        TPage>()
+    TPage>()
         where TRoute : AppRoute
         where TPage : Page
     {
