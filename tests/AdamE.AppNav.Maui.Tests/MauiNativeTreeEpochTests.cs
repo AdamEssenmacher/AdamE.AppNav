@@ -80,4 +80,5 @@ public sealed class MauiNativeTreeEpochTests
         await oldEpoch.Close().CompleteAsync();
         await replacementEpoch.Close().CompleteAsync();
     }
+
 }

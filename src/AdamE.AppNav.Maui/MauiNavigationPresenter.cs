@@ -330,15 +330,44 @@ internal sealed class MauiNavigationPresenter :
         }
         finally
         {
-            epochClosure ??= _nativeTreeEpoch.Close();
-            await epochClosure.CompleteAsync().ConfigureAwait(false);
-            await _abandonmentCleanup.SealAndDrainAsync().ConfigureAwait(false);
-            _presentationOperationLock.Dispose();
-            _shutdownCancellation.Dispose();
-            _diagnostics.Write(
-                NavigationDiagnosticEventKind.PresentationPresenterDisposed,
-                LifecycleOperationId(),
-                "MAUI navigation presenter was disposed.");
+            // Every step here is best-effort: an application cancellation callback registered against the
+            // epoch can fault its CancelAsync, and anything that escapes before TrySetResult would hang every
+            // caller awaiting presenter shutdown.
+            try
+            {
+                epochClosure ??= _nativeTreeEpoch.Close();
+                await epochClosure
+                    .CompleteAsync(ex => WritePageReleaseFailure(null, ex))
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                WritePageReleaseFailure(null, ex);
+            }
+
+            try
+            {
+                await _abandonmentCleanup.SealAndDrainAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                WritePageReleaseFailure(null, ex);
+            }
+
+            try
+            {
+                _presentationOperationLock.Dispose();
+                _shutdownCancellation.Dispose();
+                _diagnostics.Write(
+                    NavigationDiagnosticEventKind.PresentationPresenterDisposed,
+                    LifecycleOperationId(),
+                    "MAUI navigation presenter was disposed.");
+            }
+            catch (Exception ex)
+            {
+                WritePageReleaseFailure(null, ex);
+            }
+
             _shutdownCompletion.TrySetResult(true);
         }
     }
@@ -367,12 +396,14 @@ internal sealed class MauiNavigationPresenter :
         foreach (SuppressedNavigationPop pendingPop in _suppressedNavigationPops.Values)
             detachedCandidates.UnionWith(pendingPop.KnownPages);
         CurrentPage = null;
+        var detachedRoot = true;
         try
         {
             SetAttachedWindowPage(null);
         }
         catch (Exception ex)
         {
+            detachedRoot = false;
             WritePageReleaseFailure(null, ex);
         }
 
@@ -381,10 +412,36 @@ internal sealed class MauiNavigationPresenter :
         _pendingWindow = null;
         _hostState = MauiPresenterHostState.Disposed;
         InvokeRootPageChanged(null);
-        if (currentPage is not null)
-            await ReleaseAndDiagnoseAsync(currentPage);
-        foreach (Page detachedPage in detachedCandidates)
-            await ReleaseAndDiagnoseAsync(detachedPage);
+        if (detachedRoot)
+        {
+            if (currentPage is not null)
+                await ReleaseAndDiagnoseAsync(currentPage);
+            foreach (Page detachedPage in detachedCandidates)
+                await ReleaseAndDiagnoseAsync(detachedPage);
+        }
+        else
+        {
+            // Detachment failed, so the window still displays this tree and shutdown never became its sole
+            // owner. Releasing these pages would run page-based hooks and dispose scopes behind a live
+            // window, and destruction is no longer observed for it. Abandon them page-free instead.
+            var undetachedAbandonments = new List<MauiPageAbandonment>();
+            if (currentPage is not null)
+            {
+                MauiPageAbandonment? rootAbandonment = CaptureAbandonmentOrDiagnose(currentPage);
+                if (rootAbandonment is not null)
+                    undetachedAbandonments.Add(rootAbandonment);
+            }
+
+            foreach (Page detachedPage in detachedCandidates)
+            {
+                MauiPageAbandonment? abandonment = CaptureAbandonmentOrDiagnose(detachedPage);
+                if (abandonment is not null)
+                    undetachedAbandonments.Add(abandonment);
+            }
+
+            if (undetachedAbandonments.Count > 0)
+                _abandonmentCleanup.EnqueueAfter(Task.CompletedTask, undetachedAbandonments);
+        }
 
         foreach (NavigationPage navigationPage in _navigationPageStackIds.Keys.ToArray())
             UntrackNavigationPage(navigationPage);
@@ -913,7 +970,7 @@ internal sealed class MauiNavigationPresenter :
             // Enqueue before publishing root loss: observers are application code, and a lease that is never
             // drained would block shutdown forever.
             Task prerequisite = Task.WhenAll(
-                closure.CompleteAsync(),
+                closure.CompleteAsync(ex => WritePageReleaseFailure(null, ex)),
                 WaitForPresentationIdleAsync());
             _abandonmentCleanup.EnqueueAfter(prerequisite, abandonments);
 
@@ -2323,10 +2380,16 @@ internal sealed class MauiNavigationPresenter :
         if (handlers is null)
             return;
 
+        // A subscriber can synchronously destroy the window, which publishes root loss reentrantly. The
+        // remaining subscribers on this captured invocation list must not then receive a page from the tree
+        // that just closed. Publishing loss itself (page is null) always runs to completion.
+        MauiNativeTreeEpoch? owningEpoch = page is null ? null : _nativeTreeEpoch;
         foreach (Delegate handler in handlers.GetInvocationList())
         {
             if (handler is not EventHandler<Page?> typedHandler)
                 continue;
+            if (owningEpoch is not null && !EpochRemainsCurrent(owningEpoch))
+                return;
 
             try
             {

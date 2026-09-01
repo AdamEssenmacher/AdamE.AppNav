@@ -159,11 +159,24 @@ internal sealed record MauiNativeTreeEpochClosure(
 {
     public static MauiNativeTreeEpochClosure Empty { get; } = new([], [], Task.CompletedTask, null);
 
-    public async Task CompleteAsync()
+    /// <summary>
+    /// Waits for epoch cancellation to finish propagating and disposes the source.
+    /// </summary>
+    /// <remarks>
+    /// Application code may register cancellation callbacks against the epoch token. A callback that throws
+    /// faults <see cref="CancellationTokenSource.CancelAsync"/>, and this is awaited from shutdown finalization
+    /// and from destruction cleanup -- neither of which can afford to abort. The fault is surfaced through
+    /// <paramref name="onFault"/> instead of propagating.
+    /// </remarks>
+    public async Task CompleteAsync(Action<Exception>? onFault = null)
     {
         try
         {
             await Cancellation.ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            onFault?.Invoke(ex);
         }
         finally
         {

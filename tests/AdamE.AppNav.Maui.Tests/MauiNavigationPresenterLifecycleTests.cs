@@ -1234,6 +1234,67 @@ public sealed class MauiNavigationPresenterLifecycleTests
     }
 
     [Fact]
+    public async Task RootObserverDestroyingReplacementStopsPublishingToRemainingObservers()
+    {
+        var fixture = new PresenterFixture();
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("schools", Entry("schools"))),
+            Context(new TestPageRoute("schools")));
+        var destroyedWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(destroyedWindow);
+        RaiseWindowLifecycleEvent(destroyedWindow, "Destroying");
+        var rejectedWindow = new Window();
+        var laterObserverPages = new List<Page?>();
+        fixture.Presenter.RootPageChanged += DestroyDuringPublication;
+        fixture.Presenter.RootPageChanged += RecordLater;
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            fixture.Presenter.AttachWindowAsync(rejectedWindow).AsTask());
+
+        fixture.Presenter.RootPageChanged -= DestroyDuringPublication;
+        fixture.Presenter.RootPageChanged -= RecordLater;
+
+        // The first observer closed the epoch, so the later observer must only ever have seen root loss --
+        // never the candidate page from the tree that just closed.
+        Assert.All(laterObserverPages, Assert.Null);
+
+        var replacementWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(replacementWindow);
+        Assert.Same(fixture.Presenter.CurrentPage, replacementWindow.Page);
+        await fixture.Presenter.StartShutdown().WaitAsync(TimeSpan.FromSeconds(5));
+
+        void DestroyDuringPublication(object? sender, Page? page)
+        {
+            if (page is not null)
+                RaiseWindowLifecycleEvent(rejectedWindow, "Destroying");
+        }
+
+        void RecordLater(object? sender, Page? page) => laterObserverPages.Add(page);
+    }
+
+    [Fact]
+    public async Task ShutdownAbandonsTheTreeWhenItCannotBeDetachedFromTheWindow()
+    {
+        var nativeOperations = new RejectingWindowPageClearOperations();
+        var fixture = new PresenterFixture(nativeOperations: nativeOperations);
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("schools", Entry("schools"))),
+            Context(new TestPageRoute("schools")));
+        var window = new Window();
+        await fixture.Presenter.AttachWindowAsync(window);
+        Page root = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        Page routePage = root.Navigation.NavigationStack[^1];
+
+        nativeOperations.RejectWindowPageClear = true;
+        await fixture.Presenter.StartShutdown().WaitAsync(TimeSpan.FromSeconds(5));
+
+        // Detachment failed, so the window still displays this tree and shutdown never became its sole owner.
+        // Running page-based release would dispose scopes behind a live window; the pages must be abandoned.
+        Assert.Empty(fixture.Factory.ReleasedPages);
+        Assert.Contains(routePage, fixture.Factory.AbandonedPages);
+    }
+
+    [Fact]
     public async Task ModalBranchHostReceivesModalContentPlacementForCreationAndReuse()
     {
         var factory = new RecordingBranchHostFactory(MauiBranchHostPlacement.ModalContent);
@@ -3732,6 +3793,52 @@ public sealed class MauiNavigationPresenterLifecycleTests
         }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    /// <summary>Refuses to clear the window page, simulating a native adapter that rejects detachment.</summary>
+    private sealed class RejectingWindowPageClearOperations : IMauiNativeNavigationOperations
+    {
+        private readonly MauiNativeNavigationOperations _inner = new();
+
+        public bool RejectWindowPageClear { get; set; }
+
+        public Task PushAsync(NavigationPage navigationPage, Page page, bool animated) =>
+            _inner.PushAsync(navigationPage, page, animated);
+
+        public Task<Page?> PopAsync(NavigationPage navigationPage, bool animated) =>
+            _inner.PopAsync(navigationPage, animated);
+
+        public Task PushModalAsync(Page host, Page page, bool animated) =>
+            _inner.PushModalAsync(host, page, animated);
+
+        public Task<Page?> PopModalAsync(Page host, bool animated) =>
+            _inner.PopModalAsync(host, animated);
+
+        public void SetWindowPage(Window window, Page? page)
+        {
+            if (RejectWindowPageClear && page is null)
+                throw new InvalidOperationException("Synthetic window-page detach failure.");
+
+            _inner.SetWindowPage(window, page);
+        }
+
+        public void InsertTab(TabbedPage host, int index, Page page) => _inner.InsertTab(host, index, page);
+
+        public void RemoveTab(TabbedPage host, Page page) => _inner.RemoveTab(host, page);
+
+        public void SetCurrentTab(TabbedPage host, Page? page) => _inner.SetCurrentTab(host, page);
+
+        public void SetFlyoutBranches(
+            MauiBranchFlyoutPage host,
+            IReadOnlyList<MauiFlyoutBranchPresentation> branches) => _inner.SetFlyoutBranches(host, branches);
+
+        public void SetFlyoutDetail(FlyoutPage host, Page? page) => _inner.SetFlyoutDetail(host, page);
+
+        public void SetFlyoutPresented(FlyoutPage host, bool presented) =>
+            _inner.SetFlyoutPresented(host, presented);
+
+        public void SetSelectedFlyoutBranch(MauiBranchFlyoutPage host, string? branchId) =>
+            _inner.SetSelectedFlyoutBranch(host, branchId);
     }
 
     private sealed class ControlledMainThreadDispatcher : IMauiMainThreadDispatcher
