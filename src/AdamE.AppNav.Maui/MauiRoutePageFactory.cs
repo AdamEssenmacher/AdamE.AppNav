@@ -34,9 +34,12 @@ internal interface IMauiRoutePageFactory
         MauiRoutePageUpdateContext context,
         CancellationToken cancellationToken = default);
 
-    ValueTask ReleasePageAsync(Page page);
+    // Deliberately no tokenless overloads: every release crosses into application lifecycle hooks, so the caller
+    // must supply a token that carries native-tree epoch cancellation. A defaulted overload here silently dropped
+    // that token for any implementer that did not override it.
+    ValueTask ReleasePageAsync(Page page, CancellationToken cancellationToken);
 
-    ValueTask ReleasePresentationPageAsync(Page page);
+    ValueTask ReleasePresentationPageAsync(Page page, CancellationToken cancellationToken);
 
     MauiPageAbandonment? CaptureAbandonment(Page page);
 }
@@ -135,7 +138,11 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
                 SetPageHandle(page, handle);
                 scope = null;
                 foreach (IMauiRoutePageLifecycleHook hook in handle.GetActiveHooks())
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
                     await hook.OnPageCreatedAsync(page, entry, cancellationToken);
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
 
                 return page;
             }
@@ -147,7 +154,7 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
         {
             try
             {
-                await CleanupFailedCreationAsync(page, scope).ConfigureAwait(false);
+                await CleanupFailedCreationAsync(page, scope, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception cleanupException)
             {
@@ -206,7 +213,7 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
         {
             try
             {
-                await CleanupFailedCreationAsync(page, scope).ConfigureAwait(false);
+                await CleanupFailedCreationAsync(page, scope, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception cleanupException)
             {
@@ -229,19 +236,23 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
         PageHandle handle = GetPageHandle(page) ??
             throw new InvalidOperationException("The route page is not owned by this page factory.");
         foreach (IMauiRoutePageLifecycleHook hook in handle.GetActiveHooks())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
             await hook.OnPageUpdatedAsync(page, entry, context, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+        }
     }
 
-    public ValueTask ReleasePageAsync(Page page)
+    public ValueTask ReleasePageAsync(Page page, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(page);
-        return ReleaseCoreAsync(page);
+        return ReleaseCoreAsync(page, cancellationToken);
     }
 
-    public ValueTask ReleasePresentationPageAsync(Page page)
+    public ValueTask ReleasePresentationPageAsync(Page page, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(page);
-        return ReleaseCoreAsync(page);
+        return ReleaseCoreAsync(page, cancellationToken);
     }
 
     public MauiPageAbandonment? CaptureAbandonment(Page page)
@@ -252,14 +263,24 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
             page.GetType().FullName ?? page.GetType().Name);
     }
 
-    private static async ValueTask CleanupFailedCreationAsync(Page? page, IAsyncDisposable? unattachedScope)
+    /// <remarks>
+    /// The creation token is threaded through deliberately. When creation failed because the page's native-tree
+    /// epoch closed, running page-based release callbacks would invoke <see cref="IMauiRoutePageLifecycleHook.OnPageReleasedAsync"/>
+    /// -- including hooks whose creation callback was skipped -- and touch a page from the destroyed tree.
+    /// <see cref="ReleaseCoreAsync"/> skips those callbacks and the binding-context clear when the token is
+    /// cancelled, while still disposing the page scope uncancelled.
+    /// </remarks>
+    private static async ValueTask CleanupFailedCreationAsync(
+        Page? page,
+        IAsyncDisposable? unattachedScope,
+        CancellationToken cancellationToken)
     {
         var failures = new List<Exception>();
         if (page is not null)
         {
             try
             {
-                await ReleaseCoreAsync(page).ConfigureAwait(false);
+                await ReleaseCoreAsync(page, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -283,7 +304,7 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
             throw new AggregateException("Page creation cleanup failed.", failures);
     }
 
-    private static async ValueTask ReleaseCoreAsync(Page page)
+    private static async ValueTask ReleaseCoreAsync(Page page, CancellationToken cancellationToken)
     {
         PageHandle? handle = GetPageHandle(page);
         if (handle is null)
@@ -307,9 +328,16 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
 
         foreach (IMauiRoutePageLifecycleHook hook in resources.Hooks)
         {
+            if (cancellationToken.IsCancellationRequested)
+                break;
+
             try
             {
-                await hook.OnPageReleasedAsync(page, CancellationToken.None);
+                await hook.OnPageReleasedAsync(page, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                break;
             }
             catch (Exception ex)
             {
@@ -317,13 +345,16 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
             }
         }
 
-        try
+        if (!cancellationToken.IsCancellationRequested)
         {
-            page.BindingContext = null;
-        }
-        catch (Exception ex)
-        {
-            failures.Add(ex);
+            try
+            {
+                page.BindingContext = null;
+            }
+            catch (Exception ex)
+            {
+                failures.Add(ex);
+            }
         }
 
         if (resources.Scope is not null)

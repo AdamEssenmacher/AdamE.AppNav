@@ -132,6 +132,105 @@ public sealed class AppNavStartupServiceTests
     }
 
     [Fact]
+    public async Task StartAsync_ExistingLogicalWindowAttachesWithoutRunningFallbackAgain()
+    {
+        var existingState = new NavigationState(
+            [new WindowNode(
+                "main",
+                new StackNode(
+                    "main-stack",
+                    [new RouteEntry("home", new TestRoute("home")), new RouteEntry("details", new TestRoute("details"))]))],
+            "main");
+        var navigator = new RecordingRouterNavigator { CurrentState = existingState };
+        var fallbackFactoryCalls = 0;
+        using var services = new ServiceCollection()
+            .AddSingleton<IRouterNavigator>(navigator)
+            .AddSingleton(new NavigationDiagnostics())
+            .BuildServiceProvider();
+        using var dispatcher = new MauiExternalNavigationDispatcher(
+            services,
+            services.GetRequiredService<NavigationDiagnostics>());
+
+        // A recreated native host: the presenter retained this window across destruction and can rebuild it.
+        var windowAttachment = new RecordingWindowAttachment { PresentsWindow = true };
+        var startup = new AppNavStartupService(
+            navigator,
+            windowAttachment,
+            dispatcher,
+            new AppNavStartupOptions
+            {
+                AppLinkGracePeriod = TimeSpan.Zero,
+                FallbackRequestFactory = (_, _) =>
+                {
+                    fallbackFactoryCalls++;
+                    return ValueTask.FromResult<RouterNavigationRequest?>(RouterNavigationRequest.FromRoute(
+                        new TestRoute("fallback"),
+                        NavigationRequestSource.InAppCommand));
+                }
+            },
+            services,
+            services.GetRequiredService<NavigationDiagnostics>());
+
+        AppNavStartupResult result = await StartOnMainThreadAsync(startup, new Window(new ContentPage()));
+
+        Assert.Equal(AppNavStartupOutcome.NoNavigation, result.Outcome);
+        Assert.Equal(0, fallbackFactoryCalls);
+        Assert.Empty(navigator.NavigateCalls);
+        Assert.Equal(1, windowAttachment.AttachCalls);
+        Assert.Same(existingState, navigator.CurrentState);
+    }
+
+    [Fact]
+    public async Task StartAsync_SeededNavigatorStateStillRunsStartupFallback()
+    {
+        var seededState = new NavigationState(
+            [new WindowNode(
+                "main",
+                new StackNode(
+                    "main-stack",
+                    [new RouteEntry("home", new TestRoute("home"))]))],
+            "main");
+
+        // A fresh navigator seeded through RouterNavigatorFactoryOptions.InitialState reports the same window
+        // a recreated host would, but no presenter has ever materialized it. Skipping fallback here would
+        // attach the window over its bootstrap page while the router claimed the seeded state was presented.
+        var navigator = new RecordingRouterNavigator { CurrentState = seededState };
+        var fallbackFactoryCalls = 0;
+        using var services = new ServiceCollection()
+            .AddSingleton<IRouterNavigator>(navigator)
+            .AddSingleton(new NavigationDiagnostics())
+            .BuildServiceProvider();
+        using var dispatcher = new MauiExternalNavigationDispatcher(
+            services,
+            services.GetRequiredService<NavigationDiagnostics>());
+        var windowAttachment = new RecordingWindowAttachment { PresentsWindow = false };
+        var startup = new AppNavStartupService(
+            navigator,
+            windowAttachment,
+            dispatcher,
+            new AppNavStartupOptions
+            {
+                AppLinkGracePeriod = TimeSpan.Zero,
+                FallbackRequestFactory = (_, _) =>
+                {
+                    fallbackFactoryCalls++;
+                    return ValueTask.FromResult<RouterNavigationRequest?>(RouterNavigationRequest.FromRoute(
+                        new TestRoute("fallback"),
+                        NavigationRequestSource.InAppCommand));
+                }
+            },
+            services,
+            services.GetRequiredService<NavigationDiagnostics>());
+
+        AppNavStartupResult result = await StartOnMainThreadAsync(startup, new Window(new ContentPage()));
+
+        Assert.Equal(AppNavStartupOutcome.FallbackNavigated, result.Outcome);
+        Assert.Equal(1, fallbackFactoryCalls);
+        Assert.Single(navigator.NavigateCalls);
+        Assert.Equal(1, windowAttachment.AttachCalls);
+    }
+
+    [Fact]
     public void StartupFallbackFactoriesAreMutuallyExclusive()
     {
         var navigator = new RecordingRouterNavigator();
@@ -1059,6 +1158,11 @@ public sealed class AppNavStartupServiceTests
 
     private sealed class RecordingWindowAttachment(Action? onAttach = null) : IMauiWindowAttachment
     {
+        /// <summary>Stands in for a presenter that already holds this window's logical state.</summary>
+        public bool PresentsWindow { get; set; }
+
+        public bool HasPresentedWindow(string windowId) => PresentsWindow;
+
         public int AttachCalls { get; private set; }
 
         public List<bool> AttachMainThreadChecks { get; } = [];
@@ -1080,6 +1184,10 @@ public sealed class AppNavStartupServiceTests
 
     private sealed class GatedWindowAttachment : IMauiWindowAttachment
     {
+        public bool PresentsWindow { get; set; }
+
+        public bool HasPresentedWindow(string windowId) => PresentsWindow;
+
         private readonly TaskCompletionSource _attachStarted =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _attachCompletion =
@@ -1213,7 +1321,7 @@ public sealed class AppNavStartupServiceTests
 
         public List<bool> NavigateMainThreadChecks { get; } = [];
 
-        public NavigationState CurrentState => NavigationState.Empty;
+        public NavigationState CurrentState { get; set; } = NavigationState.Empty;
 
         public NavigationHistory History => NavigationHistory.Empty;
 

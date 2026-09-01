@@ -15,6 +15,11 @@ internal interface IMauiWindowAttachment
         Window window,
         string windowId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Whether the presenter already holds logical presentation state for <paramref name="windowId"/>.
+    /// </summary>
+    bool HasPresentedWindow(string windowId);
 }
 
 internal interface IAppNavRuntime : IRouterNavigator
@@ -116,4 +121,6 @@ internal sealed class AppNavRuntime(
     {
         return presenter.AttachWindowAsync(window, windowId, cancellationToken);
     }
+
+    public bool HasPresentedWindow(string windowId) => presenter.HasPresentedWindow(windowId);
 }

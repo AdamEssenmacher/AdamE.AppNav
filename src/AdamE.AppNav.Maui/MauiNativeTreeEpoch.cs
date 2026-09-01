@@ -5,6 +5,8 @@ namespace AdamE.AppNav.Maui;
 
 internal sealed class MauiNativeTreeEpoch
 {
+    private static readonly CancellationToken AlreadyCancelled = new(canceled: true);
+
     private readonly Lock _gate = new();
     private readonly CancellationTokenSource _cancellation = new();
     private readonly HashSet<Page> _pages = new(ReferenceEqualityComparer.Instance);
@@ -20,10 +22,6 @@ internal sealed class MauiNativeTreeEpoch
     public Dictionary<NavigationPage, SuppressedNavigationPop> SuppressedNavigationPops { get; } =
         new(ReferenceEqualityComparer.Instance);
 
-    public HashSet<TabbedPage> TrackedTabbedPages { get; } = new(ReferenceEqualityComparer.Instance);
-
-    public HashSet<MauiBranchFlyoutPage> TrackedFlyoutPages { get; } = new(ReferenceEqualityComparer.Instance);
-
     public HashSet<Page> TrackedModalPages { get; } = new(ReferenceEqualityComparer.Instance);
 
     public Dictionary<IMauiBranchHost, string> PendingBranchHostSelections { get; } =
@@ -37,7 +35,34 @@ internal sealed class MauiNativeTreeEpoch
 
     public AppRoute? PendingHostBackRoute { get; set; }
 
-    public CancellationToken CancellationToken => _cancellation.Token;
+    /// <summary>
+    /// A token that cancels when this epoch closes.
+    /// </summary>
+    /// <remarks>
+    /// Once the epoch is closed its <see cref="CancellationTokenSource"/> may already have been disposed by
+    /// <see cref="MauiNativeTreeEpochClosure.CompleteAsync"/>, so a closed epoch reports a pre-cancelled token
+    /// instead of touching the disposed source.
+    /// </remarks>
+    public CancellationToken CancellationToken
+    {
+        get
+        {
+            lock (_gate)
+            {
+                if (!_open)
+                    return AlreadyCancelled;
+            }
+
+            try
+            {
+                return _cancellation.Token;
+            }
+            catch (ObjectDisposedException)
+            {
+                return AlreadyCancelled;
+            }
+        }
+    }
 
     public bool IsOpen
     {
@@ -134,11 +159,24 @@ internal sealed record MauiNativeTreeEpochClosure(
 {
     public static MauiNativeTreeEpochClosure Empty { get; } = new([], [], Task.CompletedTask, null);
 
-    public async Task CompleteAsync()
+    /// <summary>
+    /// Waits for epoch cancellation to finish propagating and disposes the source.
+    /// </summary>
+    /// <remarks>
+    /// Application code may register cancellation callbacks against the epoch token. A callback that throws
+    /// faults <see cref="CancellationTokenSource.CancelAsync"/>, and this is awaited from shutdown finalization
+    /// and from destruction cleanup -- neither of which can afford to abort. The fault is surfaced through
+    /// <paramref name="onFault"/> instead of propagating.
+    /// </remarks>
+    public async Task CompleteAsync(Action<Exception>? onFault = null)
     {
         try
         {
             await Cancellation.ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            onFault?.Invoke(ex);
         }
         finally
         {

@@ -55,6 +55,13 @@ A hook cannot synchronously or asynchronously re-enter `NavigateAsync`,
 follow-up navigation after the hook and its owning router operation complete.
 Reentrant calls fail immediately with `InvalidOperationException`.
 
+`OnPageReleasedAsync` runs when AppNav normally retires a valid page. Native
+host destruction is different: AppNav cannot safely pass an invalid native page
+to application code, so it skips the page-based release callback and disposes
+the page's captured DI scope directly. Scoped services should therefore keep
+their essential cleanup in `Dispose` or `DisposeAsync` rather than relying only
+on `OnPageReleasedAsync`.
+
 ## Transaction and Back behavior
 
 AppNav stages replacements, retains removed pages until commit, suppresses

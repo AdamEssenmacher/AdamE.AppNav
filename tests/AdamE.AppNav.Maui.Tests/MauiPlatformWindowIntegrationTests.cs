@@ -1,3 +1,4 @@
+using System.Reflection;
 using AdamE.AppNav.History;
 using AdamE.AppNav.Maui;
 using AdamE.AppNav.Maui.DependencyInjection;
@@ -23,6 +24,47 @@ public sealed class MauiPlatformWindowIntegrationCollection
 [Collection(MauiPlatformWindowIntegrationCollection.CollectionName)]
 public sealed class MauiPlatformWindowIntegrationTests
 {
+    [Fact]
+    public Task RepeatedStartupAfterWindowDestructionRestoresStateWithoutFallbackNavigation()
+    {
+        return MainThread.InvokeOnMainThreadAsync(async () =>
+        {
+            Assert.True(MainThread.IsMainThread);
+
+            var destroyedWindow = new Window(new ContentPage());
+            ServiceProvider provider = CreateServices();
+            try
+            {
+                IAppNavStartupService startup = provider.GetRequiredService<IAppNavStartupService>();
+                IRouterNavigator navigator = provider.GetRequiredService<IRouterNavigator>();
+                AppNavStartupResult initialStartup = await startup.StartAsync(destroyedWindow, "main");
+                Assert.Equal(AppNavStartupOutcome.FallbackNavigated, initialStartup.Outcome);
+                await navigator.NavigateAsync(new PlatformDetailRoute("retained"));
+                NavigationState retainedState = navigator.CurrentState;
+                NavigationHistory retainedHistory = navigator.History;
+
+                RaiseWindowDestroying(destroyedWindow);
+                var replacementWindow = new Window(new ContentPage { Title = "replacement-placeholder" });
+                AppNavStartupResult replacementStartup = await startup.StartAsync(replacementWindow, "main");
+
+                Assert.Equal(AppNavStartupOutcome.NoNavigation, replacementStartup.Outcome);
+                Assert.Same(retainedState, navigator.CurrentState);
+                Assert.Same(retainedHistory, navigator.History);
+                AssertLogicalStack(navigator, typeof(PlatformHomeRoute), typeof(PlatformDetailRoute));
+                var replacementRoot = Assert.IsType<NavigationPage>(replacementWindow.Page);
+                Assert.Collection(
+                    replacementRoot.Navigation.NavigationStack,
+                    page => Assert.IsType<PlatformHomePage>(page),
+                    page => Assert.IsType<PlatformDetailPage>(page));
+            }
+            finally
+            {
+                await provider.DisposeAsync();
+                Assert.True(MainThread.IsMainThread);
+            }
+        });
+    }
+
     [Fact]
     public Task RealWindowNavigationAndBackKeepLogicalNativeHistoryAndScopesConsistent()
     {
@@ -264,6 +306,21 @@ public sealed class MauiPlatformWindowIntegrationTests
     {
         Assert.Equal(expectedCount, history.Entries.Count);
         Assert.IsType(expectedCurrentRouteType, history.Current?.Route);
+    }
+
+    private static void RaiseWindowDestroying(Window window)
+    {
+        for (Type? type = window.GetType(); type is not null; type = type.BaseType)
+        {
+            FieldInfo? field = type.GetField("Destroying", BindingFlags.Instance | BindingFlags.NonPublic);
+            if (field?.GetValue(window) is EventHandler handlers)
+            {
+                handlers(window, EventArgs.Empty);
+                return;
+            }
+        }
+
+        throw new InvalidOperationException("Window Destroying event backing field was not found.");
     }
 
     private abstract record PlatformRoute : AppRoute;

@@ -1,6 +1,7 @@
 using System.Reflection;
 using AdamE.AppNav.Diagnostics;
 using AdamE.AppNav.Maui;
+using AdamE.AppNav.Maui.AppLinks;
 using AdamE.AppNav.Maui.DependencyInjection;
 using AdamE.AppNav.Navigation;
 using AdamE.AppNav.Plans;
@@ -75,6 +76,392 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.Empty(fixture.Factory.ReleasedPages);
 
         _ = fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task DestroyedWindowSuspendsNativePresentationAndBuildsOnlyLatestLogicalState()
+    {
+        var fixture = new PresenterFixture();
+        NavigationPlan initialPlan = Plan(Stack("schools", Entry("schools")));
+        await fixture.Presenter.ApplyAsync(
+            initialPlan,
+            Context(new TestPageRoute("schools")));
+        await fixture.Presenter.PushAsync<TestPresentationPage>("transient");
+        var destroyedRoot = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        Page destroyedRoutePage = destroyedRoot.Navigation.NavigationStack[0];
+        Page transientPage = destroyedRoot.Navigation.NavigationStack[1];
+        var destroyedWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(destroyedWindow);
+        var rootChanges = new List<Page?>();
+        fixture.Presenter.RootPageChanged += (_, page) => rootChanges.Add(page);
+
+        RaiseWindowLifecycleEvent(destroyedWindow, "Destroying");
+
+        Assert.Null(fixture.Presenter.AttachedWindow);
+        Assert.Null(fixture.Presenter.CurrentPage);
+        Assert.Same(destroyedRoot, destroyedWindow.Page);
+        Assert.Null(Assert.Single(rootChanges));
+        Assert.Contains(destroyedRoutePage, fixture.Factory.AbandonedPages);
+        Assert.Contains(transientPage, fixture.Factory.AbandonedPages);
+        Assert.DoesNotContain(destroyedRoot, fixture.Factory.AbandonedPages);
+        Assert.Null(fixture.Factory.CaptureAbandonment(destroyedRoutePage));
+        Assert.Empty(fixture.Factory.ReleasedPages);
+        Assert.Empty(fixture.Factory.ReleasedPresentationPages);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Presenter.AttachWindowAsync(destroyedWindow).AsTask());
+
+        int pagesBeforeHostlessNavigation = fixture.Factory.CreatedPages.Count;
+        NavigationPlan intermediate = Plan(Stack("schools", Entry("schools"), Entry("details")));
+        await fixture.Presenter.ApplyAsync(
+            intermediate,
+            Context(new TestPageRoute("details"), initialPlan.TargetState));
+        NavigationPlan latest = Plan(Stack(
+            "schools",
+            Entry("schools"),
+            Entry("details"),
+            Entry("settings")));
+        await fixture.Presenter.ApplyAsync(
+            latest,
+            Context(new TestPageRoute("settings"), intermediate.TargetState));
+        Assert.Equal(pagesBeforeHostlessNavigation, fixture.Factory.CreatedPages.Count);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Presenter.PushAsync<TestPresentationPage>("hostless").AsTask());
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Presenter.PopAsync().AsTask());
+
+        var replacementWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(replacementWindow);
+
+        var replacementRoot = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        Assert.NotSame(destroyedRoot, replacementRoot);
+        Assert.Same(replacementRoot, replacementWindow.Page);
+        Assert.Equal(
+            ["schools", "details", "settings"],
+            replacementRoot.Navigation.NavigationStack.Select(page => page.Title));
+        Assert.Single(fixture.Factory.CreatedPresentationPages);
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task FailedReplacementPublishesNoPartialTreeAndRemainsRetryable()
+    {
+        var verifier = new TogglePresentationVerifier();
+        var fixture = new PresenterFixture(presentationVerifier: verifier);
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("schools", Entry("schools"))),
+            Context(new TestPageRoute("schools")));
+        var destroyedWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(destroyedWindow);
+        RaiseWindowLifecycleEvent(destroyedWindow, "Destroying");
+
+        verifier.Fail = true;
+        var rejectedWindow = new Window();
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Presenter.AttachWindowAsync(rejectedWindow).AsTask());
+        Assert.Null(fixture.Presenter.CurrentPage);
+        Assert.Null(fixture.Presenter.AttachedWindow);
+        Assert.Null(rejectedWindow.Page);
+
+        verifier.Fail = false;
+        var replacementWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(replacementWindow);
+        Assert.Same(fixture.Presenter.CurrentPage, replacementWindow.Page);
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task ReplacementDestroyedByRootObserverIsNotMarkedReadyAndRemainsRetryable()
+    {
+        var fixture = new PresenterFixture();
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("schools", Entry("schools"))),
+            Context(new TestPageRoute("schools")));
+        var destroyedWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(destroyedWindow);
+        RaiseWindowLifecycleEvent(destroyedWindow, "Destroying");
+        var rejectedWindow = new Window();
+        fixture.Presenter.RootPageChanged += DestroyReplacement;
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            fixture.Presenter.AttachWindowAsync(rejectedWindow).AsTask());
+
+        fixture.Presenter.RootPageChanged -= DestroyReplacement;
+        Assert.Null(fixture.Presenter.AttachedWindow);
+        Assert.Null(fixture.Presenter.CurrentPage);
+        var replacementWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(replacementWindow);
+        Assert.Same(fixture.Presenter.CurrentPage, replacementWindow.Page);
+        await fixture.Presenter.StartShutdown();
+
+        void DestroyReplacement(object? sender, Page? page)
+        {
+            if (page is not null)
+                RaiseWindowLifecycleEvent(rejectedWindow, "Destroying");
+        }
+    }
+
+    [Fact]
+    public async Task ReplacementWhoseRootObserverReplacesWindowPageIsRejectedAndRemainsRetryable()
+    {
+        var fixture = new PresenterFixture();
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("schools", Entry("schools"))),
+            Context(new TestPageRoute("schools")));
+        var destroyedWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(destroyedWindow);
+        RaiseWindowLifecycleEvent(destroyedWindow, "Destroying");
+        var rejectedWindow = new Window();
+        var observerPage = new ContentPage { Title = "observer-owned" };
+        fixture.Presenter.RootPageChanged += ReplaceWindowPage;
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            fixture.Presenter.AttachWindowAsync(rejectedWindow).AsTask());
+
+        fixture.Presenter.RootPageChanged -= ReplaceWindowPage;
+        Assert.Null(fixture.Presenter.AttachedWindow);
+        Assert.Null(fixture.Presenter.CurrentPage);
+        Assert.Same(observerPage, rejectedWindow.Page);
+        var replacementWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(replacementWindow);
+        Assert.Same(fixture.Presenter.CurrentPage, replacementWindow.Page);
+        await fixture.Presenter.StartShutdown();
+
+        void ReplaceWindowPage(object? sender, Page? page)
+        {
+            if (page is not null)
+                rejectedWindow.Page = observerPage;
+        }
+    }
+
+    [Fact]
+    public async Task ReplacementUsesLatestHostlessBranchContextAndCommitsBeforePublication()
+    {
+        var factory = new RecordingBranchHostFactory(MauiBranchHostPlacement.WindowRoot);
+        var fixture = new PresenterFixture(configurePresentation: options =>
+            options.BranchHosts.Add("custom-root", new MauiBranchHostRegistration(factory)));
+        var initial = new BranchHostNode(
+            "custom-root",
+            [new NavigationBranch("home", "Home", Stack("home-stack", Entry("home")))],
+            "home",
+            "home");
+        NavigationPresentationContext initialContext = Context(new TestPageRoute("home"));
+        await fixture.Presenter.ApplyAsync(Plan(initial), initialContext);
+        var destroyedWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(destroyedWindow);
+        RaiseWindowLifecycleEvent(destroyedWindow, "Destroying");
+        var latest = new BranchHostNode(
+            "custom-root",
+            [
+                new NavigationBranch("home", "Home", Stack("home-stack", Entry("home"))),
+                new NavigationBranch("catalog", "Catalog", Stack("catalog-stack", Entry("catalog")))
+            ],
+            "catalog",
+            "home");
+        NavigationPresentationContext latestContext = Context(
+            new TestPageRoute("catalog"),
+            Plan(initial).TargetState);
+        await fixture.Presenter.ApplyAsync(Plan(latest), latestContext);
+        var replacementWindow = new Window();
+        int commitCountAtPublication = -1;
+        int disposeCountAtPublication = -1;
+        fixture.Presenter.RootPageChanged += (_, page) =>
+        {
+            if (page is not null)
+            {
+                RecordingBranchHost.RecordingBranchHostUpdate update =
+                    factory.CreatedHosts.Last().Updates.Last();
+                commitCountAtPublication = update.CommitCount;
+                disposeCountAtPublication = update.DisposeCount;
+            }
+        };
+
+        await fixture.Presenter.AttachWindowAsync(replacementWindow);
+
+        RecordingBranchHost replacementHost = factory.CreatedHosts.Last();
+        Assert.Equal("catalog", replacementHost.SelectedBranchId);
+        Assert.Equal(latestContext.Request, factory.CreationContexts.Last().Request);
+        Assert.Equal(latestContext.Route, replacementHost.AppliedContexts.Last().Route);
+        Assert.Equal(1, commitCountAtPublication);
+        Assert.Equal(1, disposeCountAtPublication);
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task EmptyLogicalStateClearsReplacementWindowBootstrapPage()
+    {
+        var fixture = new PresenterFixture();
+        NavigationPlan initialPlan = Plan(Stack("schools", Entry("schools")));
+        await fixture.Presenter.ApplyAsync(
+            initialPlan,
+            Context(new TestPageRoute("schools")));
+        var destroyedWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(destroyedWindow);
+        RaiseWindowLifecycleEvent(destroyedWindow, "Destroying");
+        await fixture.Presenter.ApplyAsync(
+            new NavigationPlan(NavigationState.Empty),
+            Context(new TestPageRoute("empty"), initialPlan.TargetState));
+        var bootstrapPage = new ContentPage { Title = "bootstrap" };
+        var replacementWindow = new Window(bootstrapPage);
+
+        await fixture.Presenter.AttachWindowAsync(replacementWindow);
+
+        Assert.Null(replacementWindow.Page);
+        Assert.Null(fixture.Presenter.CurrentPage);
+        Assert.Same(replacementWindow, fixture.Presenter.AttachedWindow);
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task DestroyedEpochStopsAfterUncooperativePageUpdateReturns()
+    {
+        var factory = new GatedUpdateRoutePageFactory();
+        var presenter = new MauiNavigationPresenter(factory);
+        NavigationPlan initialPlan = Plan(Stack("schools", Entry("schools"), Entry("details")));
+        await presenter.ApplyAsync(
+            initialPlan,
+            Context(new TestPageRoute("details")));
+        var destroyedWindow = new Window();
+        await presenter.AttachWindowAsync(destroyedWindow);
+
+        Task apply = presenter.ApplyAsync(
+            Plan(Stack("schools", Entry("schools"), Entry("details"))),
+            Context(new TestPageRoute("details"), initialPlan.TargetState)).AsTask();
+        await factory.UpdateStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        RaiseWindowLifecycleEvent(destroyedWindow, "Destroying");
+        factory.AllowUpdateToReturn();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => apply);
+        Assert.Equal(1, factory.UpdateCalls);
+        await presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task DeferredModalCallbackFromDestroyedEpochCannotChangeReplacementState()
+    {
+        var dispatcher = new ControlledMainThreadDispatcher();
+        var fixture = new PresenterFixture(
+            mainThreadDispatcher: dispatcher);
+        var state = new NavigationState(
+            [new WindowNode(
+                "main",
+                Stack("schools", Entry("schools")),
+                [new ModalNode("cart", Entry("cart"))])],
+            "main");
+        await fixture.Presenter.ApplyAsync(
+            new NavigationPlan(state),
+            Context(new TestPageRoute("cart")));
+        var root = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        Page modal = Assert.Single(root.Navigation.ModalStack);
+        var reconciliations = new List<NavigationReconciliation>();
+        fixture.Presenter.ReconciliationRequested += (_, args) => reconciliations.Add(args.Reconciliation);
+        var destroyedWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(destroyedWindow);
+
+        fixture.Presenter.ScheduleModalDismissalReconciliation(modal);
+        Assert.Equal(1, dispatcher.PendingCallbacks);
+        RaiseWindowLifecycleEvent(destroyedWindow, "Destroying");
+        dispatcher.RunPendingCallbacks();
+
+        Assert.Empty(reconciliations);
+        var replacementWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(replacementWindow);
+        Assert.Single(Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage).Navigation.ModalStack);
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task ShutdownWaitsForUncancelledAbandonmentCleanup()
+    {
+        var factory = new GatedAbandonmentRoutePageFactory();
+        var presenter = new MauiNavigationPresenter(factory);
+        await presenter.ApplyAsync(
+            Plan(Stack("schools", Entry("schools"))),
+            Context(new TestPageRoute("schools")));
+        var window = new Window();
+        await presenter.AttachWindowAsync(window);
+
+        RaiseWindowLifecycleEvent(window, "Destroying");
+        await factory.Scope.DisposalStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        Task shutdown = presenter.StartShutdown();
+
+        Assert.False(shutdown.IsCompleted);
+        factory.Scope.AllowDisposal();
+        await shutdown.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, factory.Scope.DisposeCount);
+    }
+
+    [Fact]
+    public async Task WindowDestructionDuringShutdownReleaseCannotStealPageOwnership()
+    {
+        var factory = new GatedReleaseRoutePageFactory("schools");
+        var presenter = new MauiNavigationPresenter(factory);
+        await presenter.ApplyAsync(
+            Plan(Stack("schools", Entry("schools"))),
+            Context(new TestPageRoute("schools")));
+        var window = new Window();
+        await presenter.AttachWindowAsync(window);
+
+        Task shutdown = presenter.StartShutdown();
+        await factory.ReleaseStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        RaiseWindowLifecycleEvent(window, "Destroying");
+        factory.AllowRelease();
+        await shutdown.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Empty(factory.Inner.AbandonedPages);
+        Assert.Single(factory.ReleaseAttempts);
+        Assert.Single(factory.Inner.ReleasedPages);
+    }
+
+    [Fact]
+    public async Task CommittedTreeReleaseStopsBeforeSiblingAfterEpochDestruction()
+    {
+        var factory = new GatedReleaseRoutePageFactory();
+        var presenter = new MauiNavigationPresenter(factory);
+        NavigationPlan initial = Plan(Stack("schools", Entry("schools"), Entry("details")));
+        await presenter.ApplyAsync(initial, Context(new TestPageRoute("details")));
+        var window = new Window();
+        await presenter.AttachWindowAsync(window);
+
+        Task apply = presenter.ApplyAsync(
+            Plan(Stack("replacement", Entry("replacement"))),
+            Context(new TestPageRoute("replacement"), initial.TargetState)).AsTask();
+        await factory.ReleaseStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        RaiseWindowLifecycleEvent(window, "Destroying");
+        factory.AllowRelease();
+        await apply.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Contains("details", factory.ReleaseAttempts);
+        Assert.DoesNotContain("schools", factory.ReleaseAttempts);
+        Assert.Contains(factory.Inner.AbandonedPages, page => page.Title == "schools");
+        await presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task DestructionCapturesPageDetachedByPendingNativeCallback()
+    {
+        var fixture = new PresenterFixture();
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("schools", Entry("schools"), Entry("details"))),
+            Context(new TestPageRoute("details")));
+        var root = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        Page detachedPage = root.Navigation.NavigationStack[^1];
+        var window = new Window();
+        await fixture.Presenter.AttachWindowAsync(window);
+        SemaphoreSlim operationLock = PresentationOperationLock(fixture.Presenter);
+        await operationLock.WaitAsync();
+        try
+        {
+            await MauiNativeNavigationOperations.Instance.PopAsync(root, animated: false);
+            RaiseWindowLifecycleEvent(window, "Destroying");
+        }
+        finally
+        {
+            operationLock.Release();
+        }
+
+        Assert.Contains(detachedPage, fixture.Factory.AbandonedPages);
+        Assert.DoesNotContain(detachedPage, fixture.Factory.ReleasedPages);
+        await fixture.Presenter.StartShutdown();
     }
 
     [Fact]
@@ -555,6 +942,414 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.Empty(factory.CreatedHosts);
         Assert.Empty(fixture.Factory.CreatedPages);
         _ = fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task BranchHostReturnedAfterEpochDestructionIsAbandonedWithoutPageAccess()
+    {
+        var factory = new GatedBranchHostFactory();
+        var fixture = new PresenterFixture(configurePresentation: options =>
+            options.BranchHosts.Add("gated-host", new MauiBranchHostRegistration(factory)));
+        var window = new Window();
+        await fixture.Presenter.AttachWindowAsync(window);
+        var state = new BranchHostNode(
+            "gated-host",
+            [new NavigationBranch("home", "Home", Stack("home-stack", Entry("home")))],
+            "home",
+            "home");
+
+        Task apply = fixture.Presenter.ApplyAsync(
+            Plan(state),
+            Context(new TestPageRoute("home"))).AsTask();
+        await factory.CreateEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        RaiseWindowLifecycleEvent(window, "Destroying");
+        factory.AllowCreate.TrySetResult();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => apply);
+        await factory.Host.DisposeEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, factory.Host.DisposeCount);
+        Assert.False(factory.Host.PageRead);
+        await fixture.Presenter.StartShutdown();
+        Assert.Equal(1, factory.Host.DisposeCount);
+    }
+
+    [Fact]
+    public async Task DestroyingWindowStartsBranchHostDisposalAndShutdownDrainsItExactlyOnce()
+    {
+        var factory = new RecordingBranchHostFactory(MauiBranchHostPlacement.WindowRoot);
+        var fixture = new PresenterFixture(configurePresentation: options =>
+            options.BranchHosts.Add("custom-root", new MauiBranchHostRegistration(factory)));
+        var state = new BranchHostNode(
+            "custom-root",
+            [new NavigationBranch("home", "Home", Stack("home-stack", Entry("home")))],
+            "home",
+            "home");
+        await fixture.Presenter.ApplyAsync(Plan(state), Context(new TestPageRoute("home")));
+        RecordingBranchHost host = Assert.Single(factory.CreatedHosts);
+        host.DisposeGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var window = new Window();
+        await fixture.Presenter.AttachWindowAsync(window);
+
+        RaiseWindowLifecycleEvent(window, "Destroying");
+
+        await host.DisposeEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, host.DisposeCount);
+        Task shutdown = fixture.Presenter.StartShutdown();
+        Assert.False(shutdown.IsCompleted);
+        host.DisposeGate.TrySetResult();
+        await shutdown.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, host.DisposeCount);
+    }
+
+    [Fact]
+    public async Task BranchHostCommitReceivesEpochCancellationWhenWindowIsDestroyed()
+    {
+        var factory = new RecordingBranchHostFactory(MauiBranchHostPlacement.WindowRoot);
+        var fixture = new PresenterFixture(configurePresentation: options =>
+            options.BranchHosts.Add("custom-root", new MauiBranchHostRegistration(factory)));
+        var initial = new BranchHostNode(
+            "custom-root",
+            [
+                new NavigationBranch("home", "Home", Stack("home-stack", Entry("home"))),
+                new NavigationBranch("catalog", "Catalog", Stack("catalog-stack", Entry("catalog")))
+            ],
+            "home",
+            "home");
+        await fixture.Presenter.ApplyAsync(Plan(initial), Context(new TestPageRoute("home")));
+        RecordingBranchHost host = Assert.Single(factory.CreatedHosts);
+        var window = new Window();
+        await fixture.Presenter.AttachWindowAsync(window);
+        host.BlockNextCommit = true;
+
+        Task apply = fixture.Presenter.ApplyAsync(
+            Plan(initial with { SelectedBranchId = "catalog" }),
+            Context(new TestPageRoute("catalog"), Plan(initial).TargetState)).AsTask();
+        await host.CommitEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        RaiseWindowLifecycleEvent(window, "Destroying");
+
+        // The commit token must carry epoch cancellation...
+        await apply.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(host.LastCommitToken.CanBeCanceled);
+        Assert.True(host.LastCommitToken.IsCancellationRequested);
+
+        // ...but a cooperative commit observing that cancellation is an epoch-closed *result*, not an apply
+        // failure. _lastState has already advanced past the logical commit point, so failing here would leave
+        // RouterNavigator on the previous state while the replacement window is rebuilt from the new one.
+        // This assertion previously expected OperationCanceledException, which encoded that divergence.
+        var replacementWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(replacementWindow);
+        RecordingBranchHost replacementHost = factory.CreatedHosts[^1];
+        Assert.Equal("catalog", replacementHost.SelectedBranchId);
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task FailedReplacementFinalizesPendingBranchHostUpdate()
+    {
+        var verifier = new TogglePresentationVerifier();
+        var factory = new RecordingBranchHostFactory(MauiBranchHostPlacement.WindowRoot);
+        var fixture = new PresenterFixture(
+            configurePresentation: options =>
+                options.BranchHosts.Add("custom-root", new MauiBranchHostRegistration(factory)),
+            presentationVerifier: verifier);
+        var state = new BranchHostNode(
+            "custom-root",
+            [new NavigationBranch("home", "Home", Stack("home-stack", Entry("home")))],
+            "home",
+            "home");
+        await fixture.Presenter.ApplyAsync(Plan(state), Context(new TestPageRoute("home")));
+        var destroyedWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(destroyedWindow);
+        RaiseWindowLifecycleEvent(destroyedWindow, "Destroying");
+
+        verifier.Fail = true;
+        var rejectedWindow = new Window();
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Presenter.AttachWindowAsync(rejectedWindow).AsTask());
+
+        // The replacement transaction was discarded without commit; its branch-host update must still be
+        // reversed and disposed rather than left holding provisional host state forever.
+        RecordingBranchHost.RecordingBranchHostUpdate pending = factory.CreatedHosts[^1].Updates[^1];
+        Assert.Equal(0, pending.CommitCount);
+        Assert.Equal(1, pending.RollbackCount);
+        Assert.Equal(1, pending.DisposeCount);
+
+        verifier.Fail = false;
+        var replacementWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(replacementWindow);
+        Assert.Same(fixture.Presenter.CurrentPage, replacementWindow.Page);
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task BranchHostCommitReceivesOperationCancellationWithoutWindowDestruction()
+    {
+        var factory = new RecordingBranchHostFactory(MauiBranchHostPlacement.WindowRoot);
+        var fixture = new PresenterFixture(configurePresentation: options =>
+            options.BranchHosts.Add("custom-root", new MauiBranchHostRegistration(factory)));
+        var initial = new BranchHostNode(
+            "custom-root",
+            [
+                new NavigationBranch("home", "Home", Stack("home-stack", Entry("home"))),
+                new NavigationBranch("catalog", "Catalog", Stack("catalog-stack", Entry("catalog")))
+            ],
+            "home",
+            "home");
+        await fixture.Presenter.ApplyAsync(Plan(initial), Context(new TestPageRoute("home")));
+        RecordingBranchHost host = Assert.Single(factory.CreatedHosts);
+        var window = new Window();
+        await fixture.Presenter.AttachWindowAsync(window);
+        host.BlockNextCommit = true;
+        using var cancellation = new CancellationTokenSource();
+
+        Task apply = fixture.Presenter.ApplyAsync(
+            Plan(initial with { SelectedBranchId = "catalog" }),
+            Context(new TestPageRoute("catalog"), Plan(initial).TargetState),
+            cancellation.Token).AsTask();
+        await host.CommitEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await cancellation.CancelAsync();
+
+        // The window is still alive, so only the operation token can release a cooperatively blocked commit.
+        // Without it the operation keeps the presentation lock and shutdown can never reach finalization.
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => apply.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.True(host.LastCommitToken.CanBeCanceled);
+        Assert.True(host.LastCommitToken.IsCancellationRequested);
+        await fixture.Presenter.StartShutdown().WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task DestroyingWindowCompletesEvenWhenBranchHostRejectsPostDisposalAccess()
+    {
+        var factory = new HostileBranchHostFactory();
+        var fixture = new PresenterFixture(configurePresentation: options =>
+            options.BranchHosts.Add("custom-root", new MauiBranchHostRegistration(factory)));
+        var state = new BranchHostNode(
+            "custom-root",
+            [new NavigationBranch("home", "Home", Stack("home-stack", Entry("home")))],
+            "home",
+            "home");
+        await fixture.Presenter.ApplyAsync(Plan(state), Context(new TestPageRoute("home")));
+        HostileBranchHost host = Assert.Single(factory.CreatedHosts);
+        var window = new Window();
+        await fixture.Presenter.AttachWindowAsync(window);
+
+        RaiseWindowLifecycleEvent(window, "Destroying");
+
+        // AppNav detaches its own handler before invoking disposal, so the host is never asked to service a
+        // detach it has already rejected -- and teardown installs a replacement epoch regardless.
+        Assert.Equal(1, host.DisposeCount);
+        Assert.False(host.DetachAttemptedAfterDispose);
+        Assert.Null(fixture.Presenter.AttachedWindow);
+        Assert.Null(fixture.Presenter.CurrentPage);
+
+        var replacementWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(replacementWindow);
+        Assert.Same(fixture.Presenter.CurrentPage, replacementWindow.Page);
+        await fixture.Presenter.StartShutdown().WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task BranchHostUpdateDisposalFailureAfterEpochLossKeepsApplySuccessful()
+    {
+        var factory = new RecordingBranchHostFactory(MauiBranchHostPlacement.WindowRoot);
+        var fixture = new PresenterFixture(configurePresentation: options =>
+            options.BranchHosts.Add("custom-root", new MauiBranchHostRegistration(factory)));
+        var initial = new BranchHostNode(
+            "custom-root",
+            [
+                new NavigationBranch("home", "Home", Stack("home-stack", Entry("home"))),
+                new NavigationBranch("catalog", "Catalog", Stack("catalog-stack", Entry("catalog")))
+            ],
+            "home",
+            "home");
+        await fixture.Presenter.ApplyAsync(Plan(initial), Context(new TestPageRoute("home")));
+        RecordingBranchHost host = Assert.Single(factory.CreatedHosts);
+        var window = new Window();
+        await fixture.Presenter.AttachWindowAsync(window);
+        host.BlockAndFailNextUpdateDispose = true;
+
+        Task apply = fixture.Presenter.ApplyAsync(
+            Plan(initial with { SelectedBranchId = "catalog" }),
+            Context(new TestPageRoute("catalog"), Plan(initial).TargetState)).AsTask();
+        await host.UpdateDisposeEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        RaiseWindowLifecycleEvent(window, "Destroying");
+        host.ReleaseUpdateDispose.TrySetResult();
+
+        // Update disposal runs after the logical commit point. A failure observed once the epoch is gone must
+        // become the epoch-closed result, not an apply failure: rollback is skipped for a closed epoch, so
+        // throwing here would strand RouterNavigator on the previous state while the replacement window is
+        // rebuilt from the new one.
+        await apply.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var replacementWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(replacementWindow);
+        Assert.Equal("catalog", factory.CreatedHosts[^1].SelectedBranchId);
+        await fixture.Presenter.StartShutdown().WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task ReplacementDeactivatedByRootObserverDoesNotDrainQueuedAppLinks()
+    {
+        var navigator = new AppLinkRecordingNavigator();
+        var services = new ServiceCollection();
+        var diagnostics = new NavigationDiagnostics();
+        services.AddSingleton(diagnostics);
+        services.AddSingleton<IRouterNavigator>(navigator);
+        using ServiceProvider provider = services.BuildServiceProvider();
+        using var dispatcher = new MauiExternalNavigationDispatcher(provider, diagnostics);
+        var presenter = new MauiNavigationPresenter(
+            new InstrumentedRoutePageFactory(),
+            externalNavigationDispatcher: dispatcher);
+        await presenter.ApplyAsync(
+            Plan(Stack("schools", Entry("schools"))),
+            Context(new TestPageRoute("schools")));
+        var destroyedWindow = new Window();
+        await presenter.AttachWindowAsync(destroyedWindow);
+        RaiseWindowLifecycleEvent(destroyedWindow, "Destroying");
+
+        // Buffer an app link while hostless, then attach a replacement whose root observer immediately
+        // deactivates it.
+        var appLink = RouterNavigationRequest.FromRoute(
+            new TestPageRoute("deep-link"),
+            NavigationRequestSource.AppLink);
+        Assert.True(dispatcher.TryDispatch(appLink));
+        var replacementWindow = new Window();
+        presenter.RootPageChanged += DeactivateReplacement;
+
+        await presenter.AttachWindowAsync(replacementWindow);
+
+        presenter.RootPageChanged -= DeactivateReplacement;
+
+        // Publication must not re-foreground a window that backgrounded itself during the callback, or the
+        // queued link drains against a window the app has already deactivated.
+        await Task.Delay(150);
+        Assert.Empty(navigator.Calls);
+        await presenter.StartShutdown().WaitAsync(TimeSpan.FromSeconds(5));
+
+        void DeactivateReplacement(object? sender, Page? page)
+        {
+            if (page is not null)
+                RaiseWindowLifecycleEvent(replacementWindow, "Deactivated");
+        }
+    }
+
+    [Fact]
+    public async Task RootObserverDestroyingReplacementStopsPublishingToRemainingObservers()
+    {
+        var fixture = new PresenterFixture();
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("schools", Entry("schools"))),
+            Context(new TestPageRoute("schools")));
+        var destroyedWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(destroyedWindow);
+        RaiseWindowLifecycleEvent(destroyedWindow, "Destroying");
+        var rejectedWindow = new Window();
+        var laterObserverPages = new List<Page?>();
+        fixture.Presenter.RootPageChanged += DestroyDuringPublication;
+        fixture.Presenter.RootPageChanged += RecordLater;
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            fixture.Presenter.AttachWindowAsync(rejectedWindow).AsTask());
+
+        fixture.Presenter.RootPageChanged -= DestroyDuringPublication;
+        fixture.Presenter.RootPageChanged -= RecordLater;
+
+        // The first observer closed the epoch, so the later observer must only ever have seen root loss --
+        // never the candidate page from the tree that just closed.
+        Assert.All(laterObserverPages, Assert.Null);
+
+        var replacementWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(replacementWindow);
+        Assert.Same(fixture.Presenter.CurrentPage, replacementWindow.Page);
+        await fixture.Presenter.StartShutdown().WaitAsync(TimeSpan.FromSeconds(5));
+
+        void DestroyDuringPublication(object? sender, Page? page)
+        {
+            if (page is not null)
+                RaiseWindowLifecycleEvent(rejectedWindow, "Destroying");
+        }
+
+        void RecordLater(object? sender, Page? page) => laterObserverPages.Add(page);
+    }
+
+    [Fact]
+    public async Task ShutdownAbandonsTheTreeWhenItCannotBeDetachedFromTheWindow()
+    {
+        var nativeOperations = new RejectingWindowPageClearOperations();
+        var fixture = new PresenterFixture(nativeOperations: nativeOperations);
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("schools", Entry("schools"))),
+            Context(new TestPageRoute("schools")));
+        var window = new Window();
+        await fixture.Presenter.AttachWindowAsync(window);
+        Page root = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        Page routePage = root.Navigation.NavigationStack[^1];
+
+        nativeOperations.RejectWindowPageClear = true;
+        await fixture.Presenter.StartShutdown().WaitAsync(TimeSpan.FromSeconds(5));
+
+        // Detachment failed, so the window still displays this tree and shutdown never became its sole owner.
+        // Running page-based release would dispose scopes behind a live window; the pages must be abandoned.
+        Assert.Empty(fixture.Factory.ReleasedPages);
+        Assert.Contains(routePage, fixture.Factory.AbandonedPages);
+    }
+
+    [Fact]
+    public async Task ShutdownAbandonsTheTreeWhenDetachIsSilentlyIgnored()
+    {
+        var nativeOperations = new RejectingWindowPageClearOperations();
+        var fixture = new PresenterFixture(nativeOperations: nativeOperations);
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("schools", Entry("schools"))),
+            Context(new TestPageRoute("schools")));
+        var window = new Window();
+        await fixture.Presenter.AttachWindowAsync(window);
+        Page root = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        Page routePage = root.Navigation.NavigationStack[^1];
+
+        nativeOperations.IgnoreWindowPageClear = true;
+        await fixture.Presenter.StartShutdown().WaitAsync(TimeSpan.FromSeconds(5));
+
+        // A detach that is silently ignored has not happened either. The window still displays the tree, so
+        // the pages must be abandoned rather than released.
+        Assert.Empty(fixture.Factory.ReleasedPages);
+        Assert.Contains(routePage, fixture.Factory.AbandonedPages);
+    }
+
+    [Fact]
+    public async Task RootObserverReplacingWindowPageStopsPublishingToRemainingObservers()
+    {
+        var fixture = new PresenterFixture();
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("schools", Entry("schools"))),
+            Context(new TestPageRoute("schools")));
+        var destroyedWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(destroyedWindow);
+        RaiseWindowLifecycleEvent(destroyedWindow, "Destroying");
+        var rejectedWindow = new Window();
+        var observerPage = new ContentPage { Title = "observer-owned" };
+        var laterObserverPages = new List<Page?>();
+        fixture.Presenter.RootPageChanged += ReplaceRoot;
+        fixture.Presenter.RootPageChanged += RecordLater;
+
+        await Assert.ThrowsAnyAsync<Exception>(() =>
+            fixture.Presenter.AttachWindowAsync(rejectedWindow).AsTask());
+
+        fixture.Presenter.RootPageChanged -= ReplaceRoot;
+        fixture.Presenter.RootPageChanged -= RecordLater;
+
+        // The first observer took the native root away without closing the epoch, so the later observer must
+        // not be told the candidate is the root.
+        Assert.All(laterObserverPages, Assert.Null);
+        await fixture.Presenter.StartShutdown().WaitAsync(TimeSpan.FromSeconds(5));
+
+        void ReplaceRoot(object? sender, Page? page)
+        {
+            if (page is not null)
+                rejectedWindow.Page = observerPage;
+        }
+
+        void RecordLater(object? sender, Page? page) => laterObserverPages.Add(page);
     }
 
     [Fact]
@@ -2694,6 +3489,21 @@ public sealed class MauiNavigationPresenterLifecycleTests
         return Assert.IsType<SemaphoreSlim>(field.GetValue(presenter));
     }
 
+    private static void RaiseWindowLifecycleEvent(Window window, string eventName)
+    {
+        for (Type? type = window.GetType(); type is not null; type = type.BaseType)
+        {
+            FieldInfo? field = type.GetField(eventName, BindingFlags.Instance | BindingFlags.NonPublic);
+            if (field?.GetValue(window) is EventHandler handlers)
+            {
+                handlers(window, EventArgs.Empty);
+                return;
+            }
+        }
+
+        throw new InvalidOperationException($"Window event backing field '{eventName}' was not found.");
+    }
+
     private sealed class PresenterFixture
     {
         public PresenterFixture(
@@ -2701,7 +3511,9 @@ public sealed class MauiNavigationPresenterLifecycleTests
             Func<RouteEntry, Page>? createPage = null,
             Action<Page, RouteEntry, MauiRoutePageUpdateContext>? updatePage = null,
             IMauiNativeNavigationOperations? nativeOperations = null,
-            Action<MauiRoutePresentationOptions>? configurePresentation = null)
+            Action<MauiRoutePresentationOptions>? configurePresentation = null,
+            IMauiPresentationVerifier? presentationVerifier = null,
+            IMauiMainThreadDispatcher? mainThreadDispatcher = null)
         {
             Diagnostics = new NavigationDiagnostics();
             Diagnostics.AddObserver(Observer);
@@ -2713,7 +3525,9 @@ public sealed class MauiNavigationPresenterLifecycleTests
                 Factory,
                 diagnostics: Diagnostics,
                 presentationOptions: PresentationOptions,
-                nativeOperations: nativeOperations);
+                presentationVerifier: presentationVerifier,
+                nativeOperations: nativeOperations,
+                mainThreadDispatcher: mainThreadDispatcher);
         }
 
         public InstrumentedRoutePageFactory Factory { get; }
@@ -2809,13 +3623,178 @@ public sealed class MauiNavigationPresenterLifecycleTests
             CancellationToken cancellationToken = default) =>
             ValueTask.CompletedTask;
 
-        public ValueTask ReleasePageAsync(Page page) =>
+        public ValueTask ReleasePageAsync(Page page, CancellationToken cancellationToken) =>
             ValueTask.FromException(new InvalidOperationException("Release failed before relinquishing resources."));
 
-        public ValueTask ReleasePresentationPageAsync(Page page) =>
+        public ValueTask ReleasePresentationPageAsync(Page page, CancellationToken cancellationToken) =>
             ValueTask.FromException(new InvalidOperationException("Release failed before relinquishing resources."));
 
         public MauiPageAbandonment? CaptureAbandonment(Page page) => null;
+    }
+
+    private sealed class GatedAbandonmentRoutePageFactory : IMauiRoutePageFactory
+    {
+        private Page? _ownedPage;
+
+        public GatedAsyncDisposable Scope { get; } = new();
+
+        public ValueTask<Page> CreatePageAsync(
+            RouteEntry entry,
+            CancellationToken cancellationToken = default)
+        {
+            _ownedPage = new ContentPage { Title = entry.Id };
+            return ValueTask.FromResult(_ownedPage);
+        }
+
+        public ValueTask<Page> CreatePresentationPageAsync(
+            Type pageType,
+            Page ownerRoutePage,
+            bool inheritBindingContext,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public ValueTask UpdatePageAsync(
+            Page page,
+            RouteEntry entry,
+            MauiRoutePageUpdateContext context,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.CompletedTask;
+
+        public ValueTask ReleasePageAsync(Page page, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+
+        public ValueTask ReleasePresentationPageAsync(Page page, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+
+        public MauiPageAbandonment? CaptureAbandonment(Page page) =>
+            ReferenceEquals(page, _ownedPage)
+                ? new MauiPageAbandonment(Scope, page.GetType().FullName ?? page.GetType().Name)
+                : null;
+    }
+
+    private sealed class GatedUpdateRoutePageFactory : IMauiRoutePageFactory
+    {
+        private readonly InstrumentedRoutePageFactory _inner = new();
+        private readonly TaskCompletionSource _updateStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _allowUpdateToReturn =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task UpdateStarted => _updateStarted.Task;
+
+        public int UpdateCalls { get; private set; }
+
+        public void AllowUpdateToReturn() => _allowUpdateToReturn.TrySetResult();
+
+        public ValueTask<Page> CreatePageAsync(
+            RouteEntry entry,
+            CancellationToken cancellationToken = default) =>
+            _inner.CreatePageAsync(entry, cancellationToken);
+
+        public ValueTask<Page> CreatePresentationPageAsync(
+            Type pageType,
+            Page ownerRoutePage,
+            bool inheritBindingContext,
+            CancellationToken cancellationToken = default) =>
+            _inner.CreatePresentationPageAsync(
+                pageType,
+                ownerRoutePage,
+                inheritBindingContext,
+                cancellationToken);
+
+        public async ValueTask UpdatePageAsync(
+            Page page,
+            RouteEntry entry,
+            MauiRoutePageUpdateContext context,
+            CancellationToken cancellationToken = default)
+        {
+            UpdateCalls++;
+            if (UpdateCalls == 1)
+            {
+                _updateStarted.TrySetResult();
+                await _allowUpdateToReturn.Task;
+            }
+
+            await _inner.UpdatePageAsync(page, entry, context, cancellationToken);
+        }
+
+        public ValueTask ReleasePageAsync(Page page, CancellationToken cancellationToken) => _inner.ReleasePageAsync(page, cancellationToken);
+
+        public ValueTask ReleasePresentationPageAsync(Page page, CancellationToken cancellationToken) =>
+            _inner.ReleasePresentationPageAsync(page, cancellationToken);
+
+        public MauiPageAbandonment? CaptureAbandonment(Page page) => _inner.CaptureAbandonment(page);
+    }
+
+    private sealed class GatedReleaseRoutePageFactory(string? gatedTitle = null) : IMauiRoutePageFactory
+    {
+        private readonly TaskCompletionSource _releaseStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _allowRelease =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public InstrumentedRoutePageFactory Inner { get; } = new();
+
+        public Task ReleaseStarted => _releaseStarted.Task;
+
+        public List<string?> ReleaseAttempts { get; } = [];
+
+        public void AllowRelease() => _allowRelease.TrySetResult();
+
+        public ValueTask<Page> CreatePageAsync(
+            RouteEntry entry,
+            CancellationToken cancellationToken = default) =>
+            Inner.CreatePageAsync(entry, cancellationToken);
+
+        public ValueTask<Page> CreatePresentationPageAsync(
+            Type pageType,
+            Page ownerRoutePage,
+            bool inheritBindingContext,
+            CancellationToken cancellationToken = default) =>
+            Inner.CreatePresentationPageAsync(pageType, ownerRoutePage, inheritBindingContext, cancellationToken);
+
+        public ValueTask UpdatePageAsync(
+            Page page,
+            RouteEntry entry,
+            MauiRoutePageUpdateContext context,
+            CancellationToken cancellationToken = default) =>
+            Inner.UpdatePageAsync(page, entry, context, cancellationToken);
+
+        public async ValueTask ReleasePageAsync(Page page, CancellationToken cancellationToken)
+        {
+            ReleaseAttempts.Add(page.Title);
+            if (gatedTitle is null || StringComparer.Ordinal.Equals(page.Title, gatedTitle))
+            {
+                _releaseStarted.TrySetResult();
+                await _allowRelease.Task;
+            }
+
+            await Inner.ReleasePageAsync(page, CancellationToken.None);
+        }
+
+        public ValueTask ReleasePresentationPageAsync(Page page, CancellationToken cancellationToken) =>
+            Inner.ReleasePresentationPageAsync(page, CancellationToken.None);
+
+        public MauiPageAbandonment? CaptureAbandonment(Page page) => Inner.CaptureAbandonment(page);
+    }
+
+    private sealed class GatedAsyncDisposable : IAsyncDisposable
+    {
+        private readonly TaskCompletionSource _disposalStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _allowDisposal =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task DisposalStarted => _disposalStarted.Task;
+
+        public int DisposeCount { get; private set; }
+
+        public void AllowDisposal() => _allowDisposal.TrySetResult();
+
+        public async ValueTask DisposeAsync()
+        {
+            DisposeCount++;
+            _disposalStarted.TrySetResult();
+            await _allowDisposal.Task;
+        }
     }
 
     private sealed class ThrowingPlanner : IAppNavigationPlanner
@@ -2827,6 +3806,125 @@ public sealed class MauiNavigationPresenterLifecycleTests
             throw new NotSupportedException("Lifecycle registration tests do not execute navigation.");
         }
     }
+
+    private sealed class TogglePresentationVerifier : IMauiPresentationVerifier
+    {
+        public bool Fail { get; set; }
+
+        public MauiPresentationVerificationMismatch? Verify(MauiPresentationVerificationContext context) =>
+            Fail
+                ? new MauiPresentationVerificationMismatch("$.root", "valid", "invalid")
+                : MauiPresentationVerifier.Instance.Verify(context);
+    }
+
+    private sealed class AppLinkRecordingNavigator : IRouterNavigator
+    {
+        public List<RouterNavigationRequest> Calls { get; } = [];
+
+        public NavigationState CurrentState => NavigationState.Empty;
+
+        public AdamE.AppNav.History.NavigationHistory History =>
+            AdamE.AppNav.History.NavigationHistory.Empty;
+
+        public ValueTask<NavigationResult> NavigateAsync(
+            RouterNavigationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            Calls.Add(request);
+            return ValueTask.FromResult(new NavigationResult(
+                request.Route ?? new TestPageRoute("drained"),
+                new NavigationPlan(NavigationState.Empty),
+                NavigationState.Empty,
+                Presented: true));
+        }
+
+        public ValueTask<BackNavigationResult> BackAsync(
+            AdamE.AppNav.Back.BackNavigationRequest request,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public ValueTask<NavigationResult> ReconcileAsync(
+            NavigationReconciliation reconciliation,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public void Dispose()
+        {
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    /// <summary>Refuses to clear the window page, simulating a native adapter that rejects detachment.</summary>
+    private sealed class RejectingWindowPageClearOperations : IMauiNativeNavigationOperations
+    {
+        private readonly MauiNativeNavigationOperations _inner = new();
+
+        public bool RejectWindowPageClear { get; set; }
+
+        /// <summary>Silently ignores the clearing mutation, which the abstraction explicitly permits.</summary>
+        public bool IgnoreWindowPageClear { get; set; }
+
+        public Task PushAsync(NavigationPage navigationPage, Page page, bool animated) =>
+            _inner.PushAsync(navigationPage, page, animated);
+
+        public Task<Page?> PopAsync(NavigationPage navigationPage, bool animated) =>
+            _inner.PopAsync(navigationPage, animated);
+
+        public Task PushModalAsync(Page host, Page page, bool animated) =>
+            _inner.PushModalAsync(host, page, animated);
+
+        public Task<Page?> PopModalAsync(Page host, bool animated) =>
+            _inner.PopModalAsync(host, animated);
+
+        public void SetWindowPage(Window window, Page? page)
+        {
+            if (RejectWindowPageClear && page is null)
+                throw new InvalidOperationException("Synthetic window-page detach failure.");
+            if (IgnoreWindowPageClear && page is null)
+                return;
+
+            _inner.SetWindowPage(window, page);
+        }
+
+        public void InsertTab(TabbedPage host, int index, Page page) => _inner.InsertTab(host, index, page);
+
+        public void RemoveTab(TabbedPage host, Page page) => _inner.RemoveTab(host, page);
+
+        public void SetCurrentTab(TabbedPage host, Page? page) => _inner.SetCurrentTab(host, page);
+
+        public void SetFlyoutBranches(
+            MauiBranchFlyoutPage host,
+            IReadOnlyList<MauiFlyoutBranchPresentation> branches) => _inner.SetFlyoutBranches(host, branches);
+
+        public void SetFlyoutDetail(FlyoutPage host, Page? page) => _inner.SetFlyoutDetail(host, page);
+
+        public void SetFlyoutPresented(FlyoutPage host, bool presented) =>
+            _inner.SetFlyoutPresented(host, presented);
+
+        public void SetSelectedFlyoutBranch(MauiBranchFlyoutPage host, string? branchId) =>
+            _inner.SetSelectedFlyoutBranch(host, branchId);
+    }
+
+    private sealed class ControlledMainThreadDispatcher : IMauiMainThreadDispatcher
+    {
+        private readonly Queue<Action> _callbacks = new();
+
+        public bool IsMainThread => true;
+
+        public int PendingCallbacks => _callbacks.Count;
+
+        public Task InvokeAsync(Func<Task> callback) => callback();
+
+        public Task<T> InvokeAsync<T>(Func<Task<T>> callback) => callback();
+
+        public void BeginInvoke(Action callback) => _callbacks.Enqueue(callback);
+
+        public void RunPendingCallbacks()
+        {
+            while (_callbacks.TryDequeue(out Action? callback))
+                callback();
+        }
+    }
+
 
     private sealed class RejectedPresentationNavigationPage(PresentationScopeMarker marker) : NavigationPage
     {
@@ -2848,6 +3946,171 @@ public sealed class MauiNavigationPresenterLifecycleTests
         }
     }
 
+    private sealed class GatedBranchHostFactory : IMauiBranchHostFactory
+    {
+        public MauiBranchHostPlacement SupportedPlacements => MauiBranchHostPlacement.WindowRoot;
+
+        public TaskCompletionSource CreateEntered { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource AllowCreate { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public PageUnreadBranchHost Host { get; } = new();
+
+        public async ValueTask<IMauiBranchHost> CreateAsync(
+            MauiBranchHostCreationContext context,
+            CancellationToken cancellationToken = default)
+        {
+            CreateEntered.TrySetResult();
+            await AllowCreate.Task;
+            return Host;
+        }
+    }
+
+    private sealed class PageUnreadBranchHost : IMauiBranchHost
+    {
+        private readonly Page _page = new ContentPage();
+
+        public bool PageRead { get; private set; }
+
+        public int DisposeCount { get; private set; }
+
+        public IReadOnlyList<MauiBranchHostBranch> Branches => [];
+
+        public string? SelectedBranchId => null;
+
+        public Page? SelectedBranchPage => null;
+
+        public TaskCompletionSource DisposeEntered { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Page Page
+        {
+            get
+            {
+                PageRead = true;
+                return _page;
+            }
+        }
+
+        public event EventHandler<MauiBranchHostSelectionChangedEventArgs>? SelectionChanged
+        {
+            add { }
+            remove { }
+        }
+
+        public ValueTask<IMauiBranchHostUpdate> ApplyAsync(
+            MauiBranchHostUpdateContext context,
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("A late branch host must not be applied.");
+
+        public ValueTask DisposeAsync()
+        {
+            DisposeCount++;
+            DisposeEntered.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    /// A host that behaves the way a self-disposing host is entitled to: once disposed it rejects handler
+    /// detachment and page access.
+    /// </summary>
+    private sealed class HostileBranchHostFactory : IMauiBranchHostFactory
+    {
+        public MauiBranchHostPlacement SupportedPlacements => MauiBranchHostPlacement.All;
+
+        public List<HostileBranchHost> CreatedHosts { get; } = [];
+
+        public ValueTask<IMauiBranchHost> CreateAsync(
+            MauiBranchHostCreationContext context,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var host = new HostileBranchHost();
+            CreatedHosts.Add(host);
+            return ValueTask.FromResult<IMauiBranchHost>(host);
+        }
+    }
+
+    private sealed class HostileBranchHost : IMauiBranchHost
+    {
+        private readonly ContentPage _page = new();
+        private IReadOnlyList<MauiBranchHostBranch> _branches = [];
+        private bool _disposed;
+
+        public int DisposeCount { get; private set; }
+
+        public bool DetachAttemptedAfterDispose { get; private set; }
+
+        public Page Page
+        {
+            get
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                return _page;
+            }
+        }
+
+        public IReadOnlyList<MauiBranchHostBranch> Branches => _branches;
+
+        public string? SelectedBranchId { get; private set; }
+
+        public Page? SelectedBranchPage => _branches.FirstOrDefault(branch =>
+            StringComparer.Ordinal.Equals(branch.Id, SelectedBranchId))?.Page;
+
+        public event EventHandler<MauiBranchHostSelectionChangedEventArgs>? SelectionChanged
+        {
+            add
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                _selectionChanged += value;
+            }
+            remove
+            {
+                if (_disposed)
+                {
+                    DetachAttemptedAfterDispose = true;
+                    throw new ObjectDisposedException(nameof(HostileBranchHost));
+                }
+
+                _selectionChanged -= value;
+            }
+        }
+
+        private EventHandler<MauiBranchHostSelectionChangedEventArgs>? _selectionChanged;
+
+        public ValueTask<IMauiBranchHostUpdate> ApplyAsync(
+            MauiBranchHostUpdateContext context,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            _branches = context.Branches.ToArray();
+            SelectedBranchId = context.SelectedBranchId;
+            return ValueTask.FromResult<IMauiBranchHostUpdate>(new NoOpBranchHostUpdate());
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            DisposeCount++;
+            _disposed = true;
+            return ValueTask.CompletedTask;
+        }
+
+        private sealed class NoOpBranchHostUpdate : IMauiBranchHostUpdate
+        {
+            public ValueTask CommitAsync(CancellationToken cancellationToken = default) =>
+                ValueTask.CompletedTask;
+
+            public ValueTask RollbackAsync(CancellationToken cancellationToken = default) =>
+                ValueTask.CompletedTask;
+
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
+    }
+
     private sealed class RecordingBranchHostFactory(
         MauiBranchHostPlacement supportedPlacements,
         Func<Page>? createHostPage = null)
@@ -2855,9 +4118,14 @@ public sealed class MauiNavigationPresenterLifecycleTests
     {
         public MauiBranchHostPlacement SupportedPlacements => supportedPlacements;
 
+        /// <summary>Arms each host as it is created, before the presenter can drive it.</summary>
+        public Action<RecordingBranchHost>? ConfigureCreatedHost { get; set; }
+
         public List<RecordingBranchHost> CreatedHosts { get; } = [];
 
         public List<MauiBranchHostPlacement> CreationPlacements { get; } = [];
+
+        public List<NavigationPresentationContext> CreationContexts { get; } = [];
 
         public bool FailNextCommit { get; set; }
 
@@ -2869,6 +4137,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             CreationPlacements.Add(context.Placement);
+            CreationContexts.Add(context.PresentationContext);
             var host = new RecordingBranchHost(() =>
             {
                 if (!FailNextCommit)
@@ -2878,6 +4147,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
                 return true;
             }, createHostPage?.Invoke(), SubstituteBranchPages);
             CreatedHosts.Add(host);
+            ConfigureCreatedHost?.Invoke(host);
             return ValueTask.FromResult<IMauiBranchHost>(host);
         }
     }
@@ -2913,9 +4183,41 @@ public sealed class MauiNavigationPresenterLifecycleTests
 
         public int DisposeCount { get; private set; }
 
+        public TaskCompletionSource? DisposeGate { get; set; }
+
+        public TaskCompletionSource DisposeEntered { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public bool BlockNextCommit { get; set; }
+
+        public bool BlockAndFailNextUpdateDispose { get; set; }
+
+        public bool BlockNextUpdateRollback { get; set; }
+
+        public TaskCompletionSource UpdateDisposeEntered { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource UpdateRollbackEntered { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource ReleaseUpdateDispose { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource ReleaseUpdateRollback { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource CommitEntered { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public CancellationToken LastCommitToken { get; private set; }
+
         private bool SubstituteBranchPages { get; }
 
         public List<MauiBranchHostPlacement> AppliedPlacements { get; } = [];
+
+        public List<NavigationPresentationContext> AppliedContexts { get; } = [];
+
+        public List<RecordingBranchHostUpdate> Updates { get; } = [];
 
         public Action<RecordingBranchHost>? SelectionsDuringApply { get; set; }
 
@@ -2933,6 +4235,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
             cancellationToken.ThrowIfCancellationRequested();
             ObjectDisposedException.ThrowIf(_disposed, this);
             AppliedPlacements.Add(context.Placement);
+            AppliedContexts.Add(context.PresentationContext);
             var previousBranches = _branches;
             string? previousSelected = SelectedBranchId;
             _branches = SubstituteBranchPages
@@ -2947,8 +4250,13 @@ public sealed class MauiNavigationPresenterLifecycleTests
 
             SelectionsDuringApply?.Invoke(this);
 
-            return ValueTask.FromResult<IMauiBranchHostUpdate>(
-                new RecordingBranchHostUpdate(this, previousBranches, previousSelected, _shouldFailCommit()));
+            var update = new RecordingBranchHostUpdate(
+                this,
+                previousBranches,
+                previousSelected,
+                _shouldFailCommit());
+            Updates.Add(update);
+            return ValueTask.FromResult<IMauiBranchHostUpdate>(update);
         }
 
         private static MauiBranchHostBranch SubstituteBranchPage(MauiBranchHostBranch branch)
@@ -2980,15 +4288,17 @@ public sealed class MauiNavigationPresenterLifecycleTests
             SelectionChanged?.Invoke(this, new MauiBranchHostSelectionChangedEventArgs(branchId));
         }
 
-        public ValueTask DisposeAsync()
+        public async ValueTask DisposeAsync()
         {
             DisposeCount++;
             _disposed = true;
             SelectionChanged = null;
-            return ValueTask.CompletedTask;
+            DisposeEntered.TrySetResult();
+            if (DisposeGate is not null)
+                await DisposeGate.Task;
         }
 
-        private sealed class RecordingBranchHostUpdate(
+        public sealed class RecordingBranchHostUpdate(
             RecordingBranchHost host,
             IReadOnlyList<MauiBranchHostBranch> branches,
             string? selectedBranchId,
@@ -2996,30 +4306,60 @@ public sealed class MauiNavigationPresenterLifecycleTests
         {
             private bool _completed;
 
-            public ValueTask CommitAsync(CancellationToken cancellationToken = default)
+            public int CommitCount { get; private set; }
+
+            public int RollbackCount { get; private set; }
+
+            public int DisposeCount { get; private set; }
+
+            public async ValueTask CommitAsync(CancellationToken cancellationToken = default)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 if (failCommit)
                     throw new InvalidOperationException("Synthetic branch-host commit failure.");
 
+                CommitCount++;
+                host.LastCommitToken = cancellationToken;
+                if (host.BlockNextCommit)
+                {
+                    host.BlockNextCommit = false;
+                    host.CommitEntered.TrySetResult();
+                    await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                }
+
                 _completed = true;
-                return ValueTask.CompletedTask;
             }
 
-            public ValueTask RollbackAsync(CancellationToken cancellationToken = default)
+            public async ValueTask RollbackAsync(CancellationToken cancellationToken = default)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                RollbackCount++;
+                if (host.BlockNextUpdateRollback)
+                {
+                    host.BlockNextUpdateRollback = false;
+                    host.UpdateRollbackEntered.TrySetResult();
+                    await host.ReleaseUpdateRollback.Task;
+                }
+
                 if (!_completed)
                 {
                     host._branches = branches.ToArray();
                     host.SelectedBranchId = selectedBranchId;
                     _completed = true;
                 }
-
-                return ValueTask.CompletedTask;
             }
 
-            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+            public async ValueTask DisposeAsync()
+            {
+                DisposeCount++;
+                if (!host.BlockAndFailNextUpdateDispose)
+                    return;
+
+                host.BlockAndFailNextUpdateDispose = false;
+                host.UpdateDisposeEntered.TrySetResult();
+                await host.ReleaseUpdateDispose.Task;
+                throw new InvalidOperationException("Synthetic branch-host update disposal failure.");
+            }
         }
     }
 

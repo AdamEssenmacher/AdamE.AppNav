@@ -6,7 +6,15 @@ namespace AdamE.AppNav.Maui.Tests;
 
 internal sealed class InstrumentedRoutePageFactory : IMauiRoutePageFactory
 {
-    public MauiPageAbandonment? CaptureAbandonment(Page page) => null;
+    public MauiPageAbandonment? CaptureAbandonment(Page page)
+    {
+        if (!_ownedPages.Remove(page))
+            return null;
+
+        _abandonedPageSet.Add(page);
+        _abandonedPages.Add(page);
+        return new MauiPageAbandonment(null, page.GetType().FullName ?? page.GetType().Name);
+    }
 
     private readonly Func<RouteEntry, Page>? _createPage;
     private readonly Action<Page, RouteEntry, MauiRoutePageUpdateContext>? _updatePage;
@@ -17,6 +25,12 @@ internal sealed class InstrumentedRoutePageFactory : IMauiRoutePageFactory
 
     public event Action<Page>? PresentationPageReleased;
 
+    /// <summary>The token AppNav supplied to the most recent update, including updates driven by rollback.</summary>
+    public CancellationToken LastUpdateToken { get; private set; }
+
+    /// <summary>Every token AppNav supplied to an update, in call order.</summary>
+    public List<CancellationToken> UpdateTokens { get; } = [];
+
     public IReadOnlyList<Page> CreatedPages => _createdPages.ToArray();
 
     public IReadOnlyList<Page> ReleasedPages => _releasedPages.ToArray();
@@ -25,10 +39,15 @@ internal sealed class InstrumentedRoutePageFactory : IMauiRoutePageFactory
 
     public IReadOnlyList<Page> ReleasedPresentationPages => _releasedPresentationPages.ToArray();
 
+    public IReadOnlyList<Page> AbandonedPages => _abandonedPages.ToArray();
+
     private readonly List<Page> _createdPages = new();
     private readonly List<Page> _releasedPages = new();
     private readonly List<Page> _createdPresentationPages = new();
     private readonly List<Page> _releasedPresentationPages = new();
+    private readonly List<Page> _abandonedPages = new();
+    private readonly HashSet<Page> _ownedPages = new(ReferenceEqualityComparer.Instance);
+    private readonly HashSet<Page> _abandonedPageSet = new(ReferenceEqualityComparer.Instance);
 
     public InstrumentedRoutePageFactory(
         Func<RouteEntry, Page>? createPage = null,
@@ -50,6 +69,7 @@ internal sealed class InstrumentedRoutePageFactory : IMauiRoutePageFactory
                    };
 
         _createdPages.Add(page);
+        _ownedPages.Add(page);
         return ValueTask.FromResult(page);
     }
 
@@ -66,6 +86,7 @@ internal sealed class InstrumentedRoutePageFactory : IMauiRoutePageFactory
         }
 
         _createdPresentationPages.Add(page);
+        _ownedPages.Add(page);
         return ValueTask.FromResult(page);
     }
 
@@ -79,12 +100,18 @@ internal sealed class InstrumentedRoutePageFactory : IMauiRoutePageFactory
         _updateCounts[page] = count + 1;
         _lastUpdatedEntries[page] = entry;
         _lastUpdateContexts[page] = context;
+        LastUpdateToken = cancellationToken;
+        UpdateTokens.Add(cancellationToken);
         _updatePage?.Invoke(page, entry, context);
         return ValueTask.CompletedTask;
     }
 
-    public ValueTask ReleasePageAsync(Page page)
+    public ValueTask ReleasePageAsync(Page page, CancellationToken cancellationToken)
     {
+        if (_abandonedPageSet.Contains(page))
+            return ValueTask.CompletedTask;
+
+        _ownedPages.Remove(page);
         _releasedPages.Add(page);
         _releaseCounts.TryGetValue(page, out var count);
         _releaseCounts[page] = count + 1;
@@ -92,8 +119,12 @@ internal sealed class InstrumentedRoutePageFactory : IMauiRoutePageFactory
         return ValueTask.CompletedTask;
     }
 
-    public ValueTask ReleasePresentationPageAsync(Page page)
+    public ValueTask ReleasePresentationPageAsync(Page page, CancellationToken cancellationToken)
     {
+        if (_abandonedPageSet.Contains(page))
+            return ValueTask.CompletedTask;
+
+        _ownedPages.Remove(page);
         page.BindingContext = null;
         _releasedPresentationPages.Add(page);
         _releaseCounts.TryGetValue(page, out var count);
