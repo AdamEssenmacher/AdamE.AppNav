@@ -316,6 +316,17 @@ internal sealed class MauiNavigationPresenter :
         _suppressReconciliation = true;
         _activeOperationId = null;
 
+        // Destruction is a synchronous ownership handoff. Stop observing it before the first
+        // asynchronous release below so shutdown finalization remains the sole owner of these pages.
+        if (_attachedWindow is not null)
+        {
+            UnsubscribeWindowLifecycle(_attachedWindow);
+            _externalNavigationDispatcher?.SetForegrounded(false);
+        }
+
+        if (_pendingWindow is not null)
+            _pendingWindow.Destroying -= HandleWindowDestroying;
+
         Page? currentPage = CurrentPage;
         var detachedCandidates = new HashSet<Page>(ReferenceEqualityComparer.Instance);
         detachedCandidates.UnionWith(_trackedModalPages);
@@ -333,6 +344,10 @@ internal sealed class MauiNavigationPresenter :
             WritePageReleaseFailure(null, ex);
         }
 
+        _attachedWindow = null;
+        _attachedWindowId = null;
+        _pendingWindow = null;
+        _hostState = MauiPresenterHostState.Disposed;
         InvokeRootPageChanged(null);
         if (currentPage is not null)
             await ReleaseAndDiagnoseAsync(currentPage);
@@ -348,19 +363,6 @@ internal sealed class MauiNavigationPresenter :
         foreach (Page modalPage in _trackedModalPages.ToArray())
             UntrackModalPage(modalPage);
 
-        if (_attachedWindow is not null)
-        {
-            UnsubscribeWindowLifecycle(_attachedWindow);
-            _externalNavigationDispatcher?.SetForegrounded(false);
-        }
-
-        if (_pendingWindow is not null)
-            _pendingWindow.Destroying -= HandleWindowDestroying;
-
-        _attachedWindow = null;
-        _attachedWindowId = null;
-        _pendingWindow = null;
-        _hostState = MauiPresenterHostState.Disposed;
         _navigationPageStackIds.Clear();
         _navigationPageKnownPages.Clear();
         _suppressedNavigationPops.Clear();
@@ -529,6 +531,12 @@ internal sealed class MauiNavigationPresenter :
             SubscribeWindowLifecycle(window);
             _activeTransaction = null;
             InvokeRootPageChanged(candidateRoot);
+            if (!ReferenceEquals(candidateEpoch, _nativeTreeEpoch) || !candidateEpoch.IsOpen ||
+                !ReferenceEquals(_attachedWindow, window) || !ReferenceEquals(CurrentPage, candidateRoot))
+            {
+                throw new MauiNativeTreeInvalidatedException();
+            }
+
             _externalNavigationDispatcher?.SetForegrounded(true);
             _externalNavigationDispatcher?.MarkReady();
         }
@@ -542,6 +550,11 @@ internal sealed class MauiNavigationPresenter :
                     try
                     {
                         _nativeOperations.SetWindowPage(window, previousWindowPage);
+                        if (!ReferenceEquals(window.Page, previousWindowPage))
+                        {
+                            throw new InvalidOperationException(
+                                "The native window did not restore its previous page after replacement attachment failed.");
+                        }
                     }
                     catch (Exception restoreException)
                     {
@@ -907,8 +920,7 @@ internal sealed class MauiNavigationPresenter :
             _lastState = popFold.EffectiveState;
             bool epochRemainedCurrent = await transaction.CommitAsync();
             _activeTransaction = null;
-            if (epochRemainedCurrent && popFold.LogicalStateChanged)
-                MarkHostBackReconciliationPending(popFold.Route);
+            PreserveHostBackReconciliation(popFold, epochRemainedCurrent);
         }
         catch (Exception presentationException)
         {
@@ -1172,8 +1184,7 @@ internal sealed class MauiNavigationPresenter :
             _lastState = popFold.EffectiveState;
             bool epochRemainedCurrent = await transaction.CommitAsync();
             _activeTransaction = null;
-            if (epochRemainedCurrent && popFold.LogicalStateChanged)
-                MarkHostBackReconciliationPending(popFold.Route);
+            PreserveHostBackReconciliation(popFold, epochRemainedCurrent);
         }
         catch (Exception presentationException)
         {
@@ -1243,8 +1254,7 @@ internal sealed class MauiNavigationPresenter :
             _lastState = popFold.EffectiveState;
             bool epochRemainedCurrent = await transaction.CommitAsync();
             _activeTransaction = null;
-            if (epochRemainedCurrent && popFold.LogicalStateChanged)
-                MarkHostBackReconciliationPending(popFold.Route);
+            PreserveHostBackReconciliation(popFold, epochRemainedCurrent);
             return true;
         }
         catch (Exception presentationException)
@@ -2271,13 +2281,24 @@ internal sealed class MauiNavigationPresenter :
         return DetachPageTreeWithFailuresAsync(page);
     }
 
-    private async ValueTask DetachPageTreeWithFailuresAsync(Page page)
+    private ValueTask DetachPageTreeWithFailuresAsync(Page page) =>
+        DetachPageTreeWithFailuresCoreAsync(page, requiredEpoch: null);
+
+    private ValueTask DetachPageTreeWithFailuresForEpochAsync(
+        Page page,
+        MauiNativeTreeEpoch requiredEpoch) =>
+        DetachPageTreeWithFailuresCoreAsync(page, requiredEpoch);
+
+    private async ValueTask DetachPageTreeWithFailuresCoreAsync(
+        Page page,
+        MauiNativeTreeEpoch? requiredEpoch)
     {
         var failures = new List<Exception>();
         await DetachPageTreeAsync(
             page,
             new HashSet<Page>(ReferenceEqualityComparer.Instance),
-            failures);
+            failures,
+            requiredEpoch);
         if (failures.Count > 0)
             throw new AggregateException("One or more pages could not be fully released.", failures);
     }
@@ -2285,8 +2306,12 @@ internal sealed class MauiNavigationPresenter :
     private async ValueTask DetachPageTreeAsync(
         Page page,
         HashSet<Page> visited,
-        List<Exception> failures)
+        List<Exception> failures,
+        MauiNativeTreeEpoch? requiredEpoch = null)
     {
+        if (!CanContinuePageRelease(requiredEpoch))
+            return;
+
         if (!visited.Add(page))
         {
             return;
@@ -2313,7 +2338,9 @@ internal sealed class MauiNavigationPresenter :
         {
             if (!ReferenceEquals(modalPage, page))
             {
-                await DetachPageTreeAsync(modalPage, visited, failures);
+                await DetachPageTreeAsync(modalPage, visited, failures, requiredEpoch);
+                if (!CanContinuePageRelease(requiredEpoch))
+                    return;
             }
         }
 
@@ -2323,7 +2350,9 @@ internal sealed class MauiNavigationPresenter :
                 UntrackNavigationPage(navigationPage);
                 foreach (var child in navigationPage.Navigation.NavigationStack.Reverse().ToArray())
                 {
-                    await DetachPageTreeAsync(child, visited, failures);
+                    await DetachPageTreeAsync(child, visited, failures, requiredEpoch);
+                    if (!CanContinuePageRelease(requiredEpoch))
+                        return;
                 }
 
                 break;
@@ -2331,14 +2360,20 @@ internal sealed class MauiNavigationPresenter :
                 UntrackTabbedPage(tabbedPage);
                 foreach (var child in tabbedPage.Children.ToArray())
                 {
-                    await DetachPageTreeAsync(child, visited, failures);
+                    await DetachPageTreeAsync(child, visited, failures, requiredEpoch);
+                    if (!CanContinuePageRelease(requiredEpoch))
+                        return;
                 }
 
                 break;
             case MauiBranchFlyoutPage flyoutPage:
                 UntrackFlyoutPage(flyoutPage);
                 foreach (MauiFlyoutBranchPresentation branch in flyoutPage.Branches)
-                    await DetachPageTreeAsync(branch.Page, visited, failures);
+                {
+                    await DetachPageTreeAsync(branch.Page, visited, failures, requiredEpoch);
+                    if (!CanContinuePageRelease(requiredEpoch))
+                        return;
+                }
                 break;
             default:
                 if (shouldRelease)
@@ -2349,6 +2384,9 @@ internal sealed class MauiNavigationPresenter :
                             await _pageFactory.ReleasePresentationPageAsync(page);
                         else
                             await _pageFactory.ReleasePageAsync(page);
+
+                        if (!CanContinuePageRelease(requiredEpoch))
+                            return;
                     }
                     catch (Exception ex)
                     {
@@ -2363,6 +2401,10 @@ internal sealed class MauiNavigationPresenter :
         if (pageReleaseSucceeded)
             ForgetPage(page);
     }
+
+    private bool CanContinuePageRelease(MauiNativeTreeEpoch? requiredEpoch) =>
+        requiredEpoch is null ||
+        (ReferenceEquals(requiredEpoch, _nativeTreeEpoch) && requiredEpoch.IsOpen);
 
     private bool MarkPageReleased(Page page)
     {
@@ -2689,6 +2731,29 @@ internal sealed class MauiNavigationPresenter :
         _pendingHostBackRoute = route;
     }
 
+    private void PreserveHostBackReconciliation(
+        SuppressedNavigationPopFold popFold,
+        bool epochRemainedCurrent)
+    {
+        if (!popFold.LogicalStateChanged)
+            return;
+
+        if (epochRemainedCurrent)
+        {
+            MarkHostBackReconciliationPending(popFold.Route);
+            return;
+        }
+
+        if (!_disposed)
+        {
+            RequestReconciliation(
+                _lastState,
+                NavigationReconciliationSource.HostBack,
+                "Native stack pop changed.",
+                popFold.Route);
+        }
+    }
+
     private void DiscardSuppressedNavigationPops()
     {
         _suppressedNavigationPops.Clear();
@@ -2944,14 +3009,16 @@ internal sealed class MauiNavigationPresenter :
         }
     }
 
-    private async ValueTask ReleaseCommittedAndDiagnoseAsync(Page page)
+    private async ValueTask ReleaseCommittedAndDiagnoseAsync(
+        Page page,
+        MauiNativeTreeEpoch epoch)
     {
         try
         {
             // The transaction remains discoverable while committed cleanup runs so destruction can abandon
             // its remaining native references. Bypass the transaction-aware staging entry point here: this
             // page has already been verified as non-live and is now being irreversibly retired.
-            await DetachPageTreeWithFailuresAsync(page);
+            await DetachPageTreeWithFailuresForEpochAsync(page, epoch);
         }
         catch (Exception ex)
         {
@@ -3900,7 +3967,7 @@ internal sealed class MauiNavigationPresenter :
             {
                 if (!livePages.Contains(page))
                 {
-                    await _presenter.ReleaseCommittedAndDiagnoseAsync(page);
+                    await _presenter.ReleaseCommittedAndDiagnoseAsync(page, _epoch);
                     if (IsInvalidated)
                         return false;
                 }

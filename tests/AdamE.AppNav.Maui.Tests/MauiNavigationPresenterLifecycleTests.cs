@@ -169,6 +169,37 @@ public sealed class MauiNavigationPresenterLifecycleTests
     }
 
     [Fact]
+    public async Task ReplacementDestroyedByRootObserverIsNotMarkedReadyAndRemainsRetryable()
+    {
+        var fixture = new PresenterFixture();
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("schools", Entry("schools"))),
+            Context(new TestPageRoute("schools")));
+        var destroyedWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(destroyedWindow);
+        RaiseWindowLifecycleEvent(destroyedWindow, "Destroying");
+        var rejectedWindow = new Window();
+        fixture.Presenter.RootPageChanged += DestroyReplacement;
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            fixture.Presenter.AttachWindowAsync(rejectedWindow).AsTask());
+
+        fixture.Presenter.RootPageChanged -= DestroyReplacement;
+        Assert.Null(fixture.Presenter.AttachedWindow);
+        Assert.Null(fixture.Presenter.CurrentPage);
+        var replacementWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(replacementWindow);
+        Assert.Same(fixture.Presenter.CurrentPage, replacementWindow.Page);
+        await fixture.Presenter.StartShutdown();
+
+        void DestroyReplacement(object? sender, Page? page)
+        {
+            if (page is not null)
+                RaiseWindowLifecycleEvent(rejectedWindow, "Destroying");
+        }
+    }
+
+    [Fact]
     public async Task EmptyLogicalStateClearsReplacementWindowBootstrapPage()
     {
         var fixture = new PresenterFixture();
@@ -270,6 +301,52 @@ public sealed class MauiNavigationPresenterLifecycleTests
         factory.Scope.AllowDisposal();
         await shutdown.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal(1, factory.Scope.DisposeCount);
+    }
+
+    [Fact]
+    public async Task WindowDestructionDuringShutdownReleaseCannotStealPageOwnership()
+    {
+        var factory = new GatedReleaseRoutePageFactory("schools");
+        var presenter = new MauiNavigationPresenter(factory);
+        await presenter.ApplyAsync(
+            Plan(Stack("schools", Entry("schools"))),
+            Context(new TestPageRoute("schools")));
+        var window = new Window();
+        await presenter.AttachWindowAsync(window);
+
+        Task shutdown = presenter.StartShutdown();
+        await factory.ReleaseStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        RaiseWindowLifecycleEvent(window, "Destroying");
+        factory.AllowRelease();
+        await shutdown.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Empty(factory.Inner.AbandonedPages);
+        Assert.Single(factory.ReleaseAttempts);
+        Assert.Single(factory.Inner.ReleasedPages);
+    }
+
+    [Fact]
+    public async Task CommittedTreeReleaseStopsBeforeSiblingAfterEpochDestruction()
+    {
+        var factory = new GatedReleaseRoutePageFactory();
+        var presenter = new MauiNavigationPresenter(factory);
+        NavigationPlan initial = Plan(Stack("schools", Entry("schools"), Entry("details")));
+        await presenter.ApplyAsync(initial, Context(new TestPageRoute("details")));
+        var window = new Window();
+        await presenter.AttachWindowAsync(window);
+
+        Task apply = presenter.ApplyAsync(
+            Plan(Stack("replacement", Entry("replacement"))),
+            Context(new TestPageRoute("replacement"), initial.TargetState)).AsTask();
+        await factory.ReleaseStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        RaiseWindowLifecycleEvent(window, "Destroying");
+        factory.AllowRelease();
+        await apply.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Contains("details", factory.ReleaseAttempts);
+        Assert.DoesNotContain("schools", factory.ReleaseAttempts);
+        Assert.Contains(factory.Inner.AbandonedPages, page => page.Title == "schools");
+        await presenter.StartShutdown();
     }
 
     [Fact]
@@ -2621,6 +2698,58 @@ public sealed class MauiNavigationPresenterLifecycleTests
             _inner.ReleasePresentationPageAsync(page);
 
         public MauiPageAbandonment? CaptureAbandonment(Page page) => _inner.CaptureAbandonment(page);
+    }
+
+    private sealed class GatedReleaseRoutePageFactory(string? gatedTitle = null) : IMauiRoutePageFactory
+    {
+        private readonly TaskCompletionSource _releaseStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _allowRelease =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public InstrumentedRoutePageFactory Inner { get; } = new();
+
+        public Task ReleaseStarted => _releaseStarted.Task;
+
+        public List<string?> ReleaseAttempts { get; } = [];
+
+        public void AllowRelease() => _allowRelease.TrySetResult();
+
+        public ValueTask<Page> CreatePageAsync(
+            RouteEntry entry,
+            CancellationToken cancellationToken = default) =>
+            Inner.CreatePageAsync(entry, cancellationToken);
+
+        public ValueTask<Page> CreatePresentationPageAsync(
+            Type pageType,
+            Page ownerRoutePage,
+            bool inheritBindingContext,
+            CancellationToken cancellationToken = default) =>
+            Inner.CreatePresentationPageAsync(pageType, ownerRoutePage, inheritBindingContext, cancellationToken);
+
+        public ValueTask UpdatePageAsync(
+            Page page,
+            RouteEntry entry,
+            MauiRoutePageUpdateContext context,
+            CancellationToken cancellationToken = default) =>
+            Inner.UpdatePageAsync(page, entry, context, cancellationToken);
+
+        public async ValueTask ReleasePageAsync(Page page)
+        {
+            ReleaseAttempts.Add(page.Title);
+            if (gatedTitle is null || StringComparer.Ordinal.Equals(page.Title, gatedTitle))
+            {
+                _releaseStarted.TrySetResult();
+                await _allowRelease.Task;
+            }
+
+            await Inner.ReleasePageAsync(page);
+        }
+
+        public ValueTask ReleasePresentationPageAsync(Page page) =>
+            Inner.ReleasePresentationPageAsync(page);
+
+        public MauiPageAbandonment? CaptureAbandonment(Page page) => Inner.CaptureAbandonment(page);
     }
 
     private sealed class GatedAsyncDisposable : IAsyncDisposable

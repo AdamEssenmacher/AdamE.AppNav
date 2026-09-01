@@ -211,6 +211,29 @@ public sealed class MauiRoutePageFactoryTests
     }
 
     [Fact]
+    public async Task UpdateCancellationAfterUncooperativeHookStopsBeforeNextHook()
+    {
+        var gate = new GatedLifecycleHook(LifecyclePhase.Updated);
+        var recorder = new MainThreadRecordingLifecycleHook();
+        using ServiceProvider provider = CreateThreadAffinityProvider(gate, recorder);
+        MauiRoutePageFactory factory = CreateThreadAffinityFactory(provider);
+        Page page = await factory.CreatePageAsync(Entry("update-cancellation"));
+        using var cancellation = new CancellationTokenSource();
+
+        Task update = factory.UpdatePageAsync(
+            page,
+            Entry("updated-after-cancellation"),
+            new MauiRoutePageUpdateContext(MauiRoutePageReuseKind.ExplicitTarget),
+            cancellation.Token).AsTask();
+        await gate.Entered.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellation.Cancel();
+        gate.Complete();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => update);
+        Assert.False(recorder.UpdatedOnMainThread);
+    }
+
+    [Fact]
     public Task AsyncReleaseHookCompletion_RestoresMainThreadBeforeNextHookAndBindingContextCleanup()
     {
         return MainThread.InvokeOnMainThreadAsync(async () =>

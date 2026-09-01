@@ -229,7 +229,11 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
         PageHandle handle = GetPageHandle(page) ??
             throw new InvalidOperationException("The route page is not owned by this page factory.");
         foreach (IMauiRoutePageLifecycleHook hook in handle.GetActiveHooks())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
             await hook.OnPageUpdatedAsync(page, entry, context, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+        }
     }
 
     public ValueTask ReleasePageAsync(Page page)
