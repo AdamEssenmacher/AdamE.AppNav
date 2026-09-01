@@ -200,6 +200,92 @@ public sealed class MauiNavigationPresenterLifecycleTests
     }
 
     [Fact]
+    public async Task ReplacementWhoseRootObserverReplacesWindowPageIsRejectedAndRemainsRetryable()
+    {
+        var fixture = new PresenterFixture();
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("schools", Entry("schools"))),
+            Context(new TestPageRoute("schools")));
+        var destroyedWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(destroyedWindow);
+        RaiseWindowLifecycleEvent(destroyedWindow, "Destroying");
+        var rejectedWindow = new Window();
+        var observerPage = new ContentPage { Title = "observer-owned" };
+        fixture.Presenter.RootPageChanged += ReplaceWindowPage;
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            fixture.Presenter.AttachWindowAsync(rejectedWindow).AsTask());
+
+        fixture.Presenter.RootPageChanged -= ReplaceWindowPage;
+        Assert.Null(fixture.Presenter.AttachedWindow);
+        Assert.Null(fixture.Presenter.CurrentPage);
+        Assert.Same(observerPage, rejectedWindow.Page);
+        var replacementWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(replacementWindow);
+        Assert.Same(fixture.Presenter.CurrentPage, replacementWindow.Page);
+        await fixture.Presenter.StartShutdown();
+
+        void ReplaceWindowPage(object? sender, Page? page)
+        {
+            if (page is not null)
+                rejectedWindow.Page = observerPage;
+        }
+    }
+
+    [Fact]
+    public async Task ReplacementUsesLatestHostlessBranchContextAndCommitsBeforePublication()
+    {
+        var factory = new RecordingBranchHostFactory(MauiBranchHostPlacement.WindowRoot);
+        var fixture = new PresenterFixture(configurePresentation: options =>
+            options.BranchHosts.Add("custom-root", new MauiBranchHostRegistration(factory)));
+        var initial = new BranchHostNode(
+            "custom-root",
+            [new NavigationBranch("home", "Home", Stack("home-stack", Entry("home")))],
+            "home",
+            "home");
+        NavigationPresentationContext initialContext = Context(new TestPageRoute("home"));
+        await fixture.Presenter.ApplyAsync(Plan(initial), initialContext);
+        var destroyedWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(destroyedWindow);
+        RaiseWindowLifecycleEvent(destroyedWindow, "Destroying");
+        var latest = new BranchHostNode(
+            "custom-root",
+            [
+                new NavigationBranch("home", "Home", Stack("home-stack", Entry("home"))),
+                new NavigationBranch("catalog", "Catalog", Stack("catalog-stack", Entry("catalog")))
+            ],
+            "catalog",
+            "home");
+        NavigationPresentationContext latestContext = Context(
+            new TestPageRoute("catalog"),
+            Plan(initial).TargetState);
+        await fixture.Presenter.ApplyAsync(Plan(latest), latestContext);
+        var replacementWindow = new Window();
+        int commitCountAtPublication = -1;
+        int disposeCountAtPublication = -1;
+        fixture.Presenter.RootPageChanged += (_, page) =>
+        {
+            if (page is not null)
+            {
+                RecordingBranchHost.RecordingBranchHostUpdate update =
+                    factory.CreatedHosts.Last().Updates.Last();
+                commitCountAtPublication = update.CommitCount;
+                disposeCountAtPublication = update.DisposeCount;
+            }
+        };
+
+        await fixture.Presenter.AttachWindowAsync(replacementWindow);
+
+        RecordingBranchHost replacementHost = factory.CreatedHosts.Last();
+        Assert.Equal("catalog", replacementHost.SelectedBranchId);
+        Assert.Equal(latestContext.Request, factory.CreationContexts.Last().Request);
+        Assert.Equal(latestContext.Route, replacementHost.AppliedContexts.Last().Route);
+        Assert.Equal(1, commitCountAtPublication);
+        Assert.Equal(1, disposeCountAtPublication);
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
     public async Task EmptyLogicalStateClearsReplacementWindowBootstrapPage()
     {
         var fixture = new PresenterFixture();
@@ -855,6 +941,95 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.Empty(factory.CreatedHosts);
         Assert.Empty(fixture.Factory.CreatedPages);
         _ = fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task BranchHostReturnedAfterEpochDestructionIsAbandonedWithoutPageAccess()
+    {
+        var factory = new GatedBranchHostFactory();
+        var fixture = new PresenterFixture(configurePresentation: options =>
+            options.BranchHosts.Add("gated-host", new MauiBranchHostRegistration(factory)));
+        var window = new Window();
+        await fixture.Presenter.AttachWindowAsync(window);
+        var state = new BranchHostNode(
+            "gated-host",
+            [new NavigationBranch("home", "Home", Stack("home-stack", Entry("home")))],
+            "home",
+            "home");
+
+        Task apply = fixture.Presenter.ApplyAsync(
+            Plan(state),
+            Context(new TestPageRoute("home"))).AsTask();
+        await factory.CreateEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        RaiseWindowLifecycleEvent(window, "Destroying");
+        factory.AllowCreate.TrySetResult();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => apply);
+        await factory.Host.DisposeEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, factory.Host.DisposeCount);
+        Assert.False(factory.Host.PageRead);
+        await fixture.Presenter.StartShutdown();
+        Assert.Equal(1, factory.Host.DisposeCount);
+    }
+
+    [Fact]
+    public async Task DestroyingWindowStartsBranchHostDisposalAndShutdownDrainsItExactlyOnce()
+    {
+        var factory = new RecordingBranchHostFactory(MauiBranchHostPlacement.WindowRoot);
+        var fixture = new PresenterFixture(configurePresentation: options =>
+            options.BranchHosts.Add("custom-root", new MauiBranchHostRegistration(factory)));
+        var state = new BranchHostNode(
+            "custom-root",
+            [new NavigationBranch("home", "Home", Stack("home-stack", Entry("home")))],
+            "home",
+            "home");
+        await fixture.Presenter.ApplyAsync(Plan(state), Context(new TestPageRoute("home")));
+        RecordingBranchHost host = Assert.Single(factory.CreatedHosts);
+        host.DisposeGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var window = new Window();
+        await fixture.Presenter.AttachWindowAsync(window);
+
+        RaiseWindowLifecycleEvent(window, "Destroying");
+
+        await host.DisposeEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, host.DisposeCount);
+        Task shutdown = fixture.Presenter.StartShutdown();
+        Assert.False(shutdown.IsCompleted);
+        host.DisposeGate.TrySetResult();
+        await shutdown.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, host.DisposeCount);
+    }
+
+    [Fact]
+    public async Task BranchHostCommitReceivesEpochCancellationWhenWindowIsDestroyed()
+    {
+        var factory = new RecordingBranchHostFactory(MauiBranchHostPlacement.WindowRoot);
+        var fixture = new PresenterFixture(configurePresentation: options =>
+            options.BranchHosts.Add("custom-root", new MauiBranchHostRegistration(factory)));
+        var initial = new BranchHostNode(
+            "custom-root",
+            [
+                new NavigationBranch("home", "Home", Stack("home-stack", Entry("home"))),
+                new NavigationBranch("catalog", "Catalog", Stack("catalog-stack", Entry("catalog")))
+            ],
+            "home",
+            "home");
+        await fixture.Presenter.ApplyAsync(Plan(initial), Context(new TestPageRoute("home")));
+        RecordingBranchHost host = Assert.Single(factory.CreatedHosts);
+        var window = new Window();
+        await fixture.Presenter.AttachWindowAsync(window);
+        host.BlockNextCommit = true;
+
+        Task apply = fixture.Presenter.ApplyAsync(
+            Plan(initial with { SelectedBranchId = "catalog" }),
+            Context(new TestPageRoute("catalog"), Plan(initial).TargetState)).AsTask();
+        await host.CommitEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        RaiseWindowLifecycleEvent(window, "Destroying");
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => apply);
+        Assert.True(host.LastCommitToken.CanBeCanceled);
+        Assert.True(host.LastCommitToken.IsCancellationRequested);
+        await fixture.Presenter.StartShutdown();
     }
 
     [Fact]
@@ -3364,6 +3539,73 @@ public sealed class MauiNavigationPresenterLifecycleTests
         }
     }
 
+    private sealed class GatedBranchHostFactory : IMauiBranchHostFactory
+    {
+        public MauiBranchHostPlacement SupportedPlacements => MauiBranchHostPlacement.WindowRoot;
+
+        public TaskCompletionSource CreateEntered { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource AllowCreate { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public PageUnreadBranchHost Host { get; } = new();
+
+        public async ValueTask<IMauiBranchHost> CreateAsync(
+            MauiBranchHostCreationContext context,
+            CancellationToken cancellationToken = default)
+        {
+            CreateEntered.TrySetResult();
+            await AllowCreate.Task;
+            return Host;
+        }
+    }
+
+    private sealed class PageUnreadBranchHost : IMauiBranchHost
+    {
+        private readonly Page _page = new ContentPage();
+
+        public bool PageRead { get; private set; }
+
+        public int DisposeCount { get; private set; }
+
+        public IReadOnlyList<MauiBranchHostBranch> Branches => [];
+
+        public string? SelectedBranchId => null;
+
+        public Page? SelectedBranchPage => null;
+
+        public TaskCompletionSource DisposeEntered { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Page Page
+        {
+            get
+            {
+                PageRead = true;
+                return _page;
+            }
+        }
+
+        public event EventHandler<MauiBranchHostSelectionChangedEventArgs>? SelectionChanged
+        {
+            add { }
+            remove { }
+        }
+
+        public ValueTask<IMauiBranchHostUpdate> ApplyAsync(
+            MauiBranchHostUpdateContext context,
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("A late branch host must not be applied.");
+
+        public ValueTask DisposeAsync()
+        {
+            DisposeCount++;
+            DisposeEntered.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
+    }
+
     private sealed class RecordingBranchHostFactory(
         MauiBranchHostPlacement supportedPlacements,
         Func<Page>? createHostPage = null)
@@ -3375,6 +3617,8 @@ public sealed class MauiNavigationPresenterLifecycleTests
 
         public List<MauiBranchHostPlacement> CreationPlacements { get; } = [];
 
+        public List<NavigationPresentationContext> CreationContexts { get; } = [];
+
         public bool FailNextCommit { get; set; }
 
         public bool SubstituteBranchPages { get; set; }
@@ -3385,6 +3629,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             CreationPlacements.Add(context.Placement);
+            CreationContexts.Add(context.PresentationContext);
             var host = new RecordingBranchHost(() =>
             {
                 if (!FailNextCommit)
@@ -3429,9 +3674,25 @@ public sealed class MauiNavigationPresenterLifecycleTests
 
         public int DisposeCount { get; private set; }
 
+        public TaskCompletionSource? DisposeGate { get; set; }
+
+        public TaskCompletionSource DisposeEntered { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public bool BlockNextCommit { get; set; }
+
+        public TaskCompletionSource CommitEntered { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public CancellationToken LastCommitToken { get; private set; }
+
         private bool SubstituteBranchPages { get; }
 
         public List<MauiBranchHostPlacement> AppliedPlacements { get; } = [];
+
+        public List<NavigationPresentationContext> AppliedContexts { get; } = [];
+
+        public List<RecordingBranchHostUpdate> Updates { get; } = [];
 
         public Action<RecordingBranchHost>? SelectionsDuringApply { get; set; }
 
@@ -3449,6 +3710,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
             cancellationToken.ThrowIfCancellationRequested();
             ObjectDisposedException.ThrowIf(_disposed, this);
             AppliedPlacements.Add(context.Placement);
+            AppliedContexts.Add(context.PresentationContext);
             var previousBranches = _branches;
             string? previousSelected = SelectedBranchId;
             _branches = SubstituteBranchPages
@@ -3463,8 +3725,13 @@ public sealed class MauiNavigationPresenterLifecycleTests
 
             SelectionsDuringApply?.Invoke(this);
 
-            return ValueTask.FromResult<IMauiBranchHostUpdate>(
-                new RecordingBranchHostUpdate(this, previousBranches, previousSelected, _shouldFailCommit()));
+            var update = new RecordingBranchHostUpdate(
+                this,
+                previousBranches,
+                previousSelected,
+                _shouldFailCommit());
+            Updates.Add(update);
+            return ValueTask.FromResult<IMauiBranchHostUpdate>(update);
         }
 
         private static MauiBranchHostBranch SubstituteBranchPage(MauiBranchHostBranch branch)
@@ -3496,15 +3763,17 @@ public sealed class MauiNavigationPresenterLifecycleTests
             SelectionChanged?.Invoke(this, new MauiBranchHostSelectionChangedEventArgs(branchId));
         }
 
-        public ValueTask DisposeAsync()
+        public async ValueTask DisposeAsync()
         {
             DisposeCount++;
             _disposed = true;
             SelectionChanged = null;
-            return ValueTask.CompletedTask;
+            DisposeEntered.TrySetResult();
+            if (DisposeGate is not null)
+                await DisposeGate.Task;
         }
 
-        private sealed class RecordingBranchHostUpdate(
+        public sealed class RecordingBranchHostUpdate(
             RecordingBranchHost host,
             IReadOnlyList<MauiBranchHostBranch> branches,
             string? selectedBranchId,
@@ -3512,14 +3781,26 @@ public sealed class MauiNavigationPresenterLifecycleTests
         {
             private bool _completed;
 
-            public ValueTask CommitAsync(CancellationToken cancellationToken = default)
+            public int CommitCount { get; private set; }
+
+            public int DisposeCount { get; private set; }
+
+            public async ValueTask CommitAsync(CancellationToken cancellationToken = default)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 if (failCommit)
                     throw new InvalidOperationException("Synthetic branch-host commit failure.");
 
+                CommitCount++;
+                host.LastCommitToken = cancellationToken;
+                if (host.BlockNextCommit)
+                {
+                    host.BlockNextCommit = false;
+                    host.CommitEntered.TrySetResult();
+                    await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                }
+
                 _completed = true;
-                return ValueTask.CompletedTask;
             }
 
             public ValueTask RollbackAsync(CancellationToken cancellationToken = default)
@@ -3535,7 +3816,11 @@ public sealed class MauiNavigationPresenterLifecycleTests
                 return ValueTask.CompletedTask;
             }
 
-            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+            public ValueTask DisposeAsync()
+            {
+                DisposeCount++;
+                return ValueTask.CompletedTask;
+            }
         }
     }
 
