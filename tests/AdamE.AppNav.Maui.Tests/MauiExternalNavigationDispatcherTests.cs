@@ -835,9 +835,7 @@ public sealed class MauiExternalNavigationDispatcherTests
     [Fact]
     public void RepeatedHostDisposal_ReleasesProvidersAndDispatchers()
     {
-        HostWeakReferences[] hosts = Enumerable.Range(0, 32)
-            .Select(_ => CreateAndDisposeHost())
-            .ToArray();
+        HostWeakReferences[] hosts = CreateAndDisposeHosts(32);
 
         ForceFullCollection();
 
@@ -847,6 +845,7 @@ public sealed class MauiExternalNavigationDispatcherTests
             Assert.False(host.Dispatcher.IsAlive);
             Assert.False(host.Navigator.IsAlive);
         });
+        GC.KeepAlive(hosts);
     }
 
     private static async Task WaitUntilAsync(Func<bool> predicate, int timeoutMs = 2000)
@@ -916,6 +915,15 @@ public sealed class MauiExternalNavigationDispatcherTests
             navigationCancelled.TrySetResult();
             throw;
         }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static HostWeakReferences[] CreateAndDisposeHosts(int count)
+    {
+        var hosts = new HostWeakReferences[count];
+        for (var index = 0; index < hosts.Length; index++)
+            hosts[index] = CreateAndDisposeHost();
+        return hosts;
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
