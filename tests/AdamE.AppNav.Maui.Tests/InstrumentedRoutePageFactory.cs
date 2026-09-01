@@ -25,6 +25,12 @@ internal sealed class InstrumentedRoutePageFactory : IMauiRoutePageFactory
 
     public event Action<Page>? PresentationPageReleased;
 
+    /// <summary>The token AppNav supplied to the most recent update, including updates driven by rollback.</summary>
+    public CancellationToken LastUpdateToken { get; private set; }
+
+    /// <summary>Every token AppNav supplied to an update, in call order.</summary>
+    public List<CancellationToken> UpdateTokens { get; } = [];
+
     public IReadOnlyList<Page> CreatedPages => _createdPages.ToArray();
 
     public IReadOnlyList<Page> ReleasedPages => _releasedPages.ToArray();
@@ -94,11 +100,13 @@ internal sealed class InstrumentedRoutePageFactory : IMauiRoutePageFactory
         _updateCounts[page] = count + 1;
         _lastUpdatedEntries[page] = entry;
         _lastUpdateContexts[page] = context;
+        LastUpdateToken = cancellationToken;
+        UpdateTokens.Add(cancellationToken);
         _updatePage?.Invoke(page, entry, context);
         return ValueTask.CompletedTask;
     }
 
-    public ValueTask ReleasePageAsync(Page page)
+    public ValueTask ReleasePageAsync(Page page, CancellationToken cancellationToken)
     {
         if (_abandonedPageSet.Contains(page))
             return ValueTask.CompletedTask;
@@ -111,7 +119,7 @@ internal sealed class InstrumentedRoutePageFactory : IMauiRoutePageFactory
         return ValueTask.CompletedTask;
     }
 
-    public ValueTask ReleasePresentationPageAsync(Page page)
+    public ValueTask ReleasePresentationPageAsync(Page page, CancellationToken cancellationToken)
     {
         if (_abandonedPageSet.Contains(page))
             return ValueTask.CompletedTask;

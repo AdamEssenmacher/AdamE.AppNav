@@ -5,6 +5,8 @@ namespace AdamE.AppNav.Maui;
 
 internal sealed class MauiNativeTreeEpoch
 {
+    private static readonly CancellationToken AlreadyCancelled = new(canceled: true);
+
     private readonly Lock _gate = new();
     private readonly CancellationTokenSource _cancellation = new();
     private readonly HashSet<Page> _pages = new(ReferenceEqualityComparer.Instance);
@@ -33,7 +35,34 @@ internal sealed class MauiNativeTreeEpoch
 
     public AppRoute? PendingHostBackRoute { get; set; }
 
-    public CancellationToken CancellationToken => _cancellation.Token;
+    /// <summary>
+    /// A token that cancels when this epoch closes.
+    /// </summary>
+    /// <remarks>
+    /// Once the epoch is closed its <see cref="CancellationTokenSource"/> may already have been disposed by
+    /// <see cref="MauiNativeTreeEpochClosure.CompleteAsync"/>, so a closed epoch reports a pre-cancelled token
+    /// instead of touching the disposed source.
+    /// </remarks>
+    public CancellationToken CancellationToken
+    {
+        get
+        {
+            lock (_gate)
+            {
+                if (!_open)
+                    return AlreadyCancelled;
+            }
+
+            try
+            {
+                return _cancellation.Token;
+            }
+            catch (ObjectDisposedException)
+            {
+                return AlreadyCancelled;
+            }
+        }
+    }
 
     public bool IsOpen
     {

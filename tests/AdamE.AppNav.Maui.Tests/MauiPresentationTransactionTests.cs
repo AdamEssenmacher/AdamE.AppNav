@@ -82,6 +82,31 @@ public sealed class MauiPresentationTransactionTests
         await presenter.StartShutdown();
     }
 
+    [Fact]
+    public async Task RollbackPageUpdatesReceiveAnEpochCancellableToken()
+    {
+        var nativeOperations = new FaultingNativeOperations();
+        var factory = new InstrumentedRoutePageFactory();
+        var presenter = new MauiNavigationPresenter(factory, nativeOperations: nativeOperations);
+        NavigationState previousState = StackState("home");
+        await presenter.ApplyAsync(new NavigationPlan(previousState), Context("home", NavigationState.Empty));
+
+        // Fault after the modal push so the reused stack page is updated first; rollback then has route
+        // metadata to restore through the page factory, which is where application hooks run.
+        nativeOperations.FaultAfterMutation = NativeMutation.PushModal;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => presenter.ApplyAsync(
+            new NavigationPlan(ModalState("details")),
+            Context("details", previousState)).AsTask());
+
+        // Two updates: the forward reuse and the rollback restore. The rollback one previously received
+        // CancellationToken.None, so a cooperative hook could not be stopped when the native tree was
+        // destroyed mid-rollback.
+        Assert.True(factory.UpdateTokens.Count >= 2);
+        Assert.All(factory.UpdateTokens, token => Assert.True(token.CanBeCanceled));
+        await presenter.StartShutdown();
+    }
+
     [Theory]
     [InlineData(NativeMutation.RemoveTab)]
     [InlineData(NativeMutation.InsertTab)]
@@ -1795,9 +1820,9 @@ public sealed class MauiPresentationTransactionTests
             return _inner.UpdatePageAsync(page, entry, context, cancellationToken);
         }
 
-        public async ValueTask ReleasePageAsync(Page page)
+        public async ValueTask ReleasePageAsync(Page page, CancellationToken cancellationToken)
         {
-            await _inner.ReleasePageAsync(page);
+            await _inner.ReleasePageAsync(page, cancellationToken);
             if (!ReferenceEquals(page, _releaseTrigger) || _navigationPage is null)
                 return;
 
@@ -1805,9 +1830,9 @@ public sealed class MauiPresentationTransactionTests
             await _navigationPage.Navigation.PopAsync(animated: false);
         }
 
-        public ValueTask ReleasePresentationPageAsync(Page page)
+        public ValueTask ReleasePresentationPageAsync(Page page, CancellationToken cancellationToken)
         {
-            return _inner.ReleasePresentationPageAsync(page);
+            return _inner.ReleasePresentationPageAsync(page, cancellationToken);
         }
 
         public int ReleaseCountFor(Page page) => _inner.ReleaseCountFor(page);
@@ -1847,7 +1872,7 @@ public sealed class MauiPresentationTransactionTests
             CancellationToken cancellationToken = default) =>
             _inner.UpdatePageAsync(page, entry, context, cancellationToken);
 
-        public async ValueTask ReleasePageAsync(Page page)
+        public async ValueTask ReleasePageAsync(Page page, CancellationToken cancellationToken)
         {
             if (ReferenceEquals(page, _releaseTrigger))
             {
@@ -1856,11 +1881,11 @@ public sealed class MauiPresentationTransactionTests
                 await _allowRelease.Task;
             }
 
-            await _inner.ReleasePageAsync(page);
+            await _inner.ReleasePageAsync(page, cancellationToken);
         }
 
-        public ValueTask ReleasePresentationPageAsync(Page page) =>
-            _inner.ReleasePresentationPageAsync(page);
+        public ValueTask ReleasePresentationPageAsync(Page page, CancellationToken cancellationToken) =>
+            _inner.ReleasePresentationPageAsync(page, cancellationToken);
 
         public MauiPageAbandonment? CaptureAbandonment(Page page) => _inner.CaptureAbandonment(page);
     }
@@ -1932,14 +1957,14 @@ public sealed class MauiPresentationTransactionTests
             return _inner.UpdatePageAsync(page, entry, context, cancellationToken);
         }
 
-        public ValueTask ReleasePageAsync(Page page)
+        public ValueTask ReleasePageAsync(Page page, CancellationToken cancellationToken)
         {
-            return _inner.ReleasePageAsync(page);
+            return _inner.ReleasePageAsync(page, cancellationToken);
         }
 
-        public ValueTask ReleasePresentationPageAsync(Page page)
+        public ValueTask ReleasePresentationPageAsync(Page page, CancellationToken cancellationToken)
         {
-            return _inner.ReleasePresentationPageAsync(page);
+            return _inner.ReleasePresentationPageAsync(page, cancellationToken);
         }
 
         public int ReleaseCountFor(Page page)

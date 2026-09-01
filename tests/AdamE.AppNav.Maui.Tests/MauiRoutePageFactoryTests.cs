@@ -59,7 +59,7 @@ public sealed class MauiRoutePageFactoryTests
             page,
             Entry("route-2"),
             new MauiRoutePageUpdateContext(MauiRoutePageReuseKind.ExplicitTarget));
-        await factory.ReleasePageAsync(page);
+        await factory.ReleasePageAsync(page, CancellationToken.None);
 
         var tracker = provider.GetRequiredService<LifecycleTracker>();
         Assert.Equal(
@@ -87,8 +87,8 @@ public sealed class MauiRoutePageFactoryTests
 
         var page = Assert.IsType<AsyncScopedPage>(await factory.CreatePageAsync(Entry("async")));
         page.BindingContext = new object();
-        await factory.ReleasePageAsync(page);
-        await factory.ReleasePageAsync(page);
+        await factory.ReleasePageAsync(page, CancellationToken.None);
+        await factory.ReleasePageAsync(page, CancellationToken.None);
 
         Assert.Equal(1, page.Marker.DisposeCount);
         Assert.Null(page.BindingContext);
@@ -115,7 +115,7 @@ public sealed class MauiRoutePageFactoryTests
 
         MauiPageAbandonment abandonment = Assert.IsType<MauiPageAbandonment>(
             factory.CaptureAbandonment(page));
-        await factory.ReleasePageAsync(page);
+        await factory.ReleasePageAsync(page, CancellationToken.None);
 
         Assert.Same(bindingContext, page.BindingContext);
         Assert.Equal(["async-created:abandoned"], provider.GetRequiredService<LifecycleTracker>().Events);
@@ -152,7 +152,7 @@ public sealed class MauiRoutePageFactoryTests
         Task release = Task.Run(async () =>
         {
             await start.Task;
-            await factory.ReleasePageAsync(page);
+            await factory.ReleasePageAsync(page, CancellationToken.None);
         });
         start.TrySetResult();
 
@@ -234,6 +234,26 @@ public sealed class MauiRoutePageFactoryTests
     }
 
     [Fact]
+    public async Task CreateCancellationAfterUncooperativeHookStopsBeforeNextHook()
+    {
+        var gate = new GatedLifecycleHook(LifecyclePhase.Created);
+        var recorder = new MainThreadRecordingLifecycleHook();
+        using ServiceProvider provider = CreateThreadAffinityProvider(gate, recorder);
+        MauiRoutePageFactory factory = CreateThreadAffinityFactory(provider);
+        using var cancellation = new CancellationTokenSource();
+
+        Task<Page> create = factory.CreatePageAsync(Entry("create-cancellation"), cancellation.Token).AsTask();
+        await gate.Entered.WaitAsync(TimeSpan.FromSeconds(5));
+        await cancellation.CancelAsync();
+        gate.Complete();
+
+        // The creation hook loop had no cancellation boundary, so an uncooperative first hook could hand a page
+        // from a destroyed tree to every remaining hook.
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => create);
+        Assert.False(recorder.CreatedOnMainThread);
+    }
+
+    [Fact]
     public Task AsyncReleaseHookCompletion_RestoresMainThreadBeforeNextHookAndBindingContextCleanup()
     {
         return MainThread.InvokeOnMainThreadAsync(async () =>
@@ -252,7 +272,7 @@ public sealed class MauiRoutePageFactoryTests
                     bindingContextClearedOnMainThread = MainThread.IsMainThread;
             };
 
-            Task releaseTask = factory.ReleasePageAsync(page).AsTask();
+            Task releaseTask = factory.ReleasePageAsync(page, CancellationToken.None).AsTask();
             await CompleteGateFromWorkerAsync(gate);
             await releaseTask;
 
@@ -335,7 +355,7 @@ public sealed class MauiRoutePageFactoryTests
         Assert.Same(ownerBindingContext, page.BindingContext);
         Assert.False(page.Marker.IsDisposed);
 
-        await factory.ReleasePresentationPageAsync(page);
+        await factory.ReleasePresentationPageAsync(page, CancellationToken.None);
 
         Assert.Null(page.BindingContext);
         Assert.True(page.Marker.IsDisposed);
@@ -357,7 +377,7 @@ public sealed class MauiRoutePageFactoryTests
 
         Assert.Same(page.OwnBindingContext, page.BindingContext);
 
-        await factory.ReleasePresentationPageAsync(page);
+        await factory.ReleasePresentationPageAsync(page, CancellationToken.None);
 
         Assert.Null(page.BindingContext);
     }

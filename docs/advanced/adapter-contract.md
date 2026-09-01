@@ -53,6 +53,49 @@ rollback, and release failures participate in the adapter transaction and
 recovery contract. A custom host must expose all branch pages needed for
 structural verification and release, including inactive branches.
 
+## Cancellation across the native-tree boundary
+
+AppNav separates durable logical navigation from disposable native presentation.
+When a MAUI window is destroyed, the presenter closes the native-tree *epoch*
+that owned its page tree: the logical `NavigationState` survives, but every
+window and page reference from that epoch becomes unusable immediately.
+
+Every call AppNav makes into application-supplied code -- `IMauiRoutePageLifecycleHook`,
+`IMauiBranchHostFactory`, `IMauiBranchHost`, and `IMauiBranchHostUpdate` -- crosses
+that boundary, so the two sides split as follows.
+
+**AppNav guarantees:**
+
+- Every extension point receives a `CancellationToken` that is cancelled when the
+  owning native tree is destroyed, even when the calling operation is otherwise
+  uncancellable. Recovery, rollback, and release paths are included; there is no
+  path that hands application code a token which cannot cancel.
+- After control returns from application code, AppNav revalidates the epoch before
+  touching any native page, window, or host again.
+- A result produced after the epoch closed -- a page, host, or update returned by a
+  callback that ignored its token -- is disposed through the page-free abandonment
+  path instead of being registered into the replacement tree. Shutdown waits for
+  those leases to drain.
+- Window destruction always completes. A callback that throws during teardown is
+  recorded as a diagnostic; it cannot leave the presenter without a replacement
+  epoch.
+
+**Your code is responsible for:**
+
+- Observing the supplied `CancellationToken`. A hook that ignores it will run to
+  completion, and any work it performs on a page from a destroyed tree is
+  unobservable to AppNav and may act on invalid native controls.
+- Tolerating handler detachment and metadata reads that AppNav performs *before*
+  invoking `DisposeAsync`. AppNav detaches its own event handlers and captures the
+  metadata it needs first, so a host that self-disposes early is not asked to
+  service AppNav afterwards.
+- Making `RollbackAsync` safe to call on an update that was never committed;
+  it is the documented reversal of `ApplyAsync`.
+
+AppNav does not attempt to make application code that ignores cancellation safe.
+It guarantees only that such code cannot corrupt the replacement tree or strand
+the presenter.
+
 The public adapter-contract test assembly exercises successful apply,
 failure/cancellation without commit, reconciliation, shutdown/event detachment,
 and Stack/BranchHost/Modal topology. A future Blazor adapter should satisfy the

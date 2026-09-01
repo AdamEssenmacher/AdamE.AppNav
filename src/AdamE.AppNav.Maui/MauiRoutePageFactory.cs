@@ -34,15 +34,12 @@ internal interface IMauiRoutePageFactory
         MauiRoutePageUpdateContext context,
         CancellationToken cancellationToken = default);
 
-    ValueTask ReleasePageAsync(Page page);
+    // Deliberately no tokenless overloads: every release crosses into application lifecycle hooks, so the caller
+    // must supply a token that carries native-tree epoch cancellation. A defaulted overload here silently dropped
+    // that token for any implementer that did not override it.
+    ValueTask ReleasePageAsync(Page page, CancellationToken cancellationToken);
 
-    ValueTask ReleasePageAsync(Page page, CancellationToken cancellationToken) =>
-        ReleasePageAsync(page);
-
-    ValueTask ReleasePresentationPageAsync(Page page);
-
-    ValueTask ReleasePresentationPageAsync(Page page, CancellationToken cancellationToken) =>
-        ReleasePresentationPageAsync(page);
+    ValueTask ReleasePresentationPageAsync(Page page, CancellationToken cancellationToken);
 
     MauiPageAbandonment? CaptureAbandonment(Page page);
 }
@@ -141,7 +138,11 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
                 SetPageHandle(page, handle);
                 scope = null;
                 foreach (IMauiRoutePageLifecycleHook hook in handle.GetActiveHooks())
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
                     await hook.OnPageCreatedAsync(page, entry, cancellationToken);
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
 
                 return page;
             }
@@ -242,22 +243,10 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
         }
     }
 
-    public ValueTask ReleasePageAsync(Page page)
-    {
-        ArgumentNullException.ThrowIfNull(page);
-        return ReleaseCoreAsync(page, CancellationToken.None);
-    }
-
     public ValueTask ReleasePageAsync(Page page, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(page);
         return ReleaseCoreAsync(page, cancellationToken);
-    }
-
-    public ValueTask ReleasePresentationPageAsync(Page page)
-    {
-        ArgumentNullException.ThrowIfNull(page);
-        return ReleaseCoreAsync(page, CancellationToken.None);
     }
 
     public ValueTask ReleasePresentationPageAsync(Page page, CancellationToken cancellationToken)
