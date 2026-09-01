@@ -193,6 +193,18 @@ internal sealed class AppNavStartupService : IAppNavStartupService
                 }
             }
 
+            // CreateWindow can run again when the native host is recreated. In that case the router's
+            // logical window is authoritative and must be attached as-is rather than replaced by startup
+            // fallback navigation.
+            if (_navigator.CurrentState.FindWindow(windowId) is not null)
+            {
+                attached = await AttachAsync(window, windowId, attached, cancellationToken);
+                return Complete(
+                    operationId,
+                    windowId,
+                    AppNavStartupOutcome.NoNavigation);
+            }
+
             RouterNavigationRequest? fallbackRequest = await CreateFallbackRequestAsync(
                 windowId,
                 cancellationToken);

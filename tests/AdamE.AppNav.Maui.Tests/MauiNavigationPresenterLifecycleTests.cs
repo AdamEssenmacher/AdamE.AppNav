@@ -102,6 +102,8 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.Null(Assert.Single(rootChanges));
         Assert.Contains(destroyedRoutePage, fixture.Factory.AbandonedPages);
         Assert.Contains(transientPage, fixture.Factory.AbandonedPages);
+        Assert.DoesNotContain(destroyedRoot, fixture.Factory.AbandonedPages);
+        Assert.Null(fixture.Factory.CaptureAbandonment(destroyedRoutePage));
         Assert.Empty(fixture.Factory.ReleasedPages);
         Assert.Empty(fixture.Factory.ReleasedPresentationPages);
         await Assert.ThrowsAsync<InvalidOperationException>(() =>

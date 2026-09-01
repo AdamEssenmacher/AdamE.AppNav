@@ -336,6 +336,8 @@ public sealed class MauiPresentationTransactionTests
             Context("home", NavigationState.Empty));
         var destroyedWindow = new Window();
         await presenter.AttachWindowAsync(destroyedWindow);
+        var rootChanges = new List<Page?>();
+        presenter.RootPageChanged += (_, page) => rootChanges.Add(page);
         RaiseWindowDestroying(destroyedWindow);
         var bootstrapPage = new ContentPage { Title = "bootstrap" };
         var replacementWindow = new Window(bootstrapPage);
@@ -354,6 +356,7 @@ public sealed class MauiPresentationTransactionTests
             presenter.AttachWindowAsync(replacementWindow, cancellationToken: cancellation.Token).AsTask());
 
         Page candidateRoot = Assert.IsType<NavigationPage>(replacementWindow.Page);
+        Assert.Equal(new Page?[] { null, candidateRoot }, rootChanges);
         Assert.Same(candidateRoot, presenter.CurrentPage);
         Assert.Same(replacementWindow, presenter.AttachedWindow);
         Assert.All(

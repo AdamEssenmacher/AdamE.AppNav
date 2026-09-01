@@ -566,6 +566,7 @@ internal sealed class MauiNavigationPresenter :
                             CurrentPage = candidateRoot;
                             _hostState = MauiPresenterHostState.Attached;
                             SubscribeWindowLifecycle(window);
+                            InvokeRootPageChanged(candidateRoot);
                         }
 
                         throw consistencyException;

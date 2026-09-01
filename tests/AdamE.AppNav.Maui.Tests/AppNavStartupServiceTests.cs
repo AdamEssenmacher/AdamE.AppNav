@@ -132,6 +132,53 @@ public sealed class AppNavStartupServiceTests
     }
 
     [Fact]
+    public async Task StartAsync_ExistingLogicalWindowAttachesWithoutRunningFallbackAgain()
+    {
+        var existingState = new NavigationState(
+            [new WindowNode(
+                "main",
+                new StackNode(
+                    "main-stack",
+                    [new RouteEntry("home", new TestRoute("home")), new RouteEntry("details", new TestRoute("details"))]))],
+            "main");
+        var navigator = new RecordingRouterNavigator { CurrentState = existingState };
+        var fallbackFactoryCalls = 0;
+        using var services = new ServiceCollection()
+            .AddSingleton<IRouterNavigator>(navigator)
+            .AddSingleton(new NavigationDiagnostics())
+            .BuildServiceProvider();
+        using var dispatcher = new MauiExternalNavigationDispatcher(
+            services,
+            services.GetRequiredService<NavigationDiagnostics>());
+        var windowAttachment = new RecordingWindowAttachment();
+        var startup = new AppNavStartupService(
+            navigator,
+            windowAttachment,
+            dispatcher,
+            new AppNavStartupOptions
+            {
+                AppLinkGracePeriod = TimeSpan.Zero,
+                FallbackRequestFactory = (_, _) =>
+                {
+                    fallbackFactoryCalls++;
+                    return ValueTask.FromResult<RouterNavigationRequest?>(RouterNavigationRequest.FromRoute(
+                        new TestRoute("fallback"),
+                        NavigationRequestSource.InAppCommand));
+                }
+            },
+            services,
+            services.GetRequiredService<NavigationDiagnostics>());
+
+        AppNavStartupResult result = await StartOnMainThreadAsync(startup, new Window(new ContentPage()));
+
+        Assert.Equal(AppNavStartupOutcome.NoNavigation, result.Outcome);
+        Assert.Equal(0, fallbackFactoryCalls);
+        Assert.Empty(navigator.NavigateCalls);
+        Assert.Equal(1, windowAttachment.AttachCalls);
+        Assert.Same(existingState, navigator.CurrentState);
+    }
+
+    [Fact]
     public void StartupFallbackFactoriesAreMutuallyExclusive()
     {
         var navigator = new RecordingRouterNavigator();
@@ -1213,7 +1260,7 @@ public sealed class AppNavStartupServiceTests
 
         public List<bool> NavigateMainThreadChecks { get; } = [];
 
-        public NavigationState CurrentState => NavigationState.Empty;
+        public NavigationState CurrentState { get; set; } = NavigationState.Empty;
 
         public NavigationHistory History => NavigationHistory.Empty;
 

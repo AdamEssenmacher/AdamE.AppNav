@@ -8,6 +8,10 @@ internal sealed class InstrumentedRoutePageFactory : IMauiRoutePageFactory
 {
     public MauiPageAbandonment? CaptureAbandonment(Page page)
     {
+        if (!_ownedPages.Remove(page))
+            return null;
+
+        _abandonedPageSet.Add(page);
         _abandonedPages.Add(page);
         return new MauiPageAbandonment(null, page.GetType().FullName ?? page.GetType().Name);
     }
@@ -36,6 +40,8 @@ internal sealed class InstrumentedRoutePageFactory : IMauiRoutePageFactory
     private readonly List<Page> _createdPresentationPages = new();
     private readonly List<Page> _releasedPresentationPages = new();
     private readonly List<Page> _abandonedPages = new();
+    private readonly HashSet<Page> _ownedPages = new(ReferenceEqualityComparer.Instance);
+    private readonly HashSet<Page> _abandonedPageSet = new(ReferenceEqualityComparer.Instance);
 
     public InstrumentedRoutePageFactory(
         Func<RouteEntry, Page>? createPage = null,
@@ -57,6 +63,7 @@ internal sealed class InstrumentedRoutePageFactory : IMauiRoutePageFactory
                    };
 
         _createdPages.Add(page);
+        _ownedPages.Add(page);
         return ValueTask.FromResult(page);
     }
 
@@ -73,6 +80,7 @@ internal sealed class InstrumentedRoutePageFactory : IMauiRoutePageFactory
         }
 
         _createdPresentationPages.Add(page);
+        _ownedPages.Add(page);
         return ValueTask.FromResult(page);
     }
 
@@ -92,6 +100,10 @@ internal sealed class InstrumentedRoutePageFactory : IMauiRoutePageFactory
 
     public ValueTask ReleasePageAsync(Page page)
     {
+        if (_abandonedPageSet.Contains(page))
+            return ValueTask.CompletedTask;
+
+        _ownedPages.Remove(page);
         _releasedPages.Add(page);
         _releaseCounts.TryGetValue(page, out var count);
         _releaseCounts[page] = count + 1;
@@ -101,6 +113,10 @@ internal sealed class InstrumentedRoutePageFactory : IMauiRoutePageFactory
 
     public ValueTask ReleasePresentationPageAsync(Page page)
     {
+        if (_abandonedPageSet.Contains(page))
+            return ValueTask.CompletedTask;
+
+        _ownedPages.Remove(page);
         page.BindingContext = null;
         _releasedPresentationPages.Add(page);
         _releaseCounts.TryGetValue(page, out var count);
