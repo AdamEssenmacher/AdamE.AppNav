@@ -97,6 +97,9 @@ internal sealed class MauiNavigationPresenter :
 
     private HashSet<Page> _trackedModalPages => _nativeTreeEpoch.TrackedModalPages;
 
+    private Dictionary<IMauiBranchHost, string> _pendingBranchHostSelections =>
+        _nativeTreeEpoch.PendingBranchHostSelections;
+
     private bool _suppressedNavigationPopDrainQueued
     {
         get => _nativeTreeEpoch.SuppressedNavigationPopDrainQueued;
@@ -107,6 +110,12 @@ internal sealed class MauiNavigationPresenter :
     {
         get => _nativeTreeEpoch.HostBackReconciliationPending;
         set => _nativeTreeEpoch.HostBackReconciliationPending = value;
+    }
+
+    private bool _branchHostSelectionDrainQueued
+    {
+        get => _nativeTreeEpoch.BranchHostSelectionDrainQueued;
+        set => _nativeTreeEpoch.BranchHostSelectionDrainQueued = value;
     }
 
     private AppRoute? _pendingHostBackRoute
@@ -373,6 +382,8 @@ internal sealed class MauiNavigationPresenter :
         _navigationPageStackIds.Clear();
         _navigationPageKnownPages.Clear();
         _suppressedNavigationPops.Clear();
+        _pendingBranchHostSelections.Clear();
+        _branchHostSelectionDrainQueued = false;
         _hostBackReconciliationPending = false;
         _pendingHostBackRoute = null;
         _branchHostPages.Clear();
@@ -730,7 +741,7 @@ internal sealed class MauiNavigationPresenter :
             _activeNavigationPresentationContext = null;
             _suppressReconciliation = previousSuppressReconciliation;
             if (!previousSuppressReconciliation)
-                ScheduleSuppressedNavigationPopDrain();
+                ScheduleSuppressedNativeChangeDrain();
         }
     }
 
@@ -985,7 +996,7 @@ internal sealed class MauiNavigationPresenter :
             _activeOperationId = previousOperationId;
             _suppressReconciliation = previousSuppressReconciliation;
             if (!previousSuppressReconciliation)
-                ScheduleSuppressedNavigationPopDrain();
+                ScheduleSuppressedNativeChangeDrain();
         }
     }
 
@@ -1056,7 +1067,7 @@ internal sealed class MauiNavigationPresenter :
             _activeOperationId = previousOperationId;
             _suppressReconciliation = previousSuppressReconciliation;
             if (!previousSuppressReconciliation)
-                ScheduleSuppressedNavigationPopDrain();
+                ScheduleSuppressedNativeChangeDrain();
         }
     }
 
@@ -1404,12 +1415,13 @@ internal sealed class MauiNavigationPresenter :
 
         SetHostId(host.Page, branchHost.Id);
         TrackBranchHost(host);
+        MauiBranchHostBranch[] hostBranches = host.Branches.ToArray();
         var stagedBranches = new List<MauiBranchHostBranch>(branchHost.Branches.Count);
         const MauiBranchHostPlacement childPlacement = MauiBranchHostPlacement.Nested;
         foreach (NavigationBranch branch in branchHost.Branches)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            Page? existingBranchPage = host.Branches.FirstOrDefault(candidate =>
+            Page? existingBranchPage = hostBranches.FirstOrDefault(candidate =>
                 StringComparer.Ordinal.Equals(candidate.Id, branch.Id))?.Page;
             Page page = await MaterializeNodeAsync(
                 branch.Content,
@@ -1426,7 +1438,7 @@ internal sealed class MauiNavigationPresenter :
 
         if (_activeTransaction is { } activeTransaction)
         {
-            foreach (MauiBranchHostBranch previousBranch in host.Branches)
+            foreach (MauiBranchHostBranch previousBranch in hostBranches)
             {
                 if (!stagedBranches.Any(current => ReferenceEquals(current.Page, previousBranch.Page)))
                     activeTransaction.Retire(previousBranch.Page);
@@ -1941,13 +1953,16 @@ internal sealed class MauiNavigationPresenter :
         object? sender,
         MauiBranchHostSelectionChangedEventArgs e)
     {
-        if (_suppressReconciliation || sender is not IMauiBranchHost host)
+        if (sender is not IMauiBranchHost host ||
+            !StringComparer.Ordinal.Equals(host.SelectedBranchId, e.BranchId))
             return;
 
         if (!_pageEpochs.TryGetValue(host.Page, out MauiNativeTreeEpoch? epoch))
             return;
 
-        QueueNativeCleanupForEpoch(epoch, () => ReconcileBranchHostSelectionAsync(host, e.BranchId));
+        epoch.PendingBranchHostSelections[host] = e.BranchId;
+        if (!_suppressReconciliation)
+            ScheduleSuppressedNativeChangeDrain();
     }
 
     private Task ReconcileBranchHostSelectionAsync(IMauiBranchHost host, string branchId)
@@ -2068,6 +2083,7 @@ internal sealed class MauiNavigationPresenter :
         if (_branchHostPages.Remove(page, out IMauiBranchHost? branchHost) && branchHost is not null)
         {
             _branchHostFactories.Remove(page);
+            _pendingBranchHostSelections.Remove(branchHost);
             UntrackBranchHost(branchHost);
             Page[] branchPages = branchHost.Branches
                 .Select(static branch => branch.Page)
@@ -2453,17 +2469,22 @@ internal sealed class MauiNavigationPresenter :
         _suppressedNavigationPops.Clear();
     }
 
-    private void ScheduleSuppressedNavigationPopDrain()
+    private void ScheduleSuppressedNativeChangeDrain()
     {
-        if (_suppressedNavigationPopDrainQueued ||
-            (_suppressedNavigationPops.Count == 0 && !_hostBackReconciliationPending))
+        if (!_suppressedNavigationPopDrainQueued &&
+            (_suppressedNavigationPops.Count != 0 || _hostBackReconciliationPending))
         {
-            return;
+            _suppressedNavigationPopDrainQueued = true;
+            if (!QueueNativeCleanupForEpoch(_nativeTreeEpoch, DrainSuppressedNavigationPopsAsync))
+                _suppressedNavigationPopDrainQueued = false;
         }
 
-        _suppressedNavigationPopDrainQueued = true;
-        if (!QueueNativeCleanupForEpoch(_nativeTreeEpoch, DrainSuppressedNavigationPopsAsync))
-            _suppressedNavigationPopDrainQueued = false;
+        if (!_branchHostSelectionDrainQueued && _pendingBranchHostSelections.Count != 0)
+        {
+            _branchHostSelectionDrainQueued = true;
+            if (!QueueNativeCleanupForEpoch(_nativeTreeEpoch, DrainSuppressedBranchHostSelectionsAsync))
+                _branchHostSelectionDrainQueued = false;
+        }
     }
 
     private async Task DrainSuppressedNavigationPopsAsync()
@@ -2504,7 +2525,34 @@ internal sealed class MauiNavigationPresenter :
                 route);
         }
 
-        ScheduleSuppressedNavigationPopDrain();
+        ScheduleSuppressedNativeChangeDrain();
+    }
+
+    private async Task DrainSuppressedBranchHostSelectionsAsync()
+    {
+        try
+        {
+            if (_suppressReconciliation || _disposed)
+                return;
+
+            KeyValuePair<IMauiBranchHost, string>[] pendingSelections =
+                _pendingBranchHostSelections.ToArray();
+            foreach (KeyValuePair<IMauiBranchHost, string> pendingSelection in pendingSelections)
+            {
+                if (_pendingBranchHostSelections.TryGetValue(pendingSelection.Key, out string? branchId) &&
+                    StringComparer.Ordinal.Equals(branchId, pendingSelection.Value))
+                {
+                    _pendingBranchHostSelections.Remove(pendingSelection.Key);
+                    await ReconcileBranchHostSelectionAsync(pendingSelection.Key, branchId);
+                }
+            }
+        }
+        finally
+        {
+            _branchHostSelectionDrainQueued = false;
+        }
+
+        ScheduleSuppressedNativeChangeDrain();
     }
 
     private void OnModalPageDisappearing(object? sender, EventArgs e)

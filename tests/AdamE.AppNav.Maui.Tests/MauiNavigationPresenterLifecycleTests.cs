@@ -832,6 +832,51 @@ public sealed class MauiNavigationPresenterLifecycleTests
     }
 
     [Fact]
+    public async Task BranchHostSelectionsDuringFailedPresentationReplayLatestSelection()
+    {
+        var factory = new RecordingBranchHostFactory(MauiBranchHostPlacement.WindowRoot);
+        var fixture = new PresenterFixture(configurePresentation: options =>
+            options.BranchHosts.Add("custom-root", new MauiBranchHostRegistration(factory)));
+        BranchHostNode initial = new(
+            "custom-root",
+            [
+                new NavigationBranch("home", "Home", Stack("home-stack", Entry("home"))),
+                new NavigationBranch("other", "Other", Stack("other-stack", Entry("other")))
+            ],
+            "home",
+            "home");
+
+        NavigationPlan initialPlan = Plan(initial);
+        await fixture.Presenter.ApplyAsync(initialPlan, Context(new TestPageRoute("home")));
+        var host = Assert.Single(factory.CreatedHosts);
+        host.SelectionsDuringApply = static selectedHost =>
+        {
+            selectedHost.Select("home");
+            selectedHost.Select("other");
+        };
+
+        var reconciliations = new List<NavigationReconciliation>();
+        var reconciliationCompletion = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Presenter.ReconciliationRequested += (_, args) =>
+        {
+            reconciliations.Add(args.Reconciliation);
+            reconciliationCompletion.TrySetResult();
+        };
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Presenter.ApplyAsync(
+            Plan(initial),
+            Context(new TestPageRoute("home"), initialPlan.TargetState)).AsTask());
+
+        await reconciliationCompletion.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Single(reconciliations);
+        Assert.Equal(
+            "other",
+            Assert.IsType<BranchHostNode>(reconciliations[0].TargetState.ActiveWindow?.Root).SelectedBranchId);
+        Assert.Equal("home", host.SelectedBranchId);
+        _ = fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
     public async Task ChangingUnmappedBranchHostIdReplacesTheHost()
     {
         var fixture = new PresenterFixture();
@@ -2872,6 +2917,8 @@ public sealed class MauiNavigationPresenterLifecycleTests
 
         public List<MauiBranchHostPlacement> AppliedPlacements { get; } = [];
 
+        public Action<RecordingBranchHost>? SelectionsDuringApply { get; set; }
+
         public string? SelectedBranchId { get; private set; }
 
         public Page? SelectedBranchPage => _branches.FirstOrDefault(branch =>
@@ -2897,6 +2944,8 @@ public sealed class MauiNavigationPresenterLifecycleTests
                 branch.Page.Title = branch.Title;
                 MauiPresentationMetadata.SetBranchId(branch.Page, branch.Id);
             }
+
+            SelectionsDuringApply?.Invoke(this);
 
             return ValueTask.FromResult<IMauiBranchHostUpdate>(
                 new RecordingBranchHostUpdate(this, previousBranches, previousSelected, _shouldFailCommit()));

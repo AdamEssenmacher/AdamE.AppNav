@@ -331,8 +331,15 @@ internal sealed class MauiTabbedBranchHost : IMauiBranchHost, IMauiBranchHostNat
         MauiBranchHostBranch[] previousBranches = _branches.ToArray();
         Page? previousCurrentPage = _page.CurrentPage;
         string? previousSelected = SelectedBranchId;
-        MauiTabbedBranchPageSnapshot[] pageSnapshots = branches
-            .Select(static branch => MauiTabbedBranchPageSnapshot.Capture(branch.Page))
+        var snapshotPages = previousChildren.ToList();
+        foreach (MauiBranchHostBranch branch in branches)
+        {
+            if (!snapshotPages.Any(page => ReferenceEquals(page, branch.Page)))
+                snapshotPages.Add(branch.Page);
+        }
+
+        MauiTabbedBranchPageSnapshot[] pageSnapshots = snapshotPages
+            .Select(MauiTabbedBranchPageSnapshot.Capture)
             .ToArray();
         _branches = branches;
         var update = new MauiTabbedBranchHostUpdate(this, _nativeOperations, previousBranches,
@@ -340,13 +347,24 @@ internal sealed class MauiTabbedBranchHost : IMauiBranchHost, IMauiBranchHostNat
         _suppressSelectionChanged = true;
         try
         {
-            foreach (Page child in previousChildren)
-                _nativeOperations.RemoveTab(_page, child);
+            foreach (Page child in _page.Children.ToArray())
+            {
+                if (!branches.Any(branch => ReferenceEquals(branch.Page, child)))
+                    _nativeOperations.RemoveTab(_page, child);
+            }
+
             for (var index = 0; index < branches.Length; index++)
             {
                 MauiBranchHostBranch branch = branches[index];
                 branch.Page.Title = branch.Title;
                 MauiPresentationMetadata.SetBranchId(branch.Page, branch.Id);
+
+                if (index < _page.Children.Count && ReferenceEquals(_page.Children[index], branch.Page))
+                    continue;
+
+                if (_page.Children.Any(child => ReferenceEquals(child, branch.Page)))
+                    _nativeOperations.RemoveTab(_page, branch.Page);
+
                 _nativeOperations.InsertTab(_page, Math.Min(index, _page.Children.Count), branch.Page);
             }
 

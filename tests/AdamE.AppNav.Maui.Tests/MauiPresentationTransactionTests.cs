@@ -95,9 +95,9 @@ public sealed class MauiPresentationTransactionTests
         NativePresentationSnapshot previousPresentation = CapturePresentation(presenter, null);
         int createdPageCount = factory.CreatedPages.Count;
         if (mutation == NativeMutation.RemoveTab)
-            nativeOperations.IgnoreRemoveTabMutation(callsUntilNoOp: 2);
+            nativeOperations.IgnoreRemoveTabMutation(callsUntilNoOp: 1);
         else
-            nativeOperations.IgnoreInsertTabMutation(callsUntilNoOp: 2);
+            nativeOperations.IgnoreInsertTabMutation(callsUntilNoOp: 1);
 
         InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             presenter.ApplyAsync(
@@ -257,6 +257,51 @@ public sealed class MauiPresentationTransactionTests
         Assert.Equal("original-branch", MauiPresentationMetadata.GetBranchId(page));
         Assert.Empty(host.Branches);
         await update.DisposeAsync();
+        await host.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task TabHostApplyWithUnchangedTopologyDoesNotMutateTabs()
+    {
+        BranchHostNode branchHost = Assert.IsType<BranchHostNode>(BranchState("home", "home", "catalog").ActiveWindow?.Root);
+        var home = new ContentPage();
+        var catalog = new ContentPage();
+        var branches = new MauiBranchHostBranch[]
+        {
+            new("home", "Home", home),
+            new("catalog", "Catalog", catalog)
+        };
+        var nativeOperations = new FaultingNativeOperations();
+        var host = new MauiTabbedBranchHost();
+        Assert.IsAssignableFrom<IMauiBranchHostNativeOperations>(host).SetNativeOperations(nativeOperations);
+        var context = Context("home", NavigationState.Empty);
+
+        IMauiBranchHostUpdate initialUpdate = await host.ApplyAsync(new MauiBranchHostUpdateContext(
+            branchHost,
+            MauiBranchHostPlacement.WindowRoot,
+            branches,
+            "home",
+            context));
+        await initialUpdate.CommitAsync();
+        await initialUpdate.DisposeAsync();
+        nativeOperations.InsertTabCount = 0;
+        nativeOperations.RemoveTabCount = 0;
+        Page[] initialChildren = Assert.IsType<TabbedPage>(host.Page).Children.ToArray();
+
+        IMauiBranchHostUpdate unchangedUpdate = await host.ApplyAsync(new MauiBranchHostUpdateContext(
+            branchHost,
+            MauiBranchHostPlacement.WindowRoot,
+            branches,
+            "catalog",
+            context));
+        await unchangedUpdate.CommitAsync();
+        await unchangedUpdate.DisposeAsync();
+
+        Assert.Equal(0, nativeOperations.InsertTabCount);
+        Assert.Equal(0, nativeOperations.RemoveTabCount);
+        Assert.Equal(initialChildren, Assert.IsType<TabbedPage>(host.Page).Children);
+        Assert.Same(home, host.Branches[0].Page);
+        Assert.Same(catalog, host.Branches[1].Page);
         await host.DisposeAsync();
     }
 
@@ -1508,6 +1553,10 @@ public sealed class MauiPresentationTransactionTests
 
         public bool IgnoreNextSelectedFlyoutBranchMutation { get; set; }
 
+        public int InsertTabCount { get; set; }
+
+        public int RemoveTabCount { get; set; }
+
         public Task BlockedPushStarted => _blockedPushStarted.Task;
 
         public Task BlockedPushAfterMutationStarted => _blockedPushAfterMutationStarted.Task;
@@ -1590,6 +1639,7 @@ public sealed class MauiPresentationTransactionTests
 
         public void InsertTab(TabbedPage tabbedPage, int index, Page page)
         {
+            InsertTabCount++;
             if (_insertTabCallsUntilNoOp > 0 && --_insertTabCallsUntilNoOp == 0)
                 return;
 
@@ -1599,6 +1649,7 @@ public sealed class MauiPresentationTransactionTests
 
         public void RemoveTab(TabbedPage tabbedPage, Page page)
         {
+            RemoveTabCount++;
             if (_removeTabCallsUntilNoOp > 0 && --_removeTabCallsUntilNoOp == 0)
                 return;
 

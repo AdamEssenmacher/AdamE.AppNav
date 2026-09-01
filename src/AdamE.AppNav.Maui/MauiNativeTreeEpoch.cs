@@ -26,7 +26,12 @@ internal sealed class MauiNativeTreeEpoch
 
     public HashSet<Page> TrackedModalPages { get; } = new(ReferenceEqualityComparer.Instance);
 
+    public Dictionary<IMauiBranchHost, string> PendingBranchHostSelections { get; } =
+        new(ReferenceEqualityComparer.Instance);
+
     public bool SuppressedNavigationPopDrainQueued { get; set; }
+
+    public bool BranchHostSelectionDrainQueued { get; set; }
 
     public bool HostBackReconciliationPending { get; set; }
 
