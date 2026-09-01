@@ -43,6 +43,16 @@ also submit an explicitly observed host state through
 `IRouterNavigator.ReconcileAsync` when reconciliation does not originate from
 the presenter's event stream.
 
+The MAUI branch-host extension follows the same boundary. An
+`IMauiBranchHostFactory` declares placement capabilities before creation and
+returns an `IMauiBranchHost` that owns its page, ordered branch presentation,
+selection event, and reversible updates. Host-originated selection is the only
+source of branch reconciliation; presenter-driven updates must be suppression
+safe. Factory capability failures are preflight failures, while create/update,
+rollback, and release failures participate in the adapter transaction and
+recovery contract. A custom host must expose all branch pages needed for
+structural verification and release, including inactive branches.
+
 The public adapter-contract test assembly exercises successful apply,
 failure/cancellation without commit, reconciliation, shutdown/event detachment,
 and Stack/BranchHost/Modal topology. A future Blazor adapter should satisfy the

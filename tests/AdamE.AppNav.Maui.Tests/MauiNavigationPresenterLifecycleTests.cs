@@ -448,9 +448,9 @@ public sealed class MauiNavigationPresenterLifecycleTests
     public async Task ConfiguredRootBranchHostUsesFlyoutAndRetainsInactiveBranchTrees()
     {
         var fixture = new PresenterFixture(configurePresentation: options =>
-            options.FlyoutBranchHosts.Add(
+            options.BranchHosts.Add(
                 "store-branchHost",
-                new MauiFlyoutBranchHostOptions("Store", FlyoutLayoutBehavior.Popover, false)));
+                new MauiBranchHostRegistration(new MauiFlyoutBranchHostFactory("Store", FlyoutLayoutBehavior.Popover, false))));
         BranchHostNode branchHost = StoreBranchHost("catalog");
         var window = new Window(new ContentPage());
         await fixture.Presenter.AttachWindowAsync(window, "main");
@@ -487,9 +487,9 @@ public sealed class MauiNavigationPresenterLifecycleTests
     public async Task FlyoutMenuSelectionChangesDetailAndRequestsBranchReconciliation()
     {
         var fixture = new PresenterFixture(configurePresentation: options =>
-            options.FlyoutBranchHosts.Add(
+            options.BranchHosts.Add(
                 "store-branchHost",
-                new MauiFlyoutBranchHostOptions("Store", FlyoutLayoutBehavior.Default, true)));
+                new MauiBranchHostRegistration(new MauiFlyoutBranchHostFactory("Store", FlyoutLayoutBehavior.Default, true))));
         await fixture.Presenter.ApplyAsync(
             Plan(StoreBranchHost("home")),
             Context(new TestPageRoute("home")));
@@ -517,9 +517,9 @@ public sealed class MauiNavigationPresenterLifecycleTests
     public async Task ConfiguredFlyoutOutsideDirectWindowRootIsRejectedBeforePageCreation()
     {
         var fixture = new PresenterFixture(configurePresentation: options =>
-            options.FlyoutBranchHosts.Add(
+            options.BranchHosts.Add(
                 "store-branchHost",
-                new MauiFlyoutBranchHostOptions("Store", FlyoutLayoutBehavior.Default, true)));
+                new MauiBranchHostRegistration(new MauiFlyoutBranchHostFactory("Store", FlyoutLayoutBehavior.Default, true))));
         var nested = new BranchHostNode(
             "outer-tabs",
             new[] { new NavigationBranch("nested", "Nested", StoreBranchHost("home")) },
@@ -530,9 +530,538 @@ public sealed class MauiNavigationPresenterLifecycleTests
                 Plan(nested),
                 Context(new TestPageRoute("home"))).AsTask());
 
-        Assert.Contains("only supported as the direct window root", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("does not support placement 'Nested'", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("window root branch 'nested'", exception.Message, StringComparison.Ordinal);
         Assert.Empty(fixture.Factory.CreatedPages);
         Assert.Null(fixture.Presenter.CurrentPage);
+        _ = fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task BranchHostCapabilityFailureOccursBeforeFactoryCreation()
+    {
+        var factory = new RecordingBranchHostFactory(MauiBranchHostPlacement.Nested);
+        var fixture = new PresenterFixture(configurePresentation: options =>
+            options.BranchHosts.Add(
+                "store-branchHost",
+                new MauiBranchHostRegistration(factory)));
+
+        NotSupportedException exception = await Assert.ThrowsAsync<NotSupportedException>(() =>
+            fixture.Presenter.ApplyAsync(
+                Plan(StoreBranchHost("home")),
+                Context(new TestPageRoute("home"))).AsTask());
+
+        Assert.Contains("does not support placement 'WindowRoot'", exception.Message, StringComparison.Ordinal);
+        Assert.Empty(factory.CreatedHosts);
+        Assert.Empty(fixture.Factory.CreatedPages);
+        _ = fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task ModalBranchHostReceivesModalContentPlacementForCreationAndReuse()
+    {
+        var factory = new RecordingBranchHostFactory(MauiBranchHostPlacement.ModalContent);
+        var nestedFactory = new RecordingBranchHostFactory(MauiBranchHostPlacement.Nested);
+        var fixture = new PresenterFixture(configurePresentation: options =>
+        {
+            options.BranchHosts.Add("modal-host", new MauiBranchHostRegistration(factory));
+            options.BranchHosts.Add("nested-host", new MauiBranchHostRegistration(nestedFactory));
+        });
+        var nestedHost = new BranchHostNode(
+            "nested-host",
+            [new NavigationBranch("leaf", "Leaf", Stack("modal-stack", Entry("home")))],
+            "leaf",
+            "leaf");
+        var modalHost = new BranchHostNode(
+            "modal-host",
+            [new NavigationBranch("home", "Home", nestedHost)],
+            "home",
+            "home");
+        var state = new NavigationState(
+            [
+                new WindowNode(
+                    "main",
+                    Stack("root-stack", Entry("root")),
+                    [new ModalNode("modal", Entry("modal-route"), modalHost)])
+            ],
+            "main");
+
+        await fixture.Presenter.ApplyAsync(new NavigationPlan(state), Context(new TestPageRoute("home")));
+        await fixture.Presenter.ApplyAsync(
+            new NavigationPlan(state),
+            Context(new TestPageRoute("home"), state));
+
+        Assert.Equal([MauiBranchHostPlacement.ModalContent], factory.CreationPlacements);
+        RecordingBranchHost host = Assert.Single(factory.CreatedHosts);
+        Assert.Equal(
+            [MauiBranchHostPlacement.ModalContent, MauiBranchHostPlacement.ModalContent],
+            host.AppliedPlacements);
+        Assert.Equal([MauiBranchHostPlacement.Nested], nestedFactory.CreationPlacements);
+        Assert.Equal(
+            [MauiBranchHostPlacement.Nested, MauiBranchHostPlacement.Nested],
+            Assert.Single(nestedFactory.CreatedHosts).AppliedPlacements);
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task RetiringBranchHostRootReleasesItsLogicalModals()
+    {
+        var fixture = new PresenterFixture();
+        var state = new NavigationState(
+            [
+                new WindowNode(
+                    "main",
+                    StoreBranchHost("home"),
+                    [new ModalNode("cart", Entry("cart"))])
+            ],
+            "main");
+        await fixture.Presenter.ApplyAsync(
+            new NavigationPlan(state),
+            Context(new TestPageRoute("cart")));
+        Page modalPage = Assert.Single(Assert.IsType<TabbedPage>(fixture.Presenter.CurrentPage).Navigation.ModalStack);
+
+        await fixture.Presenter.ApplyAsync(
+            new NavigationPlan(NavigationState.Empty),
+            Context(new TestPageRoute("empty"), state));
+
+        Assert.Equal(1, fixture.Factory.ReleaseCountFor(modalPage));
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task CustomNavigationPageHostOwnsItsTopologyBeforeItsPageSubtype()
+    {
+        var factory = new RecordingBranchHostFactory(
+            MauiBranchHostPlacement.WindowRoot,
+            static () => new NavigationPage(new ContentPage()));
+        var fixture = new PresenterFixture(configurePresentation: options =>
+            options.BranchHosts.Add("custom-root", new MauiBranchHostRegistration(factory)));
+        var state = new BranchHostNode(
+            "custom-root",
+            [
+                new NavigationBranch("home", "Home", Stack("home-stack", Entry("home"))),
+                new NavigationBranch("catalog", "Catalog", Stack("catalog-stack", Entry("catalog")))
+            ],
+            "home",
+            "home");
+
+        await fixture.Presenter.ApplyAsync(Plan(state), Context(new TestPageRoute("home")));
+
+        RecordingBranchHost host = Assert.Single(factory.CreatedHosts);
+        Assert.IsType<NavigationPage>(host.Page);
+        Assert.All(fixture.Factory.CreatedPages, page => Assert.Equal(0, fixture.Factory.ReleaseCountFor(page)));
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task StackReplacesRegisteredNavigationPageBackedBranchHost()
+    {
+        var factory = new RecordingBranchHostFactory(
+            MauiBranchHostPlacement.WindowRoot,
+            static () =>
+            {
+                var infrastructureRoot = new ContentPage();
+                MauiPresentationMetadata.SetRouteEntryId(infrastructureRoot, "home");
+                return new NavigationPage(infrastructureRoot);
+            });
+        var fixture = new PresenterFixture(configurePresentation: options =>
+            options.BranchHosts.Add("shared-host", new MauiBranchHostRegistration(factory)));
+        var initial = new BranchHostNode(
+            "shared-host",
+            [new NavigationBranch("branch", "Branch", Stack("branch-stack", Entry("branch")))],
+            "branch",
+            "branch");
+        await fixture.Presenter.ApplyAsync(Plan(initial), Context(new TestPageRoute("branch")));
+        RecordingBranchHost host = Assert.Single(factory.CreatedHosts);
+        var hostPage = Assert.IsType<NavigationPage>(host.Page);
+
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("shared-host", Entry("home"))),
+            Context(new TestPageRoute("home"), Plan(initial).TargetState));
+
+        var stackPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        Assert.NotSame(hostPage, stackPage);
+        Assert.Equal("home", MauiPresentationMetadata.GetRouteEntryId(stackPage.CurrentPage));
+        Assert.Equal(1, host.DisposeCount);
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task RetiredBranchHostPageIsForgottenFromNativeTreeEpoch()
+    {
+        var factory = new RecordingBranchHostFactory(MauiBranchHostPlacement.WindowRoot);
+        var fixture = new PresenterFixture(configurePresentation: options =>
+            options.BranchHosts.Add("custom-root", new MauiBranchHostRegistration(factory)));
+        var initial = new BranchHostNode(
+            "custom-root",
+            [new NavigationBranch("home", "Home", Stack("home-stack", Entry("home")))],
+            "home",
+            "home");
+        await fixture.Presenter.ApplyAsync(Plan(initial), Context(new TestPageRoute("home")));
+        RecordingBranchHost host = Assert.Single(factory.CreatedHosts);
+
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("replacement-stack", Entry("replacement"))),
+            Context(new TestPageRoute("replacement"), Plan(initial).TargetState));
+
+        MethodInfo canMutatePage = typeof(MauiNavigationPresenter).GetMethod(
+            "CanMutatePage",
+            BindingFlags.Instance | BindingFlags.NonPublic) ??
+            throw new InvalidOperationException("CanMutatePage was not found.");
+        Assert.False(Assert.IsType<bool>(canMutatePage.Invoke(fixture.Presenter, [host.Page])));
+        Assert.Equal(1, host.DisposeCount);
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task ModalStackReplacesRegisteredNavigationPageBackedBranchHost()
+    {
+        var factory = new RecordingBranchHostFactory(
+            MauiBranchHostPlacement.ModalContent,
+            static () =>
+            {
+                var infrastructureRoot = new ContentPage();
+                MauiPresentationMetadata.SetRouteEntryId(infrastructureRoot, "home");
+                return new NavigationPage(infrastructureRoot);
+            });
+        var fixture = new PresenterFixture(configurePresentation: options =>
+            options.BranchHosts.Add("shared-host", new MauiBranchHostRegistration(factory)));
+        var modalHost = new BranchHostNode(
+            "shared-host",
+            [new NavigationBranch("branch", "Branch", Stack("branch-stack", Entry("branch")))],
+            "branch",
+            "branch");
+        var initial = new NavigationState(
+            [new WindowNode(
+                "main",
+                Stack("root-stack", Entry("root")),
+                [new ModalNode("modal", Entry("modal-route"), modalHost)])],
+            "main");
+        await fixture.Presenter.ApplyAsync(
+            new NavigationPlan(initial),
+            Context(new TestPageRoute("branch")));
+        RecordingBranchHost host = Assert.Single(factory.CreatedHosts);
+        var hostPage = Assert.IsType<NavigationPage>(host.Page);
+
+        var target = new NavigationState(
+            [new WindowNode(
+                "main",
+                Stack("root-stack", Entry("root")),
+                [new ModalNode("modal", Entry("modal-route"), Stack("shared-host", Entry("home")))])],
+            "main");
+        await fixture.Presenter.ApplyAsync(
+            new NavigationPlan(target),
+            Context(new TestPageRoute("home"), initial));
+
+        Page modalPage = Assert.Single(Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage).Navigation.ModalStack);
+        var stackPage = Assert.IsType<NavigationPage>(modalPage);
+        Assert.NotSame(hostPage, stackPage);
+        Assert.Equal("home", MauiPresentationMetadata.GetRouteEntryId(stackPage.CurrentPage));
+        Assert.Equal(1, host.DisposeCount);
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task BranchHostMustRetainTheExactPagesSuppliedByThePresenter()
+    {
+        var factory = new RecordingBranchHostFactory(MauiBranchHostPlacement.WindowRoot)
+        {
+            SubstituteBranchPages = true
+        };
+        var fixture = new PresenterFixture(configurePresentation: options =>
+            options.BranchHosts.Add("custom-root", new MauiBranchHostRegistration(factory)));
+        var state = new BranchHostNode(
+            "custom-root",
+            [new NavigationBranch("home", "Home", Stack("home-stack", Entry("home")))],
+            "home",
+            "home");
+
+        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Presenter.ApplyAsync(Plan(state), Context(new TestPageRoute("home"))).AsTask());
+
+        Assert.Contains("did not retain the supplied page", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(1, Assert.Single(factory.CreatedHosts).DisposeCount);
+        Assert.All(fixture.Factory.CreatedPages, page => Assert.Equal(1, fixture.Factory.ReleaseCountFor(page)));
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task CustomBranchHostCanContainNestedDefaultTabs()
+    {
+        var factory = new RecordingBranchHostFactory(MauiBranchHostPlacement.WindowRoot | MauiBranchHostPlacement.Nested);
+        var fixture = new PresenterFixture(configurePresentation: options =>
+            options.BranchHosts.Add(
+                "custom-root",
+                new MauiBranchHostRegistration(factory)));
+        var nested = new BranchHostNode(
+            "custom-root",
+            [
+                new NavigationBranch(
+                    "home",
+                    "Home",
+                    new BranchHostNode(
+                        "nested-tabs",
+                        [new NavigationBranch("inner", "Inner", Stack("inner-stack", Entry("home")))],
+                        "inner",
+                        "inner")),
+                new NavigationBranch("other", "Other", Stack("other-stack", Entry("other")))
+            ],
+            "home",
+            "home");
+
+        await fixture.Presenter.ApplyAsync(Plan(nested), Context(new TestPageRoute("home")));
+
+        var customHost = Assert.IsType<RecordingBranchHost>(Assert.Single(factory.CreatedHosts));
+        Assert.IsType<ContentPage>(customHost.Page);
+        var nestedHost = Assert.IsType<TabbedPage>(customHost.Branches[0].Page);
+        Assert.Equal("inner", MauiPresentationMetadata.GetBranchId(nestedHost.CurrentPage));
+        Assert.Equal("home", customHost.SelectedBranchId);
+
+        var selectionEvents = 0;
+        customHost.SelectionChanged += (_, _) => selectionEvents++;
+        NavigationReconciliation reconciliation = await ReconcileAfterNativeMutationAsync(
+            fixture.Presenter,
+            () =>
+            {
+                customHost.Select("other");
+                return Task.CompletedTask;
+            });
+        Assert.Equal(1, selectionEvents);
+        Assert.Equal("other", Assert.IsType<BranchHostNode>(reconciliation.TargetState.ActiveWindow?.Root).SelectedBranchId);
+        _ = fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task BranchHostSelectionsDuringFailedPresentationReplayLatestSelection()
+    {
+        var factory = new RecordingBranchHostFactory(MauiBranchHostPlacement.WindowRoot);
+        var fixture = new PresenterFixture(configurePresentation: options =>
+            options.BranchHosts.Add("custom-root", new MauiBranchHostRegistration(factory)));
+        BranchHostNode initial = new(
+            "custom-root",
+            [
+                new NavigationBranch("home", "Home", Stack("home-stack", Entry("home"))),
+                new NavigationBranch("other", "Other", Stack("other-stack", Entry("other")))
+            ],
+            "home",
+            "home");
+
+        NavigationPlan initialPlan = Plan(initial);
+        await fixture.Presenter.ApplyAsync(initialPlan, Context(new TestPageRoute("home")));
+        var host = Assert.Single(factory.CreatedHosts);
+        host.SelectionsDuringApply = static selectedHost =>
+        {
+            selectedHost.Select("home");
+            selectedHost.Select("other");
+        };
+
+        var reconciliations = new List<NavigationReconciliation>();
+        var reconciliationCompletion = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Presenter.ReconciliationRequested += (_, args) =>
+        {
+            reconciliations.Add(args.Reconciliation);
+            reconciliationCompletion.TrySetResult();
+        };
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Presenter.ApplyAsync(
+            Plan(initial),
+            Context(new TestPageRoute("home"), initialPlan.TargetState)).AsTask());
+
+        await reconciliationCompletion.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Single(reconciliations);
+        Assert.Equal(
+            "other",
+            Assert.IsType<BranchHostNode>(reconciliations[0].TargetState.ActiveWindow?.Root).SelectedBranchId);
+        Assert.Equal("home", host.SelectedBranchId);
+        _ = fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task ChangingUnmappedBranchHostIdReplacesTheHost()
+    {
+        var fixture = new PresenterFixture();
+        BranchHostNode initial = StoreBranchHost("home");
+        await fixture.Presenter.ApplyAsync(
+            Plan(initial),
+            Context(new TestPageRoute("home")));
+        var initialPage = Assert.IsType<TabbedPage>(fixture.Presenter.CurrentPage);
+
+        await fixture.Presenter.ApplyAsync(
+            Plan(initial with { Id = "replacement-host" }),
+            Context(new TestPageRoute("home"), fixture.PresenterState));
+
+        var replacementPage = Assert.IsType<TabbedPage>(fixture.Presenter.CurrentPage);
+        Assert.NotSame(initialPage, replacementPage);
+        Assert.Equal("replacement-host", MauiPresentationMetadata.GetHostId(replacementPage));
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task ShutdownEnumeratesCustomBranchesBeforeDisposingTheirHost()
+    {
+        var factory = new RecordingBranchHostFactory(MauiBranchHostPlacement.WindowRoot);
+        var fixture = new PresenterFixture(configurePresentation: options =>
+            options.BranchHosts.Add("custom-root", new MauiBranchHostRegistration(factory)));
+        var state = new BranchHostNode(
+            "custom-root",
+            [new NavigationBranch("home", "Home", Stack("home-stack", Entry("home")))],
+            "home",
+            "home");
+        await fixture.Presenter.ApplyAsync(Plan(state), Context(new TestPageRoute("home")));
+        RecordingBranchHost host = Assert.Single(factory.CreatedHosts);
+
+        await fixture.Presenter.StartShutdown();
+
+        Assert.Equal(1, host.DisposeCount);
+        Assert.False(host.BranchesReadAfterDispose);
+        Assert.All(fixture.Factory.CreatedPages, page => Assert.Contains(page, fixture.Factory.ReleasedPages));
+    }
+
+    [Fact]
+    public async Task RootFlyoutCanContainDefaultTabsAndCustomBranchHosts()
+    {
+        var customFactory = new RecordingBranchHostFactory(MauiBranchHostPlacement.Nested);
+        var fixture = new PresenterFixture(configurePresentation: options =>
+        {
+            options.BranchHosts.Add(
+                "root-flyout",
+                new MauiBranchHostRegistration(new MauiFlyoutBranchHostFactory("Navigate")));
+            options.BranchHosts.Add(
+                "custom-workspace",
+                new MauiBranchHostRegistration(customFactory));
+        });
+        var root = new BranchHostNode(
+            "root-flyout",
+            [
+                new NavigationBranch(
+                    "tabs",
+                    "Tabs",
+                    new BranchHostNode(
+                        "nested-tabs",
+                        [new NavigationBranch("home", "Home", Stack("home-stack", Entry("home")))],
+                        "home",
+                        "home")),
+                new NavigationBranch(
+                    "workspace",
+                    "Workspace",
+                    new BranchHostNode(
+                        "custom-workspace",
+                        [new NavigationBranch("editor", "Editor", Stack("editor-stack", Entry("editor")))],
+                        "editor",
+                        "editor"))
+            ],
+            "tabs",
+            "tabs");
+
+        await fixture.Presenter.ApplyAsync(Plan(root), Context(new TestPageRoute("home")));
+
+        var flyout = Assert.IsType<MauiBranchFlyoutPage>(fixture.Presenter.CurrentPage);
+        Assert.IsType<TabbedPage>(flyout.Branches[0].Page);
+        RecordingBranchHost customHost = Assert.Single(customFactory.CreatedHosts);
+        Assert.Same(customHost.Page, flyout.Branches[1].Page);
+        Assert.IsType<ContentPage>(customHost.Page);
+        Assert.Same(flyout.Branches[0].Page, flyout.Detail);
+
+        _ = fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task BuiltInBranchHostApplyDoesNotRaiseSelectionChanged()
+    {
+        BranchHostNode branchHost = StoreBranchHost("home");
+        var branches = new[]
+        {
+            new MauiBranchHostBranch("home", "Home", new ContentPage()),
+            new MauiBranchHostBranch("catalog", "Catalog", new ContentPage())
+        };
+        var context = new MauiBranchHostCreationContext(
+            branchHost,
+            MauiBranchHostPlacement.WindowRoot,
+            Context(new TestPageRoute("home")),
+            new ServiceCollection().BuildServiceProvider());
+
+        IMauiBranchHost tabHost = await new MauiTabbedBranchHostFactory().CreateAsync(context);
+        var tabEvents = 0;
+        tabHost.SelectionChanged += (_, _) => tabEvents++;
+        await (await tabHost.ApplyAsync(new MauiBranchHostUpdateContext(
+            branchHost,
+            MauiBranchHostPlacement.WindowRoot,
+            branches,
+            "catalog",
+            context.PresentationContext))).CommitAsync();
+        Assert.Equal(0, tabEvents);
+        Assert.IsType<TabbedPage>(tabHost.Page).CurrentPage = branches[0].Page;
+        Assert.Equal(1, tabEvents);
+        await tabHost.DisposeAsync();
+
+        var flyoutBranches = new[]
+        {
+            new MauiBranchHostBranch("home", "Home", new ContentPage()),
+            new MauiBranchHostBranch("catalog", "Catalog", new ContentPage())
+        };
+        IMauiBranchHost flyoutHost = await new MauiFlyoutBranchHostFactory("Menu").CreateAsync(context);
+        var flyoutEvents = 0;
+        flyoutHost.SelectionChanged += (_, _) => flyoutEvents++;
+        await (await flyoutHost.ApplyAsync(new MauiBranchHostUpdateContext(
+            branchHost,
+            MauiBranchHostPlacement.WindowRoot,
+            flyoutBranches,
+            "catalog",
+            context.PresentationContext))).CommitAsync();
+        Assert.Equal(0, flyoutEvents);
+        Assert.IsType<MauiBranchFlyoutPage>(flyoutHost.Page).RequestBranchSelection("home");
+        Assert.Equal(1, flyoutEvents);
+        await flyoutHost.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task TabbedBranchHostFactoryUsesApplicationPageDelegate()
+    {
+        BranchHostNode branchHost = StoreBranchHost("home");
+        var expectedPage = new TabbedPage();
+        MauiBranchHostCreationContext? observedContext = null;
+        var factory = new MauiTabbedBranchHostFactory(context =>
+        {
+            observedContext = context;
+            return expectedPage;
+        });
+        var creationContext = new MauiBranchHostCreationContext(
+            branchHost,
+            MauiBranchHostPlacement.WindowRoot,
+            Context(new TestPageRoute("home")),
+            new ServiceCollection().BuildServiceProvider());
+
+        IMauiBranchHost host = await factory.CreateAsync(creationContext);
+
+        Assert.Same(creationContext, observedContext);
+        Assert.Same(expectedPage, host.Page);
+        await host.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task BranchHostCommitFailureRollsBackReusableCustomHost()
+    {
+        var factory = new RecordingBranchHostFactory(MauiBranchHostPlacement.WindowRoot);
+        var fixture = new PresenterFixture(configurePresentation: options =>
+            options.BranchHosts.Add("custom-root", new MauiBranchHostRegistration(factory)));
+        BranchHostNode homeState = new(
+            "custom-root",
+            [
+                new NavigationBranch("home", "Home", Stack("home-stack", Entry("home"))),
+                new NavigationBranch("other", "Other", Stack("other-stack", Entry("other")))
+            ],
+            "home",
+            "home");
+        await fixture.Presenter.ApplyAsync(Plan(homeState), Context(new TestPageRoute("home")));
+        var host = Assert.Single(factory.CreatedHosts);
+        factory.FailNextCommit = true;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Presenter.ApplyAsync(
+            Plan(homeState with { SelectedBranchId = "other" }),
+            Context(new TestPageRoute("other"), fixture.PresenterState)).AsTask());
+
+        Assert.Same(host, Assert.Single(factory.CreatedHosts));
+        Assert.Equal("home", host.SelectedBranchId);
         _ = fixture.Presenter.StartShutdown();
     }
 
@@ -2120,7 +2649,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
 
         try
         {
-            await nativeMutation();
+            await MainThread.InvokeOnMainThreadAsync(nativeMutation);
             return await completion.Task.WaitAsync(TimeSpan.FromSeconds(5));
         }
         finally
@@ -2241,7 +2770,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         public void SetCurrentTab(TabbedPage tabbedPage, Page? page) =>
             MauiNativeNavigationOperations.Instance.SetCurrentTab(tabbedPage, page);
 
-        public void SetFlyoutDetail(FlyoutPage flyoutPage, Page page) =>
+        public void SetFlyoutDetail(FlyoutPage flyoutPage, Page? page) =>
             MauiNativeNavigationOperations.Instance.SetFlyoutDetail(flyoutPage, page);
 
         public void SetFlyoutPresented(FlyoutPage flyoutPage, bool isPresented) =>
@@ -2252,7 +2781,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
             IReadOnlyList<MauiFlyoutBranchPresentation> branches) =>
             MauiNativeNavigationOperations.Instance.SetFlyoutBranches(flyoutPage, branches);
 
-        public void SetSelectedFlyoutBranch(MauiBranchFlyoutPage flyoutPage, string branchId) =>
+        public void SetSelectedFlyoutBranch(MauiBranchFlyoutPage flyoutPage, string? branchId) =>
             MauiNativeNavigationOperations.Instance.SetSelectedFlyoutBranch(flyoutPage, branchId);
 
         public void SetWindowPage(Window window, Page? page) =>
@@ -2316,6 +2845,181 @@ public sealed class MauiNavigationPresenterLifecycleTests
         public void Dispose()
         {
             DisposeCount++;
+        }
+    }
+
+    private sealed class RecordingBranchHostFactory(
+        MauiBranchHostPlacement supportedPlacements,
+        Func<Page>? createHostPage = null)
+        : IMauiBranchHostFactory
+    {
+        public MauiBranchHostPlacement SupportedPlacements => supportedPlacements;
+
+        public List<RecordingBranchHost> CreatedHosts { get; } = [];
+
+        public List<MauiBranchHostPlacement> CreationPlacements { get; } = [];
+
+        public bool FailNextCommit { get; set; }
+
+        public bool SubstituteBranchPages { get; set; }
+
+        public ValueTask<IMauiBranchHost> CreateAsync(
+            MauiBranchHostCreationContext context,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            CreationPlacements.Add(context.Placement);
+            var host = new RecordingBranchHost(() =>
+            {
+                if (!FailNextCommit)
+                    return false;
+
+                FailNextCommit = false;
+                return true;
+            }, createHostPage?.Invoke(), SubstituteBranchPages);
+            CreatedHosts.Add(host);
+            return ValueTask.FromResult<IMauiBranchHost>(host);
+        }
+    }
+
+    private sealed class RecordingBranchHost : IMauiBranchHost
+    {
+        private readonly Func<bool> _shouldFailCommit;
+        private IReadOnlyList<MauiBranchHostBranch> _branches = [];
+        private bool _disposed;
+
+        public RecordingBranchHost(
+            Func<bool> shouldFailCommit,
+            Page? page = null,
+            bool substituteBranchPages = false)
+        {
+            _shouldFailCommit = shouldFailCommit;
+            Page = page ?? new ContentPage();
+            SubstituteBranchPages = substituteBranchPages;
+        }
+
+        public Page Page { get; }
+
+        public IReadOnlyList<MauiBranchHostBranch> Branches
+        {
+            get
+            {
+                BranchesReadAfterDispose |= _disposed;
+                return _branches;
+            }
+        }
+
+        public bool BranchesReadAfterDispose { get; private set; }
+
+        public int DisposeCount { get; private set; }
+
+        private bool SubstituteBranchPages { get; }
+
+        public List<MauiBranchHostPlacement> AppliedPlacements { get; } = [];
+
+        public Action<RecordingBranchHost>? SelectionsDuringApply { get; set; }
+
+        public string? SelectedBranchId { get; private set; }
+
+        public Page? SelectedBranchPage => _branches.FirstOrDefault(branch =>
+            StringComparer.Ordinal.Equals(branch.Id, SelectedBranchId))?.Page;
+
+        public event EventHandler<MauiBranchHostSelectionChangedEventArgs>? SelectionChanged;
+
+        public ValueTask<IMauiBranchHostUpdate> ApplyAsync(
+            MauiBranchHostUpdateContext context,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            AppliedPlacements.Add(context.Placement);
+            var previousBranches = _branches;
+            string? previousSelected = SelectedBranchId;
+            _branches = SubstituteBranchPages
+                ? context.Branches.Select(SubstituteBranchPage).ToArray()
+                : context.Branches.ToArray();
+            SelectedBranchId = context.SelectedBranchId;
+            foreach (MauiBranchHostBranch branch in _branches)
+            {
+                branch.Page.Title = branch.Title;
+                MauiPresentationMetadata.SetBranchId(branch.Page, branch.Id);
+            }
+
+            SelectionsDuringApply?.Invoke(this);
+
+            return ValueTask.FromResult<IMauiBranchHostUpdate>(
+                new RecordingBranchHostUpdate(this, previousBranches, previousSelected, _shouldFailCommit()));
+        }
+
+        private static MauiBranchHostBranch SubstituteBranchPage(MauiBranchHostBranch branch)
+        {
+            Page replacement = branch.Page;
+            if (branch.Page is NavigationPage navigationPage &&
+                navigationPage.Navigation.NavigationStack.FirstOrDefault() is { } originalRoot)
+            {
+                var replacementRoot = new ContentPage();
+                MauiPresentationMetadata.SetRouteEntryId(
+                    replacementRoot,
+                    MauiPresentationMetadata.GetRouteEntryId(originalRoot));
+                replacement = new NavigationPage(replacementRoot);
+                MauiPresentationMetadata.SetHostId(
+                    replacement,
+                    MauiPresentationMetadata.GetHostId(navigationPage));
+            }
+
+            return new MauiBranchHostBranch(branch.Id, branch.Title, replacement);
+        }
+
+        public void Select(string branchId)
+        {
+            if (_disposed || !_branches.Any(branch =>
+                    StringComparer.Ordinal.Equals(branch.Id, branchId)))
+                return;
+
+            SelectedBranchId = branchId;
+            SelectionChanged?.Invoke(this, new MauiBranchHostSelectionChangedEventArgs(branchId));
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            DisposeCount++;
+            _disposed = true;
+            SelectionChanged = null;
+            return ValueTask.CompletedTask;
+        }
+
+        private sealed class RecordingBranchHostUpdate(
+            RecordingBranchHost host,
+            IReadOnlyList<MauiBranchHostBranch> branches,
+            string? selectedBranchId,
+            bool failCommit) : IMauiBranchHostUpdate
+        {
+            private bool _completed;
+
+            public ValueTask CommitAsync(CancellationToken cancellationToken = default)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (failCommit)
+                    throw new InvalidOperationException("Synthetic branch-host commit failure.");
+
+                _completed = true;
+                return ValueTask.CompletedTask;
+            }
+
+            public ValueTask RollbackAsync(CancellationToken cancellationToken = default)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!_completed)
+                {
+                    host._branches = branches.ToArray();
+                    host.SelectedBranchId = selectedBranchId;
+                    _completed = true;
+                }
+
+                return ValueTask.CompletedTask;
+            }
+
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
         }
     }
 

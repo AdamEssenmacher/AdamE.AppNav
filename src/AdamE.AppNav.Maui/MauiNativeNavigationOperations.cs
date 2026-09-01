@@ -18,7 +18,7 @@ internal interface IMauiNativeNavigationOperations
 
     void SetCurrentTab(TabbedPage tabbedPage, Page? page);
 
-    void SetFlyoutDetail(FlyoutPage flyoutPage, Page page);
+    void SetFlyoutDetail(FlyoutPage flyoutPage, Page? page);
 
     void SetFlyoutPresented(FlyoutPage flyoutPage, bool isPresented);
 
@@ -26,7 +26,7 @@ internal interface IMauiNativeNavigationOperations
         MauiBranchFlyoutPage flyoutPage,
         IReadOnlyList<MauiFlyoutBranchPresentation> branches);
 
-    void SetSelectedFlyoutBranch(MauiBranchFlyoutPage flyoutPage, string branchId);
+    void SetSelectedFlyoutBranch(MauiBranchFlyoutPage flyoutPage, string? branchId);
 
     void SetWindowPage(Window window, Page? page);
 }
@@ -56,8 +56,8 @@ internal sealed class MauiNativeNavigationOperations : IMauiNativeNavigationOper
     public void SetCurrentTab(TabbedPage tabbedPage, Page? page) =>
         tabbedPage.CurrentPage = page;
 
-    public void SetFlyoutDetail(FlyoutPage flyoutPage, Page page) =>
-        flyoutPage.Detail = page;
+    public void SetFlyoutDetail(FlyoutPage flyoutPage, Page? page)
+        => flyoutPage.Detail = page!;
 
     public void SetFlyoutPresented(FlyoutPage flyoutPage, bool isPresented) =>
         flyoutPage.IsPresented = isPresented;
@@ -67,7 +67,7 @@ internal sealed class MauiNativeNavigationOperations : IMauiNativeNavigationOper
         IReadOnlyList<MauiFlyoutBranchPresentation> branches) =>
         flyoutPage.SetBranches(branches);
 
-    public void SetSelectedFlyoutBranch(MauiBranchFlyoutPage flyoutPage, string branchId) =>
+    public void SetSelectedFlyoutBranch(MauiBranchFlyoutPage flyoutPage, string? branchId) =>
         flyoutPage.SetSelectedBranch(branchId);
 
     public void SetWindowPage(Window window, Page? page) =>
@@ -127,10 +127,11 @@ internal sealed class GuardedMauiNativeNavigationOperations(
         inner.SetCurrentTab(tabbedPage, page);
     }
 
-    public void SetFlyoutDetail(FlyoutPage flyoutPage, Page page)
+    public void SetFlyoutDetail(FlyoutPage flyoutPage, Page? page)
     {
         Guard(flyoutPage);
-        Guard(page);
+        if (page is not null)
+            Guard(page);
         inner.SetFlyoutDetail(flyoutPage, page);
     }
 
@@ -150,7 +151,7 @@ internal sealed class GuardedMauiNativeNavigationOperations(
         inner.SetFlyoutBranches(flyoutPage, branches);
     }
 
-    public void SetSelectedFlyoutBranch(MauiBranchFlyoutPage flyoutPage, string branchId)
+    public void SetSelectedFlyoutBranch(MauiBranchFlyoutPage flyoutPage, string? branchId)
     {
         Guard(flyoutPage);
         inner.SetSelectedFlyoutBranch(flyoutPage, branchId);

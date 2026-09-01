@@ -5,7 +5,8 @@ namespace AdamE.AppNav.Maui;
 internal sealed record MauiFlyoutBranchPresentation(
     string Id,
     string Title,
-    Page Page);
+    Page Page,
+    ImageSource? IconImageSource);
 
 internal sealed class MauiFlyoutBranchSelectedEventArgs(string branchId) : EventArgs
 {
@@ -52,7 +53,7 @@ internal sealed class MauiBranchFlyoutPage : FlyoutPage
         RebuildMenu();
     }
 
-    public void SetSelectedBranch(string branchId)
+    public void SetSelectedBranch(string? branchId)
     {
         SelectedBranchId = branchId;
         foreach ((string id, Button button) in _buttons)
@@ -76,7 +77,7 @@ internal sealed class MauiBranchFlyoutPage : FlyoutPage
             var button = new Button
             {
                 Text = branch.Title,
-                ImageSource = branch.Page.IconImageSource,
+                ImageSource = branch.IconImageSource,
                 CommandParameter = branch.Id,
                 HorizontalOptions = LayoutOptions.Fill
             };

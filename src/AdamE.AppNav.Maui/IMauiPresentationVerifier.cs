@@ -12,7 +12,8 @@ internal sealed record MauiPresentationVerificationContext(
     NavigationState TargetState,
     Page? CurrentPage,
     Window? AttachedWindow,
-    MauiRoutePresentationOptions PresentationOptions);
+    MauiRoutePresentationOptions PresentationOptions,
+    IReadOnlyDictionary<Page, IMauiBranchHost>? BranchHosts = null);
 
 internal sealed record MauiPresentationVerificationMismatch(
     string Path,

@@ -167,11 +167,11 @@ public static class AppNavServiceCollectionExtensions
         {
             if (descriptor.ImplementationInstance is not DelegateMauiNavigationPresentationContributor existing)
                 continue;
-            string? duplicate = options.FlyoutBranchHosts.Keys.FirstOrDefault(existing.ContainsFlyout);
+            string? duplicate = options.BranchHosts.Keys.FirstOrDefault(existing.ContainsBranchHost);
             if (duplicate is not null)
             {
                 throw new InvalidOperationException(
-                    $"A MAUI flyout presentation is already mapped for branch-host id '{duplicate}'.");
+                    $"A MAUI branch-host presentation is already mapped for branch-host id '{duplicate}'.");
             }
         }
 
@@ -331,7 +331,8 @@ public static class AppNavServiceCollectionExtensions
             provider.GetService<MauiExternalNavigationDispatcher>(),
             provider.GetService<NavigationDiagnostics>(),
             provider.GetRequiredService<MauiRoutePresentationOptions>(),
-            presentationOperationPolicy: provider.GetRequiredService<IMauiPresentationOperationPolicy>()));
+            presentationOperationPolicy: provider.GetRequiredService<IMauiPresentationOperationPolicy>(),
+            services: provider));
         services.AddSingleton<IMauiPresentationState>(provider =>
         {
             _ = provider.GetRequiredService<IAppNavRuntime>();
@@ -401,16 +402,16 @@ public static class AppNavServiceCollectionExtensions
         MauiNavigationPresentationOptions configuredOptions)
         : IMauiNavigationPresentationContributor
     {
-        public bool ContainsFlyout(string id) => configuredOptions.FlyoutBranchHosts.ContainsKey(id);
+        public bool ContainsBranchHost(string id) => configuredOptions.BranchHosts.ContainsKey(id);
 
         public void Contribute(MauiRoutePresentationOptions options)
         {
-            foreach ((string id, MauiFlyoutBranchHostOptions flyout) in configuredOptions.FlyoutBranchHosts)
+            foreach ((string id, MauiBranchHostRegistration registration) in configuredOptions.BranchHosts)
             {
-                if (!options.FlyoutBranchHosts.TryAdd(id, flyout))
+                if (!options.BranchHosts.TryAdd(id, registration))
                 {
                     throw new InvalidOperationException(
-                        $"A MAUI flyout presentation is already mapped for branch-host id '{id}'.");
+                        $"A MAUI branch-host presentation is already mapped for branch-host id '{id}'.");
                 }
             }
         }

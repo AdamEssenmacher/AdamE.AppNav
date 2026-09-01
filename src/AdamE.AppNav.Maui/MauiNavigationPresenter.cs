@@ -15,12 +15,20 @@ internal sealed class MauiNavigationPresenter :
     IMauiRoutePresentationNavigator
 {
     private readonly IMauiRoutePageFactory _pageFactory;
+    private readonly IMauiBranchHostFactory _defaultBranchHostFactory = new MauiTabbedBranchHostFactory();
+    private readonly IServiceProvider _services;
     private readonly MauiRoutePresentationOptions _presentationOptions;
     private readonly IMauiPresentationVerifier _presentationVerifier;
     private readonly IMauiNativeNavigationOperations _nativeOperations;
     private readonly IMauiPresentationOperationPolicy _presentationOperationPolicy;
     private readonly MauiExternalNavigationDispatcher? _externalNavigationDispatcher;
     private readonly NavigationDiagnostics _diagnostics;
+    private readonly Dictionary<Page, IMauiBranchHost> _branchHostPages =
+        new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<Page, IMauiBranchHostFactory> _branchHostFactories =
+        new(ReferenceEqualityComparer.Instance);
+    private readonly HashSet<IMauiBranchHost> _trackedBranchHosts =
+        new(ReferenceEqualityComparer.Instance);
     private readonly IMauiMainThreadDispatcher _mainThreadDispatcher;
     private readonly ConditionalWeakTable<Page, MauiNativeTreeEpoch> _pageEpochs = new();
     private readonly ConditionalWeakTable<Window, MauiNativeTreeEpoch> _windowEpochs = new();
@@ -36,6 +44,8 @@ internal sealed class MauiNavigationPresenter :
     private string? _attachedWindowId;
     private string _lifecycleOperationId = CreateOperationId();
     private string? _activeOperationId;
+    private NavigationPresentationContext? _activeNavigationPresentationContext;
+    private NavigationPresentationContext? _lastNavigationPresentationContext;
     private bool _suppressReconciliation;
     private MauiNativeTreeEpoch _nativeTreeEpoch = new();
     private bool _disposed;
@@ -55,9 +65,11 @@ internal sealed class MauiNavigationPresenter :
         IMauiPresentationVerifier? presentationVerifier = null,
         IMauiNativeNavigationOperations? nativeOperations = null,
         IMauiPresentationOperationPolicy? presentationOperationPolicy = null,
+        IServiceProvider? services = null,
         IMauiMainThreadDispatcher? mainThreadDispatcher = null)
     {
         _pageFactory = pageFactory ?? throw new ArgumentNullException(nameof(pageFactory));
+        _services = services ?? EmptyServiceProvider.Instance;
         _presentationOptions = presentationOptions ?? new MauiRoutePresentationOptions();
         _presentationVerifier = presentationVerifier ?? MauiPresentationVerifier.Instance;
         _nativeOperations = new GuardedMauiNativeNavigationOperations(
@@ -85,6 +97,9 @@ internal sealed class MauiNavigationPresenter :
 
     private HashSet<Page> _trackedModalPages => _nativeTreeEpoch.TrackedModalPages;
 
+    private Dictionary<IMauiBranchHost, string> _pendingBranchHostSelections =>
+        _nativeTreeEpoch.PendingBranchHostSelections;
+
     private bool _suppressedNavigationPopDrainQueued
     {
         get => _nativeTreeEpoch.SuppressedNavigationPopDrainQueued;
@@ -95,6 +110,12 @@ internal sealed class MauiNavigationPresenter :
     {
         get => _nativeTreeEpoch.HostBackReconciliationPending;
         set => _nativeTreeEpoch.HostBackReconciliationPending = value;
+    }
+
+    private bool _branchHostSelectionDrainQueued
+    {
+        get => _nativeTreeEpoch.BranchHostSelectionDrainQueued;
+        set => _nativeTreeEpoch.BranchHostSelectionDrainQueued = value;
     }
 
     private AppRoute? _pendingHostBackRoute
@@ -333,10 +354,20 @@ internal sealed class MauiNavigationPresenter :
 
         foreach (NavigationPage navigationPage in _navigationPageStackIds.Keys.ToArray())
             UntrackNavigationPage(navigationPage);
-        foreach (TabbedPage tabbedPage in _trackedTabbedPages.ToArray())
-            UntrackTabbedPage(tabbedPage);
-        foreach (MauiBranchFlyoutPage flyoutPage in _trackedFlyoutPages.ToArray())
-            UntrackFlyoutPage(flyoutPage);
+        foreach (IMauiBranchHost host in new HashSet<IMauiBranchHost>(
+                     _branchHostPages.Values,
+                     ReferenceEqualityComparer.Instance).ToArray())
+        {
+            UntrackBranchHost(host);
+            try
+            {
+                await host.DisposeAsync();
+            }
+            catch (Exception ex)
+            {
+                WritePageReleaseFailure(host.Page, ex);
+            }
+        }
         foreach (Page modalPage in _trackedModalPages.ToArray())
             UntrackModalPage(modalPage);
 
@@ -351,10 +382,13 @@ internal sealed class MauiNavigationPresenter :
         _navigationPageStackIds.Clear();
         _navigationPageKnownPages.Clear();
         _suppressedNavigationPops.Clear();
+        _pendingBranchHostSelections.Clear();
+        _branchHostSelectionDrainQueued = false;
         _hostBackReconciliationPending = false;
         _pendingHostBackRoute = null;
-        _trackedTabbedPages.Clear();
-        _trackedFlyoutPages.Clear();
+        _branchHostPages.Clear();
+        _branchHostFactories.Clear();
+        _trackedBranchHosts.Clear();
         _trackedModalPages.Clear();
         _lastState = NavigationState.Empty;
     }
@@ -637,6 +671,7 @@ internal sealed class MauiNavigationPresenter :
         bool previousSuppressReconciliation = _suppressReconciliation;
         _suppressReconciliation = true;
         _activeOperationId = context.OperationId;
+        _activeNavigationPresentationContext = context;
         var transaction = new MauiPresentationTransaction(this);
         _activeTransaction = transaction;
         MauiPresentationOperationCandidate? operationCandidate =
@@ -664,7 +699,8 @@ internal sealed class MauiNavigationPresenter :
                         CurrentPage,
                         context.OperationId,
                         isNavigationTarget: window.Modals.Count == 0,
-                        cancellationToken);
+                        cancellationToken,
+                        placement: MauiBranchHostPlacement.WindowRoot);
 
                 await SetCurrentPageAsync(nextRoot);
                 await ApplyModalsAsync(nextRoot, window.Modals, context.OperationId, cancellationToken);
@@ -679,6 +715,7 @@ internal sealed class MauiNavigationPresenter :
             _lastState = popFold.EffectiveState;
             _activeTransaction = null;
             await transaction.CommitAsync();
+            _lastNavigationPresentationContext = context;
             if (popFold.LogicalStateChanged)
                 MarkHostBackReconciliationPending(popFold.Route);
         }
@@ -701,9 +738,10 @@ internal sealed class MauiNavigationPresenter :
         {
             _activePresentationOperation = null;
             _activeOperationId = null;
+            _activeNavigationPresentationContext = null;
             _suppressReconciliation = previousSuppressReconciliation;
             if (!previousSuppressReconciliation)
-                ScheduleSuppressedNavigationPopDrain();
+                ScheduleSuppressedNativeChangeDrain();
         }
     }
 
@@ -738,41 +776,48 @@ internal sealed class MauiNavigationPresenter :
 
         if (targetWindow?.Root is not null)
         {
-            ValidateMauiNode(targetWindow.Root, "window root", allowConfiguredFlyout: true);
+            ValidateMauiNode(targetWindow.Root, "window root", MauiBranchHostPlacement.WindowRoot);
         }
 
         if (targetWindow is not null)
         {
             foreach (ModalNode modal in targetWindow.Modals)
             {
-                ValidateMauiNode(modal, "window modal", allowConfiguredFlyout: false);
+                ValidateMauiNode(modal, "window modal", MauiBranchHostPlacement.ModalContent);
             }
         }
     }
 
-    private void ValidateMauiNode(NavigationNode node, string path, bool allowConfiguredFlyout)
+    private void ValidateMauiNode(
+        NavigationNode node,
+        string path,
+        MauiBranchHostPlacement placement)
     {
         switch (node)
         {
             case StackNode:
                 return;
             case BranchHostNode branchHost:
-                if (_presentationOptions.TryGetFlyout(branchHost.Id, out _) && !allowConfiguredFlyout)
+                if (_presentationOptions.TryGetBranchHost(branchHost.Id, out MauiBranchHostRegistration? registration) &&
+                    (registration.Factory.SupportedPlacements & placement) == 0)
                 {
                     throw new NotSupportedException(
-                        $"MAUI flyout branch host '{branchHost.Id}' is only supported as the direct window root; found at {path}.");
+                        $"MAUI branch host '{branchHost.Id}' does not support placement '{placement}'; found at {path}.");
                 }
 
                 foreach (NavigationBranch branch in branchHost.Branches)
                 {
-                    ValidateMauiNode(branch.Content, $"{path} branch '{branch.Id}'", allowConfiguredFlyout: false);
+                    ValidateMauiNode(
+                        branch.Content,
+                        $"{path} branch '{branch.Id}'",
+                        MauiBranchHostPlacement.Nested);
                 }
 
                 return;
             case ModalNode modal:
                 if (modal.Content is not null)
                 {
-                    ValidateMauiNode(modal.Content, $"{path} content", allowConfiguredFlyout: false);
+                    ValidateMauiNode(modal.Content, $"{path} content", MauiBranchHostPlacement.ModalContent);
                 }
 
                 return;
@@ -951,7 +996,7 @@ internal sealed class MauiNavigationPresenter :
             _activeOperationId = previousOperationId;
             _suppressReconciliation = previousSuppressReconciliation;
             if (!previousSuppressReconciliation)
-                ScheduleSuppressedNavigationPopDrain();
+                ScheduleSuppressedNativeChangeDrain();
         }
     }
 
@@ -1022,7 +1067,7 @@ internal sealed class MauiNavigationPresenter :
             _activeOperationId = previousOperationId;
             _suppressReconciliation = previousSuppressReconciliation;
             if (!previousSuppressReconciliation)
-                ScheduleSuppressedNavigationPopDrain();
+                ScheduleSuppressedNativeChangeDrain();
         }
     }
 
@@ -1089,7 +1134,7 @@ internal sealed class MauiNavigationPresenter :
             $"Native navigation stack is invalid at page index {error.PageIndex}: {error.Message}");
     }
 
-    private static NavigationPage? ResolveTopNavigationPage(Page? page)
+    private NavigationPage? ResolveTopNavigationPage(Page? page)
     {
         if (page is null)
         {
@@ -1102,15 +1147,12 @@ internal sealed class MauiNavigationPresenter :
             return ResolveTopNavigationPage(topModal);
         }
 
-        return page switch
-        {
-            NavigationPage navigationPage => navigationPage,
-            TabbedPage tabbedPage when tabbedPage.CurrentPage is not null =>
-                ResolveTopNavigationPage(tabbedPage.CurrentPage),
-            MauiBranchFlyoutPage flyoutPage when flyoutPage.Detail is not null =>
-                ResolveTopNavigationPage(flyoutPage.Detail),
-            _ => null
-        };
+        if (_branchHostPages.TryGetValue(page, out IMauiBranchHost? host))
+            return host.SelectedBranchPage is { } selectedPage
+                ? ResolveTopNavigationPage(selectedPage)
+                : null;
+
+        return page as NavigationPage;
     }
 
     private async Task<Page> MaterializeNodeAsync(
@@ -1119,7 +1161,8 @@ internal sealed class MauiNavigationPresenter :
         string operationId,
         bool isNavigationTarget,
         CancellationToken cancellationToken,
-        bool wasResurfacedTarget = false)
+        bool wasResurfacedTarget = false,
+        MauiBranchHostPlacement placement = MauiBranchHostPlacement.Nested)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -1132,22 +1175,14 @@ internal sealed class MauiNavigationPresenter :
                 isNavigationTarget,
                 cancellationToken,
                 wasResurfacedTarget),
-            BranchHostNode branchHost when _presentationOptions.TryGetFlyout(branchHost.Id, out var flyoutOptions) =>
-                await MaterializeFlyoutBranchHostAsync(
-                    branchHost,
-                    existingPage as MauiBranchFlyoutPage,
-                    flyoutOptions,
-                    operationId,
-                    isNavigationTarget,
-                    cancellationToken,
-                    wasResurfacedTarget),
-            BranchHostNode branchHost => await MaterializeTabbedBranchHostAsync(
+            BranchHostNode branchHost => await MaterializeBranchHostAsync(
                 branchHost,
-                existingPage as TabbedPage,
+                existingPage,
                 operationId,
                 isNavigationTarget,
                 cancellationToken,
-                wasResurfacedTarget),
+                wasResurfacedTarget,
+                placement),
             ModalNode modal when modal.Content is null &&
                                 existingPage is not null &&
                                 StringComparer.Ordinal.Equals(GetRouteEntryId(existingPage), modal.RouteEntry.Id)
@@ -1165,7 +1200,8 @@ internal sealed class MauiNavigationPresenter :
                 operationId,
                 isNavigationTarget,
                 cancellationToken,
-                wasResurfacedTarget),
+                wasResurfacedTarget,
+                MauiBranchHostPlacement.ModalContent),
             _ => throw new NotSupportedException($"Navigation node '{node.GetType().Name}' is not supported by the MAUI presenter.")
         };
     }
@@ -1200,6 +1236,7 @@ internal sealed class MauiNavigationPresenter :
         }
 
         if (existingPage is not null &&
+            !_branchHostPages.ContainsKey(existingPage) &&
             StringComparer.Ordinal.Equals(GetHostId(existingPage), stack.Id) &&
             StackRootMatches(existingPage, stack))
         {
@@ -1323,166 +1360,161 @@ internal sealed class MauiNavigationPresenter :
         return common;
     }
 
-    private async Task<Page> MaterializeTabbedBranchHostAsync(
+    private async Task<Page> MaterializeBranchHostAsync(
         BranchHostNode branchHost,
-        TabbedPage? existingPage,
+        Page? existingPage,
         string operationId,
         bool isNavigationTarget,
         CancellationToken cancellationToken,
-        bool wasResurfacedTarget = false)
+        bool wasResurfacedTarget,
+        MauiBranchHostPlacement placement)
     {
-        var tabbedPage = existingPage is not null && StringComparer.Ordinal.Equals(GetHostId(existingPage), branchHost.Id)
-            ? existingPage
-            : new TabbedPage();
-        var createdTabbedPage = !ReferenceEquals(tabbedPage, existingPage);
-
-        SetHostId(tabbedPage, branchHost.Id);
-
-        if (createdTabbedPage)
+        MauiBranchHostFactorySelection selection = ResolveBranchHostFactory(branchHost.Id);
+        IMauiBranchHost? host = null;
+        if (existingPage is not null &&
+            _branchHostPages.TryGetValue(existingPage, out IMauiBranchHost? existingHost) &&
+            _branchHostFactories.TryGetValue(existingPage, out IMauiBranchHostFactory? existingFactory) &&
+            StringComparer.Ordinal.Equals(GetHostId(existingPage), branchHost.Id) &&
+            ReferenceEquals(existingFactory, selection.Factory))
         {
-            RegisterPage(tabbedPage);
-            _activeTransaction?.TrackCreated(tabbedPage);
-            WritePageLifecycle(NavigationDiagnosticEventKind.PresentationPageCreated, tabbedPage, "TabbedPage was created.");
+            host = existingHost;
         }
 
-        TrackTabbedPage(tabbedPage);
-
-        var stagedBranches = new List<(NavigationBranch Branch, Page? ExistingPage, Page Page)>(
-            branchHost.Branches.Count);
-        for (var i = 0; i < branchHost.Branches.Count; i++)
+        if (host is null)
         {
-            cancellationToken.ThrowIfCancellationRequested();
+            if (existingPage is not null && _branchHostPages.ContainsKey(existingPage))
+                _activeTransaction?.Retire(existingPage);
 
-            var branch = branchHost.Branches[i];
-            var existingBranchPage = tabbedPage.Children.FirstOrDefault(child =>
-                StringComparer.Ordinal.Equals(GetBranchId(child), branch.Id));
-            var page = await MaterializeNodeAsync(
-                branch.Content,
-                existingBranchPage,
-                operationId,
-                isNavigationTarget && StringComparer.Ordinal.Equals(branch.Id, branchHost.SelectedBranchId),
-                cancellationToken,
-                wasResurfacedTarget);
-            stagedBranches.Add((branch, existingBranchPage, page));
-        }
+            host = await selection.Factory.CreateAsync(
+                new MauiBranchHostCreationContext(
+                    branchHost,
+                    placement,
+                    _activeNavigationPresentationContext ?? throw new InvalidOperationException(
+                        "A branch-host was materialized without presentation context."),
+                    _services),
+                cancellationToken);
+            ArgumentNullException.ThrowIfNull(host);
+            if (host.Page is null)
+                throw new InvalidOperationException("A MAUI branch-host factory returned a null page.");
 
-        var desiredBranchIds = branchHost.Branches
-            .Select(branch => branch.Id)
-            .ToHashSet(StringComparer.Ordinal);
-        foreach (Page stalePage in tabbedPage.Children
-                     .Where(child => GetBranchId(child) is not { } branchId || !desiredBranchIds.Contains(branchId))
-                     .ToArray())
-        {
-            _nativeOperations.RemoveTab(tabbedPage, stalePage);
-            await DetachPageTreeAsync(stalePage);
-        }
+            if (host is IMauiBranchHostNativeOperations nativeAware)
+                nativeAware.SetNativeOperations(_nativeOperations);
 
-        Page? selectedPage = null;
-        for (var i = 0; i < stagedBranches.Count; i++)
-        {
-            (NavigationBranch branch, Page? existingBranchPage, Page page) = stagedBranches[i];
-            ApplyBranchChrome(page, branch);
-            SetBranchId(page, branch.Id);
-
-            if (existingBranchPage is not null && !ReferenceEquals(existingBranchPage, page))
+            RegisterPage(host.Page);
+            _branchHostPages[host.Page] = host;
+            _branchHostFactories[host.Page] = selection.Factory;
+            if (!ReferenceEquals(host.Page, existingPage))
             {
-                _nativeOperations.RemoveTab(tabbedPage, existingBranchPage);
-                await DetachPageTreeAsync(existingBranchPage);
-            }
-
-            var currentIndex = tabbedPage.Children.IndexOf(page);
-            if (currentIndex < 0)
-            {
-                _nativeOperations.InsertTab(tabbedPage, Math.Min(i, tabbedPage.Children.Count), page);
-            }
-            else if (currentIndex != i)
-            {
-                _nativeOperations.RemoveTab(tabbedPage, page);
-                _nativeOperations.InsertTab(tabbedPage, Math.Min(i, tabbedPage.Children.Count), page);
-            }
-
-            if (StringComparer.Ordinal.Equals(branch.Id, branchHost.SelectedBranchId))
-            {
-                selectedPage = page;
+                _activeTransaction?.TrackCreated(host.Page);
+                WritePageLifecycle(
+                    NavigationDiagnosticEventKind.PresentationPageCreated,
+                    host.Page,
+                    "Branch-host page was created.");
             }
         }
 
-        _nativeOperations.SetCurrentTab(tabbedPage, selectedPage ?? tabbedPage.Children.FirstOrDefault());
-        return tabbedPage;
-    }
-
-    private async Task<Page> MaterializeFlyoutBranchHostAsync(
-        BranchHostNode branchHost,
-        MauiBranchFlyoutPage? existingPage,
-        MauiFlyoutBranchHostOptions options,
-        string operationId,
-        bool isNavigationTarget,
-        CancellationToken cancellationToken,
-        bool wasResurfacedTarget = false)
-    {
-        var flyoutPage = existingPage is not null &&
-                         StringComparer.Ordinal.Equals(GetHostId(existingPage), branchHost.Id)
-            ? existingPage
-            : new MauiBranchFlyoutPage(options);
-        var createdFlyoutPage = !ReferenceEquals(flyoutPage, existingPage);
-
-        SetHostId(flyoutPage, branchHost.Id);
-        flyoutPage.ApplyOptions(options);
-        if (createdFlyoutPage)
-        {
-            RegisterPage(flyoutPage);
-            _activeTransaction?.TrackCreated(flyoutPage);
-            WritePageLifecycle(
-                NavigationDiagnosticEventKind.PresentationPageCreated,
-                flyoutPage,
-                "FlyoutPage was created.");
-        }
-
-        TrackFlyoutPage(flyoutPage);
-        var stagedBranches = new List<MauiFlyoutBranchPresentation>(branchHost.Branches.Count);
-        var retiredPages = new HashSet<Page>(ReferenceEqualityComparer.Instance);
+        SetHostId(host.Page, branchHost.Id);
+        TrackBranchHost(host);
+        MauiBranchHostBranch[] hostBranches = host.Branches.ToArray();
+        var stagedBranches = new List<MauiBranchHostBranch>(branchHost.Branches.Count);
+        const MauiBranchHostPlacement childPlacement = MauiBranchHostPlacement.Nested;
         foreach (NavigationBranch branch in branchHost.Branches)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            Page? existingBranchPage = flyoutPage.FindBranchPage(branch.Id);
+            Page? existingBranchPage = hostBranches.FirstOrDefault(candidate =>
+                StringComparer.Ordinal.Equals(candidate.Id, branch.Id))?.Page;
             Page page = await MaterializeNodeAsync(
                 branch.Content,
                 existingBranchPage,
                 operationId,
                 isNavigationTarget && StringComparer.Ordinal.Equals(branch.Id, branchHost.SelectedBranchId),
                 cancellationToken,
-                wasResurfacedTarget);
+                wasResurfacedTarget,
+                childPlacement);
             ApplyBranchChrome(page, branch);
             SetBranchId(page, branch.Id);
-            stagedBranches.Add(new MauiFlyoutBranchPresentation(branch.Id, branch.Title, page));
-            if (existingBranchPage is not null && !ReferenceEquals(existingBranchPage, page))
-                retiredPages.Add(existingBranchPage);
+            stagedBranches.Add(new MauiBranchHostBranch(branch.Id, branch.Title, page));
         }
 
-        var desiredBranchIds = branchHost.Branches
-            .Select(static branch => branch.Id)
-            .ToHashSet(StringComparer.Ordinal);
-        foreach (MauiFlyoutBranchPresentation stale in flyoutPage.Branches)
-            if (!desiredBranchIds.Contains(stale.Id))
-                retiredPages.Add(stale.Page);
+        if (_activeTransaction is { } activeTransaction)
+        {
+            foreach (MauiBranchHostBranch previousBranch in hostBranches)
+            {
+                if (!stagedBranches.Any(current => ReferenceEquals(current.Page, previousBranch.Page)))
+                    activeTransaction.Retire(previousBranch.Page);
+            }
+        }
 
-        bool selectedBranchChanged = flyoutPage.SelectedBranchId is not null &&
-                                     !StringComparer.Ordinal.Equals(
-                                         flyoutPage.SelectedBranchId,
-                                         branchHost.SelectedBranchId);
-        _nativeOperations.SetFlyoutBranches(flyoutPage, stagedBranches);
-        MauiFlyoutBranchPresentation selected = stagedBranches.First(branch =>
-            StringComparer.Ordinal.Equals(branch.Id, branchHost.SelectedBranchId));
-        _nativeOperations.SetFlyoutDetail(flyoutPage, selected.Page);
-        _nativeOperations.SetSelectedFlyoutBranch(flyoutPage, selected.Id);
-        if (selectedBranchChanged)
-            _nativeOperations.SetFlyoutPresented(flyoutPage, false);
-
-        foreach (Page retiredPage in retiredPages)
-            await DetachPageTreeAsync(retiredPage);
-
-        return flyoutPage;
+        IMauiBranchHostUpdate update = await host.ApplyAsync(
+            new MauiBranchHostUpdateContext(
+                branchHost,
+                placement,
+                stagedBranches,
+                branchHost.SelectedBranchId,
+                _activeNavigationPresentationContext ?? throw new InvalidOperationException(
+                    "A branch-host was updated without presentation context.")),
+            cancellationToken);
+        ArgumentNullException.ThrowIfNull(update);
+        if (_activeTransaction is { } transaction)
+        {
+            transaction.TrackBranchHostUpdate(update);
+            VerifyAppliedBranchPages(host, stagedBranches);
+        }
+        else
+        {
+            try
+            {
+                VerifyAppliedBranchPages(host, stagedBranches);
+                await update.CommitAsync(cancellationToken);
+            }
+            catch
+            {
+                await update.RollbackAsync(CancellationToken.None);
+                throw;
+            }
+            finally
+            {
+                await update.DisposeAsync();
+            }
+        }
+        return host.Page;
     }
+
+    private static void VerifyAppliedBranchPages(
+        IMauiBranchHost host,
+        IReadOnlyList<MauiBranchHostBranch> stagedBranches)
+    {
+        IReadOnlyList<MauiBranchHostBranch> presentedBranches = host.Branches;
+        if (presentedBranches.Count != stagedBranches.Count)
+        {
+            throw new InvalidOperationException(
+                $"Branch host '{GetHostId(host.Page) ?? host.Page.GetType().Name}' did not retain the supplied branch pages: " +
+                $"expected {stagedBranches.Count} branches but observed {presentedBranches.Count}.");
+        }
+
+        for (var index = 0; index < stagedBranches.Count; index++)
+        {
+            MauiBranchHostBranch staged = stagedBranches[index];
+            MauiBranchHostBranch presented = presentedBranches[index];
+            if (!StringComparer.Ordinal.Equals(presented.Id, staged.Id) ||
+                !ReferenceEquals(presented.Page, staged.Page))
+            {
+                throw new InvalidOperationException(
+                    $"Branch host '{GetHostId(host.Page) ?? host.Page.GetType().Name}' did not retain the supplied page " +
+                    $"for branch '{staged.Id}' at index {index}.");
+            }
+        }
+    }
+
+    private MauiBranchHostFactorySelection ResolveBranchHostFactory(string branchHostId)
+    {
+        if (_presentationOptions.TryGetBranchHost(branchHostId, out MauiBranchHostRegistration? registration))
+            return new MauiBranchHostFactorySelection(registration.Factory);
+
+        return new MauiBranchHostFactorySelection(_defaultBranchHostFactory);
+    }
+
+    private sealed record MauiBranchHostFactorySelection(IMauiBranchHostFactory Factory);
 
     private static void ApplyBranchChrome(Page page, NavigationBranch branch)
     {
@@ -1517,7 +1549,8 @@ internal sealed class MauiNavigationPresenter :
                     null,
                     operationId,
                     isNavigationTarget: i == modals.Count - 1,
-                    cancellationToken);
+                    cancellationToken,
+                    placement: MauiBranchHostPlacement.ModalContent);
             SetModalId(modalPage, modals[i].Id);
             TrackModalPage(modalPage);
             replacementModals.Add(modalPage);
@@ -1597,14 +1630,13 @@ internal sealed class MauiNavigationPresenter :
         return node switch
         {
             StackNode stack => existingPage is NavigationPage navigationPage &&
+                               !_branchHostPages.ContainsKey(existingPage) &&
                                StringComparer.Ordinal.Equals(GetHostId(navigationPage), stack.Id) &&
                                StackRootMatches(navigationPage, stack),
-            BranchHostNode branchHost => existingPage is TabbedPage tabbedPage &&
-                                         !_presentationOptions.TryGetFlyout(branchHost.Id, out _) &&
-                                         StringComparer.Ordinal.Equals(GetHostId(tabbedPage), branchHost.Id) ||
-                                         existingPage is MauiBranchFlyoutPage flyoutPage &&
-                                         _presentationOptions.TryGetFlyout(branchHost.Id, out _) &&
-                                         StringComparer.Ordinal.Equals(GetHostId(flyoutPage), branchHost.Id),
+            BranchHostNode branchHost => existingPage is not null &&
+                                         _branchHostPages.TryGetValue(existingPage, out IMauiBranchHost? host) &&
+                                         ReferenceEquals(host.Page, existingPage) &&
+                                         StringComparer.Ordinal.Equals(GetHostId(existingPage), branchHost.Id),
             ModalNode modal => modal.Content is null
                 ? existingPage is not null &&
                   StringComparer.Ordinal.Equals(GetRouteEntryId(existingPage), modal.RouteEntry.Id)
@@ -1678,7 +1710,8 @@ internal sealed class MauiNavigationPresenter :
                 operationId,
                 isNavigationTarget: i == modals.Count - 1,
                 cancellationToken,
-                wasResurfacedTarget: previousModalCount > modals.Count);
+                wasResurfacedTarget: previousModalCount > modals.Count,
+                placement: MauiBranchHostPlacement.ModalContent);
         }
     }
 
@@ -1709,8 +1742,7 @@ internal sealed class MauiNavigationPresenter :
     {
         return existingPage is not null &&
                existingPage is not NavigationPage &&
-               existingPage is not TabbedPage &&
-               existingPage is not FlyoutPage
+               !_branchHostPages.ContainsKey(existingPage)
             ? existingPage
             : CreateEmptyPage();
     }
@@ -1795,7 +1827,7 @@ internal sealed class MauiNavigationPresenter :
         }
     }
 
-    private static Page? ResolveTopPresentedPage(Page? page)
+    private Page? ResolveTopPresentedPage(Page? page)
     {
         var current = page;
 
@@ -1808,13 +1840,11 @@ internal sealed class MauiNavigationPresenter :
                 continue;
             }
 
-            var next = current switch
-            {
-                NavigationPage navigationPage when navigationPage.CurrentPage is not null => navigationPage.CurrentPage,
-                TabbedPage tabbedPage when tabbedPage.CurrentPage is not null => tabbedPage.CurrentPage,
-                MauiBranchFlyoutPage flyoutPage when flyoutPage.Detail is not null => flyoutPage.Detail,
-                _ => null
-            };
+            Page? next = _branchHostPages.TryGetValue(current, out IMauiBranchHost? host)
+                ? host.SelectedBranchPage
+                : current is NavigationPage navigationPage
+                    ? navigationPage.CurrentPage
+                    : null;
 
             if (next is null || ReferenceEquals(next, current))
             {
@@ -1889,60 +1919,79 @@ internal sealed class MauiNavigationPresenter :
         }
     }
 
-    private void TrackTabbedPage(TabbedPage tabbedPage)
+    private void TrackBranchHost(IMauiBranchHost host)
     {
-        tabbedPage.CurrentPageChanged -= OnTabbedPageCurrentPageChanged;
-        tabbedPage.CurrentPageChanged += OnTabbedPageCurrentPageChanged;
+        if (!_branchHostPages.ContainsKey(host.Page))
+            _branchHostPages[host.Page] = host;
 
-        if (_trackedTabbedPages.Add(tabbedPage))
+        host.SelectionChanged -= OnBranchHostSelectionChanged;
+        host.SelectionChanged += OnBranchHostSelectionChanged;
+        if (_trackedBranchHosts.Add(host))
         {
             WriteHandlerLifecycle(
                 NavigationDiagnosticEventKind.PresentationHandlerAttached,
-                tabbedPage,
-                "TabbedPage.CurrentPageChanged",
-                "TabbedPage selection handler was attached.");
+                host.Page,
+                "IMauiBranchHost.SelectionChanged",
+                "Branch-host selection handler was attached.");
         }
     }
 
-    private void UntrackTabbedPage(TabbedPage tabbedPage)
+    private void UntrackBranchHost(IMauiBranchHost host)
     {
-        tabbedPage.CurrentPageChanged -= OnTabbedPageCurrentPageChanged;
-
-        if (_trackedTabbedPages.Remove(tabbedPage))
+        host.SelectionChanged -= OnBranchHostSelectionChanged;
+        if (_trackedBranchHosts.Remove(host))
         {
             WriteHandlerLifecycle(
                 NavigationDiagnosticEventKind.PresentationHandlerDetached,
-                tabbedPage,
-                "TabbedPage.CurrentPageChanged",
-                "TabbedPage selection handler was detached.");
+                host.Page,
+                "IMauiBranchHost.SelectionChanged",
+                "Branch-host selection handler was detached.");
         }
     }
 
-    private void TrackFlyoutPage(MauiBranchFlyoutPage flyoutPage)
+    private void OnBranchHostSelectionChanged(
+        object? sender,
+        MauiBranchHostSelectionChangedEventArgs e)
     {
-        flyoutPage.BranchSelected -= OnFlyoutBranchSelected;
-        flyoutPage.BranchSelected += OnFlyoutBranchSelected;
-        if (_trackedFlyoutPages.Add(flyoutPage))
-        {
-            WriteHandlerLifecycle(
-                NavigationDiagnosticEventKind.PresentationHandlerAttached,
-                flyoutPage,
-                "FlyoutPage branch selection",
-                "FlyoutPage selection handler was attached.");
-        }
+        if (sender is not IMauiBranchHost host ||
+            !StringComparer.Ordinal.Equals(host.SelectedBranchId, e.BranchId))
+            return;
+
+        if (!_pageEpochs.TryGetValue(host.Page, out MauiNativeTreeEpoch? epoch))
+            return;
+
+        epoch.PendingBranchHostSelections[host] = e.BranchId;
+        if (!_suppressReconciliation)
+            ScheduleSuppressedNativeChangeDrain();
     }
 
-    private void UntrackFlyoutPage(MauiBranchFlyoutPage flyoutPage)
+    private Task ReconcileBranchHostSelectionAsync(IMauiBranchHost host, string branchId)
     {
-        flyoutPage.BranchSelected -= OnFlyoutBranchSelected;
-        if (_trackedFlyoutPages.Remove(flyoutPage))
+        if (_suppressReconciliation ||
+            !_branchHostPages.TryGetValue(host.Page, out IMauiBranchHost? trackedHost) ||
+            !ReferenceEquals(trackedHost, host) ||
+            host.Branches.FirstOrDefault(branch =>
+                StringComparer.Ordinal.Equals(branch.Id, branchId)) is not { } branch)
         {
-            WriteHandlerLifecycle(
-                NavigationDiagnosticEventKind.PresentationHandlerDetached,
-                flyoutPage,
-                "FlyoutPage branch selection",
-                "FlyoutPage selection handler was detached.");
+            return Task.CompletedTask;
         }
+
+        string? branchHostId = GetHostId(host.Page);
+        if (string.IsNullOrWhiteSpace(branchHostId))
+            return Task.CompletedTask;
+
+        var updatedWindow = UpdateWindowForPresentedNode(
+            host.Page,
+            node => UpdateBranchHostSelection(node, branchHostId, branchId));
+        if (updatedWindow is not null)
+        {
+            RequestReconciliation(
+                _lastState.ReplaceWindow(updatedWindow),
+                NavigationReconciliationSource.BranchChanged,
+                "Native branch-host selection changed.");
+        }
+
+        return Task.CompletedTask;
     }
 
     private void TrackModalPage(Page modalPage)
@@ -2031,6 +2080,32 @@ internal sealed class MauiNavigationPresenter :
             }
         }
 
+        if (_branchHostPages.Remove(page, out IMauiBranchHost? branchHost) && branchHost is not null)
+        {
+            _branchHostFactories.Remove(page);
+            _pendingBranchHostSelections.Remove(branchHost);
+            UntrackBranchHost(branchHost);
+            Page[] branchPages = branchHost.Branches
+                .Select(static branch => branch.Page)
+                .ToArray();
+            foreach (Page branchPage in branchPages)
+                await DetachPageTreeAsync(branchPage, visited, failures);
+
+            try
+            {
+                await branchHost.DisposeAsync();
+            }
+            catch (Exception ex)
+            {
+                failures.Add(ex);
+                pageReleaseSucceeded = false;
+            }
+
+            if (pageReleaseSucceeded)
+                ForgetPage(page);
+            return;
+        }
+
         switch (page)
         {
             case NavigationPage navigationPage:
@@ -2040,19 +2115,6 @@ internal sealed class MauiNavigationPresenter :
                     await DetachPageTreeAsync(child, visited, failures);
                 }
 
-                break;
-            case TabbedPage tabbedPage:
-                UntrackTabbedPage(tabbedPage);
-                foreach (var child in tabbedPage.Children.ToArray())
-                {
-                    await DetachPageTreeAsync(child, visited, failures);
-                }
-
-                break;
-            case MauiBranchFlyoutPage flyoutPage:
-                UntrackFlyoutPage(flyoutPage);
-                foreach (MauiFlyoutBranchPresentation branch in flyoutPage.Branches)
-                    await DetachPageTreeAsync(branch.Page, visited, failures);
                 break;
             default:
                 if (shouldRelease)
@@ -2407,17 +2469,22 @@ internal sealed class MauiNavigationPresenter :
         _suppressedNavigationPops.Clear();
     }
 
-    private void ScheduleSuppressedNavigationPopDrain()
+    private void ScheduleSuppressedNativeChangeDrain()
     {
-        if (_suppressedNavigationPopDrainQueued ||
-            (_suppressedNavigationPops.Count == 0 && !_hostBackReconciliationPending))
+        if (!_suppressedNavigationPopDrainQueued &&
+            (_suppressedNavigationPops.Count != 0 || _hostBackReconciliationPending))
         {
-            return;
+            _suppressedNavigationPopDrainQueued = true;
+            if (!QueueNativeCleanupForEpoch(_nativeTreeEpoch, DrainSuppressedNavigationPopsAsync))
+                _suppressedNavigationPopDrainQueued = false;
         }
 
-        _suppressedNavigationPopDrainQueued = true;
-        if (!QueueNativeCleanupForEpoch(_nativeTreeEpoch, DrainSuppressedNavigationPopsAsync))
-            _suppressedNavigationPopDrainQueued = false;
+        if (!_branchHostSelectionDrainQueued && _pendingBranchHostSelections.Count != 0)
+        {
+            _branchHostSelectionDrainQueued = true;
+            if (!QueueNativeCleanupForEpoch(_nativeTreeEpoch, DrainSuppressedBranchHostSelectionsAsync))
+                _branchHostSelectionDrainQueued = false;
+        }
     }
 
     private async Task DrainSuppressedNavigationPopsAsync()
@@ -2458,84 +2525,34 @@ internal sealed class MauiNavigationPresenter :
                 route);
         }
 
-        ScheduleSuppressedNavigationPopDrain();
+        ScheduleSuppressedNativeChangeDrain();
     }
 
-    private void OnTabbedPageCurrentPageChanged(object? sender, EventArgs e)
+    private async Task DrainSuppressedBranchHostSelectionsAsync()
     {
-        if (_suppressReconciliation || sender is not TabbedPage tabbedPage || tabbedPage.CurrentPage is null)
+        try
         {
-            return;
+            if (_suppressReconciliation || _disposed)
+                return;
+
+            KeyValuePair<IMauiBranchHost, string>[] pendingSelections =
+                _pendingBranchHostSelections.ToArray();
+            foreach (KeyValuePair<IMauiBranchHost, string> pendingSelection in pendingSelections)
+            {
+                if (_pendingBranchHostSelections.TryGetValue(pendingSelection.Key, out string? branchId) &&
+                    StringComparer.Ordinal.Equals(branchId, pendingSelection.Value))
+                {
+                    _pendingBranchHostSelections.Remove(pendingSelection.Key);
+                    await ReconcileBranchHostSelectionAsync(pendingSelection.Key, branchId);
+                }
+            }
+        }
+        finally
+        {
+            _branchHostSelectionDrainQueued = false;
         }
 
-        QueueNativeCleanupForEpoch(EpochFor(tabbedPage), () =>
-        {
-            ReconcileTabSelection(tabbedPage);
-            return Task.CompletedTask;
-        });
-    }
-
-    private void OnFlyoutBranchSelected(object? sender, MauiFlyoutBranchSelectedEventArgs e)
-    {
-        if (_suppressReconciliation || sender is not MauiBranchFlyoutPage flyoutPage)
-            return;
-
-        QueueNativeCleanupForEpoch(
-            EpochFor(flyoutPage),
-            () => ReconcileFlyoutSelectionAsync(flyoutPage, e.BranchId));
-    }
-
-    private Task ReconcileFlyoutSelectionAsync(MauiBranchFlyoutPage flyoutPage, string branchId)
-    {
-        if (_suppressReconciliation || flyoutPage.FindBranchPage(branchId) is not { } branchPage)
-            return Task.CompletedTask;
-
-        _nativeOperations.SetFlyoutPresented(flyoutPage, false);
-        if (StringComparer.Ordinal.Equals(flyoutPage.SelectedBranchId, branchId))
-            return Task.CompletedTask;
-
-        _nativeOperations.SetFlyoutDetail(flyoutPage, branchPage);
-        _nativeOperations.SetSelectedFlyoutBranch(flyoutPage, branchId);
-        var branchHostId = GetHostId(flyoutPage);
-        if (string.IsNullOrWhiteSpace(branchHostId))
-            return Task.CompletedTask;
-
-        var updatedWindow = UpdateWindowForPresentedNode(
-            flyoutPage,
-            node => UpdateBranchHostSelection(node, branchHostId, branchId));
-        if (updatedWindow is not null)
-        {
-            RequestReconciliation(
-                _lastState.ReplaceWindow(updatedWindow),
-                NavigationReconciliationSource.BranchChanged,
-                "Native flyout selection changed.");
-        }
-
-        return Task.CompletedTask;
-    }
-
-    private void ReconcileTabSelection(TabbedPage tabbedPage)
-    {
-        if (_suppressReconciliation || tabbedPage.CurrentPage is null)
-            return;
-
-        var selectedBranchId = GetBranchId(tabbedPage.CurrentPage);
-        var branchHostId = GetHostId(tabbedPage);
-        if (string.IsNullOrWhiteSpace(selectedBranchId) || string.IsNullOrWhiteSpace(branchHostId))
-        {
-            return;
-        }
-
-        var updatedWindow = UpdateWindowForPresentedNode(
-            tabbedPage,
-            node => UpdateBranchHostSelection(node, branchHostId, selectedBranchId));
-        if (updatedWindow is null)
-        {
-            return;
-        }
-
-        var updatedState = _lastState.ReplaceWindow(updatedWindow);
-        RequestReconciliation(updatedState, NavigationReconciliationSource.BranchChanged, "Native tab selection changed.");
+        ScheduleSuppressedNativeChangeDrain();
     }
 
     private void OnModalPageDisappearing(object? sender, EventArgs e)
@@ -2841,7 +2858,7 @@ internal sealed class MauiNavigationPresenter :
         return null;
     }
 
-    private static bool ContainsPageInStructuralTree(Page root, Page target)
+    private bool ContainsPageInStructuralTree(Page root, Page target)
     {
         if (ReferenceEquals(root, target))
         {
@@ -2850,10 +2867,9 @@ internal sealed class MauiNavigationPresenter :
 
         return root switch
         {
-            NavigationPage navigationPage => navigationPage.Navigation.NavigationStack.Any(page => ContainsPageInStructuralTree(page, target)),
-            TabbedPage tabbedPage => tabbedPage.Children.Any(page => ContainsPageInStructuralTree(page, target)),
-            MauiBranchFlyoutPage flyoutPage => flyoutPage.Branches.Any(branch =>
+            _ when _branchHostPages.TryGetValue(root, out IMauiBranchHost? host) => host.Branches.Any(branch =>
                 ContainsPageInStructuralTree(branch.Page, target)),
+            NavigationPage navigationPage => navigationPage.Navigation.NavigationStack.Any(page => ContainsPageInStructuralTree(page, target)),
             _ => false
         };
     }
@@ -2986,6 +3002,11 @@ internal sealed class MauiNavigationPresenter :
     {
         Page? failedRoot = CurrentPage;
         Page? rebuiltRoot = null;
+        NavigationPresentationContext? previousPresentationContext = _activeNavigationPresentationContext;
+        _activeNavigationPresentationContext ??= _lastNavigationPresentationContext is { } lastContext
+            ? lastContext with { CurrentState = state, OperationId = operationId }
+            : throw new InvalidOperationException(
+                "Branch-host recovery requires a prior navigation presentation context.");
         var recoveryTransaction = new MauiPresentationTransaction(this);
         _activeTransaction = recoveryTransaction;
         try
@@ -3000,7 +3021,8 @@ internal sealed class MauiNavigationPresenter :
                         null,
                         operationId,
                         isNavigationTarget: window.Modals.Count == 0,
-                        CancellationToken.None);
+                        CancellationToken.None,
+                        placement: MauiBranchHostPlacement.WindowRoot);
                 await ApplyModalsAsync(
                     rebuiltRoot,
                     window.Modals,
@@ -3012,6 +3034,7 @@ internal sealed class MauiNavigationPresenter :
             CurrentPage = rebuiltRoot;
             SetAttachedWindowPage(rebuiltRoot);
             VerifyPresentation(state, operationId);
+            await recoveryTransaction.CommitAsync();
             _lastState = state;
             RebuildTrackingFromCurrentPage();
 
@@ -3023,9 +3046,22 @@ internal sealed class MauiNavigationPresenter :
         catch
         {
             _activeTransaction = null;
+            try
+            {
+                await recoveryTransaction.RollbackAsync();
+            }
+            catch
+            {
+                // Preserve the original recovery failure; created pages are still released below.
+            }
+
             await recoveryTransaction.ReleaseCreatedPagesAsync();
 
             throw;
+        }
+        finally
+        {
+            _activeNavigationPresentationContext = previousPresentationContext;
         }
     }
 
@@ -3041,25 +3077,23 @@ internal sealed class MauiNavigationPresenter :
         return pages;
     }
 
-    private static void CollectStructuralPages(Page page, HashSet<Page> pages)
+    private void CollectStructuralPages(Page page, HashSet<Page> pages)
     {
         if (!pages.Add(page))
             return;
+
+        if (_branchHostPages.TryGetValue(page, out IMauiBranchHost? host))
+        {
+            foreach (MauiBranchHostBranch branch in host.Branches)
+                CollectStructuralPages(branch.Page, pages);
+            return;
+        }
 
         switch (page)
         {
             case NavigationPage navigationPage:
                 foreach (Page child in navigationPage.Navigation.NavigationStack)
                     CollectStructuralPages(child, pages);
-                break;
-            case TabbedPage tabbedPage:
-                foreach (Page child in tabbedPage.Children)
-                    CollectStructuralPages(child, pages);
-                break;
-            case MauiBranchFlyoutPage flyoutPage:
-                CollectStructuralPages(flyoutPage.Flyout, pages);
-                foreach (MauiFlyoutBranchPresentation branch in flyoutPage.Branches)
-                    CollectStructuralPages(branch.Page, pages);
                 break;
         }
     }
@@ -3068,10 +3102,10 @@ internal sealed class MauiNavigationPresenter :
     {
         foreach (NavigationPage navigationPage in _navigationPageStackIds.Keys.ToArray())
             UntrackNavigationPage(navigationPage);
-        foreach (TabbedPage tabbedPage in _trackedTabbedPages.ToArray())
-            UntrackTabbedPage(tabbedPage);
-        foreach (MauiBranchFlyoutPage flyoutPage in _trackedFlyoutPages.ToArray())
-            UntrackFlyoutPage(flyoutPage);
+        foreach (IMauiBranchHost host in new HashSet<IMauiBranchHost>(
+                     _branchHostPages.Values,
+                     ReferenceEqualityComparer.Instance).ToArray())
+            UntrackBranchHost(host);
         foreach (Page modalPage in _trackedModalPages.ToArray())
             UntrackModalPage(modalPage);
 
@@ -3092,6 +3126,14 @@ internal sealed class MauiNavigationPresenter :
         if (!visited.Add(page))
             return;
 
+        if (_branchHostPages.TryGetValue(page, out IMauiBranchHost? host))
+        {
+            TrackBranchHost(host);
+            foreach (MauiBranchHostBranch branch in host.Branches)
+                TrackStructuralPage(branch.Page, visited);
+            return;
+        }
+
         switch (page)
         {
             case NavigationPage navigationPage:
@@ -3099,16 +3141,6 @@ internal sealed class MauiNavigationPresenter :
                     TrackNavigationPage(navigationPage, stackId);
                 foreach (Page child in navigationPage.Navigation.NavigationStack)
                     TrackStructuralPage(child, visited);
-                break;
-            case TabbedPage tabbedPage:
-                TrackTabbedPage(tabbedPage);
-                foreach (Page child in tabbedPage.Children)
-                    TrackStructuralPage(child, visited);
-                break;
-            case MauiBranchFlyoutPage flyoutPage:
-                TrackFlyoutPage(flyoutPage);
-                foreach (MauiFlyoutBranchPresentation branch in flyoutPage.Branches)
-                    TrackStructuralPage(branch.Page, visited);
                 break;
         }
     }
@@ -3153,7 +3185,8 @@ internal sealed class MauiNavigationPresenter :
             targetState,
             CurrentPage,
             _attachedWindow,
-            _presentationOptions));
+            _presentationOptions,
+            _branchHostPages));
         if (mismatch is null)
         {
             return;
@@ -3494,18 +3527,16 @@ internal sealed class MauiNavigationPresenter :
         private readonly Page[] _previousModals;
         private readonly Dictionary<NavigationPage, Page[]> _navigationStacks =
             new(ReferenceEqualityComparer.Instance);
-        private readonly Dictionary<TabbedPage, TabSnapshot> _tabs =
-            new(ReferenceEqualityComparer.Instance);
-        private readonly Dictionary<MauiBranchFlyoutPage, FlyoutSnapshot> _flyouts =
-            new(ReferenceEqualityComparer.Instance);
         private readonly Dictionary<Page, PageSnapshot> _pageSnapshots =
             new(ReferenceEqualityComparer.Instance);
         private readonly Dictionary<Page, RouteEntry> _updatedPages =
             new(ReferenceEqualityComparer.Instance);
         private readonly Dictionary<string, RouteEntry> _previousEntries;
+        private readonly List<IMauiBranchHostUpdate> _branchHostUpdates = [];
         private readonly HashSet<Page> _createdPages = new(ReferenceEqualityComparer.Instance);
         private readonly HashSet<Page> _retiredPages = new(ReferenceEqualityComparer.Instance);
         private bool _rootChanged;
+        private bool _branchHostUpdatesFinalized;
 
         public MauiPresentationTransaction(MauiNavigationPresenter presenter)
         {
@@ -3528,6 +3559,15 @@ internal sealed class MauiNavigationPresenter :
 
         public void TrackCreated(Page page) => _createdPages.Add(page);
 
+        public void TrackBranchHostUpdate(IMauiBranchHostUpdate update)
+        {
+            ArgumentNullException.ThrowIfNull(update);
+            if (_branchHostUpdatesFinalized)
+                throw new InvalidOperationException("Cannot track a branch-host update after transaction completion.");
+
+            _branchHostUpdates.Add(update);
+        }
+
         public void Retire(Page page) => _retiredPages.Add(page);
 
         public bool IsRetired(Page page) => _retiredPages.Contains(page);
@@ -3546,6 +3586,14 @@ internal sealed class MauiNavigationPresenter :
 
         public async ValueTask CommitAsync()
         {
+            if (!_branchHostUpdatesFinalized)
+            {
+                foreach (IMauiBranchHostUpdate update in _branchHostUpdates)
+                    await update.CommitAsync();
+
+                await DisposeBranchHostUpdatesAsync();
+            }
+
             HashSet<Page> livePages = _presenter.CollectLivePages(_presenter.CurrentPage);
             var releaseCandidates = new HashSet<Page>(_retiredPages, ReferenceEqualityComparer.Instance);
             foreach (Page createdPage in _createdPages)
@@ -3562,88 +3610,115 @@ internal sealed class MauiNavigationPresenter :
 
         public async ValueTask RollbackAsync()
         {
-            if (!ReferenceEquals(_presenter._attachedWindow, _previousAttachedWindow))
+            Exception? structuralRollbackFailure = null;
+            try
             {
-                throw new InvalidOperationException(
-                    "The attached MAUI window changed during a serialized presentation transaction.");
-            }
-
-            _presenter.CurrentPage = _previousCurrentPage;
-            if (_previousAttachedWindow is not null)
-                _presenter._nativeOperations.SetWindowPage(
-                    _previousAttachedWindow,
-                    _previousWindowPage);
-
-            foreach ((TabbedPage tabbedPage, TabSnapshot snapshot) in _tabs)
-            {
-                foreach (Page currentPage in tabbedPage.Children.ToArray())
-                    _presenter._nativeOperations.RemoveTab(tabbedPage, currentPage);
-                for (var index = 0; index < snapshot.Children.Length; index++)
-                    _presenter._nativeOperations.InsertTab(tabbedPage, index, snapshot.Children[index]);
-                _presenter._nativeOperations.SetCurrentTab(tabbedPage, snapshot.CurrentPage);
-            }
-
-            foreach ((NavigationPage navigationPage, Page[] pages) in _navigationStacks)
-            {
-                while (navigationPage.Navigation.NavigationStack.Count > 1)
+                if (!ReferenceEquals(_presenter._attachedWindow, _previousAttachedWindow))
                 {
-                    int previousCount = navigationPage.Navigation.NavigationStack.Count;
-                    await _presenter._nativeOperations.PopAsync(navigationPage, animated: false);
-                    if (navigationPage.Navigation.NavigationStack.Count >= previousCount)
-                        throw new InvalidOperationException("Native stack rollback did not remove a page.");
+                    throw new InvalidOperationException(
+                        "The attached MAUI window changed during a serialized presentation transaction.");
                 }
 
-                if (pages.Length == 0)
-                    continue;
-                if (navigationPage.Navigation.NavigationStack.Count != 1 ||
-                    !ReferenceEquals(navigationPage.Navigation.NavigationStack[0], pages[0]))
+                _presenter.CurrentPage = _previousCurrentPage;
+                if (_previousAttachedWindow is not null)
+                    _presenter._nativeOperations.SetWindowPage(
+                        _previousAttachedWindow,
+                        _previousWindowPage);
+
+                foreach ((NavigationPage navigationPage, Page[] pages) in _navigationStacks)
                 {
-                    throw new InvalidOperationException("Native stack rollback could not restore its original root page.");
+                    while (navigationPage.Navigation.NavigationStack.Count > 1)
+                    {
+                        int previousCount = navigationPage.Navigation.NavigationStack.Count;
+                        await _presenter._nativeOperations.PopAsync(navigationPage, animated: false);
+                        if (navigationPage.Navigation.NavigationStack.Count >= previousCount)
+                            throw new InvalidOperationException("Native stack rollback did not remove a page.");
+                    }
+
+                    if (pages.Length == 0)
+                        continue;
+                    if (navigationPage.Navigation.NavigationStack.Count != 1 ||
+                        !ReferenceEquals(navigationPage.Navigation.NavigationStack[0], pages[0]))
+                    {
+                        throw new InvalidOperationException("Native stack rollback could not restore its original root page.");
+                    }
+
+                    for (var index = 1; index < pages.Length; index++)
+                        await _presenter._nativeOperations.PushAsync(navigationPage, pages[index], animated: false);
                 }
 
-                for (var index = 1; index < pages.Length; index++)
-                    await _presenter._nativeOperations.PushAsync(navigationPage, pages[index], animated: false);
-            }
-
-            if (_previousCurrentPage is not null)
-            {
-                while (_previousCurrentPage.Navigation.ModalStack.Count > 0)
+                if (_previousCurrentPage is not null)
                 {
-                    int previousCount = _previousCurrentPage.Navigation.ModalStack.Count;
-                    await _presenter._nativeOperations.PopModalAsync(_previousCurrentPage, animated: false);
-                    if (_previousCurrentPage.Navigation.ModalStack.Count >= previousCount)
-                        throw new InvalidOperationException("Modal rollback did not remove a page.");
+                    while (_previousCurrentPage.Navigation.ModalStack.Count > 0)
+                    {
+                        int previousCount = _previousCurrentPage.Navigation.ModalStack.Count;
+                        await _presenter._nativeOperations.PopModalAsync(_previousCurrentPage, animated: false);
+                        if (_previousCurrentPage.Navigation.ModalStack.Count >= previousCount)
+                            throw new InvalidOperationException("Modal rollback did not remove a page.");
+                    }
+
+                    foreach (Page modal in _previousModals)
+                        await _presenter._nativeOperations.PushModalAsync(
+                            _previousCurrentPage,
+                            modal,
+                            animated: false);
                 }
 
-                foreach (Page modal in _previousModals)
-                    await _presenter._nativeOperations.PushModalAsync(
-                        _previousCurrentPage,
-                        modal,
-                        animated: false);
+                foreach ((Page page, RouteEntry entry) in _updatedPages)
+                {
+                    SetRouteEntryId(page, entry.Id);
+                    await _presenter._pageFactory.UpdatePageAsync(
+                        page,
+                        entry,
+                        new MauiRoutePageUpdateContext(MauiRoutePageReuseKind.NonTargetReuse),
+                        CancellationToken.None);
+                }
+            }
+            catch (Exception ex)
+            {
+                structuralRollbackFailure = ex;
             }
 
-            foreach ((Page page, RouteEntry entry) in _updatedPages)
+            Exception? branchHostRollbackFailure = null;
+            if (!_branchHostUpdatesFinalized)
             {
-                SetRouteEntryId(page, entry.Id);
-                await _presenter._pageFactory.UpdatePageAsync(
-                    page,
-                    entry,
-                    new MauiRoutePageUpdateContext(MauiRoutePageReuseKind.NonTargetReuse),
-                    CancellationToken.None);
+                for (var index = _branchHostUpdates.Count - 1; index >= 0; index--)
+                {
+                    try
+                    {
+                        await _branchHostUpdates[index].RollbackAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        branchHostRollbackFailure ??= ex;
+                    }
+                }
+
+                try
+                {
+                    await DisposeBranchHostUpdatesAsync();
+                }
+                catch (Exception ex)
+                {
+                    branchHostRollbackFailure ??= ex;
+                }
             }
 
             foreach ((Page page, PageSnapshot snapshot) in _pageSnapshots)
                 snapshot.Restore(page);
 
-            foreach ((MauiBranchFlyoutPage flyoutPage, FlyoutSnapshot snapshot) in _flyouts)
+            if (structuralRollbackFailure is not null && branchHostRollbackFailure is not null)
             {
-                _presenter._nativeOperations.SetFlyoutBranches(flyoutPage, snapshot.Branches);
-                if (snapshot.Detail is not null)
-                    _presenter._nativeOperations.SetFlyoutDetail(flyoutPage, snapshot.Detail);
-                if (snapshot.SelectedBranchId is not null)
-                    _presenter._nativeOperations.SetSelectedFlyoutBranch(flyoutPage, snapshot.SelectedBranchId);
-                _presenter._nativeOperations.SetFlyoutPresented(flyoutPage, snapshot.IsPresented);
+                throw new AggregateException(
+                    "Structural and branch-host rollback both failed.",
+                    structuralRollbackFailure,
+                    branchHostRollbackFailure);
             }
+
+            if (structuralRollbackFailure is not null)
+                throw structuralRollbackFailure;
+            if (branchHostRollbackFailure is not null)
+                throw branchHostRollbackFailure;
 
             _presenter._lastState = PreviousState;
             _presenter.RebuildTrackingFromCurrentPage();
@@ -3672,12 +3747,42 @@ internal sealed class MauiNavigationPresenter :
                     await _presenter.ReleaseAndDiagnoseAsync(page);
         }
 
+        private async ValueTask DisposeBranchHostUpdatesAsync()
+        {
+            if (_branchHostUpdatesFinalized)
+                return;
+
+            _branchHostUpdatesFinalized = true;
+            Exception? disposalFailure = null;
+            foreach (IMauiBranchHostUpdate update in _branchHostUpdates)
+            {
+                try
+                {
+                    await update.DisposeAsync();
+                }
+                catch (Exception ex)
+                {
+                    disposalFailure ??= ex;
+                }
+            }
+
+            if (disposalFailure is not null)
+                throw disposalFailure;
+        }
+
         private void CapturePage(Page page, HashSet<Page> visited)
         {
             if (!visited.Add(page))
                 return;
 
             _pageSnapshots[page] = PageSnapshot.Capture(page);
+            if (_presenter._branchHostPages.TryGetValue(page, out IMauiBranchHost? host))
+            {
+                foreach (MauiBranchHostBranch branch in host.Branches)
+                    CapturePage(branch.Page, visited);
+                return;
+            }
+
             switch (page)
             {
                 case NavigationPage navigationPage:
@@ -3686,32 +3791,8 @@ internal sealed class MauiNavigationPresenter :
                     foreach (Page child in stack)
                         CapturePage(child, visited);
                     break;
-                case TabbedPage tabbedPage:
-                    Page[] children = tabbedPage.Children.ToArray();
-                    _tabs[tabbedPage] = new TabSnapshot(children, tabbedPage.CurrentPage);
-                    foreach (Page child in children)
-                        CapturePage(child, visited);
-                    break;
-                case MauiBranchFlyoutPage flyoutPage:
-                    MauiFlyoutBranchPresentation[] branches = flyoutPage.Branches.ToArray();
-                    _flyouts[flyoutPage] = new FlyoutSnapshot(
-                        branches,
-                        flyoutPage.Detail,
-                        flyoutPage.SelectedBranchId,
-                        flyoutPage.IsPresented);
-                    foreach (MauiFlyoutBranchPresentation branch in branches)
-                        CapturePage(branch.Page, visited);
-                    break;
             }
         }
-
-        private sealed record TabSnapshot(Page[] Children, Page? CurrentPage);
-
-        private sealed record FlyoutSnapshot(
-            MauiFlyoutBranchPresentation[] Branches,
-            Page? Detail,
-            string? SelectedBranchId,
-            bool IsPresented);
 
         private sealed record PageSnapshot(
             string? HostId,
@@ -3758,6 +3839,13 @@ internal sealed class MauiNavigationPresenter :
 
     private sealed class ReleasedPageMarker
     {
+    }
+
+    private sealed class EmptyServiceProvider : IServiceProvider
+    {
+        public static EmptyServiceProvider Instance { get; } = new();
+
+        public object? GetService(Type serviceType) => null;
     }
 
 }
