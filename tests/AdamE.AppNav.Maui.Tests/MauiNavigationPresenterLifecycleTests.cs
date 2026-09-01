@@ -1026,9 +1026,19 @@ public sealed class MauiNavigationPresenterLifecycleTests
         await host.CommitEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         RaiseWindowLifecycleEvent(window, "Destroying");
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => apply);
+        // The commit token must carry epoch cancellation...
+        await apply.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.True(host.LastCommitToken.CanBeCanceled);
         Assert.True(host.LastCommitToken.IsCancellationRequested);
+
+        // ...but a cooperative commit observing that cancellation is an epoch-closed *result*, not an apply
+        // failure. _lastState has already advanced past the logical commit point, so failing here would leave
+        // RouterNavigator on the previous state while the replacement window is rebuilt from the new one.
+        // This assertion previously expected OperationCanceledException, which encoded that divergence.
+        var replacementWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(replacementWindow);
+        RecordingBranchHost replacementHost = factory.CreatedHosts[^1];
+        Assert.Equal("catalog", replacementHost.SelectedBranchId);
         await fixture.Presenter.StartShutdown();
     }
 

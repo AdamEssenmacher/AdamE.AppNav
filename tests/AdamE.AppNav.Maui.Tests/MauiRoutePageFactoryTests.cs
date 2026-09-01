@@ -282,6 +282,37 @@ public sealed class MauiRoutePageFactoryTests
     }
 
     [Fact]
+    public async Task CancellationDuringCreationDisposesScopeWithoutRunningReleaseHooks()
+    {
+        var gate = new GatedLifecycleHook(LifecyclePhase.Created);
+        var trailingHook = new CountingReleaseLifecycleHook();
+        var services = new ServiceCollection();
+        services.AddSingleton<FailureCleanupTracker>();
+        services.AddScoped<TrackedAsyncDisposable>();
+        services.AddScoped<IMauiRoutePageLifecycleHook>(_ => gate);
+        services.AddScoped<IMauiRoutePageLifecycleHook>(_ => trailingHook);
+        services.AddTransient<ScopedFailurePage>();
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        var options = new MauiRoutePresentationOptions { UseScopedPages = true };
+        options.Pages.MapPageFromServices<TestPageRoute, ScopedFailurePage>();
+        var factory = new MauiRoutePageFactory(provider, options);
+        using var cancellation = new CancellationTokenSource();
+
+        Task<Page> create = factory.CreatePageAsync(Entry("create-cleanup"), cancellation.Token).AsTask();
+        await gate.Entered.WaitAsync(TimeSpan.FromSeconds(5));
+        await cancellation.CancelAsync();
+        gate.Complete();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => create);
+
+        // Failed-creation cleanup must not convert epoch loss into page-based release callbacks: the trailing
+        // hook never saw OnPageCreatedAsync, so it must not see OnPageReleasedAsync either. The page scope is
+        // still disposed, because abandonment is uncancellable.
+        Assert.Equal(0, trailingHook.ReleaseCount);
+        Assert.Equal(1, provider.GetRequiredService<FailureCleanupTracker>().DisposeCount);
+    }
+
+    [Fact]
     public async Task CancellationDuringReleaseStopsRemainingPageAccessButStillDisposesScope()
     {
         var gate = new GatedLifecycleHook(LifecyclePhase.Released);

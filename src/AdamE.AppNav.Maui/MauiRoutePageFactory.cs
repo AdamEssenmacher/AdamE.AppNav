@@ -154,7 +154,7 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
         {
             try
             {
-                await CleanupFailedCreationAsync(page, scope).ConfigureAwait(false);
+                await CleanupFailedCreationAsync(page, scope, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception cleanupException)
             {
@@ -213,7 +213,7 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
         {
             try
             {
-                await CleanupFailedCreationAsync(page, scope).ConfigureAwait(false);
+                await CleanupFailedCreationAsync(page, scope, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception cleanupException)
             {
@@ -263,14 +263,24 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
             page.GetType().FullName ?? page.GetType().Name);
     }
 
-    private static async ValueTask CleanupFailedCreationAsync(Page? page, IAsyncDisposable? unattachedScope)
+    /// <remarks>
+    /// The creation token is threaded through deliberately. When creation failed because the page's native-tree
+    /// epoch closed, running page-based release callbacks would invoke <see cref="IMauiRoutePageLifecycleHook.OnPageReleasedAsync"/>
+    /// -- including hooks whose creation callback was skipped -- and touch a page from the destroyed tree.
+    /// <see cref="ReleaseCoreAsync"/> skips those callbacks and the binding-context clear when the token is
+    /// cancelled, while still disposing the page scope uncancelled.
+    /// </remarks>
+    private static async ValueTask CleanupFailedCreationAsync(
+        Page? page,
+        IAsyncDisposable? unattachedScope,
+        CancellationToken cancellationToken)
     {
         var failures = new List<Exception>();
         if (page is not null)
         {
             try
             {
-                await ReleaseCoreAsync(page, CancellationToken.None).ConfigureAwait(false);
+                await ReleaseCoreAsync(page, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

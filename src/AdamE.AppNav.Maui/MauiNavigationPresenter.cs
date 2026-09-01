@@ -3179,10 +3179,15 @@ internal sealed class MauiNavigationPresenter :
             _shutdownCancellation.Token.ThrowIfCancellationRequested();
             if (!EpochRemainsCurrent(epoch))
                 return;
+
+            // The dispatcher hop can queue behind Window.Destroying, so the epoch must be rechecked inside the
+            // delegate: passing the check above only proves the tree was alive before the hop.
+            Task GuardedCleanupAsync() => EpochRemainsCurrent(epoch) ? cleanup() : Task.CompletedTask;
+
             if (_mainThreadDispatcher.IsMainThread)
-                await cleanup();
+                await GuardedCleanupAsync();
             else
-                await _mainThreadDispatcher.InvokeAsync(cleanup);
+                await _mainThreadDispatcher.InvokeAsync(GuardedCleanupAsync);
         }
         catch (OperationCanceledException) when (_disposed)
         {
@@ -4373,10 +4378,23 @@ internal sealed class MauiNavigationPresenter :
             {
                 foreach (IMauiBranchHostUpdate update in _branchHostUpdates.ToArray())
                 {
-                    await InvokeReleaseAcrossBoundaryAsync(
-                        _epoch,
-                        token => update.CommitAsync(token),
-                        _operationCancellation);
+                    try
+                    {
+                        await InvokeReleaseAcrossBoundaryAsync(
+                            _epoch,
+                            token => update.CommitAsync(token),
+                            _operationCancellation);
+                    }
+                    catch (OperationCanceledException) when (IsInvalidated)
+                    {
+                        // A cooperative commit observes epoch cancellation by throwing. That is the same
+                        // condition the epoch-closed result below reports, and it must stay a result rather
+                        // than an exception: _lastState has already advanced, so failing ApplyAsync here would
+                        // leave RouterNavigator on the previous state while the replacement window is rebuilt
+                        // from the new one. Caller-only cancellation still propagates.
+                        return false;
+                    }
+
                     if (IsInvalidated)
                         return false;
                 }
