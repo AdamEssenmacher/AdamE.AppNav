@@ -1,4 +1,5 @@
 ﻿using AdamE.AppNav;
+using AdamE.AppNav.Maui;
 using AdamE.AppNav.Maui.DependencyInjection;
 using AdamE.AppNav.Maui.AppLinks;
 using AdamE.AppNav.Policies;
@@ -36,7 +37,7 @@ public static class MauiProgram
 
 		builder.Services.AddAppNavDiagnostics();
 		builder.Services.AddAppNavMauiPresentation(options =>
-			options.MapFlyoutBranchHost("store-tabs", "Store"));
+			options.MapBranchHost("store-tabs", new MauiFlyoutBranchHostFactory("Store")));
 		builder.Services.AddSingleton<INavigationRequestTransformer, LegacyProductUrlTransformer>();
 		builder.Services.AddAppNavStartup(options =>
 		{

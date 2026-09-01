@@ -20,13 +20,14 @@ internal sealed class MauiNativeTreeEpoch
     public Dictionary<NavigationPage, SuppressedNavigationPop> SuppressedNavigationPops { get; } =
         new(ReferenceEqualityComparer.Instance);
 
-    public HashSet<TabbedPage> TrackedTabbedPages { get; } = new(ReferenceEqualityComparer.Instance);
-
-    public HashSet<MauiBranchFlyoutPage> TrackedFlyoutPages { get; } = new(ReferenceEqualityComparer.Instance);
-
     public HashSet<Page> TrackedModalPages { get; } = new(ReferenceEqualityComparer.Instance);
 
+    public Dictionary<IMauiBranchHost, string> PendingBranchHostSelections { get; } =
+        new(ReferenceEqualityComparer.Instance);
+
     public bool SuppressedNavigationPopDrainQueued { get; set; }
+
+    public bool BranchHostSelectionDrainQueued { get; set; }
 
     public bool HostBackReconciliationPending { get; set; }
 

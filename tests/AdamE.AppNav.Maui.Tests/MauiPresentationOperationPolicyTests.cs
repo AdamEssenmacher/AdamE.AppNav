@@ -336,7 +336,7 @@ public sealed class MauiPresentationOperationPolicyTests
         public void SetCurrentTab(TabbedPage tabbedPage, Page? page) =>
             MauiNativeNavigationOperations.Instance.SetCurrentTab(tabbedPage, page);
 
-        public void SetFlyoutDetail(FlyoutPage flyoutPage, Page page) =>
+        public void SetFlyoutDetail(FlyoutPage flyoutPage, Page? page) =>
             MauiNativeNavigationOperations.Instance.SetFlyoutDetail(flyoutPage, page);
 
         public void SetFlyoutPresented(FlyoutPage flyoutPage, bool isPresented) =>
@@ -347,7 +347,7 @@ public sealed class MauiPresentationOperationPolicyTests
             IReadOnlyList<MauiFlyoutBranchPresentation> branches) =>
             MauiNativeNavigationOperations.Instance.SetFlyoutBranches(flyoutPage, branches);
 
-        public void SetSelectedFlyoutBranch(MauiBranchFlyoutPage flyoutPage, string branchId) =>
+        public void SetSelectedFlyoutBranch(MauiBranchFlyoutPage flyoutPage, string? branchId) =>
             MauiNativeNavigationOperations.Instance.SetSelectedFlyoutBranch(flyoutPage, branchId);
 
         public void SetWindowPage(Window window, Page? page) =>

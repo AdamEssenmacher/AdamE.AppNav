@@ -131,6 +131,11 @@ public static class NavigationDiagnosticDataKeys
     public const string PlanKind = "planKind";
 
     /// <summary>
+    /// Whether a contextual disposition fell back to rebuilding canonical topology.
+    /// </summary>
+    public const string ContextualFallback = "contextualFallback";
+
+    /// <summary>
     /// Fully qualified type name of a request or plan policy.
     /// </summary>
     public const string PolicyType = "policyType";

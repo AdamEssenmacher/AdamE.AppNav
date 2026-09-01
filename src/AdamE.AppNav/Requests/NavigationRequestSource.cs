@@ -41,5 +41,15 @@ public enum NavigationRequestSource
     /// <summary>
     /// The request was synthesized while reconciling host navigation back into the router state.
     /// </summary>
-    HostReconciliation = 7
+    HostReconciliation = 7,
+
+    /// <summary>
+    /// The request was synthesized for a back navigation the presentation host initiated, such as a
+    /// hardware or system back gesture.
+    /// </summary>
+    /// <remarks>
+    /// Value 5 is permanently retired and must never be reused, because deferred navigation requests
+    /// persist this enum by its numeric value.
+    /// </remarks>
+    HostBack = 8
 }

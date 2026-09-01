@@ -8,12 +8,110 @@ using AdamE.AppNav.Requests;
 using AdamE.AppNav.Routing;
 using AdamE.AppNav.State;
 using DeviceRunners.UITesting.Xunit3;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Maui.Controls;
 
 namespace AdamE.AppNav.Maui.Tests;
 
 public sealed class MauiPresentationTransactionTests
 {
+    [Fact]
+    public async Task NoOpNativeFlyoutSelectionFailsVerificationAndRollsBack()
+    {
+        NavigationState previousState = BranchState("catalog", "catalog", "orders");
+        NavigationState targetState = BranchState("orders", "catalog", "orders");
+        var nativeOperations = new FaultingNativeOperations();
+        var options = new MauiRoutePresentationOptions();
+        options.BranchHosts.Add(
+            "main-tabs",
+            new MauiBranchHostRegistration(new MauiFlyoutBranchHostFactory("Main")));
+        var presenter = new MauiNavigationPresenter(
+            new InstrumentedRoutePageFactory(),
+            presentationOptions: options,
+            nativeOperations: nativeOperations);
+        await presenter.ApplyAsync(new NavigationPlan(previousState), Context("catalog", NavigationState.Empty));
+        var flyoutPage = Assert.IsType<MauiBranchFlyoutPage>(presenter.CurrentPage);
+        NativePresentationSnapshot previousPresentation = CapturePresentation(presenter, null);
+        Assert.Equal("catalog", flyoutPage.SelectedBranchId);
+        nativeOperations.IgnoreNextSelectedFlyoutBranchMutation = true;
+
+        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            presenter.ApplyAsync(
+                new NavigationPlan(targetState),
+                Context("orders", previousState)).AsTask());
+
+        Assert.Contains("selectedBranchId", exception.Message, StringComparison.Ordinal);
+        AssertPresentation(previousPresentation, presenter, null);
+        Assert.Equal("catalog", flyoutPage.SelectedBranchId);
+        await presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task StructuralRollbackFailureStillFinalizesBranchHostUpdate()
+    {
+        var nativeOperations = new FaultingNativeOperations();
+        var branchHostFactory = new TrackingBranchHostFactory();
+        var options = new MauiRoutePresentationOptions();
+        options.BranchHosts.Add(
+            "main-tabs",
+            new MauiBranchHostRegistration(branchHostFactory));
+        var presenter = new MauiNavigationPresenter(
+            new InstrumentedRoutePageFactory(),
+            presentationOptions: options,
+            nativeOperations: nativeOperations);
+        NavigationState previousState = BranchState("catalog", "catalog", "orders");
+        await presenter.ApplyAsync(new NavigationPlan(previousState), Context("catalog", NavigationState.Empty));
+        BranchHostNode root = Assert.IsType<BranchHostNode>(previousState.ActiveWindow?.Root);
+        var targetState = new NavigationState(
+            [new WindowNode(
+                "main",
+                root with { SelectedBranchId = "orders" },
+                [new ModalNode("details", new RouteEntry("details-entry", new TestRoute("details")))])],
+            "main");
+        nativeOperations.FaultAfterMutation = NativeMutation.PushModal;
+        nativeOperations.PopModalFailuresRemaining = 1;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => presenter.ApplyAsync(
+            new NavigationPlan(targetState),
+            Context("orders", previousState)).AsTask());
+
+        TrackingBranchHostUpdate failedUpdate = branchHostFactory.Updates[1];
+        Assert.Equal(1, failedUpdate.RollbackCount);
+        Assert.Equal(1, failedUpdate.DisposeCount);
+        Assert.Equal("catalog", Assert.IsType<BranchHostNode>(previousState.ActiveWindow?.Root).SelectedBranchId);
+        await presenter.StartShutdown();
+    }
+
+    [Theory]
+    [InlineData(NativeMutation.RemoveTab)]
+    [InlineData(NativeMutation.InsertTab)]
+    public async Task NoOpNativeTabMutationFailsVerificationAndRollsBack(NativeMutation mutation)
+    {
+        (NavigationState previousState, NavigationState targetState) = StatesFor(mutation);
+        var nativeOperations = new FaultingNativeOperations();
+        var factory = new InstrumentedRoutePageFactory();
+        var presenter = new MauiNavigationPresenter(factory, nativeOperations: nativeOperations);
+        await presenter.ApplyAsync(new NavigationPlan(previousState), Context("previous", NavigationState.Empty));
+        NativePresentationSnapshot previousPresentation = CapturePresentation(presenter, null);
+        int createdPageCount = factory.CreatedPages.Count;
+        if (mutation == NativeMutation.RemoveTab)
+            nativeOperations.IgnoreRemoveTabMutation(callsUntilNoOp: 1);
+        else
+            nativeOperations.IgnoreInsertTabMutation(callsUntilNoOp: 1);
+
+        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            presenter.ApplyAsync(
+                new NavigationPlan(targetState),
+                Context("target", previousState)).AsTask());
+
+        Assert.Contains("did not retain", exception.Message, StringComparison.Ordinal);
+        AssertPresentation(previousPresentation, presenter, null);
+        Assert.All(
+            factory.CreatedPages.Skip(createdPageCount),
+            page => Assert.Equal(1, factory.ReleaseCountFor(page)));
+        await presenter.StartShutdown();
+    }
+
     [Theory]
     [InlineData(NativeMutation.PopStack)]
     [InlineData(NativeMutation.PushStack)]
@@ -71,9 +169,9 @@ public sealed class MauiPresentationTransactionTests
             },
             updatePage: (page, _, _) => page.IconImageSource = targetIcon);
         var options = new MauiRoutePresentationOptions();
-        options.FlyoutBranchHosts.Add(
+        options.BranchHosts.Add(
             "main-tabs",
-            new MauiFlyoutBranchHostOptions("Main", FlyoutLayoutBehavior.Default, true));
+            new MauiBranchHostRegistration(new MauiFlyoutBranchHostFactory("Main", FlyoutLayoutBehavior.Default, true)));
         var presenter = new MauiNavigationPresenter(
             factory,
             presentationOptions: options,
@@ -95,6 +193,116 @@ public sealed class MauiPresentationTransactionTests
         Assert.All(FlyoutMenuButtons(flyoutPage), button => Assert.Same(initialIcon, button.ImageSource));
         Assert.All(previousPages, page => Assert.Equal(0, factory.ReleaseCountFor(page)));
         await presenter.StartShutdown();
+    }
+
+    [Fact]
+    public async Task FirstFlyoutDetailFailureRestoresInitialInfrastructureDetail()
+    {
+        NavigationState targetState = BranchState("catalog", "catalog", "orders");
+        var branchHost = Assert.IsType<BranchHostNode>(targetState.ActiveWindow?.Root);
+        var creationContext = new MauiBranchHostCreationContext(
+            branchHost,
+            MauiBranchHostPlacement.WindowRoot,
+            Context("catalog", NavigationState.Empty),
+            new ServiceCollection().BuildServiceProvider());
+        IMauiBranchHost host = await new MauiFlyoutBranchHostFactory("Main").CreateAsync(creationContext);
+        var nativeOperations = new FaultingNativeOperations
+        {
+            FaultAfterMutation = NativeMutation.SetFlyoutDetail
+        };
+        Assert.IsAssignableFrom<IMauiBranchHostNativeOperations>(host).SetNativeOperations(nativeOperations);
+        var flyoutPage = Assert.IsType<MauiBranchFlyoutPage>(host.Page);
+        Page initialDetail = flyoutPage.Detail;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => host.ApplyAsync(
+            new MauiBranchHostUpdateContext(
+                branchHost,
+                MauiBranchHostPlacement.WindowRoot,
+                [
+                    new MauiBranchHostBranch("catalog", "Catalog", new ContentPage()),
+                    new MauiBranchHostBranch("orders", "Orders", new ContentPage())
+                ],
+                "catalog",
+                creationContext.PresentationContext)).AsTask());
+
+        Assert.Same(initialDetail, flyoutPage.Detail);
+        Assert.Empty(host.Branches);
+        Assert.Null(host.SelectedBranchId);
+        Assert.Null(host.SelectedBranchPage);
+        await host.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task TabHostRollbackRestoresBranchPageChromeAndMetadata()
+    {
+        NavigationState targetState = BranchState("catalog", "catalog");
+        var branchHost = Assert.IsType<BranchHostNode>(targetState.ActiveWindow?.Root);
+        var page = new ContentPage { Title = "Original" };
+        MauiPresentationMetadata.SetBranchId(page, "original-branch");
+        var host = new MauiTabbedBranchHost();
+
+        IMauiBranchHostUpdate update = await host.ApplyAsync(
+            new MauiBranchHostUpdateContext(
+                branchHost,
+                MauiBranchHostPlacement.WindowRoot,
+                [new MauiBranchHostBranch("catalog", "Catalog", page)],
+                "catalog",
+                Context("catalog", NavigationState.Empty)));
+        Assert.Equal("Catalog", page.Title);
+        Assert.Equal("catalog", MauiPresentationMetadata.GetBranchId(page));
+
+        await update.RollbackAsync();
+
+        Assert.Equal("Original", page.Title);
+        Assert.Equal("original-branch", MauiPresentationMetadata.GetBranchId(page));
+        Assert.Empty(host.Branches);
+        await update.DisposeAsync();
+        await host.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task TabHostApplyWithUnchangedTopologyDoesNotMutateTabs()
+    {
+        BranchHostNode branchHost = Assert.IsType<BranchHostNode>(BranchState("home", "home", "catalog").ActiveWindow?.Root);
+        var home = new ContentPage();
+        var catalog = new ContentPage();
+        var branches = new MauiBranchHostBranch[]
+        {
+            new("home", "Home", home),
+            new("catalog", "Catalog", catalog)
+        };
+        var nativeOperations = new FaultingNativeOperations();
+        var host = new MauiTabbedBranchHost();
+        Assert.IsAssignableFrom<IMauiBranchHostNativeOperations>(host).SetNativeOperations(nativeOperations);
+        var context = Context("home", NavigationState.Empty);
+
+        IMauiBranchHostUpdate initialUpdate = await host.ApplyAsync(new MauiBranchHostUpdateContext(
+            branchHost,
+            MauiBranchHostPlacement.WindowRoot,
+            branches,
+            "home",
+            context));
+        await initialUpdate.CommitAsync();
+        await initialUpdate.DisposeAsync();
+        nativeOperations.InsertTabCount = 0;
+        nativeOperations.RemoveTabCount = 0;
+        Page[] initialChildren = Assert.IsType<TabbedPage>(host.Page).Children.ToArray();
+
+        IMauiBranchHostUpdate unchangedUpdate = await host.ApplyAsync(new MauiBranchHostUpdateContext(
+            branchHost,
+            MauiBranchHostPlacement.WindowRoot,
+            branches,
+            "catalog",
+            context));
+        await unchangedUpdate.CommitAsync();
+        await unchangedUpdate.DisposeAsync();
+
+        Assert.Equal(0, nativeOperations.InsertTabCount);
+        Assert.Equal(0, nativeOperations.RemoveTabCount);
+        Assert.Equal(initialChildren, Assert.IsType<TabbedPage>(host.Page).Children);
+        Assert.Same(home, host.Branches[0].Page);
+        Assert.Same(catalog, host.Branches[1].Page);
+        await host.DisposeAsync();
     }
 
     [Theory]
@@ -665,6 +873,49 @@ public sealed class MauiPresentationTransactionTests
     }
 
     [Fact]
+    public async Task DirectPushRollbackFailureRebuildsBranchHostWithRetainedPresentationContext()
+    {
+        var nativeOperations = new FaultingNativeOperations();
+        var factory = new InstrumentedRoutePageFactory();
+        var creationPlacements = new List<MauiBranchHostPlacement>();
+        var presentationOptions = new MauiRoutePresentationOptions();
+        presentationOptions.BranchHosts.Add(
+            "main-tabs",
+            new MauiBranchHostRegistration(new MauiTabbedBranchHostFactory(context =>
+            {
+                creationPlacements.Add(context.Placement);
+                return new TabbedPage();
+            })));
+        var presenter = new MauiNavigationPresenter(
+            factory,
+            presentationOptions: presentationOptions,
+            nativeOperations: nativeOperations);
+        NavigationState previousState = BranchState("catalog", "catalog", "orders");
+        await presenter.ApplyAsync(new NavigationPlan(previousState), Context("catalog", NavigationState.Empty));
+        var previousRoot = Assert.IsType<TabbedPage>(presenter.CurrentPage);
+        nativeOperations.FaultAfterMutation = NativeMutation.PushStack;
+        nativeOperations.PopFailuresRemaining = 1;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => presenter
+            .PushAsync<TestPresentationPage>(
+                "settings",
+                new MauiRoutePresentationPageOptions { Animated = false })
+            .AsTask());
+
+        var recoveredRoot = Assert.IsType<TabbedPage>(presenter.CurrentPage);
+        Assert.NotSame(previousRoot, recoveredRoot);
+        Assert.Equal(["catalog", "orders"], recoveredRoot.Children
+            .Select(page => Assert.IsType<string>(MauiPresentationMetadata.GetBranchId(page)))
+            .ToArray());
+        Assert.Equal("catalog", MauiPresentationMetadata.GetBranchId(recoveredRoot.CurrentPage));
+        Assert.Equal(
+            [MauiBranchHostPlacement.WindowRoot, MauiBranchHostPlacement.WindowRoot],
+            creationPlacements);
+        Assert.Equal(1, factory.ReleaseCountFor(Assert.Single(factory.CreatedPresentationPages)));
+        await presenter.StartShutdown();
+    }
+
+    [Fact]
     public async Task AsyncShutdownCancelsBlockedDirectPushAfterRollbackCompletes()
     {
         var nativeOperations = new FaultingNativeOperations();
@@ -681,6 +932,7 @@ public sealed class MauiPresentationTransactionTests
 
         Task shutdown = presenter.StartShutdown();
         Assert.False(shutdown.IsCompleted);
+        WaitForShutdownCancellationRequested(presenter);
         nativeOperations.ReleaseBlockedPush();
 
         Exception cancellation = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => push);
@@ -828,6 +1080,7 @@ public sealed class MauiPresentationTransactionTests
 
         Task shutdown = presenter.StartShutdown();
         Assert.False(shutdown.IsCompleted);
+        WaitForShutdownCancellationRequested(presenter);
         nativeOperations.ReleaseBlockedPush();
 
         Exception cancellation = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => apply);
@@ -1076,6 +1329,7 @@ public sealed class MauiPresentationTransactionTests
         await MauiNativeNavigationOperations.Instance.PopAsync(navigationPage, animated: false);
 
         Task shutdown = presenter.StartShutdown();
+        WaitForShutdownCancellationRequested(presenter);
         nativeOperations.ReleaseBlockedPushAfterMutation();
 
         Exception? applyFailure = await Record.ExceptionAsync(() => apply);
@@ -1129,6 +1383,18 @@ public sealed class MauiPresentationTransactionTests
         return navigationPage.Navigation.NavigationStack
             .Select(page => Assert.IsType<string>(MauiPresentationMetadata.GetRouteEntryId(page)))
             .ToArray();
+    }
+
+    private static void WaitForShutdownCancellationRequested(MauiNavigationPresenter presenter)
+    {
+        FieldInfo field = typeof(MauiNavigationPresenter).GetField(
+            "_shutdownCancellation",
+            BindingFlags.Instance | BindingFlags.NonPublic) ??
+            throw new InvalidOperationException("Shutdown cancellation source was not found.");
+        var cancellation = Assert.IsType<CancellationTokenSource>(field.GetValue(presenter));
+        Assert.True(SpinWait.SpinUntil(
+            () => cancellation.IsCancellationRequested,
+            TimeSpan.FromSeconds(5)));
     }
 
     private static NavigationState StackState(params string[] entryIds)
@@ -1613,10 +1879,14 @@ public sealed class MauiPresentationTransactionTests
         private readonly Queue<Window> _windowPagePreMutationFaultTargets = new();
         private readonly Queue<Window> _windowPageFaultTargets = new();
         private int _pushCalls;
+        private int _insertTabCallsUntilNoOp;
+        private int _removeTabCallsUntilNoOp;
 
         public int PushFailuresRemaining { get; set; }
 
         public int PopFailuresRemaining { get; set; }
+
+        public int PopModalFailuresRemaining { get; set; }
 
         public bool AlwaysFailPush { get; set; }
 
@@ -1631,6 +1901,12 @@ public sealed class MauiPresentationTransactionTests
         public NativeMutation? FaultAfterMutation { get; set; }
 
         public Action<Window>? WindowPageMutated { get; set; }
+
+        public bool IgnoreNextSelectedFlyoutBranchMutation { get; set; }
+
+        public int InsertTabCount { get; set; }
+
+        public int RemoveTabCount { get; set; }
 
         public Task BlockedPushStarted => _blockedPushStarted.Task;
 
@@ -1652,6 +1928,12 @@ public sealed class MauiPresentationTransactionTests
         {
             _windowPageNoOpTargets.Enqueue(window);
         }
+
+        public void IgnoreInsertTabMutation(int callsUntilNoOp) =>
+            _insertTabCallsUntilNoOp = callsUntilNoOp;
+
+        public void IgnoreRemoveTabMutation(int callsUntilNoOp) =>
+            _removeTabCallsUntilNoOp = callsUntilNoOp;
 
         public async Task PushAsync(NavigationPage navigationPage, Page page, bool animated)
         {
@@ -1703,6 +1985,12 @@ public sealed class MauiPresentationTransactionTests
 
         public async Task<Page?> PopModalAsync(Page host, bool animated)
         {
+            if (PopModalFailuresRemaining > 0)
+            {
+                PopModalFailuresRemaining--;
+                throw new InvalidOperationException("Injected native modal pop failure.");
+            }
+
             Page? page = await MauiNativeNavigationOperations.Instance.PopModalAsync(host, animated);
             ThrowAfterMutation(NativeMutation.PopModal);
             return page;
@@ -1710,12 +1998,20 @@ public sealed class MauiPresentationTransactionTests
 
         public void InsertTab(TabbedPage tabbedPage, int index, Page page)
         {
+            InsertTabCount++;
+            if (_insertTabCallsUntilNoOp > 0 && --_insertTabCallsUntilNoOp == 0)
+                return;
+
             MauiNativeNavigationOperations.Instance.InsertTab(tabbedPage, index, page);
             ThrowAfterMutation(NativeMutation.InsertTab);
         }
 
         public void RemoveTab(TabbedPage tabbedPage, Page page)
         {
+            RemoveTabCount++;
+            if (_removeTabCallsUntilNoOp > 0 && --_removeTabCallsUntilNoOp == 0)
+                return;
+
             MauiNativeNavigationOperations.Instance.RemoveTab(tabbedPage, page);
             ThrowAfterMutation(NativeMutation.RemoveTab);
         }
@@ -1726,7 +2022,7 @@ public sealed class MauiPresentationTransactionTests
             ThrowAfterMutation(NativeMutation.SetCurrentTab);
         }
 
-        public void SetFlyoutDetail(FlyoutPage flyoutPage, Page page)
+        public void SetFlyoutDetail(FlyoutPage flyoutPage, Page? page)
         {
             MauiNativeNavigationOperations.Instance.SetFlyoutDetail(flyoutPage, page);
             ThrowAfterMutation(NativeMutation.SetFlyoutDetail);
@@ -1743,8 +2039,16 @@ public sealed class MauiPresentationTransactionTests
             IReadOnlyList<MauiFlyoutBranchPresentation> branches) =>
             MauiNativeNavigationOperations.Instance.SetFlyoutBranches(flyoutPage, branches);
 
-        public void SetSelectedFlyoutBranch(MauiBranchFlyoutPage flyoutPage, string branchId) =>
+        public void SetSelectedFlyoutBranch(MauiBranchFlyoutPage flyoutPage, string? branchId)
+        {
+            if (IgnoreNextSelectedFlyoutBranchMutation)
+            {
+                IgnoreNextSelectedFlyoutBranchMutation = false;
+                return;
+            }
+
             MauiNativeNavigationOperations.Instance.SetSelectedFlyoutBranch(flyoutPage, branchId);
+        }
 
         public void SetWindowPage(Window window, Page? page)
         {
@@ -1783,6 +2087,102 @@ public sealed class MauiPresentationTransactionTests
 
             FaultAfterMutation = null;
             throw new InvalidOperationException($"Injected {mutation} failure after mutation.");
+        }
+    }
+
+    private sealed class TrackingBranchHostFactory : IMauiBranchHostFactory
+    {
+        public MauiBranchHostPlacement SupportedPlacements => MauiBranchHostPlacement.All;
+
+        public List<TrackingBranchHostUpdate> Updates { get; } = [];
+
+        public ValueTask<IMauiBranchHost> CreateAsync(
+            MauiBranchHostCreationContext context,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult<IMauiBranchHost>(new TrackingBranchHost(this));
+        }
+    }
+
+    private sealed class TrackingBranchHost(TrackingBranchHostFactory factory) : IMauiBranchHost
+    {
+        private IReadOnlyList<MauiBranchHostBranch> _branches = [];
+
+        public Page Page { get; } = new ContentPage();
+
+        public IReadOnlyList<MauiBranchHostBranch> Branches => _branches;
+
+        public string? SelectedBranchId { get; private set; }
+
+        public Page? SelectedBranchPage => _branches.FirstOrDefault(branch =>
+            StringComparer.Ordinal.Equals(branch.Id, SelectedBranchId))?.Page;
+
+        public event EventHandler<MauiBranchHostSelectionChangedEventArgs>? SelectionChanged
+        {
+            add { }
+            remove { }
+        }
+
+        public ValueTask<IMauiBranchHostUpdate> ApplyAsync(
+            MauiBranchHostUpdateContext context,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            IReadOnlyList<MauiBranchHostBranch> previousBranches = _branches;
+            string? previousSelectedBranchId = SelectedBranchId;
+            _branches = context.Branches.ToArray();
+            SelectedBranchId = context.SelectedBranchId;
+            var update = new TrackingBranchHostUpdate(
+                this,
+                previousBranches,
+                previousSelectedBranchId);
+            factory.Updates.Add(update);
+            return ValueTask.FromResult<IMauiBranchHostUpdate>(update);
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+        public void Restore(
+            IReadOnlyList<MauiBranchHostBranch> branches,
+            string? selectedBranchId)
+        {
+            _branches = branches;
+            SelectedBranchId = selectedBranchId;
+        }
+    }
+
+    private sealed class TrackingBranchHostUpdate(
+        TrackingBranchHost host,
+        IReadOnlyList<MauiBranchHostBranch> previousBranches,
+        string? previousSelectedBranchId) : IMauiBranchHostUpdate
+    {
+        private bool _committed;
+
+        public int RollbackCount { get; private set; }
+
+        public int DisposeCount { get; private set; }
+
+        public ValueTask CommitAsync(CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            _committed = true;
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask RollbackAsync(CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            RollbackCount++;
+            if (!_committed)
+                host.Restore(previousBranches, previousSelectedBranchId);
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            DisposeCount++;
+            return ValueTask.CompletedTask;
         }
     }
 

@@ -27,7 +27,9 @@ public sealed class AppNavNavigatorRegistrationTests
     {
         var services = new ServiceCollection();
         void AddPresentation() => services.AddAppNavMauiPresentation(options =>
-            options.MapFlyoutBranchHost("store", "Store", FlyoutLayoutBehavior.Popover, false));
+            options.MapBranchHost(
+                "store",
+                new MauiFlyoutBranchHostFactory("Store", FlyoutLayoutBehavior.Popover, false)));
         void AddRuntime() => services.AddAppNav<ThrowingPlanner>(
             Routes(),
             pages => pages.MapPage<TestRoute>((_, _) => new TestPage()));
@@ -45,27 +47,45 @@ public sealed class AppNavNavigatorRegistrationTests
 
         using ServiceProvider provider = services.BuildServiceProvider();
         MauiRoutePresentationOptions resolved = provider.GetRequiredService<MauiRoutePresentationOptions>();
-        Assert.True(resolved.TryGetFlyout("store", out MauiFlyoutBranchHostOptions? flyout));
-        Assert.Equal("Store", flyout.MenuTitle);
-        Assert.Equal(FlyoutLayoutBehavior.Popover, flyout.LayoutBehavior);
-        Assert.False(flyout.IsGestureEnabled);
+        Assert.True(resolved.TryGetBranchHost("store", out MauiBranchHostRegistration? registration));
+        var flyout = Assert.IsType<MauiFlyoutBranchHostFactory>(registration.Factory);
+        Assert.Equal(MauiBranchHostPlacement.WindowRoot, flyout.SupportedPlacements);
     }
 
     [Fact]
-    public void FlyoutPresentationConfigurationRejectsInvalidAndDuplicateMappingsImmediately()
+    public void BranchHostPresentationConfigurationRejectsInvalidAndDuplicateMappingsImmediately()
     {
         var options = new MauiNavigationPresentationOptions();
-        Assert.Throws<ArgumentException>(() => options.MapFlyoutBranchHost(" ", "Store"));
-        Assert.Throws<ArgumentException>(() => options.MapFlyoutBranchHost("store", " "));
+        Assert.Throws<ArgumentException>(() => options.MapBranchHost(" ", new MauiFlyoutBranchHostFactory("Store")));
+        Assert.Throws<ArgumentNullException>(() => options.MapBranchHost("store", null!));
         Assert.Throws<ArgumentOutOfRangeException>(() =>
-            options.MapFlyoutBranchHost("invalid-layout", "Store", (FlyoutLayoutBehavior)999));
-        options.MapFlyoutBranchHost("store", "Store");
-        Assert.Throws<InvalidOperationException>(() => options.MapFlyoutBranchHost("store", "Other"));
+            options.MapBranchHost("none", new TestBranchHostFactory(MauiBranchHostPlacement.None)));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            options.MapBranchHost("unknown", new TestBranchHostFactory((MauiBranchHostPlacement)8)));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new MauiFlyoutBranchHostFactory("Store", (FlyoutLayoutBehavior)999));
+        options.MapBranchHost("store", new MauiFlyoutBranchHostFactory("Store"));
+        Assert.Throws<InvalidOperationException>(() =>
+            options.MapBranchHost("store", new MauiFlyoutBranchHostFactory("Other")));
 
         var services = new ServiceCollection();
-        services.AddAppNavMauiPresentation(value => value.MapFlyoutBranchHost("store", "Store"));
+        services.AddAppNavMauiPresentation(value => value.MapBranchHost("store", new MauiFlyoutBranchHostFactory("Store")));
         Assert.Throws<InvalidOperationException>(() =>
-            services.AddAppNavMauiPresentation(value => value.MapFlyoutBranchHost("store", "Other")));
+            services.AddAppNavMauiPresentation(value => value.MapBranchHost("store", new MauiFlyoutBranchHostFactory("Other"))));
+    }
+
+    [Fact]
+    public void BranchHostConfigurationAcceptsBuiltInTabsAndCustomFactories()
+    {
+        var options = new MauiNavigationPresentationOptions();
+        options.MapBranchHost("tabs", new MauiTabbedBranchHostFactory());
+        options.MapBranchHost("custom", new TestBranchHostFactory());
+
+        Assert.True(options.BranchHosts.ContainsKey("tabs"));
+        Assert.True(options.BranchHosts.ContainsKey("custom"));
+        Assert.Equal(
+            MauiBranchHostPlacement.All,
+            options.BranchHosts["tabs"].Factory.SupportedPlacements);
     }
 
     [Fact]
@@ -612,6 +632,17 @@ public sealed class AppNavNavigatorRegistrationTests
     {
         public MauiPresentationOperationOptions Resolve(MauiPresentationOperationContext context) =>
             new() { Motion = MauiPresentationMotion.Suppressed };
+    }
+
+    private sealed class TestBranchHostFactory(
+        MauiBranchHostPlacement supportedPlacements = MauiBranchHostPlacement.Nested) : IMauiBranchHostFactory
+    {
+        public MauiBranchHostPlacement SupportedPlacements => supportedPlacements;
+
+        public ValueTask<IMauiBranchHost> CreateAsync(
+            MauiBranchHostCreationContext context,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 
     private sealed class AsyncDisposePage(AsyncDisposeMarker marker) : ContentPage

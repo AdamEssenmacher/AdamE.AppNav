@@ -36,7 +36,7 @@ that metadata as the canonical query without adding it to the page-constructor r
 ## Topology and independent flyout branch stacks
 
 `CommerceNavigationModel` declares one canonical `store-tabs` branch host and maps that host to
-`FlyoutPage` presentation in `MauiProgram`. Each branch owns a distinct retained native navigation stack:
+`FlyoutPage` presentation in `MauiProgram` through `MauiFlyoutBranchHostFactory`. Each branch owns a distinct retained native navigation stack:
 
 | Branch | Root | Canonical detail shape |
 | --- | --- | --- |
