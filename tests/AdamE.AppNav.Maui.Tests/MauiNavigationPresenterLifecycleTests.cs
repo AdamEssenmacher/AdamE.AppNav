@@ -1295,6 +1295,64 @@ public sealed class MauiNavigationPresenterLifecycleTests
     }
 
     [Fact]
+    public async Task ShutdownAbandonsTheTreeWhenDetachIsSilentlyIgnored()
+    {
+        var nativeOperations = new RejectingWindowPageClearOperations();
+        var fixture = new PresenterFixture(nativeOperations: nativeOperations);
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("schools", Entry("schools"))),
+            Context(new TestPageRoute("schools")));
+        var window = new Window();
+        await fixture.Presenter.AttachWindowAsync(window);
+        Page root = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        Page routePage = root.Navigation.NavigationStack[^1];
+
+        nativeOperations.IgnoreWindowPageClear = true;
+        await fixture.Presenter.StartShutdown().WaitAsync(TimeSpan.FromSeconds(5));
+
+        // A detach that is silently ignored has not happened either. The window still displays the tree, so
+        // the pages must be abandoned rather than released.
+        Assert.Empty(fixture.Factory.ReleasedPages);
+        Assert.Contains(routePage, fixture.Factory.AbandonedPages);
+    }
+
+    [Fact]
+    public async Task RootObserverReplacingWindowPageStopsPublishingToRemainingObservers()
+    {
+        var fixture = new PresenterFixture();
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("schools", Entry("schools"))),
+            Context(new TestPageRoute("schools")));
+        var destroyedWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(destroyedWindow);
+        RaiseWindowLifecycleEvent(destroyedWindow, "Destroying");
+        var rejectedWindow = new Window();
+        var observerPage = new ContentPage { Title = "observer-owned" };
+        var laterObserverPages = new List<Page?>();
+        fixture.Presenter.RootPageChanged += ReplaceRoot;
+        fixture.Presenter.RootPageChanged += RecordLater;
+
+        await Assert.ThrowsAnyAsync<Exception>(() =>
+            fixture.Presenter.AttachWindowAsync(rejectedWindow).AsTask());
+
+        fixture.Presenter.RootPageChanged -= ReplaceRoot;
+        fixture.Presenter.RootPageChanged -= RecordLater;
+
+        // The first observer took the native root away without closing the epoch, so the later observer must
+        // not be told the candidate is the root.
+        Assert.All(laterObserverPages, Assert.Null);
+        await fixture.Presenter.StartShutdown().WaitAsync(TimeSpan.FromSeconds(5));
+
+        void ReplaceRoot(object? sender, Page? page)
+        {
+            if (page is not null)
+                rejectedWindow.Page = observerPage;
+        }
+
+        void RecordLater(object? sender, Page? page) => laterObserverPages.Add(page);
+    }
+
+    [Fact]
     public async Task ModalBranchHostReceivesModalContentPlacementForCreationAndReuse()
     {
         var factory = new RecordingBranchHostFactory(MauiBranchHostPlacement.ModalContent);
@@ -3802,6 +3860,9 @@ public sealed class MauiNavigationPresenterLifecycleTests
 
         public bool RejectWindowPageClear { get; set; }
 
+        /// <summary>Silently ignores the clearing mutation, which the abstraction explicitly permits.</summary>
+        public bool IgnoreWindowPageClear { get; set; }
+
         public Task PushAsync(NavigationPage navigationPage, Page page, bool animated) =>
             _inner.PushAsync(navigationPage, page, animated);
 
@@ -3818,6 +3879,8 @@ public sealed class MauiNavigationPresenterLifecycleTests
         {
             if (RejectWindowPageClear && page is null)
                 throw new InvalidOperationException("Synthetic window-page detach failure.");
+            if (IgnoreWindowPageClear && page is null)
+                return;
 
             _inner.SetWindowPage(window, page);
         }

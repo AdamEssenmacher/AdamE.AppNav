@@ -407,6 +407,18 @@ internal sealed class MauiNavigationPresenter :
             WritePageReleaseFailure(null, ex);
         }
 
+        // The native-operation abstraction permits silently ignored mutations, so a detach that did not throw
+        // has still not necessarily happened. Confirm the window really let go before treating these pages as
+        // shutdown's to release.
+        if (detachedRoot && _attachedWindow?.Page is not null)
+        {
+            detachedRoot = false;
+            WritePageReleaseFailure(
+                null,
+                new InvalidOperationException(
+                    "The native window did not clear its page during presenter shutdown."));
+        }
+
         _attachedWindow = null;
         _attachedWindowId = null;
         _pendingWindow = null;
@@ -2384,11 +2396,20 @@ internal sealed class MauiNavigationPresenter :
         // remaining subscribers on this captured invocation list must not then receive a page from the tree
         // that just closed. Publishing loss itself (page is null) always runs to completion.
         MauiNativeTreeEpoch? owningEpoch = page is null ? null : _nativeTreeEpoch;
+
+        // An observer can also replace the window's page outright, which leaves the epoch open but makes the
+        // page being published no longer the native root. Only enforce this where it held on entry, so call
+        // sites that legitimately publish before installing a root are unaffected.
+        bool trackNativeRoot = page is not null &&
+                               _attachedWindow is { } entryWindow &&
+                               ReferenceEquals(entryWindow.Page, page);
         foreach (Delegate handler in handlers.GetInvocationList())
         {
             if (handler is not EventHandler<Page?> typedHandler)
                 continue;
             if (owningEpoch is not null && !EpochRemainsCurrent(owningEpoch))
+                return;
+            if (trackNativeRoot && !ReferenceEquals(_attachedWindow?.Page, page))
                 return;
 
             try
@@ -2696,7 +2717,13 @@ internal sealed class MauiNavigationPresenter :
             {
                 await DetachPageTreeAsync(branchPage, visited, failures, requiredEpoch);
                 if (!CanContinuePageRelease(requiredEpoch))
+                {
+                    // The host is already out of _branchHostPages and _trackedBranchHosts, so destruction
+                    // cleanup can no longer find it. Returning here without claiming it would leak the host
+                    // and everything it owns.
+                    CaptureLateBranchHostAbandonment(branchHost);
                     return;
+                }
             }
 
             try
@@ -4652,6 +4679,12 @@ internal sealed class MauiNavigationPresenter :
             {
                 for (var index = _branchHostUpdates.Count - 1; index >= 0; index--)
                 {
+                    // Checked per iteration, like the disposal loop: a cooperative update can exit by
+                    // cancellation when the epoch closes, and the generic catch below would otherwise let the
+                    // loop carry on invoking rollbacks against already-destroyed hosts.
+                    if (IsInvalidated)
+                        break;
+
                     try
                     {
                         IMauiBranchHostUpdate rollbackUpdate = _branchHostUpdates[index];
