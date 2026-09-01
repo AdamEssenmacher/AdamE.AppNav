@@ -52,6 +52,8 @@ internal sealed class MauiNavigationPresenter :
     private NavigationPresentationContext? _activeNavigationPresentationContext;
     private NavigationPresentationContext? _lastNavigationPresentationContext;
     private bool _suppressReconciliation;
+    private bool _observingPublicationLifecycle;
+    private bool _publicationLifecycleForegrounded;
     private MauiNativeTreeEpoch _nativeTreeEpoch = new();
     private bool _disposed;
     private bool _shutdownSignalIssued;
@@ -580,16 +582,30 @@ internal sealed class MauiNavigationPresenter :
             _hostState = MauiPresenterHostState.Attached;
             SubscribeWindowLifecycle(window);
             _activeTransaction = null;
-            InvokeRootPageChanged(candidateRoot);
-            if (!EpochRemainsCurrent(candidateEpoch) ||
-                !ReferenceEquals(_attachedWindow, window) || !ReferenceEquals(CurrentPage, candidateRoot) ||
-                !ReferenceEquals(window.Page, candidateRoot))
-            {
-                throw new MauiNativeTreeInvalidatedException();
-            }
 
-            _externalNavigationDispatcher?.SetForegrounded(true);
-            _externalNavigationDispatcher?.MarkReady();
+            // Lifecycle handlers are live from here, so a root-page observer can synchronously deactivate or
+            // stop the replacement window. Record what they observe instead of unconditionally foregrounding
+            // afterwards: dispatcher readiness survives destruction, so re-foregrounding a window that just
+            // backgrounded itself would let queued app links drain against it.
+            _observingPublicationLifecycle = true;
+            _publicationLifecycleForegrounded = true;
+            try
+            {
+                InvokeRootPageChanged(candidateRoot);
+                if (!EpochRemainsCurrent(candidateEpoch) ||
+                    !ReferenceEquals(_attachedWindow, window) || !ReferenceEquals(CurrentPage, candidateRoot) ||
+                    !ReferenceEquals(window.Page, candidateRoot))
+                {
+                    throw new MauiNativeTreeInvalidatedException();
+                }
+
+                _externalNavigationDispatcher?.SetForegrounded(_publicationLifecycleForegrounded);
+                _externalNavigationDispatcher?.MarkReady();
+            }
+            finally
+            {
+                _observingPublicationLifecycle = false;
+            }
         }
         catch (Exception attachmentException)
         {
@@ -793,21 +809,33 @@ internal sealed class MauiNavigationPresenter :
 
     private void HandleWindowActivated(object? sender, EventArgs e)
     {
+        if (_observingPublicationLifecycle)
+            _publicationLifecycleForegrounded = true;
+
         _externalNavigationDispatcher?.SetForegrounded(true);
     }
 
     private void HandleWindowDeactivated(object? sender, EventArgs e)
     {
+        if (_observingPublicationLifecycle)
+            _publicationLifecycleForegrounded = false;
+
         _externalNavigationDispatcher?.SetForegrounded(false);
     }
 
     private void HandleWindowStopped(object? sender, EventArgs e)
     {
+        if (_observingPublicationLifecycle)
+            _publicationLifecycleForegrounded = false;
+
         _externalNavigationDispatcher?.SetForegrounded(false);
     }
 
     private void HandleWindowResumed(object? sender, EventArgs e)
     {
+        if (_observingPublicationLifecycle)
+            _publicationLifecycleForegrounded = true;
+
         _externalNavigationDispatcher?.SetForegrounded(true);
     }
 

@@ -1,6 +1,7 @@
 using System.Reflection;
 using AdamE.AppNav.Diagnostics;
 using AdamE.AppNav.Maui;
+using AdamE.AppNav.Maui.AppLinks;
 using AdamE.AppNav.Maui.DependencyInjection;
 using AdamE.AppNav.Navigation;
 using AdamE.AppNav.Plans;
@@ -1184,6 +1185,52 @@ public sealed class MauiNavigationPresenterLifecycleTests
         await fixture.Presenter.AttachWindowAsync(replacementWindow);
         Assert.Equal("catalog", factory.CreatedHosts[^1].SelectedBranchId);
         await fixture.Presenter.StartShutdown().WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task ReplacementDeactivatedByRootObserverDoesNotDrainQueuedAppLinks()
+    {
+        var navigator = new AppLinkRecordingNavigator();
+        var services = new ServiceCollection();
+        var diagnostics = new NavigationDiagnostics();
+        services.AddSingleton(diagnostics);
+        services.AddSingleton<IRouterNavigator>(navigator);
+        using ServiceProvider provider = services.BuildServiceProvider();
+        using var dispatcher = new MauiExternalNavigationDispatcher(provider, diagnostics);
+        var presenter = new MauiNavigationPresenter(
+            new InstrumentedRoutePageFactory(),
+            externalNavigationDispatcher: dispatcher);
+        await presenter.ApplyAsync(
+            Plan(Stack("schools", Entry("schools"))),
+            Context(new TestPageRoute("schools")));
+        var destroyedWindow = new Window();
+        await presenter.AttachWindowAsync(destroyedWindow);
+        RaiseWindowLifecycleEvent(destroyedWindow, "Destroying");
+
+        // Buffer an app link while hostless, then attach a replacement whose root observer immediately
+        // deactivates it.
+        var appLink = RouterNavigationRequest.FromRoute(
+            new TestPageRoute("deep-link"),
+            NavigationRequestSource.AppLink);
+        Assert.True(dispatcher.TryDispatch(appLink));
+        var replacementWindow = new Window();
+        presenter.RootPageChanged += DeactivateReplacement;
+
+        await presenter.AttachWindowAsync(replacementWindow);
+
+        presenter.RootPageChanged -= DeactivateReplacement;
+
+        // Publication must not re-foreground a window that backgrounded itself during the callback, or the
+        // queued link drains against a window the app has already deactivated.
+        await Task.Delay(150);
+        Assert.Empty(navigator.Calls);
+        await presenter.StartShutdown().WaitAsync(TimeSpan.FromSeconds(5));
+
+        void DeactivateReplacement(object? sender, Page? page)
+        {
+            if (page is not null)
+                RaiseWindowLifecycleEvent(replacementWindow, "Deactivated");
+        }
     }
 
     [Fact]
@@ -3649,6 +3696,42 @@ public sealed class MauiNavigationPresenterLifecycleTests
             Fail
                 ? new MauiPresentationVerificationMismatch("$.root", "valid", "invalid")
                 : MauiPresentationVerifier.Instance.Verify(context);
+    }
+
+    private sealed class AppLinkRecordingNavigator : IRouterNavigator
+    {
+        public List<RouterNavigationRequest> Calls { get; } = [];
+
+        public NavigationState CurrentState => NavigationState.Empty;
+
+        public AdamE.AppNav.History.NavigationHistory History =>
+            AdamE.AppNav.History.NavigationHistory.Empty;
+
+        public ValueTask<NavigationResult> NavigateAsync(
+            RouterNavigationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            Calls.Add(request);
+            return ValueTask.FromResult(new NavigationResult(
+                request.Route ?? new TestPageRoute("drained"),
+                new NavigationPlan(NavigationState.Empty),
+                NavigationState.Empty,
+                Presented: true));
+        }
+
+        public ValueTask<BackNavigationResult> BackAsync(
+            AdamE.AppNav.Back.BackNavigationRequest request,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public ValueTask<NavigationResult> ReconcileAsync(
+            NavigationReconciliation reconciliation,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public void Dispose()
+        {
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     private sealed class ControlledMainThreadDispatcher : IMauiMainThreadDispatcher
