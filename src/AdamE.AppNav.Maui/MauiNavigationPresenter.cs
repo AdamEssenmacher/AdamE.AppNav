@@ -135,6 +135,18 @@ internal sealed class MauiNavigationPresenter :
 
     public Window? AttachedWindow => _attachedWindow;
 
+    /// <summary>
+    /// Whether the presenter already holds logical presentation state for <paramref name="windowId"/>.
+    /// </summary>
+    /// <remarks>
+    /// Startup uses this to tell a recreated native host -- where this presenter retained the window across
+    /// destruction and can rebuild it -- from a freshly seeded navigator, whose
+    /// <c>RouterNavigatorFactoryOptions.InitialState</c> names a window this presenter has never presented.
+    /// The router reports the same state in both cases; only the presenter knows which one it is.
+    /// </remarks>
+    public bool HasPresentedWindow(string windowId) =>
+        !string.IsNullOrEmpty(windowId) && _lastState.FindWindow(windowId) is not null;
+
     public string? AttachedWindowId => _attachedWindowId;
 
     public Page? RootPage => CurrentPage;
