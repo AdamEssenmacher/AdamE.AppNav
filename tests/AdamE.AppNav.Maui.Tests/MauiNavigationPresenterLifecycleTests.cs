@@ -1148,6 +1148,45 @@ public sealed class MauiNavigationPresenterLifecycleTests
     }
 
     [Fact]
+    public async Task BranchHostUpdateDisposalFailureAfterEpochLossKeepsApplySuccessful()
+    {
+        var factory = new RecordingBranchHostFactory(MauiBranchHostPlacement.WindowRoot);
+        var fixture = new PresenterFixture(configurePresentation: options =>
+            options.BranchHosts.Add("custom-root", new MauiBranchHostRegistration(factory)));
+        var initial = new BranchHostNode(
+            "custom-root",
+            [
+                new NavigationBranch("home", "Home", Stack("home-stack", Entry("home"))),
+                new NavigationBranch("catalog", "Catalog", Stack("catalog-stack", Entry("catalog")))
+            ],
+            "home",
+            "home");
+        await fixture.Presenter.ApplyAsync(Plan(initial), Context(new TestPageRoute("home")));
+        RecordingBranchHost host = Assert.Single(factory.CreatedHosts);
+        var window = new Window();
+        await fixture.Presenter.AttachWindowAsync(window);
+        host.BlockAndFailNextUpdateDispose = true;
+
+        Task apply = fixture.Presenter.ApplyAsync(
+            Plan(initial with { SelectedBranchId = "catalog" }),
+            Context(new TestPageRoute("catalog"), Plan(initial).TargetState)).AsTask();
+        await host.UpdateDisposeEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        RaiseWindowLifecycleEvent(window, "Destroying");
+        host.ReleaseUpdateDispose.TrySetResult();
+
+        // Update disposal runs after the logical commit point. A failure observed once the epoch is gone must
+        // become the epoch-closed result, not an apply failure: rollback is skipped for a closed epoch, so
+        // throwing here would strand RouterNavigator on the previous state while the replacement window is
+        // rebuilt from the new one.
+        await apply.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var replacementWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(replacementWindow);
+        Assert.Equal("catalog", factory.CreatedHosts[^1].SelectedBranchId);
+        await fixture.Presenter.StartShutdown().WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
     public async Task ModalBranchHostReceivesModalContentPlacementForCreationAndReuse()
     {
         var factory = new RecordingBranchHostFactory(MauiBranchHostPlacement.ModalContent);
@@ -3826,6 +3865,9 @@ public sealed class MauiNavigationPresenterLifecycleTests
     {
         public MauiBranchHostPlacement SupportedPlacements => supportedPlacements;
 
+        /// <summary>Arms each host as it is created, before the presenter can drive it.</summary>
+        public Action<RecordingBranchHost>? ConfigureCreatedHost { get; set; }
+
         public List<RecordingBranchHost> CreatedHosts { get; } = [];
 
         public List<MauiBranchHostPlacement> CreationPlacements { get; } = [];
@@ -3852,6 +3894,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
                 return true;
             }, createHostPage?.Invoke(), SubstituteBranchPages);
             CreatedHosts.Add(host);
+            ConfigureCreatedHost?.Invoke(host);
             return ValueTask.FromResult<IMauiBranchHost>(host);
         }
     }
@@ -3893,6 +3936,22 @@ public sealed class MauiNavigationPresenterLifecycleTests
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public bool BlockNextCommit { get; set; }
+
+        public bool BlockAndFailNextUpdateDispose { get; set; }
+
+        public bool BlockNextUpdateRollback { get; set; }
+
+        public TaskCompletionSource UpdateDisposeEntered { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource UpdateRollbackEntered { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource ReleaseUpdateDispose { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource ReleaseUpdateRollback { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public TaskCompletionSource CommitEntered { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -4018,24 +4077,35 @@ public sealed class MauiNavigationPresenterLifecycleTests
                 _completed = true;
             }
 
-            public ValueTask RollbackAsync(CancellationToken cancellationToken = default)
+            public async ValueTask RollbackAsync(CancellationToken cancellationToken = default)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 RollbackCount++;
+                if (host.BlockNextUpdateRollback)
+                {
+                    host.BlockNextUpdateRollback = false;
+                    host.UpdateRollbackEntered.TrySetResult();
+                    await host.ReleaseUpdateRollback.Task;
+                }
+
                 if (!_completed)
                 {
                     host._branches = branches.ToArray();
                     host.SelectedBranchId = selectedBranchId;
                     _completed = true;
                 }
-
-                return ValueTask.CompletedTask;
             }
 
-            public ValueTask DisposeAsync()
+            public async ValueTask DisposeAsync()
             {
                 DisposeCount++;
-                return ValueTask.CompletedTask;
+                if (!host.BlockAndFailNextUpdateDispose)
+                    return;
+
+                host.BlockAndFailNextUpdateDispose = false;
+                host.UpdateDisposeEntered.TrySetResult();
+                await host.ReleaseUpdateDispose.Task;
+                throw new InvalidOperationException("Synthetic branch-host update disposal failure.");
             }
         }
     }

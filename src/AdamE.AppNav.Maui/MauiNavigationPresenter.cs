@@ -4371,6 +4371,19 @@ internal sealed class MauiNavigationPresenter :
                 _updatedPages.Add(page, entry);
         }
 
+        private void RecordEpochLossDuringCommit(Exception exception)
+        {
+            _presenter._diagnostics.Write(
+                NavigationDiagnosticEventKind.PresentationPageReleaseFailed,
+                _presenter.LifecycleOperationId(),
+                "A branch-host update failed after its native-tree epoch closed; the logical commit stands.",
+                new Dictionary<string, object?>
+                {
+                    [NavigationDiagnosticDataKeys.ExceptionType] = exception.GetType().FullName,
+                    [NavigationDiagnosticDataKeys.ExceptionMessage] = exception.Message
+                });
+        }
+
         public async ValueTask<bool> CommitAsync()
         {
             ThrowIfInvalidated();
@@ -4385,13 +4398,15 @@ internal sealed class MauiNavigationPresenter :
                             token => update.CommitAsync(token),
                             _operationCancellation);
                     }
-                    catch (OperationCanceledException) when (IsInvalidated)
+                    catch (Exception ex) when (IsInvalidated)
                     {
-                        // A cooperative commit observes epoch cancellation by throwing. That is the same
-                        // condition the epoch-closed result below reports, and it must stay a result rather
-                        // than an exception: _lastState has already advanced, so failing ApplyAsync here would
-                        // leave RouterNavigator on the previous state while the replacement window is rebuilt
-                        // from the new one. Caller-only cancellation still propagates.
+                        // Past this point _lastState has already advanced to the logical commit point, and
+                        // rollback is skipped for a closed epoch. Reporting failure would leave
+                        // RouterNavigator on the previous state while the replacement window is rebuilt from
+                        // the new one, so anything an update throws once its epoch is gone -- cooperative
+                        // cancellation or a genuine fault -- becomes the epoch-closed result. The failure is
+                        // still recorded. Failures with a live epoch, and caller-only cancellation, propagate.
+                        RecordEpochLossDuringCommit(ex);
                         return false;
                     }
 
@@ -4399,7 +4414,16 @@ internal sealed class MauiNavigationPresenter :
                         return false;
                 }
 
-                await DisposeBranchHostUpdatesAsync();
+                try
+                {
+                    await DisposeBranchHostUpdatesAsync();
+                }
+                catch (Exception ex) when (IsInvalidated)
+                {
+                    RecordEpochLossDuringCommit(ex);
+                    return false;
+                }
+
                 if (IsInvalidated)
                     return false;
             }
@@ -4636,22 +4660,26 @@ internal sealed class MauiNavigationPresenter :
             if (_branchHostUpdatesFinalized)
                 return;
 
-            if (!IsInvalidated)
+            for (var index = _branchHostUpdates.Count - 1; index >= 0; index--)
             {
-                for (var index = _branchHostUpdates.Count - 1; index >= 0; index--)
+                // Rechecked every iteration, not once before the loop: the epoch can close while an earlier
+                // rollback is suspended, and the boundary helper deliberately performs no post-await check.
+                // Remaining updates are then abandoned through disposal below rather than rolled back into a
+                // destroyed tree.
+                if (IsInvalidated)
+                    break;
+
+                IMauiBranchHostUpdate pending = _branchHostUpdates[index];
+                try
                 {
-                    IMauiBranchHostUpdate pending = _branchHostUpdates[index];
-                    try
-                    {
-                        await InvokeReleaseAcrossBoundaryAsync(
-                            _epoch,
-                            token => pending.RollbackAsync(token),
-                            CancellationToken.None);
-                    }
-                    catch (Exception ex)
-                    {
-                        _presenter.WritePageReleaseFailure(null, ex);
-                    }
+                    await InvokeReleaseAcrossBoundaryAsync(
+                        _epoch,
+                        token => pending.RollbackAsync(token),
+                        CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    _presenter.WritePageReleaseFailure(null, ex);
                 }
             }
 
