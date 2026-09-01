@@ -590,8 +590,9 @@ internal sealed class MauiNavigationPresenter :
                 if (ReferenceEquals(CurrentPage, candidateRoot))
                     CurrentPage = null;
 
-                if (ReferenceEquals(window.Page, candidateRoot) &&
-                    !ReferenceEquals(window.Page, previousWindowPage))
+                if (window.Page is Page installedCandidatePage &&
+                    candidateEpoch.Owns(installedCandidatePage) &&
+                    !ReferenceEquals(installedCandidatePage, previousWindowPage))
                 {
                     try
                     {
@@ -616,16 +617,17 @@ internal sealed class MauiNavigationPresenter :
                             consistencyException = _consistencyFailure;
                         }
 
-                        if (ReferenceEquals(window.Page, candidateRoot))
+                        if (window.Page is Page retainedCandidatePage &&
+                            candidateEpoch.Owns(retainedCandidatePage))
                         {
                             window.Destroying -= HandleWindowDestroying;
                             _pendingWindow = null;
                             _attachedWindow = window;
                             _attachedWindowId = windowId;
-                            CurrentPage = candidateRoot;
+                            CurrentPage = retainedCandidatePage;
                             _hostState = MauiPresenterHostState.Attached;
                             SubscribeWindowLifecycle(window);
-                            InvokeRootPageChanged(candidateRoot);
+                            InvokeRootPageChanged(retainedCandidatePage);
                         }
 
                         throw consistencyException;
@@ -1147,6 +1149,9 @@ internal sealed class MauiNavigationPresenter :
             }
             catch (Exception recoveryException)
             {
+                if (transaction.IsInvalidated)
+                    return;
+
                 var aggregate = new AggregateException(
                     "Presentation, rollback, and full-state recovery all failed.",
                     presentationException,
@@ -2454,6 +2459,9 @@ internal sealed class MauiNavigationPresenter :
         Page page,
         MauiNativeTreeEpoch? requiredEpoch)
     {
+        if (requiredEpoch is null)
+            _pageEpochs.TryGetValue(page, out requiredEpoch);
+
         var failures = new List<Exception>();
         await DetachPageTreeAsync(
             page,
@@ -2554,10 +2562,12 @@ internal sealed class MauiNavigationPresenter :
                 {
                     try
                     {
+                        CancellationToken releaseCancellation =
+                            requiredEpoch?.CancellationToken ?? CancellationToken.None;
                         if (IsPresentationPage(page))
-                            await _pageFactory.ReleasePresentationPageAsync(page);
+                            await _pageFactory.ReleasePresentationPageAsync(page, releaseCancellation);
                         else
-                            await _pageFactory.ReleasePageAsync(page);
+                            await _pageFactory.ReleasePageAsync(page, releaseCancellation);
 
                         if (!CanContinuePageRelease(requiredEpoch))
                             return;
@@ -3517,11 +3527,14 @@ internal sealed class MauiNavigationPresenter :
                     CancellationToken.None);
             }
 
-            _activeTransaction = null;
             CurrentPage = rebuiltRoot;
             SetAttachedWindowPage(rebuiltRoot);
             VerifyPresentation(state, operationId);
-            await recoveryTransaction.CommitAsync();
+            bool epochRemainedCurrent = await recoveryTransaction.CommitAsync();
+            if (!epochRemainedCurrent)
+                throw new MauiNativeTreeInvalidatedException();
+
+            _activeTransaction = null;
             _lastState = state;
             RebuildTrackingFromCurrentPage();
 

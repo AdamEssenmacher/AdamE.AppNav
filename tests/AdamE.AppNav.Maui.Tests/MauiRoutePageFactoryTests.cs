@@ -262,6 +262,36 @@ public sealed class MauiRoutePageFactoryTests
     }
 
     [Fact]
+    public async Task CancellationDuringReleaseStopsRemainingPageAccessButStillDisposesScope()
+    {
+        var gate = new GatedLifecycleHook(LifecyclePhase.Released);
+        var trailingHook = new CountingReleaseLifecycleHook();
+        var services = new ServiceCollection();
+        services.AddScoped<ScopedMarker>();
+        services.AddScoped<IMauiRoutePageLifecycleHook>(_ => gate);
+        services.AddScoped<IMauiRoutePageLifecycleHook>(_ => trailingHook);
+        services.AddTransient<ScopedPage>();
+        using ServiceProvider provider = services.BuildServiceProvider();
+        var options = new MauiRoutePresentationOptions { UseScopedPages = true };
+        options.Pages.MapPageFromServices<TestPageRoute, ScopedPage>();
+        var factory = new MauiRoutePageFactory(provider, options);
+        var bindingContext = new object();
+        var page = Assert.IsType<ScopedPage>(await factory.CreatePageAsync(Entry("release-cancellation")));
+        page.BindingContext = bindingContext;
+        using var cancellation = new CancellationTokenSource();
+
+        Task release = factory.ReleasePageAsync(page, cancellation.Token).AsTask();
+        await gate.Entered.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellation.Cancel();
+        gate.Complete();
+        await release;
+
+        Assert.Equal(0, trailingHook.ReleaseCount);
+        Assert.Same(bindingContext, page.BindingContext);
+        Assert.True(page.Marker.IsDisposed);
+    }
+
+    [Fact]
     public async Task LifecycleHookResolutionFailureDisposesUnattachedPageScope()
     {
         var services = new ServiceCollection();
@@ -639,6 +669,28 @@ public sealed class MauiRoutePageFactoryTests
         public ValueTask OnPageReleasedAsync(Page page, CancellationToken cancellationToken = default)
         {
             ReleasedOnMainThread = MainThread.IsMainThread;
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class CountingReleaseLifecycleHook : IMauiRoutePageLifecycleHook
+    {
+        public int ReleaseCount { get; private set; }
+
+        public ValueTask OnPageCreatedAsync(
+            Page page,
+            RouteEntry entry,
+            CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+
+        public ValueTask OnPageUpdatedAsync(
+            Page page,
+            RouteEntry entry,
+            MauiRoutePageUpdateContext context,
+            CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+
+        public ValueTask OnPageReleasedAsync(Page page, CancellationToken cancellationToken = default)
+        {
+            ReleaseCount++;
             return ValueTask.CompletedTask;
         }
     }

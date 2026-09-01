@@ -624,6 +624,46 @@ public sealed class MauiPresentationTransactionTests
     }
 
     [UIFact]
+    public async Task IgnoredReplacementRollbackRetainsCandidateDescendantInstalledByObserver()
+    {
+        var nativeOperations = new FaultingNativeOperations();
+        var factory = new InstrumentedRoutePageFactory();
+        var presenter = new MauiNavigationPresenter(factory, nativeOperations: nativeOperations);
+        NavigationState committedState = StackState("home", "detail");
+        await presenter.ApplyAsync(
+            new NavigationPlan(committedState),
+            Context("detail", NavigationState.Empty));
+        var destroyedWindow = new Window();
+        await presenter.AttachWindowAsync(destroyedWindow);
+        RaiseWindowDestroying(destroyedWindow);
+        var bootstrapPage = new ContentPage { Title = "bootstrap" };
+        var replacementWindow = new Window(bootstrapPage);
+        Page? retainedDescendant = null;
+        presenter.RootPageChanged += (_, page) =>
+        {
+            if (retainedDescendant is not null || page is not NavigationPage navigationPage)
+                return;
+
+            retainedDescendant = navigationPage.Navigation.NavigationStack[0];
+            navigationPage.Navigation.RemovePage(retainedDescendant);
+            replacementWindow.Page = retainedDescendant;
+            nativeOperations.IgnoreNextWindowPageMutation(replacementWindow);
+        };
+
+        await Assert.ThrowsAsync<MauiPresentationConsistencyException>(() =>
+            presenter.AttachWindowAsync(replacementWindow).AsTask());
+
+        Assert.NotNull(retainedDescendant);
+        Assert.Same(retainedDescendant, replacementWindow.Page);
+        Assert.Same(retainedDescendant, presenter.CurrentPage);
+        Assert.Same(replacementWindow, presenter.AttachedWindow);
+        Assert.Equal(0, factory.ReleaseCountFor(retainedDescendant));
+
+        await presenter.StartShutdown();
+        Assert.Equal(1, factory.ReleaseCountFor(retainedDescendant));
+    }
+
+    [UIFact]
     public async Task ReplacementAttachmentRejectsIgnoredWindowPageMutationAndRemainsRetryable()
     {
         var nativeOperations = new FaultingNativeOperations();
@@ -912,6 +952,49 @@ public sealed class MauiPresentationTransactionTests
             [MauiBranchHostPlacement.WindowRoot, MauiBranchHostPlacement.WindowRoot],
             creationPlacements);
         Assert.Equal(1, factory.ReleaseCountFor(Assert.Single(factory.CreatedPresentationPages)));
+        await presenter.StartShutdown();
+    }
+
+    [UIFact]
+    public async Task DestructionDuringRecoveryCommitCannotPublishTheRebuiltTree()
+    {
+        var nativeOperations = new FaultingNativeOperations();
+        var factory = new InstrumentedRoutePageFactory();
+        var branchHostFactory = new TrackingBranchHostFactory();
+        var presentationOptions = new MauiRoutePresentationOptions();
+        presentationOptions.BranchHosts.Add(
+            "main-tabs",
+            new MauiBranchHostRegistration(branchHostFactory));
+        var presenter = new MauiNavigationPresenter(
+            factory,
+            presentationOptions: presentationOptions,
+            nativeOperations: nativeOperations);
+        NavigationState previousState = BranchState("catalog", "catalog", "orders");
+        await presenter.ApplyAsync(new NavigationPlan(previousState), Context("catalog", NavigationState.Empty));
+        var window = new Window();
+        await presenter.AttachWindowAsync(window);
+        var rootChanges = new List<Page?>();
+        presenter.RootPageChanged += (_, page) => rootChanges.Add(page);
+        nativeOperations.FaultAfterMutation = NativeMutation.PushStack;
+        nativeOperations.PopFailuresRemaining = 1;
+        branchHostFactory.BlockNextCommit = true;
+
+        Task push = presenter.PushAsync<TestPresentationPage>(
+            "settings",
+            new MauiRoutePresentationPageOptions { Animated = false }).AsTask();
+        await branchHostFactory.BlockedCommitStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        RaiseWindowDestroying(window);
+        branchHostFactory.ReleaseBlockedCommit();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => push);
+        Assert.Null(presenter.CurrentPage);
+        Assert.Null(presenter.AttachedWindow);
+        Assert.Equal(new Page?[] { null }, rootChanges);
+        Assert.Equal(1, branchHostFactory.Updates[^1].DisposeCount);
+
+        var replacementWindow = new Window();
+        await presenter.AttachWindowAsync(replacementWindow);
+        Assert.Same(presenter.CurrentPage, replacementWindow.Page);
         await presenter.StartShutdown();
     }
 
@@ -2092,9 +2175,26 @@ public sealed class MauiPresentationTransactionTests
 
     private sealed class TrackingBranchHostFactory : IMauiBranchHostFactory
     {
+        private readonly TaskCompletionSource _blockedCommitStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _releaseBlockedCommit =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public MauiBranchHostPlacement SupportedPlacements => MauiBranchHostPlacement.All;
 
         public List<TrackingBranchHostUpdate> Updates { get; } = [];
+
+        public bool BlockNextCommit { get; set; }
+
+        public Task BlockedCommitStarted => _blockedCommitStarted.Task;
+
+        public void ReleaseBlockedCommit() => _releaseBlockedCommit.TrySetResult();
+
+        public async ValueTask BlockCommitAsync()
+        {
+            _blockedCommitStarted.TrySetResult();
+            await _releaseBlockedCommit.Task;
+        }
 
         public ValueTask<IMauiBranchHost> CreateAsync(
             MauiBranchHostCreationContext context,
@@ -2134,9 +2234,12 @@ public sealed class MauiPresentationTransactionTests
             _branches = context.Branches.ToArray();
             SelectedBranchId = context.SelectedBranchId;
             var update = new TrackingBranchHostUpdate(
+                factory,
                 this,
                 previousBranches,
-                previousSelectedBranchId);
+                previousSelectedBranchId,
+                factory.BlockNextCommit);
+            factory.BlockNextCommit = false;
             factory.Updates.Add(update);
             return ValueTask.FromResult<IMauiBranchHostUpdate>(update);
         }
@@ -2153,9 +2256,11 @@ public sealed class MauiPresentationTransactionTests
     }
 
     private sealed class TrackingBranchHostUpdate(
+        TrackingBranchHostFactory factory,
         TrackingBranchHost host,
         IReadOnlyList<MauiBranchHostBranch> previousBranches,
-        string? previousSelectedBranchId) : IMauiBranchHostUpdate
+        string? previousSelectedBranchId,
+        bool blockCommit) : IMauiBranchHostUpdate
     {
         private bool _committed;
 
@@ -2163,11 +2268,13 @@ public sealed class MauiPresentationTransactionTests
 
         public int DisposeCount { get; private set; }
 
-        public ValueTask CommitAsync(CancellationToken cancellationToken = default)
+        public async ValueTask CommitAsync(CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (blockCommit)
+                await factory.BlockCommitAsync();
+
             _committed = true;
-            return ValueTask.CompletedTask;
         }
 
         public ValueTask RollbackAsync(CancellationToken cancellationToken = default)

@@ -36,7 +36,13 @@ internal interface IMauiRoutePageFactory
 
     ValueTask ReleasePageAsync(Page page);
 
+    ValueTask ReleasePageAsync(Page page, CancellationToken cancellationToken) =>
+        ReleasePageAsync(page);
+
     ValueTask ReleasePresentationPageAsync(Page page);
+
+    ValueTask ReleasePresentationPageAsync(Page page, CancellationToken cancellationToken) =>
+        ReleasePresentationPageAsync(page);
 
     MauiPageAbandonment? CaptureAbandonment(Page page);
 }
@@ -239,13 +245,25 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
     public ValueTask ReleasePageAsync(Page page)
     {
         ArgumentNullException.ThrowIfNull(page);
-        return ReleaseCoreAsync(page);
+        return ReleaseCoreAsync(page, CancellationToken.None);
+    }
+
+    public ValueTask ReleasePageAsync(Page page, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(page);
+        return ReleaseCoreAsync(page, cancellationToken);
     }
 
     public ValueTask ReleasePresentationPageAsync(Page page)
     {
         ArgumentNullException.ThrowIfNull(page);
-        return ReleaseCoreAsync(page);
+        return ReleaseCoreAsync(page, CancellationToken.None);
+    }
+
+    public ValueTask ReleasePresentationPageAsync(Page page, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(page);
+        return ReleaseCoreAsync(page, cancellationToken);
     }
 
     public MauiPageAbandonment? CaptureAbandonment(Page page)
@@ -263,7 +281,7 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
         {
             try
             {
-                await ReleaseCoreAsync(page).ConfigureAwait(false);
+                await ReleaseCoreAsync(page, CancellationToken.None).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -287,7 +305,7 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
             throw new AggregateException("Page creation cleanup failed.", failures);
     }
 
-    private static async ValueTask ReleaseCoreAsync(Page page)
+    private static async ValueTask ReleaseCoreAsync(Page page, CancellationToken cancellationToken)
     {
         PageHandle? handle = GetPageHandle(page);
         if (handle is null)
@@ -311,9 +329,16 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
 
         foreach (IMauiRoutePageLifecycleHook hook in resources.Hooks)
         {
+            if (cancellationToken.IsCancellationRequested)
+                break;
+
             try
             {
-                await hook.OnPageReleasedAsync(page, CancellationToken.None);
+                await hook.OnPageReleasedAsync(page, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                break;
             }
             catch (Exception ex)
             {
@@ -321,13 +346,16 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
             }
         }
 
-        try
+        if (!cancellationToken.IsCancellationRequested)
         {
-            page.BindingContext = null;
-        }
-        catch (Exception ex)
-        {
-            failures.Add(ex);
+            try
+            {
+                page.BindingContext = null;
+            }
+            catch (Exception ex)
+            {
+                failures.Add(ex);
+            }
         }
 
         if (resources.Scope is not null)
