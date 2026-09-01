@@ -652,29 +652,13 @@ internal sealed class MauiNavigationPresenter :
             SubscribeWindowLifecycle(window);
             _activeTransaction = null;
 
-            // Lifecycle handlers are live from here, so a root-page observer can synchronously deactivate or
-            // stop the replacement window. Record what they observe instead of unconditionally foregrounding
-            // afterwards: dispatcher readiness survives destruction, so re-foregrounding a window that just
-            // backgrounded itself would let queued app links drain against it.
-            _observingPublicationLifecycle = true;
-            _publicationLifecycleForegrounded = true;
-            try
-            {
-                InvokeRootPageChanged(candidateRoot);
-                if (!EpochRemainsCurrent(candidateEpoch) ||
-                    !ReferenceEquals(_attachedWindow, window) || !ReferenceEquals(CurrentPage, candidateRoot) ||
-                    !ReferenceEquals(window.Page, candidateRoot))
-                {
-                    throw new MauiNativeTreeInvalidatedException();
-                }
+            MauiRootPublicationResult publication =
+                PublishRootPageChanged(candidateRoot, candidateEpoch, window);
+            if (!publication.Intact)
+                throw new MauiNativeTreeInvalidatedException();
 
-                _externalNavigationDispatcher?.SetForegrounded(_publicationLifecycleForegrounded);
-                _externalNavigationDispatcher?.MarkReady();
-            }
-            finally
-            {
-                _observingPublicationLifecycle = false;
-            }
+            _externalNavigationDispatcher?.SetForegrounded(publication.Foregrounded);
+            _externalNavigationDispatcher?.MarkReady();
         }
         catch (Exception attachmentException)
         {
@@ -2386,51 +2370,109 @@ internal sealed class MauiNavigationPresenter :
         _nativeOperations.SetWindowPage(_attachedWindow, page);
     }
 
-    private void InvokeRootPageChanged(Page? page)
+    /// <summary>
+    /// The outcome of publishing a root page to application observers.
+    /// </summary>
+    /// <param name="Intact">Whether every invariant the caller depends on survived the callbacks.</param>
+    /// <param name="Foregrounded">The host foreground state observed during the callbacks.</param>
+    private readonly record struct MauiRootPublicationResult(bool Intact, bool Foregrounded);
+
+    /// <summary>
+    /// Publishes a root page to observers while holding the complete set of invariants the caller depends on.
+    /// </summary>
+    /// <remarks>
+    /// Root-page observers are application code and may reenter: destroying the window, replacing its page,
+    /// deactivating it, or navigating. Each of those invalidates something the caller is about to rely on, and
+    /// validating only after the whole invocation list has run is doubly wrong -- later observers are handed a
+    /// page that is no longer the root, and the caller learns too late. This is the single place that knows
+    /// what "still valid" means during publication: it checks the whole invariant before every callback, stops
+    /// as soon as it breaks, and records lifecycle transitions rather than letting the caller overwrite them.
+    /// <para>
+    /// Publishing root loss (a null <paramref name="page"/>) is unconditional -- every observer must hear it.
+    /// </para>
+    /// </remarks>
+    private MauiRootPublicationResult PublishRootPageChanged(
+        Page? page,
+        MauiNativeTreeEpoch? epoch,
+        Window? expectedWindow)
     {
-        EventHandler<Page?>? handlers = RootPageChanged;
-        if (handlers is null)
-            return;
-
-        // A subscriber can synchronously destroy the window, which publishes root loss reentrantly. The
-        // remaining subscribers on this captured invocation list must not then receive a page from the tree
-        // that just closed. Publishing loss itself (page is null) always runs to completion.
-        MauiNativeTreeEpoch? owningEpoch = page is null ? null : _nativeTreeEpoch;
-
-        // An observer can also replace the window's page outright, which leaves the epoch open but makes the
-        // page being published no longer the native root. Only enforce this where it held on entry, so call
-        // sites that legitimately publish before installing a root are unaffected.
-        bool trackNativeRoot = page is not null &&
-                               _attachedWindow is { } entryWindow &&
-                               ReferenceEquals(entryWindow.Page, page);
-        foreach (Delegate handler in handlers.GetInvocationList())
+        bool previousObserving = _observingPublicationLifecycle;
+        bool previousForegrounded = _publicationLifecycleForegrounded;
+        _observingPublicationLifecycle = true;
+        _publicationLifecycleForegrounded = true;
+        try
         {
-            if (handler is not EventHandler<Page?> typedHandler)
-                continue;
-            if (owningEpoch is not null && !EpochRemainsCurrent(owningEpoch))
-                return;
-            if (trackNativeRoot && !ReferenceEquals(_attachedWindow?.Page, page))
-                return;
+            EventHandler<Page?>? handlers = RootPageChanged;
+            if (handlers is null)
+                return new MauiRootPublicationResult(true, _publicationLifecycleForegrounded);
 
-            try
+            // Only enforce the native-root invariant where it actually held on entry, so call sites that
+            // legitimately publish before installing a root are unaffected.
+            bool trackNativeRoot = page is not null &&
+                                   expectedWindow is not null &&
+                                   ReferenceEquals(expectedWindow.Page, page);
+
+            foreach (Delegate handler in handlers.GetInvocationList())
             {
-                typedHandler(this, page);
+                if (handler is not EventHandler<Page?> typedHandler)
+                    continue;
+                if (!RootPublicationRemainsIntact(page, epoch, expectedWindow, trackNativeRoot))
+                    return new MauiRootPublicationResult(false, _publicationLifecycleForegrounded);
+
+                try
+                {
+                    typedHandler(this, page);
+                }
+                catch (Exception ex)
+                {
+                    _diagnostics.Write(
+                        NavigationDiagnosticEventKind.DiagnosticObserverFailed,
+                        LifecycleOperationId(),
+                        "A root-page observer failed.",
+                        new Dictionary<string, object?>
+                        {
+                            [NavigationDiagnosticDataKeys.ExceptionType] = ex.GetType().FullName,
+                            [NavigationDiagnosticDataKeys.ExceptionMessage] = ex.Message
+                        },
+                        phase: NavigationDiagnosticPhase.Diagnostics);
+                }
             }
-            catch (Exception ex)
-            {
-                _diagnostics.Write(
-                    NavigationDiagnosticEventKind.DiagnosticObserverFailed,
-                    LifecycleOperationId(),
-                    "A root-page observer failed.",
-                    new Dictionary<string, object?>
-                    {
-                        [NavigationDiagnosticDataKeys.ExceptionType] = ex.GetType().FullName,
-                        [NavigationDiagnosticDataKeys.ExceptionMessage] = ex.Message
-                    },
-                    phase: NavigationDiagnosticPhase.Diagnostics);
-            }
+
+            return new MauiRootPublicationResult(
+                RootPublicationRemainsIntact(page, epoch, expectedWindow, trackNativeRoot),
+                _publicationLifecycleForegrounded);
+        }
+        finally
+        {
+            _observingPublicationLifecycle = previousObserving;
+            if (previousObserving)
+                _publicationLifecycleForegrounded = previousForegrounded;
         }
     }
+
+    /// <summary>
+    /// The complete publication invariant, in one place.
+    /// </summary>
+    private bool RootPublicationRemainsIntact(
+        Page? page,
+        MauiNativeTreeEpoch? epoch,
+        Window? expectedWindow,
+        bool trackNativeRoot)
+    {
+        if (epoch is not null && !EpochRemainsCurrent(epoch))
+            return false;
+        if (expectedWindow is null)
+            return true;
+        if (!ReferenceEquals(_attachedWindow, expectedWindow))
+            return false;
+        if (page is not null && !ReferenceEquals(CurrentPage, page))
+            return false;
+
+        return !trackNativeRoot || ReferenceEquals(expectedWindow.Page, page);
+    }
+
+    private void InvokeRootPageChanged(Page? page) =>
+        PublishRootPageChanged(page, page is null ? null : _nativeTreeEpoch, expectedWindow: null);
 
     private Page? ResolveTopPresentedPage(Page? page)
     {
