@@ -1227,6 +1227,8 @@ public sealed class AppNavStartupServiceTests
         }
 
         public ValueTask<BackNavigationResult> BackAsync(BackNavigationRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask RefreshPresentationAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
         public ValueTask<NavigationResult> ReconcileAsync(NavigationReconciliation reconciliation, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public void Dispose() { }
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
