@@ -42,4 +42,8 @@ public interface IRouterNavigator : IDisposable, IAsyncDisposable
     ValueTask<NavigationResult> ReconcileAsync(
         NavigationReconciliation reconciliation,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Reapplies accepted state after native host recreation, without replanning or changing history.</summary>
+    /// <remarks>Serialized with navigation and shutdown. The presenter must still verify native completion.</remarks>
+    ValueTask RefreshPresentationAsync(CancellationToken cancellationToken = default);
 }

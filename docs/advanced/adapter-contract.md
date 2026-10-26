@@ -36,6 +36,11 @@ the logical target consistently. The built-in MAUI adapter uses one anchor
 pages; another host can choose a different artifact model.
 
 The presenter must leave logical state uncommitted on failure or cancellation.
+After recreating native host artifacts, call `IRouterNavigator.RefreshPresentationAsync`.
+The router serializes refresh behind pending operations, then reapplies its current
+accepted state without planning a new route or changing history. Do not reapply a
+privately cached target outside that operation: it may precede or follow a concurrent
+logical commit. The adapter still owns native epochs and cancellation while detached.
 Reconciliation events contain the observed target state, a host-neutral source,
 optional route, and reason. Disposal detaches events and stops new work;
 asynchronous disposal waits for accepted work and adapter cleanup. Adapters may
