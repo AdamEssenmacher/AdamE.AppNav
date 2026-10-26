@@ -1006,7 +1006,7 @@ public sealed partial class RepositoryContractTests
             IsExternalLink(target),
             $"Packaged documentation link '{target}' must be absolute."));
         Assert.Contains("<IncludeSymbols>true</IncludeSymbols>", buildProps, StringComparison.Ordinal);
-        Assert.Contains("Microsoft.SourceLink.GitHub", buildProps, StringComparison.Ordinal);
+        Assert.Contains("<PublishRepositoryUrl>true</PublishRepositoryUrl>", buildProps, StringComparison.Ordinal);
         Assert.Contains("<AppNavDefaultVersion>0.1.0-preview.local</AppNavDefaultVersion>", buildProps, StringComparison.Ordinal);
         Assert.Contains("Stable AppNav packages require AppNavStableRelease=true", buildProps, StringComparison.Ordinal);
         Assert.Contains("<GenerateDocumentationFile>true</GenerateDocumentationFile>", coreProject, StringComparison.Ordinal);

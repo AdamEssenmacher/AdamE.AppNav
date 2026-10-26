@@ -28,7 +28,6 @@
 
     <ItemGroup Condition="$([System.String]::Copy('$(PackageId)').StartsWith('AdamE.AppNav'))">
         <None Include="$(MSBuildThisFileDirectory)PACKAGE.md" Pack="true" PackagePath="/" Visible="false"/>
-        <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All"/>
     </ItemGroup>
 
     <Target Name="ValidateAppNavPackageVersion"
