@@ -703,7 +703,7 @@ public sealed class MauiPresentationTransactionTests
 
         Task shutdown = presenter.StartShutdown();
         Assert.False(shutdown.IsCompleted);
-        WaitForShutdownCancellationRequested(presenter);
+        WaitForShutdownCancellationPropagated(presenter);
         nativeOperations.ReleaseBlockedPush();
 
         Exception cancellation = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => push);
@@ -851,7 +851,7 @@ public sealed class MauiPresentationTransactionTests
 
         Task shutdown = presenter.StartShutdown();
         Assert.False(shutdown.IsCompleted);
-        WaitForShutdownCancellationRequested(presenter);
+        WaitForShutdownCancellationPropagated(presenter);
         nativeOperations.ReleaseBlockedPush();
 
         Exception cancellation = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => apply);
@@ -1069,7 +1069,7 @@ public sealed class MauiPresentationTransactionTests
         await MauiNativeNavigationOperations.Instance.PopAsync(navigationPage, animated: false);
 
         Task shutdown = presenter.StartShutdown();
-        WaitForShutdownCancellationRequested(presenter);
+        WaitForShutdownCancellationPropagated(presenter);
         nativeOperations.ReleaseBlockedPushAfterMutation();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => apply);
@@ -1122,15 +1122,16 @@ public sealed class MauiPresentationTransactionTests
             .ToArray();
     }
 
-    private static void WaitForShutdownCancellationRequested(MauiNavigationPresenter presenter)
+    // Shutdown uses CancelAsync, which sets IsCancellationRequested before its callbacks run on the thread pool.
+    // Operation tokens are linked to the shutdown token through those callbacks, so wait for them to finish.
+    private static void WaitForShutdownCancellationPropagated(MauiNavigationPresenter presenter)
     {
         FieldInfo field = typeof(MauiNavigationPresenter).GetField(
-            "_shutdownCancellation",
+            "_shutdownCancellationCompleted",
             BindingFlags.Instance | BindingFlags.NonPublic) ??
-            throw new InvalidOperationException("Shutdown cancellation source was not found.");
-        var cancellation = Assert.IsType<CancellationTokenSource>(field.GetValue(presenter));
+            throw new InvalidOperationException("Shutdown cancellation completion flag was not found.");
         Assert.True(SpinWait.SpinUntil(
-            () => cancellation.IsCancellationRequested,
+            () => field.GetValue(presenter) is true,
             TimeSpan.FromSeconds(5)));
     }
 
