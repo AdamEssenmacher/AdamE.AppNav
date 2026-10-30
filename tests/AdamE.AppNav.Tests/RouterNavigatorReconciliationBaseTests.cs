@@ -90,20 +90,20 @@ public sealed class RouterNavigatorReconciliationBaseTests
     [Fact]
     public async Task QueuedPresenterReconciliationIsRejectedWhenNavigationCommitsFirst()
     {
-        var presenter = new BlockingNavigatePresenter();
+        var presenter = new BlockingPresenter();
         var events = new List<NavigationDiagnosticEventKind>();
         RouterNavigator navigator = CreateNavigator(presenter, events);
         Task<NavigationResult> navigation = navigator
             .NavigateAsync(new TestRoutes.StoreRoute("contoso"))
             .AsTask();
-        await presenter.NavigateStarted;
+        await presenter.BlockedApplyStarted;
 
         presenter.RequestReconciliation(new NavigationReconciliation(
             InitialState,
             ReconciledState,
             NavigationReconciliationSource.HostBack,
             new TestRoutes.CatalogRoute("northwind")));
-        presenter.ReleaseNavigate();
+        presenter.ReleaseBlockedApply();
         NavigationResult navigated = await navigation;
         await Assert.ThrowsAsync<StaleNavigationReconciliationException>(navigator.WhenReconciliationIdleAsync);
 
@@ -118,20 +118,20 @@ public sealed class RouterNavigatorReconciliationBaseTests
     [Fact]
     public async Task QueuedPresenterReconciliationCommitsWhenBasedOnTheNavigationItWaitedFor()
     {
-        var presenter = new BlockingNavigatePresenter();
+        var presenter = new BlockingPresenter();
         var events = new List<NavigationDiagnosticEventKind>();
         RouterNavigator navigator = CreateNavigator(presenter, events);
         Task<NavigationResult> navigation = navigator
             .NavigateAsync(new TestRoutes.StoreRoute("contoso"))
             .AsTask();
-        await presenter.NavigateStarted;
+        await presenter.BlockedApplyStarted;
 
         presenter.RequestReconciliation(new NavigationReconciliation(
             presenter.AppliedPlans[^1].TargetState,
             ReconciledState,
             NavigationReconciliationSource.HostBack,
             new TestRoutes.CatalogRoute("northwind")));
-        presenter.ReleaseNavigate();
+        presenter.ReleaseBlockedApply();
         await navigation;
         await navigator.WhenReconciliationIdleAsync();
 
@@ -144,7 +144,7 @@ public sealed class RouterNavigatorReconciliationBaseTests
     [Fact]
     public async Task ChainedPresenterReconciliationsCommitInOrder()
     {
-        var presenter = new BlockingNavigatePresenter();
+        var presenter = new BlockingPresenter();
         var events = new List<NavigationDiagnosticEventKind>();
         RouterNavigator navigator = CreateNavigator(presenter, events);
         NavigationState finalState = StackState("store", new TestRoutes.StoreRoute("contoso"));
@@ -161,6 +161,34 @@ public sealed class RouterNavigatorReconciliationBaseTests
 
         Assert.Same(finalState, navigator.CurrentState);
         Assert.Equal(2, navigator.History.Entries.Count);
+        Assert.DoesNotContain(NavigationDiagnosticEventKind.ReconciliationRejected, events);
+    }
+
+    [Fact]
+    public async Task ReconciliationQueuedBehindRefreshCommitsBecauseRefreshKeepsTheBaseState()
+    {
+        var presenter = new BlockingPresenter(NavigationPlanKind.Refresh);
+        var events = new List<NavigationDiagnosticEventKind>();
+        RouterNavigator navigator = CreateNavigator(presenter, events);
+        Task refresh = navigator.RefreshPresentationAsync().AsTask();
+        await presenter.BlockedApplyStarted;
+
+        presenter.RequestReconciliation(new NavigationReconciliation(
+            InitialState,
+            ReconciledState,
+            NavigationReconciliationSource.HostBack,
+            new TestRoutes.CatalogRoute("northwind")));
+        presenter.ReleaseBlockedApply();
+        await refresh;
+        await navigator.WhenReconciliationIdleAsync();
+
+        Assert.Same(InitialState, presenter.AppliedPlans[0].TargetState);
+        Assert.Equal(
+            new[] { NavigationPlanKind.Refresh, NavigationPlanKind.Reconcile },
+            presenter.AppliedPlans.Select(plan => plan.Kind));
+        Assert.Same(ReconciledState, navigator.CurrentState);
+        Assert.Single(navigator.History.Entries);
+        Assert.Contains(NavigationDiagnosticEventKind.ReconciliationCompleted, events);
         Assert.DoesNotContain(NavigationDiagnosticEventKind.ReconciliationRejected, events);
     }
 
@@ -204,23 +232,23 @@ public sealed class RouterNavigatorReconciliationBaseTests
                     TestNavigationState.Entry(entryId, route))));
     }
 
-    private sealed class BlockingNavigatePresenter : INavigationPresenter
+    private sealed class BlockingPresenter : INavigationPresenter
     {
         private readonly RecordingNavigationPresenter _inner = new();
-        private readonly TaskCompletionSource<bool> _navigateStarted =
+        private readonly TaskCompletionSource<bool> _blockedApplyStarted =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private readonly TaskCompletionSource<bool> _releaseNavigate =
+        private readonly TaskCompletionSource<bool> _releaseBlockedApply =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public BlockingNavigatePresenter()
+        public BlockingPresenter(NavigationPlanKind blockedKind = NavigationPlanKind.Navigate)
         {
             _inner.OnApplyAsync = async (plan, _, _) =>
             {
-                if (plan.Kind != NavigationPlanKind.Navigate)
+                if (plan.Kind != blockedKind)
                     return;
 
-                _navigateStarted.TrySetResult(true);
-                await _releaseNavigate.Task;
+                _blockedApplyStarted.TrySetResult(true);
+                await _releaseBlockedApply.Task;
             };
         }
 
@@ -230,7 +258,7 @@ public sealed class RouterNavigatorReconciliationBaseTests
             remove => _inner.ReconciliationRequested -= value;
         }
 
-        public Task NavigateStarted => _navigateStarted.Task;
+        public Task BlockedApplyStarted => _blockedApplyStarted.Task;
 
         public IReadOnlyList<NavigationPlan> AppliedPlans => _inner.AppliedPlans;
 
@@ -247,9 +275,9 @@ public sealed class RouterNavigatorReconciliationBaseTests
             _inner.RequestReconciliation(reconciliation);
         }
 
-        public void ReleaseNavigate()
+        public void ReleaseBlockedApply()
         {
-            _releaseNavigate.TrySetResult(true);
+            _releaseBlockedApply.TrySetResult(true);
         }
     }
 }
