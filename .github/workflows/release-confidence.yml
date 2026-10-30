@@ -55,9 +55,9 @@ jobs:
 
   analyzer-pack:
     name: Supported targets, analyzers, and packages
-    runs-on: macos-26
+    runs-on: xcode-27
     env:
-      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v5
@@ -79,9 +79,9 @@ jobs:
 
   maccatalyst-nativeaot:
     name: Mac Catalyst NativeAOT
-    runs-on: macos-26
+    runs-on: xcode-27
     env:
-      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v5
@@ -117,9 +117,9 @@ jobs:
 
   ios-linked:
     name: iOS arm64 linked publish
-    runs-on: macos-26
+    runs-on: xcode-27
     env:
-      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v5
@@ -135,9 +135,9 @@ jobs:
 
   maccatalyst-platform-tests:
     name: Mac Catalyst platform tests
-    runs-on: macos-26
+    runs-on: xcode-27
     env:
-      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v5
@@ -153,9 +153,9 @@ jobs:
 
   ios-platform-tests:
     name: iOS latest simulator platform tests
-    runs-on: macos-26
+    runs-on: xcode-27
     env:
-      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
     if: >-
       github.event_name == 'schedule' ||
       (github.event_name == 'workflow_dispatch' &&
