@@ -323,6 +323,8 @@ publish_ios() {
     -o "$output"
 }
 
+# IL2037 comes from MAUI's Apple assemblies under the 27.x SDK packs (dotnet/macios#26969, fixed upstream
+# but not yet in a .NET 10 servicing release). Remove it from both allowances once that release is pinned.
 publish_maccatalyst() {
   local output="$ARTIFACT_ROOT/native/maccatalyst-arm64"
   prepare_output "$output"
@@ -335,7 +337,7 @@ publish_maccatalyst() {
     -p:CodesignKey=- \
     -p:CodesignProvision= \
     -warnaserror \
-    -warnnotaserror:IL2104,IL3053 \
+    -warnnotaserror:IL2104,IL3053,IL2037 \
     -o "$output"
 }
 

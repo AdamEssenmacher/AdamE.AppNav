@@ -35,10 +35,10 @@ testing](03-application-architecture-and-testing.md).
 
 ## Requirements
 
-- .NET SDK `10.0.400`
-- MAUI workload set `10.0.302.1`
+- .NET SDK `10.0.403`
+- MAUI workload set `10.0.402.1`
 - JDK 21 for Android
-- Android API 28+, iOS 15+, or Mac Catalyst 15+
+- Android API 28+, iOS 15+, or Mac Catalyst 17+
 
 The repository `global.json` pins the SDK and workload set. Preview packages are
 planned as GitHub prerelease assets and are not published to NuGet.org. This

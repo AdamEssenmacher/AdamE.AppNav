@@ -16,7 +16,7 @@ identity.
 | `AdamE.AppNav.Maui` | MAUI page mapping, native presentation, lifecycle ingress, startup, and file-backed deferred navigation |
 
 `AdamE.AppNav` targets plain `net10.0`. The MAUI package supports Android 28+,
-iOS 15+, and Mac Catalyst 15+ in this preview.
+iOS 15+, and Mac Catalyst 17+ in this preview.
 
 The preview does not support Windows MAUI, `Microsoft.Maui.Controls.Shell`,
 Shell routing, Prism navigation, mixed ownership of one navigation surface,

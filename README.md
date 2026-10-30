@@ -27,8 +27,8 @@ they appear in the sample.
 
 The target release is `0.1.0-preview.1`.
 
-- .NET SDK: `10.0.400`
-- MAUI workload set: `10.0.302.1`
+- .NET SDK: `10.0.403`
+- MAUI workload set: `10.0.402.1`
 - Android: API 28+
 - iOS: 15+
 - Mac Catalyst: 15+
