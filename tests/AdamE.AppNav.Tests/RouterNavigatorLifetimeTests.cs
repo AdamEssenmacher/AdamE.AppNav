@@ -76,6 +76,7 @@ public sealed class RouterNavigatorLifetimeTests
                     "stack",
                     TestNavigationState.Entry("catalog", new TestRoutes.CatalogRoute("northwind")))));
         presenter.RequestReconciliation(new NavigationReconciliation(
+            navigator.CurrentState,
             reconciledState,
             NavigationReconciliationSource.HostBack,
             new TestRoutes.CatalogRoute("northwind")));

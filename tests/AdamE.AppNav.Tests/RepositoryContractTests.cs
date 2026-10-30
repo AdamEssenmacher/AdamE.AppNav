@@ -948,16 +948,17 @@ public sealed partial class RepositoryContractTests
         Assert.Contains("run-android-api28-platform-tests", workflow, StringComparison.Ordinal);
         Assert.Contains("reactivecircus/android-emulator-runner", workflow, StringComparison.Ordinal);
         Assert.Contains("runs-on: macos-26", workflow, StringComparison.Ordinal);
+        Assert.Contains("runs-on: xcode-27", workflow, StringComparison.Ordinal);
         Assert.DoesNotContain("runs-on: macos-latest", workflow, StringComparison.Ordinal);
         Assert.Contains("global-json-file: global.json", workflow, StringComparison.Ordinal);
         Assert.Contains(
-            "DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer",
+            "DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer",
             workflow,
             StringComparison.Ordinal);
         Assert.Contains("actions/checkout@v7", workflow, StringComparison.Ordinal);
         Assert.Contains("actions/setup-dotnet@v5", workflow, StringComparison.Ordinal);
         Assert.Contains("actions/upload-artifact@v7", workflow, StringComparison.Ordinal);
-        Assert.Contains("-warnnotaserror:IL2104,IL3053", verifier, StringComparison.Ordinal);
+        Assert.Contains("-warnnotaserror:IL2104,IL3053,IL2037", verifier, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1022,9 +1023,9 @@ public sealed partial class RepositoryContractTests
     {
         var globalJson = File.ReadAllText(Path.Combine(RepositoryRoot(), "global.json"));
 
-        Assert.Contains("\"version\": \"10.0.400\"", globalJson, StringComparison.Ordinal);
+        Assert.Contains("\"version\": \"10.0.403\"", globalJson, StringComparison.Ordinal);
         Assert.Contains("\"rollForward\": \"latestFeature\"", globalJson, StringComparison.Ordinal);
-        Assert.Contains("\"version\": \"10.0.302.1\"", globalJson, StringComparison.Ordinal);
+        Assert.Contains("\"workloadVersion\": \"10.0.402.1\"", globalJson, StringComparison.Ordinal);
         Assert.False(File.Exists(Path.Combine(RepositoryRoot(), "eng", "sdk", "net9", "global.json")));
     }
 

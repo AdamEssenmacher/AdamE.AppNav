@@ -139,6 +139,12 @@ Native host changes are reconciled with host-neutral sources:
 
 Cancelled native gestures do not commit logical state.
 
+Every reconciliation names the committed state it changes from
+(`BaseState`) and the state the host now shows (`TargetState`). It waits
+behind any in-flight navigation; if that navigation commits first, the
+reconciliation is rejected with `StaleNavigationReconciliationException` and a
+`ReconciliationRejected` diagnostic rather than resurrecting the older state.
+
 A host-dispatched Back request is not reconciliation. It runs the ordinary Back
 pipeline, including `IBackNavigationPolicy`, and records the `HostBack` request
 source in presentation context and history, so a hardware or system Back is

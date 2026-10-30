@@ -741,6 +741,7 @@ public sealed class DiagnosticsTests
                     }, "main");
                     NavigationResult result = await navigator.ReconcileAsync(
                         new NavigationReconciliation(
+                            navigator.CurrentState,
                             targetState,
                             NavigationReconciliationSource.HostBack,
                             route,
@@ -782,6 +783,7 @@ public sealed class DiagnosticsTests
         }, "main");
 
         await navigator.ReconcileAsync(new NavigationReconciliation(
+            navigator.CurrentState,
             state,
             NavigationReconciliationSource.HostBack,
             new TestRoutes.StoreRoute("northwind"),

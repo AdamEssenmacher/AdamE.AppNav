@@ -544,6 +544,21 @@ internal sealed class RouterNavigator : IRouterNavigator
             RouterNavigationDiagnostics.Data((NavigationDiagnosticDataKeys.ReconciliationSource,
                 reconciliation.Source.ToString())));
 
+        if (!ReferenceEquals(reconciliation.BaseState, CurrentState))
+        {
+            _diagnostics.Write(
+                NavigationDiagnosticEventKind.ReconciliationRejected,
+                operationId,
+                reconciliation.Source.ToString(),
+                RouterNavigationDiagnostics.Duration(timer,
+                    (NavigationDiagnosticDataKeys.ReconciliationSource, reconciliation.Source.ToString())));
+            activity.SetStatus(ActivityStatusCode.Error);
+            throw new StaleNavigationReconciliationException(
+                reconciliation,
+                CurrentState,
+                "The navigation reconciliation was rejected because the router state changed after the host observed it.");
+        }
+
         try
         {
             NavigationStateValidator.ValidatePlan(plan, "Navigation reconciliation");
@@ -665,6 +680,10 @@ internal sealed class RouterNavigator : IRouterNavigator
         try
         {
             await task.ConfigureAwait(false);
+        }
+        catch (StaleNavigationReconciliationException)
+        {
+            // The rejection was already reported as ReconciliationRejected; it is not a failure.
         }
         catch (Exception ex)
         {

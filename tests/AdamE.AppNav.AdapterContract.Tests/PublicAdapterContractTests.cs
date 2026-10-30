@@ -127,6 +127,7 @@ public sealed class PublicAdapterContractTests
             StackState(new ContractRoute("unused")));
 
         presenter.RequestReconciliation(new NavigationReconciliation(
+            navigator.CurrentState,
             reconciledState,
             NavigationReconciliationSource.BranchChanged,
             new ContractRoute("catalog"),
@@ -156,6 +157,7 @@ public sealed class PublicAdapterContractTests
         Assert.Equal(0, presenter.ReconciliationHandlerCount);
         Assert.False(presenter.Disposed);
         presenter.RequestReconciliation(new NavigationReconciliation(
+            navigator.CurrentState,
             targetState,
             NavigationReconciliationSource.HostBack,
             new ContractRoute("home")));

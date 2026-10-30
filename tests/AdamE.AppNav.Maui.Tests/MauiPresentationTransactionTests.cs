@@ -703,7 +703,7 @@ public sealed class MauiPresentationTransactionTests
 
         Task shutdown = presenter.StartShutdown();
         Assert.False(shutdown.IsCompleted);
-        WaitForShutdownCancellationRequested(presenter);
+        WaitForShutdownCancellationPropagated(presenter);
         nativeOperations.ReleaseBlockedPush();
 
         Exception cancellation = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => push);
@@ -851,7 +851,7 @@ public sealed class MauiPresentationTransactionTests
 
         Task shutdown = presenter.StartShutdown();
         Assert.False(shutdown.IsCompleted);
-        WaitForShutdownCancellationRequested(presenter);
+        WaitForShutdownCancellationPropagated(presenter);
         nativeOperations.ReleaseBlockedPush();
 
         Exception cancellation = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => apply);
@@ -881,8 +881,9 @@ public sealed class MauiPresentationTransactionTests
         };
         nativeOperations.BlockNextPushAfterMutation = true;
 
+        var settingsPlan = new NavigationPlan(StackState("home", "settings"));
         Task apply = presenter.ApplyAsync(
-            new NavigationPlan(StackState("home", "settings")),
+            settingsPlan,
             Context("settings", initialState)).AsTask();
         await nativeOperations.BlockedPushAfterMutationStarted.WaitAsync(TimeSpan.FromSeconds(5));
         Page settingsPage = navigationPage.Navigation.NavigationStack[^1];
@@ -896,6 +897,7 @@ public sealed class MauiPresentationTransactionTests
         NavigationReconciliation reconciliation = Assert.Single(reconciliations);
         var effectiveStack = Assert.IsType<StackNode>(reconciliation.TargetState.ActiveWindow?.Root);
         Assert.Equal(["home"], effectiveStack.Entries.Select(entry => entry.Id));
+        Assert.Same(settingsPlan.TargetState, reconciliation.BaseState);
         Assert.Equal(["home"], NativeRouteEntryIds(navigationPage));
         Assert.Equal(NavigationReconciliationSource.HostBack, reconciliation.Source);
         Assert.Equal(1, factory.ReleaseCountFor(detailPage));
@@ -993,13 +995,15 @@ public sealed class MauiPresentationTransactionTests
             reconciliationPublished.TrySetResult();
         };
 
+        var settingsPlan = new NavigationPlan(StackState("home", "settings"));
         await presenter.ApplyAsync(
-            new NavigationPlan(StackState("home", "settings")),
+            settingsPlan,
             Context("settings", initialState));
         await reconciliationPublished.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         Page settingsPage = factory.CreatedPages[^1];
         NavigationReconciliation reconciliation = Assert.Single(reconciliations);
+        Assert.Same(settingsPlan.TargetState, reconciliation.BaseState);
         var effectiveStack = Assert.IsType<StackNode>(reconciliation.TargetState.ActiveWindow?.Root);
         Assert.Equal(["home"], effectiveStack.Entries.Select(entry => entry.Id));
         Assert.Equal(["home"], NativeRouteEntryIds(navigationPage));
@@ -1065,7 +1069,7 @@ public sealed class MauiPresentationTransactionTests
         await MauiNativeNavigationOperations.Instance.PopAsync(navigationPage, animated: false);
 
         Task shutdown = presenter.StartShutdown();
-        WaitForShutdownCancellationRequested(presenter);
+        WaitForShutdownCancellationPropagated(presenter);
         nativeOperations.ReleaseBlockedPushAfterMutation();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => apply);
@@ -1118,15 +1122,16 @@ public sealed class MauiPresentationTransactionTests
             .ToArray();
     }
 
-    private static void WaitForShutdownCancellationRequested(MauiNavigationPresenter presenter)
+    // Shutdown uses CancelAsync, which sets IsCancellationRequested before its callbacks run on the thread pool.
+    // Operation tokens are linked to the shutdown token through those callbacks, so wait for them to finish.
+    private static void WaitForShutdownCancellationPropagated(MauiNavigationPresenter presenter)
     {
         FieldInfo field = typeof(MauiNavigationPresenter).GetField(
-            "_shutdownCancellation",
+            "_shutdownCancellationCompleted",
             BindingFlags.Instance | BindingFlags.NonPublic) ??
-            throw new InvalidOperationException("Shutdown cancellation source was not found.");
-        var cancellation = Assert.IsType<CancellationTokenSource>(field.GetValue(presenter));
+            throw new InvalidOperationException("Shutdown cancellation completion flag was not found.");
         Assert.True(SpinWait.SpinUntil(
-            () => cancellation.IsCancellationRequested,
+            () => field.GetValue(presenter) is true,
             TimeSpan.FromSeconds(5)));
     }
 

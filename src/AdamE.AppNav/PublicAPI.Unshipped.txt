@@ -51,3 +51,14 @@ AdamE.AppNav.Requests.NavigationRequestSource.HostBack = 8 -> AdamE.AppNav.Reque
 AdamE.AppNav.Plans.NavigationPlan.ContextualFallback.get -> bool
 AdamE.AppNav.Plans.NavigationPlan.ContextualFallback.init -> void
 const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.ContextualFallback = "contextualFallback" -> string!
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.ReconciliationRejected = 79 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Navigation.StaleNavigationReconciliationException
+AdamE.AppNav.Navigation.StaleNavigationReconciliationException.CurrentState.get -> AdamE.AppNav.State.NavigationState!
+AdamE.AppNav.Navigation.StaleNavigationReconciliationException.Reconciliation.get -> AdamE.AppNav.Presentation.NavigationReconciliation!
+AdamE.AppNav.Navigation.StaleNavigationReconciliationException.StaleNavigationReconciliationException(AdamE.AppNav.Presentation.NavigationReconciliation! reconciliation, AdamE.AppNav.State.NavigationState! currentState, string! message) -> void
+AdamE.AppNav.Presentation.NavigationReconciliation.BaseState.get -> AdamE.AppNav.State.NavigationState!
+AdamE.AppNav.Presentation.NavigationReconciliation.BaseState.init -> void
+AdamE.AppNav.Presentation.NavigationReconciliation.Deconstruct(out AdamE.AppNav.State.NavigationState! BaseState, out AdamE.AppNav.State.NavigationState! TargetState, out AdamE.AppNav.Presentation.NavigationReconciliationSource Source, out AdamE.AppNav.AppRoute? Route, out string? Reason) -> void
+AdamE.AppNav.Presentation.NavigationReconciliation.NavigationReconciliation(AdamE.AppNav.State.NavigationState! BaseState, AdamE.AppNav.State.NavigationState! TargetState, AdamE.AppNav.Presentation.NavigationReconciliationSource Source, AdamE.AppNav.AppRoute? Route = null, string? Reason = null) -> void
+*REMOVED*AdamE.AppNav.Presentation.NavigationReconciliation.Deconstruct(out AdamE.AppNav.State.NavigationState! TargetState, out AdamE.AppNav.Presentation.NavigationReconciliationSource Source, out AdamE.AppNav.AppRoute? Route, out string? Reason) -> void
+*REMOVED*AdamE.AppNav.Presentation.NavigationReconciliation.NavigationReconciliation(AdamE.AppNav.State.NavigationState! TargetState, AdamE.AppNav.Presentation.NavigationReconciliationSource Source, AdamE.AppNav.AppRoute? Route = null, string? Reason = null) -> void
