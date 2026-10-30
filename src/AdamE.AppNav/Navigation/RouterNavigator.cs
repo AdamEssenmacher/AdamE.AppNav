@@ -494,7 +494,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             RouterNavigationDiagnostics.Data((NavigationDiagnosticDataKeys.ReconciliationSource,
                 reconciliation.Source.ToString())));
 
-        if (reconciliation.ExpectedState is { } expectedState && !expectedState.Equals(CurrentState))
+        if (!ReferenceEquals(reconciliation.BaseState, CurrentState))
         {
             _diagnostics.Write(
                 NavigationDiagnosticEventKind.ReconciliationRejected,

@@ -34,6 +34,7 @@ public sealed class RouterNavigatorReentrancyTests
                 ReentrantOperation.Back => navigator.BackAsync().AsTask(),
                 ReentrantOperation.Reconcile => navigator
                     .ReconcileAsync(new NavigationReconciliation(
+                        navigator.CurrentState,
                         reconciledState,
                         NavigationReconciliationSource.HostBack,
                         new TestRoutes.CatalogRoute("reconciled")))
@@ -79,6 +80,7 @@ public sealed class RouterNavigatorReentrancyTests
                     break;
                 case ReentrantOperation.Reconcile:
                     await navigator.ReconcileAsync(new NavigationReconciliation(
+                        navigator.CurrentState,
                         reconciledState,
                         NavigationReconciliationSource.HostBack,
                         new TestRoutes.CatalogRoute("reconciled")));
@@ -196,11 +198,12 @@ public sealed class RouterNavigatorReentrancyTests
         NavigationState reconciledState = StateFor(reconciledRoute);
         var applyCount = 0;
         var presenter = new RecordingNavigationPresenter();
-        presenter.OnApplyAsync = (_, _, _) =>
+        presenter.OnApplyAsync = (plan, _, _) =>
         {
             if (Interlocked.Increment(ref applyCount) == 1)
             {
                 presenter.RequestReconciliation(new NavigationReconciliation(
+                    plan.TargetState,
                     reconciledState,
                     NavigationReconciliationSource.HostBack,
                     reconciledRoute));
@@ -230,12 +233,13 @@ public sealed class RouterNavigatorReentrancyTests
         var applyCount = 0;
         RouterNavigator navigator = null!;
         var presenter = new RecordingNavigationPresenter();
-        presenter.OnApplyAsync = async (_, _, _) =>
+        presenter.OnApplyAsync = async (plan, _, _) =>
         {
             int currentApply = Interlocked.Increment(ref applyCount);
             if (currentApply == 1)
             {
                 presenter.RequestReconciliation(new NavigationReconciliation(
+                    plan.TargetState,
                     reconciledState,
                     NavigationReconciliationSource.HostBack,
                     reconciledRoute));

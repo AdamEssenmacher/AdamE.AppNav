@@ -5,15 +5,15 @@ using JetBrains.Annotations;
 namespace AdamE.AppNav.Navigation;
 
 /// <summary>
-/// Represents a reconciliation whose expected base state no longer matches the router's current state.
+/// Represents a reconciliation whose base state is no longer the router's current state.
 /// </summary>
 /// <param name="reconciliation">The rejected reconciliation.</param>
 /// <param name="currentState">The router state at the time the reconciliation was evaluated.</param>
 /// <param name="message">The message that describes why the reconciliation was rejected.</param>
 /// <remarks>
 /// The router throws this exception before presentation, and before mutating navigation state or history, when
-/// <see cref="NavigationReconciliation.ExpectedState"/> is set and another operation committed after the host
-/// observed it. The host should re-read the router's current state instead of retrying the same target.
+/// another operation committed after the host observed <see cref="NavigationReconciliation.BaseState"/>. The host
+/// should re-read the router's current state instead of retrying the same target.
 /// </remarks>
 public sealed class StaleNavigationReconciliationException(
     NavigationReconciliation reconciliation,

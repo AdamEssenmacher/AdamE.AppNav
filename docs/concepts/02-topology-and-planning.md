@@ -139,13 +139,11 @@ Native host changes are reconciled with host-neutral sources:
 
 Cancelled native gestures do not commit logical state.
 
-A reconciliation names an absolute target state and waits behind any in-flight
-navigation. A host that observed state before that navigation committed can
-set `NavigationReconciliation.ExpectedState` to the state it observed; if the
-router has since moved on, the reconciliation is rejected with
-`StaleNavigationReconciliationException` and a `ReconciliationRejected`
-diagnostic instead of resurrecting the older state. Without `ExpectedState`,
-reconciliation applies its target unconditionally.
+Every reconciliation names the committed state it changes from
+(`BaseState`) and the state the host now shows (`TargetState`). It waits
+behind any in-flight navigation; if that navigation commits first, the
+reconciliation is rejected with `StaleNavigationReconciliationException` and a
+`ReconciliationRejected` diagnostic rather than resurrecting the older state.
 
 A host-dispatched Back request is not reconciliation. It runs the ordinary Back
 pipeline, including `IBackNavigationPolicy`, and records the `HostBack` request

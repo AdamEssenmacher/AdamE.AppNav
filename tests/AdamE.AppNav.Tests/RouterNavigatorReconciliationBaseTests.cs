@@ -15,7 +15,7 @@ public sealed class RouterNavigatorReconciliationBaseTests
         StackState("catalog", new TestRoutes.CatalogRoute("northwind"));
 
     [Fact]
-    public async Task ReconcileAsyncRejectsStaleExpectedStateBeforePresentation()
+    public async Task ReconcileAsyncRejectsStaleBaseStateBeforePresentation()
     {
         var presenter = new RecordingNavigationPresenter();
         var events = new List<NavigationDiagnosticEventKind>();
@@ -23,12 +23,10 @@ public sealed class RouterNavigatorReconciliationBaseTests
         RouterNavigator navigator = CreateNavigator(presenter, events, levels);
         NavigationState staleState = StackState("old", new TestRoutes.StoreRoute("contoso"));
         var reconciliation = new NavigationReconciliation(
+            staleState,
             ReconciledState,
             NavigationReconciliationSource.HostBack,
-            new TestRoutes.CatalogRoute("northwind"))
-        {
-            ExpectedState = staleState
-        };
+            new TestRoutes.CatalogRoute("northwind"));
 
         StaleNavigationReconciliationException exception =
             await Assert.ThrowsAsync<StaleNavigationReconciliationException>(() =>
@@ -50,44 +48,42 @@ public sealed class RouterNavigatorReconciliationBaseTests
     }
 
     [Fact]
-    public async Task ReconcileAsyncCommitsWhenExpectedStateMatchesCurrentState()
+    public async Task ReconcileAsyncTreatsAnEquivalentRebuiltBaseStateAsStale()
+    {
+        var presenter = new RecordingNavigationPresenter();
+        var events = new List<NavigationDiagnosticEventKind>();
+        RouterNavigator navigator = CreateNavigator(presenter, events);
+        NavigationState rebuiltState = StackState("home", new TestRoutes.StoreRoute("northwind"));
+
+        await Assert.ThrowsAsync<StaleNavigationReconciliationException>(() => navigator
+            .ReconcileAsync(new NavigationReconciliation(
+                rebuiltState,
+                ReconciledState,
+                NavigationReconciliationSource.HostBack))
+            .AsTask());
+
+        Assert.Equal(0, presenter.ApplyCount);
+        Assert.Same(InitialState, navigator.CurrentState);
+    }
+
+    [Fact]
+    public async Task ReconcileAsyncCommitsWhenBaseStateIsCurrent()
     {
         var presenter = new RecordingNavigationPresenter();
         var events = new List<NavigationDiagnosticEventKind>();
         RouterNavigator navigator = CreateNavigator(presenter, events);
 
         NavigationResult result = await navigator.ReconcileAsync(new NavigationReconciliation(
+            navigator.CurrentState,
             ReconciledState,
             NavigationReconciliationSource.HostBack,
-            new TestRoutes.CatalogRoute("northwind"))
-        {
-            ExpectedState = navigator.CurrentState
-        });
+            new TestRoutes.CatalogRoute("northwind")));
 
         Assert.Same(ReconciledState, result.State);
         Assert.Equal(1, presenter.ApplyCount);
         Assert.Same(ReconciledState, navigator.CurrentState);
         Assert.Single(navigator.History.Entries);
         Assert.Contains(NavigationDiagnosticEventKind.ReconciliationCompleted, events);
-        Assert.DoesNotContain(NavigationDiagnosticEventKind.ReconciliationRejected, events);
-    }
-
-    [Fact]
-    public async Task ReconcileAsyncWithoutExpectedStateIgnoresTheCurrentState()
-    {
-        var presenter = new RecordingNavigationPresenter();
-        var events = new List<NavigationDiagnosticEventKind>();
-        RouterNavigator navigator = CreateNavigator(presenter, events);
-        await navigator.NavigateAsync(new TestRoutes.StoreRoute("contoso"));
-
-        NavigationResult result = await navigator.ReconcileAsync(new NavigationReconciliation(
-            ReconciledState,
-            NavigationReconciliationSource.HostBack,
-            new TestRoutes.CatalogRoute("northwind")));
-
-        Assert.Same(ReconciledState, result.State);
-        Assert.Same(ReconciledState, navigator.CurrentState);
-        Assert.Equal(2, navigator.History.Entries.Count);
         Assert.DoesNotContain(NavigationDiagnosticEventKind.ReconciliationRejected, events);
     }
 
@@ -103,12 +99,10 @@ public sealed class RouterNavigatorReconciliationBaseTests
         await presenter.NavigateStarted;
 
         presenter.RequestReconciliation(new NavigationReconciliation(
+            InitialState,
             ReconciledState,
             NavigationReconciliationSource.HostBack,
-            new TestRoutes.CatalogRoute("northwind"))
-        {
-            ExpectedState = InitialState
-        });
+            new TestRoutes.CatalogRoute("northwind")));
         presenter.ReleaseNavigate();
         NavigationResult navigated = await navigation;
         await Assert.ThrowsAsync<StaleNavigationReconciliationException>(navigator.WhenReconciliationIdleAsync);
@@ -122,31 +116,7 @@ public sealed class RouterNavigatorReconciliationBaseTests
     }
 
     [Fact]
-    public async Task QueuedPresenterReconciliationCommitsWhenExpectedStateIsCurrent()
-    {
-        var presenter = new BlockingNavigatePresenter();
-        var events = new List<NavigationDiagnosticEventKind>();
-        RouterNavigator navigator = CreateNavigator(presenter, events);
-        presenter.ReleaseNavigate();
-        NavigationResult navigated = await navigator.NavigateAsync(new TestRoutes.StoreRoute("contoso"));
-
-        presenter.RequestReconciliation(new NavigationReconciliation(
-            ReconciledState,
-            NavigationReconciliationSource.HostBack,
-            new TestRoutes.CatalogRoute("northwind"))
-        {
-            ExpectedState = navigated.State
-        });
-        await navigator.WhenReconciliationIdleAsync();
-
-        Assert.Same(ReconciledState, navigator.CurrentState);
-        Assert.Equal(2, navigator.History.Entries.Count);
-        Assert.Contains(NavigationDiagnosticEventKind.ReconciliationCompleted, events);
-        Assert.DoesNotContain(NavigationDiagnosticEventKind.ReconciliationRejected, events);
-    }
-
-    [Fact]
-    public async Task QueuedPresenterReconciliationWithoutExpectedStateOverwritesNewerNavigation()
+    public async Task QueuedPresenterReconciliationCommitsWhenBasedOnTheNavigationItWaitedFor()
     {
         var presenter = new BlockingNavigatePresenter();
         var events = new List<NavigationDiagnosticEventKind>();
@@ -157,6 +127,7 @@ public sealed class RouterNavigatorReconciliationBaseTests
         await presenter.NavigateStarted;
 
         presenter.RequestReconciliation(new NavigationReconciliation(
+            presenter.AppliedPlans[^1].TargetState,
             ReconciledState,
             NavigationReconciliationSource.HostBack,
             new TestRoutes.CatalogRoute("northwind")));
@@ -165,6 +136,30 @@ public sealed class RouterNavigatorReconciliationBaseTests
         await navigator.WhenReconciliationIdleAsync();
 
         Assert.Same(ReconciledState, navigator.CurrentState);
+        Assert.Equal(2, navigator.History.Entries.Count);
+        Assert.Contains(NavigationDiagnosticEventKind.ReconciliationCompleted, events);
+        Assert.DoesNotContain(NavigationDiagnosticEventKind.ReconciliationRejected, events);
+    }
+
+    [Fact]
+    public async Task ChainedPresenterReconciliationsCommitInOrder()
+    {
+        var presenter = new BlockingNavigatePresenter();
+        var events = new List<NavigationDiagnosticEventKind>();
+        RouterNavigator navigator = CreateNavigator(presenter, events);
+        NavigationState finalState = StackState("store", new TestRoutes.StoreRoute("contoso"));
+
+        presenter.RequestReconciliation(new NavigationReconciliation(
+            InitialState,
+            ReconciledState,
+            NavigationReconciliationSource.HostBack));
+        presenter.RequestReconciliation(new NavigationReconciliation(
+            ReconciledState,
+            finalState,
+            NavigationReconciliationSource.HostBack));
+        await navigator.WhenReconciliationIdleAsync();
+
+        Assert.Same(finalState, navigator.CurrentState);
         Assert.Equal(2, navigator.History.Entries.Count);
         Assert.DoesNotContain(NavigationDiagnosticEventKind.ReconciliationRejected, events);
     }

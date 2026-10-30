@@ -36,26 +36,29 @@ the logical target consistently. The built-in MAUI adapter uses one anchor
 pages; another host can choose a different artifact model.
 
 The presenter must leave logical state uncommitted on failure or cancellation.
-Reconciliation events contain the observed target state, a host-neutral source,
-optional route, and reason. Disposal detaches events and stops new work;
-asynchronous disposal waits for accepted work and adapter cleanup. Adapters may
-also submit an explicitly observed host state through
-`IRouterNavigator.ReconcileAsync` when reconciliation does not originate from
-the presenter's event stream.
+Reconciliation events contain the base state the host changed from, the
+observed target state, a host-neutral source, optional route, and reason.
+Disposal detaches events and stops new work; asynchronous disposal waits for
+accepted work and adapter cleanup. Adapters may also submit an explicitly
+observed host state through `IRouterNavigator.ReconcileAsync` when
+reconciliation does not originate from the presenter's event stream.
 
-A reconciliation's `TargetState` is absolute, and the router serializes it
-behind any operation already holding the navigation lock. If that operation
-commits first, an unguarded reconciliation overwrites the newer state. Set
-`ExpectedState` to the committed state the host observed before its native
-change (for example the `CurrentState` of its last presentation context) to
-make the reconciliation conditional: when it no longer equals the router's
-`CurrentState` at admission, the router emits `ReconciliationRejected` and
-throws `StaleNavigationReconciliationException` before calling the presenter,
-leaving state and history unchanged. A queued event-path rejection is reported
-only through that diagnostic. States compare by record equality, so pass the
-observed instance rather than rebuilding an equivalent one. The adapter should
-then re-present or re-read router state instead of retrying the same target.
-Leaving `ExpectedState` null keeps unconditional reconciliation.
+Reconciliations wait behind any operation already holding the navigation lock,
+so every reconciliation names its `BaseState`: the committed router state the
+host's change started from. The router applies it only while that exact
+instance is still `CurrentState`. Otherwise it emits `ReconciliationRejected`
+and throws `StaleNavigationReconciliationException` before calling the
+presenter, leaving state and history unchanged. A queued event-path rejection
+is reported only through that diagnostic.
+
+`BaseState` is compared by reference. An adapter tracks the state the router
+will hold when its reconciliation is admitted: the plan target of its last
+successful non-reconcile presentation, then the target of each reconciliation
+it raises, so consecutive native changes chain. That is not necessarily the
+adapter's own view of native state. The MAUI presenter, for example, folds
+suppressed native pops into its view before the router has committed them. A
+rejected reconciliation needs no retry: the operation that won has already
+presented its own target.
 
 The MAUI branch-host extension follows the same boundary. An
 `IMauiBranchHostFactory` declares placement capabilities before creation and

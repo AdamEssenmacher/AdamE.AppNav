@@ -321,7 +321,7 @@ public enum NavigationDiagnosticEventKind
     BackCanceled,
 
     /// <summary>
-    /// A reconciliation was rejected before presentation because its expected base state no longer matched router state.
+    /// A reconciliation was rejected before presentation because its base state was no longer the router's current state.
     /// </summary>
     ReconciliationRejected
 }
