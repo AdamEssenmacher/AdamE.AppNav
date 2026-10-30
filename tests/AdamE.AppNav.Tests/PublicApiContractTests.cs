@@ -51,6 +51,7 @@ public sealed class PublicApiContractTests
                 "AdamE.AppNav.Navigation.RouterNavigatorExtensions",
                 "AdamE.AppNav.Navigation.RouterNavigatorFactory",
                 "AdamE.AppNav.Navigation.RouterNavigatorFactoryOptions",
+                "AdamE.AppNav.Navigation.StaleNavigationReconciliationException",
                 "AdamE.AppNav.Planning.BranchHostNavigationModelBuilder`1",
                 "AdamE.AppNav.Planning.BranchHostNavigationModel`1",
                 "AdamE.AppNav.Planning.BranchHostRouteRecipeBuilder`2",

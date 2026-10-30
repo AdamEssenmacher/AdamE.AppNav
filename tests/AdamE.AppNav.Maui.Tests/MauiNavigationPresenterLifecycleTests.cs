@@ -1904,6 +1904,30 @@ public sealed class MauiNavigationPresenterLifecycleTests
         _ = fixture.Presenter.StartShutdown();
     }
 
+    [UIFact]
+    public async Task NativeStackPopsChainReconciliationBaseStates()
+    {
+        var fixture = new PresenterFixture();
+        NavigationPlan plan = Plan(Stack("schools", Entry("schools"), Entry("school-riverside"), Entry("school-middleton")));
+
+        await fixture.Presenter.ApplyAsync(plan, Context(new TestPageRoute("school-middleton")));
+
+        var navigationPage = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        var first = await ReconcileAfterNativeMutationAsync(
+            fixture.Presenter,
+            async () => await navigationPage.Navigation.PopAsync(animated: false));
+        var second = await ReconcileAfterNativeMutationAsync(
+            fixture.Presenter,
+            async () => await navigationPage.Navigation.PopAsync(animated: false));
+
+        Assert.Same(plan.TargetState, first.BaseState);
+        Assert.Same(first.TargetState, second.BaseState);
+        var stack = Assert.IsType<StackNode>(second.TargetState.ActiveWindow?.Root);
+        Assert.Equal(new[] { "schools" }, stack.Entries.Select(entry => entry.Id));
+
+        _ = fixture.Presenter.StartShutdown();
+    }
+
     [Fact]
     public async Task RouteOwnedPresentationPagePushesWithoutChangingLogicalState()
     {

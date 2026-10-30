@@ -98,6 +98,7 @@ public sealed class NavigationPlanValidationTests
 
         await Assert.ThrowsAsync<AppNavigationConfigurationException>(() => navigator
             .ReconcileAsync(new NavigationReconciliation(
+                navigator.CurrentState,
                 StateWithMissingSelectedBranch(),
                 NavigationReconciliationSource.HostBack,
                 new TestRoutes.StoreRoute("northwind"),

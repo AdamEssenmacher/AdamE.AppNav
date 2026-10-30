@@ -881,8 +881,9 @@ public sealed class MauiPresentationTransactionTests
         };
         nativeOperations.BlockNextPushAfterMutation = true;
 
+        var settingsPlan = new NavigationPlan(StackState("home", "settings"));
         Task apply = presenter.ApplyAsync(
-            new NavigationPlan(StackState("home", "settings")),
+            settingsPlan,
             Context("settings", initialState)).AsTask();
         await nativeOperations.BlockedPushAfterMutationStarted.WaitAsync(TimeSpan.FromSeconds(5));
         Page settingsPage = navigationPage.Navigation.NavigationStack[^1];
@@ -896,6 +897,7 @@ public sealed class MauiPresentationTransactionTests
         NavigationReconciliation reconciliation = Assert.Single(reconciliations);
         var effectiveStack = Assert.IsType<StackNode>(reconciliation.TargetState.ActiveWindow?.Root);
         Assert.Equal(["home"], effectiveStack.Entries.Select(entry => entry.Id));
+        Assert.Same(settingsPlan.TargetState, reconciliation.BaseState);
         Assert.Equal(["home"], NativeRouteEntryIds(navigationPage));
         Assert.Equal(NavigationReconciliationSource.HostBack, reconciliation.Source);
         Assert.Equal(1, factory.ReleaseCountFor(detailPage));
@@ -993,13 +995,15 @@ public sealed class MauiPresentationTransactionTests
             reconciliationPublished.TrySetResult();
         };
 
+        var settingsPlan = new NavigationPlan(StackState("home", "settings"));
         await presenter.ApplyAsync(
-            new NavigationPlan(StackState("home", "settings")),
+            settingsPlan,
             Context("settings", initialState));
         await reconciliationPublished.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         Page settingsPage = factory.CreatedPages[^1];
         NavigationReconciliation reconciliation = Assert.Single(reconciliations);
+        Assert.Same(settingsPlan.TargetState, reconciliation.BaseState);
         var effectiveStack = Assert.IsType<StackNode>(reconciliation.TargetState.ActiveWindow?.Root);
         Assert.Equal(["home"], effectiveStack.Entries.Select(entry => entry.Id));
         Assert.Equal(["home"], NativeRouteEntryIds(navigationPage));

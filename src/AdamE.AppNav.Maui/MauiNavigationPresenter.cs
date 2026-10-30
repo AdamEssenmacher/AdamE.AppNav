@@ -40,6 +40,9 @@ internal sealed class MauiNavigationPresenter :
     private readonly TaskCompletionSource<bool> _shutdownCompletion =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     private NavigationState _lastState = NavigationState.Empty;
+    // The router state this presenter's next reconciliation is based on. Unlike _lastState it never includes
+    // folded native changes the router has not been asked to commit yet.
+    private NavigationState _routerState = NavigationState.Empty;
     private Window? _attachedWindow;
     private string? _attachedWindowId;
     private string _lifecycleOperationId = CreateOperationId();
@@ -672,6 +675,9 @@ internal sealed class MauiNavigationPresenter :
         _suppressReconciliation = true;
         _activeOperationId = context.OperationId;
         _activeNavigationPresentationContext = context;
+        // A reconcile plan applies a target this presenter already published as its base.
+        if (plan.Kind != NavigationPlanKind.Reconcile)
+            _routerState = context.CurrentState;
         var transaction = new MauiPresentationTransaction(this);
         _activeTransaction = transaction;
         MauiPresentationOperationCandidate? operationCandidate =
@@ -716,6 +722,8 @@ internal sealed class MauiNavigationPresenter :
             _activeTransaction = null;
             await transaction.CommitAsync();
             _lastNavigationPresentationContext = context;
+            if (plan.Kind != NavigationPlanKind.Reconcile)
+                _routerState = plan.TargetState;
             if (popFold.LogicalStateChanged)
                 MarkHostBackReconciliationPending(popFold.Route);
         }
@@ -2896,10 +2904,13 @@ internal sealed class MauiNavigationPresenter :
         string reason,
         AppRoute? route = null)
     {
+        NavigationState baseState = _routerState;
         _lastState = state;
+        _routerState = state;
         ReconciliationRequested?.Invoke(
             this,
-            new NavigationReconciliationRequestedEventArgs(new NavigationReconciliation(state, source, route, reason)));
+            new NavigationReconciliationRequestedEventArgs(
+                new NavigationReconciliation(baseState, state, source, route, reason)));
     }
 
     private static NavigationNode? UpdateBranchHostSelection(NavigationNode node, string branchHostId, string selectedBranchId)
