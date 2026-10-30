@@ -4,5 +4,6 @@ public enum NavigationPlanKind
 {
     Navigate,
     Back,
-    Reconcile
+    Reconcile,
+    Refresh
 }

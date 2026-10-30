@@ -1,4 +1,6 @@
 #nullable enable
+AdamE.AppNav.Navigation.IRouterNavigator.RefreshPresentationAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+AdamE.AppNav.Plans.NavigationPlanKind.Refresh = 3 -> AdamE.AppNav.Plans.NavigationPlanKind
 AdamE.AppNav.Navigation.AppNavigationConfigurationException
 AdamE.AppNav.Navigation.AppNavigationConfigurationException.AppNavigationConfigurationException(string! message) -> void
 AdamE.AppNav.Navigation.AppNavigationConfigurationException.AppNavigationConfigurationException(string! message, System.Exception! innerException) -> void

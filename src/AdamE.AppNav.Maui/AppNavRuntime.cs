@@ -68,6 +68,11 @@ internal sealed class AppNavRuntime(
         return navigator.ReconcileAsync(reconciliation, cancellationToken);
     }
 
+    public ValueTask RefreshPresentationAsync(CancellationToken cancellationToken = default)
+    {
+        return navigator.RefreshPresentationAsync(cancellationToken);
+    }
+
     public void Dispose()
     {
         Interlocked.Exchange(ref _disposed, 1);

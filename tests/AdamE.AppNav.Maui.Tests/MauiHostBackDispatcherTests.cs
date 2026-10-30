@@ -284,6 +284,8 @@ public sealed class MauiHostBackDispatcherTests
             RouterNavigationRequest request,
             CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
+        public ValueTask RefreshPresentationAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
         public ValueTask<NavigationResult> ReconcileAsync(
             NavigationReconciliation reconciliation,
             CancellationToken cancellationToken = default) => throw new NotSupportedException();

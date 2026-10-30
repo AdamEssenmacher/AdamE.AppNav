@@ -174,6 +174,56 @@ internal sealed class RouterNavigator : IRouterNavigator
         }
     }
 
+    public async ValueTask RefreshPresentationAsync(CancellationToken cancellationToken = default)
+    {
+        RouterOperationContext? operationContext = null;
+        var operationAdmitted = false;
+        var lockTaken = false;
+        CancellationTokenSource? linkedCancellation = null;
+        try
+        {
+            operationContext = EnterOperationContext();
+            BeginOperation();
+            operationAdmitted = true;
+            CancellationToken operationCancellation = CreateOperationCancellation(cancellationToken, out linkedCancellation);
+            await _operationLock.WaitAsync(operationCancellation).ConfigureAwait(false);
+            lockTaken = true;
+            operationCancellation.ThrowIfCancellationRequested();
+            // Read only AFTER admission: preceding navigation may still be committing while this request queues.
+            NavigationState state = CurrentState;
+            AppRoute route = History.Current?.Route ?? new RefreshedRoute();
+            RouterNavigationRequest request = History.Current?.Request
+                ?? RouterNavigationRequest.FromRoute(route, NavigationRequestSource.InAppCommand);
+            var operationId = Guid.NewGuid().ToString("N");
+            var plan = new NavigationPlan(state, NavigationPlanKind.Refresh, "Native host recreation");
+            using RouterNavigationActivityScope activity =
+                _diagnostics.StartActivity("Navigation.Refresh", operationId, plan.Kind.ToString());
+            var timer = Stopwatch.StartNew();
+            _diagnostics.Write(NavigationDiagnosticEventKind.PresentationStarted, operationId, plan.Kind.ToString());
+            try
+            {
+                await _presenter.ApplyAsync(plan,
+                    new NavigationPresentationContext(request, route, state, operationId), operationCancellation)
+                    .ConfigureAwait(false);
+                _diagnostics.Write(NavigationDiagnosticEventKind.PresentationCompleted, operationId, plan.Kind.ToString(),
+                    RouterNavigationDiagnostics.Duration(timer));
+                activity.SetStatus(ActivityStatusCode.Ok);
+            }
+            catch (Exception exception)
+            {
+                activity.SetStatus(ActivityStatusCode.Error);
+                _diagnostics.WriteFailure(NavigationDiagnosticEventKind.PresentationFailed,
+                    operationId, plan.Kind.ToString(), exception, timer);
+                throw;
+            }
+            // Refresh is neither navigation nor an observed host-state replacement. State/history stay identical.
+        }
+        finally
+        {
+            ExitOperation(operationContext, lockTaken, linkedCancellation, operationAdmitted);
+        }
+    }
+
     internal Task WhenReconciliationIdleAsync()
     {
         lock (_reconciliationGate)
@@ -887,6 +937,7 @@ internal sealed class RouterNavigator : IRouterNavigator
     }
 
     private sealed record ReconciledRoute : AppRoute;
+    private sealed record RefreshedRoute : AppRoute;
 
     private static NavigationRequestSource ResolveBackRequestSource(BackNavigationSource source)
     {
