@@ -6,11 +6,11 @@ This checklist is for AppNav repository maintainers, not application
 integration.
 
 This checklist validates a `0.1.0-preview.*` candidate. Stable qualification and NuGet.org publication are separate
-work. The supported baseline is .NET 10, Android API 28+, iOS 15+, and Mac Catalyst 15+.
+work. The supported baseline is .NET 10, Android API 28+, iOS 15+, and Mac Catalyst 17+.
 
 ## Pinned toolchain
 
-The repository root `global.json` pins SDK `10.0.400`, workload set `10.0.302.1`, and `latestFeature` roll-forward.
+The repository root `global.json` pins SDK `10.0.403`, workload set `10.0.402.1`, and `latestFeature` roll-forward.
 Android builds require JDK 21; CI pins Microsoft's JDK 21 distribution.
 Run commands from the repository root so the pin is honored. Install the matching workload set once:
 

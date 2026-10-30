@@ -56,6 +56,7 @@ public sealed class RouterNavigatorPresentationTests
                     TestNavigationState.Entry("catalog", reconciledRoute))));
 
         presenter.RequestReconciliation(new NavigationReconciliation(
+            navigator.CurrentState,
             reconciledState,
             NavigationReconciliationSource.HostBack,
             reconciledRoute,
@@ -88,6 +89,7 @@ public sealed class RouterNavigatorPresentationTests
         var requestedRoute = new TestRoutes.StoreRoute("requested");
 
         var result = await navigator.ReconcileAsync(new NavigationReconciliation(
+            navigator.CurrentState,
             rewrittenState,
             NavigationReconciliationSource.HostBack,
             requestedRoute,
@@ -140,6 +142,7 @@ public sealed class RouterNavigatorPresentationTests
                     TestNavigationState.Entry("catalog", new TestRoutes.CatalogRoute("northwind")))));
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => navigator.ReconcileAsync(new NavigationReconciliation(
+            navigator.CurrentState,
             reconciledState,
             NavigationReconciliationSource.HostBack,
             new TestRoutes.CatalogRoute("northwind"),

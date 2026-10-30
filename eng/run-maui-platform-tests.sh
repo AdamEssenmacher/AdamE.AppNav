@@ -196,6 +196,11 @@ run_platform() {
     args+=("-p:RuntimeIdentifier=$rid")
   fi
 
+  # Upstream MAUI trim warning on Apple targets; see dotnet/macios#26969 and the matching note in eng/verify.sh.
+  if [[ "$platform" == "ios" || "$platform" == "maccatalyst" ]]; then
+    args+=("-p:WarningsNotAsErrors=IL2037")
+  fi
+
   if [[ -n "$device" ]]; then
     args+=("-p:DeviceRunnersDevice=$device")
   fi

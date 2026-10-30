@@ -835,9 +835,7 @@ public sealed class MauiExternalNavigationDispatcherTests
     [Fact]
     public void RepeatedHostDisposal_ReleasesProvidersAndDispatchers()
     {
-        HostWeakReferences[] hosts = Enumerable.Range(0, 32)
-            .Select(_ => CreateAndDisposeHost())
-            .ToArray();
+        HostWeakReferences[] hosts = CreateAndDisposeHostsOnExitedThread(32);
 
         ForceFullCollection();
 
@@ -916,6 +914,34 @@ public sealed class MauiExternalNavigationDispatcherTests
             navigationCancelled.TrySetResult();
             throw;
         }
+    }
+
+    // Mono scans thread stacks conservatively, so a stale slot on a live stack can keep one disposed host reachable.
+    // Creating the hosts on a thread that has exited leaves no stack holding them when the collection runs.
+    private static HostWeakReferences[] CreateAndDisposeHostsOnExitedThread(int count)
+    {
+        HostWeakReferences[]? hosts = null;
+        Exception? failure = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                hosts = Enumerable.Range(0, count)
+                    .Select(_ => CreateAndDisposeHost())
+                    .ToArray();
+            }
+            catch (Exception exception)
+            {
+                failure = exception;
+            }
+        });
+        thread.Start();
+        thread.Join();
+
+        if (failure is not null)
+            throw new InvalidOperationException("Creating the hosts failed.", failure);
+
+        return hosts ?? throw new InvalidOperationException("The hosts were not created.");
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
