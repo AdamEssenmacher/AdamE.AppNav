@@ -43,6 +43,20 @@ also submit an explicitly observed host state through
 `IRouterNavigator.ReconcileAsync` when reconciliation does not originate from
 the presenter's event stream.
 
+A reconciliation's `TargetState` is absolute, and the router serializes it
+behind any operation already holding the navigation lock. If that operation
+commits first, an unguarded reconciliation overwrites the newer state. Set
+`ExpectedState` to the committed state the host observed before its native
+change (for example the `CurrentState` of its last presentation context) to
+make the reconciliation conditional: when it no longer equals the router's
+`CurrentState` at admission, the router emits `ReconciliationRejected` and
+throws `StaleNavigationReconciliationException` before calling the presenter,
+leaving state and history unchanged. A queued event-path rejection is reported
+only through that diagnostic. States compare by record equality, so pass the
+observed instance rather than rebuilding an equivalent one. The adapter should
+then re-present or re-read router state instead of retrying the same target.
+Leaving `ExpectedState` null keeps unconditional reconciliation.
+
 The MAUI branch-host extension follows the same boundary. An
 `IMauiBranchHostFactory` declares placement capabilities before creation and
 returns an `IMauiBranchHost` that owns its page, ordered branch presentation,

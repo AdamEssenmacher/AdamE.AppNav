@@ -382,6 +382,7 @@ public sealed class NavigationDiagnostics
             ? LogLevel.Error
             : kind is NavigationDiagnosticEventKind.RouteNotMatched or
                     NavigationDiagnosticEventKind.BackUnhandled or
+                    NavigationDiagnosticEventKind.ReconciliationRejected or
                     NavigationDiagnosticEventKind.DeferredRequestStoreQuarantined or
                     NavigationDiagnosticEventKind.DeferredRequestStoreOverflowed
                 ? LogLevel.Warning
@@ -447,7 +448,8 @@ public sealed class NavigationDiagnostics
                 NavigationDiagnosticPhase.Startup,
             NavigationDiagnosticEventKind.ReconciliationStarted or
                 NavigationDiagnosticEventKind.ReconciliationCompleted or
-                NavigationDiagnosticEventKind.ReconciliationFailed =>
+                NavigationDiagnosticEventKind.ReconciliationFailed or
+                NavigationDiagnosticEventKind.ReconciliationRejected =>
                 NavigationDiagnosticPhase.Reconciliation,
             NavigationDiagnosticEventKind.BackStarted or
                 NavigationDiagnosticEventKind.BackEvaluated or

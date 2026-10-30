@@ -89,7 +89,7 @@ Default severity follows the event kind:
 | --- | --- |
 | `Debug` | Phase-start events; MAUI page creation/release and handler attachment/detachment |
 | `Information` | Successful matching, transformation, policy, planning, presentation, startup, Back, reconciliation, and queue operations |
-| `Warning` | Unmatched routes, unhandled logical Back, deferred-store quarantine, and deferred-store overflow |
+| `Warning` | Unmatched routes, unhandled logical Back, stale reconciliation rejected by `ExpectedState`, deferred-store quarantine, and deferred-store overflow |
 | `Error` | Failed phases, top-level navigation failure, redirect loops, and diagnostic-observer failure |
 
 The exception type can remain available in Safe mode. Exception messages are

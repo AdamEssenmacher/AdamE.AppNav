@@ -49,3 +49,10 @@ AdamE.AppNav.Requests.NavigationRequestSource.HostBack = 8 -> AdamE.AppNav.Reque
 AdamE.AppNav.Plans.NavigationPlan.ContextualFallback.get -> bool
 AdamE.AppNav.Plans.NavigationPlan.ContextualFallback.init -> void
 const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.ContextualFallback = "contextualFallback" -> string!
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.ReconciliationRejected = 79 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Navigation.StaleNavigationReconciliationException
+AdamE.AppNav.Navigation.StaleNavigationReconciliationException.CurrentState.get -> AdamE.AppNav.State.NavigationState!
+AdamE.AppNav.Navigation.StaleNavigationReconciliationException.Reconciliation.get -> AdamE.AppNav.Presentation.NavigationReconciliation!
+AdamE.AppNav.Navigation.StaleNavigationReconciliationException.StaleNavigationReconciliationException(AdamE.AppNav.Presentation.NavigationReconciliation! reconciliation, AdamE.AppNav.State.NavigationState! currentState, string! message) -> void
+AdamE.AppNav.Presentation.NavigationReconciliation.ExpectedState.get -> AdamE.AppNav.State.NavigationState?
+AdamE.AppNav.Presentation.NavigationReconciliation.ExpectedState.init -> void

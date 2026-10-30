@@ -96,6 +96,7 @@ react to failure. Common categories include:
 | `RouteRedirectLoopException` | Transforms or policies repeated a target or exceeded the redirect limit | Fix the redirect chain; inspect `Redirects` in trusted diagnostics |
 | `RoutePlannerNotFoundException` | No planner can handle the resolved route type | Fix application registration or topology |
 | `AppNavigationConfigurationException` | Deterministic topology or configuration is invalid | Fail the affected flow and correct configuration; retrying the same request cannot help |
+| `StaleNavigationReconciliationException` | `ReconcileAsync` set `ExpectedState`, but another operation committed first | Re-read `CurrentState` and re-present or reconcile from it; do not retry the same target |
 | `OperationCanceledException` | The caller, lifecycle, or navigator shutdown cancelled the operation | Restore transient caller UI and preserve cancellation semantics |
 | Presenter, transformer, or policy exception | App-owned or adapter work failed | Handle only where the application has a specific recovery; otherwise let the owning boundary report it |
 | `MauiPresentationConsistencyException` | Presentation, rollback, and verified full recovery all failed | Stop using that presenter and recreate the AppNav host/runtime |

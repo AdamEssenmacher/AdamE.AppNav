@@ -318,5 +318,10 @@ public enum NavigationDiagnosticEventKind
     /// <summary>
     /// A candidate logical back operation was canceled by policy.
     /// </summary>
-    BackCanceled
+    BackCanceled,
+
+    /// <summary>
+    /// A reconciliation was rejected before presentation because its expected base state no longer matched router state.
+    /// </summary>
+    ReconciliationRejected
 }
