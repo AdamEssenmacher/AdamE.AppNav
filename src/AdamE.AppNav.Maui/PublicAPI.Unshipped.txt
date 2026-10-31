@@ -47,6 +47,8 @@ AdamE.AppNav.Maui.MauiNavigationPresentationOptions.MapBranchHost(string! branch
 static AdamE.AppNav.Maui.DependencyInjection.AppNavServiceCollectionExtensions.AddAppNavMauiPresentation(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<AdamE.AppNav.Maui.MauiNavigationPresentationOptions!>! configure) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
 AdamE.AppNav.Maui.AppNavNavigatorOptions
 AdamE.AppNav.Maui.AppNavNavigatorOptions.AppNavNavigatorOptions() -> void
+AdamE.AppNav.Maui.AppNavNavigatorOptions.EntryLeaseShutdownWarningDelay.get -> System.TimeSpan
+AdamE.AppNav.Maui.AppNavNavigatorOptions.EntryLeaseShutdownWarningDelay.set -> void
 AdamE.AppNav.Maui.AppNavNavigatorOptions.FallbackRouteFactory.get -> System.Func<AdamE.AppNav.Navigation.NavigationFallbackContext!, AdamE.AppNav.AppRoute?>?
 AdamE.AppNav.Maui.AppNavNavigatorOptions.FallbackRouteFactory.set -> void
 AdamE.AppNav.Maui.AppNavNavigatorOptions.MaxHistoryEntries.get -> int

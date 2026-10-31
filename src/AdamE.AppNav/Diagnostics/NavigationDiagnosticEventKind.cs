@@ -323,5 +323,26 @@ public enum NavigationDiagnosticEventKind
     /// <summary>
     /// A reconciliation was rejected before presentation because its base state was no longer the router's current state.
     /// </summary>
-    ReconciliationRejected
+    ReconciliationRejected,
+
+    /// <summary>
+    /// A request was sent with a route-entry lease whose entry its plan does not contain, so the lease will be abandoned.
+    /// </summary>
+    EntryLeaseNotInPlan,
+
+    /// <summary>
+    /// Retiring or releasing a route-entry lease raised a defect that the release survived.
+    /// </summary>
+    EntryLeaseDefectReported,
+
+    /// <summary>
+    /// A route-entry lease could not be released; it and its ancestors keep their resources.
+    /// </summary>
+    EntryLeaseReleaseFailed,
+
+    /// <summary>
+    /// The router's disposal is still waiting for route-entry leases after its warning delay; the message names each
+    /// lease and what holds it.
+    /// </summary>
+    EntryLeaseShutdownWaiting
 }

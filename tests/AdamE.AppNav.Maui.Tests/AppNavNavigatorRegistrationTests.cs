@@ -1,6 +1,7 @@
 using AdamE.AppNav.Back;
 using AdamE.AppNav.Diagnostics;
 using AdamE.AppNav.History;
+using AdamE.AppNav.Leases;
 using AdamE.AppNav.Maui.AppLinks;
 using AdamE.AppNav.Maui.DependencyInjection;
 using AdamE.AppNav.Maui.Requests;
@@ -445,6 +446,36 @@ public sealed class AppNavNavigatorRegistrationTests
     }
 
     [Fact]
+    public async Task FailedPresentationReleasesTheEntryScopeThroughCoreAbandonment()
+    {
+        var markers = new List<AsyncDisposeMarker>();
+        var services = new ServiceCollection();
+        services.AddScoped<AsyncDisposeMarker>();
+        services.AddAppNav<PagePlanner>(
+            Routes(),
+            pages => pages.MapPage<TestRoute>((pageServices, _) =>
+            {
+                markers.Add(pageServices.GetRequiredService<AsyncDisposeMarker>());
+                throw new InvalidOperationException("Injected page construction failure.");
+            }));
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        var navigator = provider.GetRequiredService<IRouterNavigator>();
+        var leases = provider.GetRequiredService<RouteEntryLeaseRegistry>();
+
+        await Assert.ThrowsAnyAsync<Exception>(() => navigator
+            .NavigateAsync(RouterNavigationRequest.FromRoute(new TestRoute("failing"), NavigationRequestSource.Test))
+            .AsTask());
+
+        AsyncDisposeMarker marker = Assert.Single(markers);
+        Assert.False(leases.TryGet("page", out _));
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (marker.DisposeCount == 0 && DateTime.UtcNow < deadline)
+            await Task.Delay(10);
+        Assert.Equal(1, marker.DisposeCount);
+        Assert.Same(NavigationState.Empty, navigator.CurrentState);
+    }
+
+    [Fact]
     public async Task AsyncServiceProviderDisposalWaitsForPresenterPageScopeCleanup()
     {
         var services = new ServiceCollection();
@@ -500,6 +531,10 @@ public sealed class AppNavNavigatorRegistrationTests
             pages => pages.MapPage<InlineRoute>((_, _) => new InlinePage()));
 
         using var provider = services.BuildServiceProvider();
+        // The router binds the lease registry the page factory opens entry leases from; pages for entries without a
+        // lease are built only while the router is presenting, as the presenter would build them.
+        _ = provider.GetRequiredService<IAppNavRuntime>();
+        provider.GetRequiredService<RouteEntryLeaseRegistry>().BeginPresentation();
         var pageFactory = provider.GetRequiredService<IMauiRoutePageFactory>();
 
         Assert.IsType<InlinePage>(await pageFactory.CreatePageAsync(new RouteEntry("inline", new InlineRoute("inline"))));

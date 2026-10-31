@@ -1,4 +1,5 @@
 using AdamE.AppNav.History;
+using AdamE.AppNav.Leases;
 using AdamE.AppNav.Maui;
 using AdamE.AppNav.Maui.DependencyInjection;
 using AdamE.AppNav.Navigation;
@@ -95,11 +96,15 @@ public sealed class MauiPlatformWindowIntegrationTests
                 await navigator.NavigateAsync(new PlatformDetailRoute("retired"));
                 var navigationPage = Assert.IsType<NavigationPage>(window.Page);
                 var retiredPage = Assert.IsType<PlatformDetailPage>(navigationPage.CurrentPage);
+                RouteEntryLeaseRegistry leases = provider.GetRequiredService<RouteEntryLeaseRegistry>();
+                Assert.True(leases.TryGet("detail-retired", out RouteEntryLease? retiredLease));
 
                 NavigationResult result = await navigator
                     .NavigateAsync(new PlatformHomeRoute())
                     .AsTask()
                     .WaitAsync(TimeSpan.FromSeconds(5));
+                // The commit drops the detail occurrence; its lease releases the scope asynchronously on this thread.
+                await retiredLease.Released.WaitAsync(TimeSpan.FromSeconds(5));
 
                 InvalidOperationException reentryFailure = Assert.IsType<InvalidOperationException>(
                     lifecycleHook.ReentryFailure);
@@ -171,7 +176,12 @@ public sealed class MauiPlatformWindowIntegrationTests
             Assert.Equal(0, detailScope!.DisposeCount);
             AssertHistory(navigator.History, 2, typeof(PlatformDetailRoute));
 
+            RouteEntryLeaseRegistry leases = provider.GetRequiredService<RouteEntryLeaseRegistry>();
+            Assert.True(leases.TryGet("detail-one", out RouteEntryLease? detailLease));
+
             BackNavigationResult backResult = await navigator.BackAsync("main");
+            // Back's commit drops the detail occurrence; its lease releases the page scope on the main thread.
+            await detailLease.Released.WaitAsync(TimeSpan.FromSeconds(10));
 
             Assert.True(MainThread.IsMainThread);
             Assert.Equal(BackNavigationStatus.Completed, backResult.Status);
@@ -182,6 +192,10 @@ public sealed class MauiPlatformWindowIntegrationTests
             AssertHistory(navigator.History, 3, typeof(PlatformHomeRoute));
             Assert.Equal(1, detailScope.DisposeCount);
             Assert.Equal(0, homeScope.DisposeCount);
+            Assert.False(leases.TryGet("detail-one", out _));
+            Assert.True(leases.TryGet("home", out RouteEntryLease? homeLease));
+            Assert.True(homeLease.IsCommitted);
+            Assert.False(homeLease.IsRetired);
         }
         finally
         {

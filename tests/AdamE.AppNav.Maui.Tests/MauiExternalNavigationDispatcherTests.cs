@@ -833,11 +833,19 @@ public sealed class MauiExternalNavigationDispatcherTests
     }
 
     [Fact]
-    public void RepeatedHostDisposal_ReleasesProvidersAndDispatchers()
+    public async Task RepeatedHostDisposal_ReleasesProvidersAndDispatchers()
     {
         HostWeakReferences[] hosts = CreateAndDisposeHostsOnExitedThread(32);
 
-        ForceFullCollection();
+        // Like MauiPageCollectionTests: let other threads move on between collections, so a stale reference left on
+        // a pooled thread's stack is not mistaken for a leak. A rooted host stays alive through every attempt.
+        for (var attempt = 0; attempt < 8 && hosts.Any(static host => host.Provider.IsAlive ||
+                                                                         host.Dispatcher.IsAlive ||
+                                                                         host.Navigator.IsAlive); attempt++)
+        {
+            ForceFullCollection();
+            await Task.Delay(10);
+        }
 
         Assert.All(hosts, host =>
         {

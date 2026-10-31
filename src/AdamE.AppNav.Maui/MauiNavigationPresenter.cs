@@ -312,6 +312,8 @@ internal sealed class MauiNavigationPresenter :
         catch (Exception ex)
         {
             WritePageReleaseFailure(null, ex);
+            // The main-thread cleanup may not have run at all; pages must still stop holding their leases.
+            await ReleaseOutstandingPagesAsync();
         }
         finally
         {
@@ -328,6 +330,18 @@ internal sealed class MauiNavigationPresenter :
     }
 
     private async Task FinalizeShutdownOnMainThreadAsync()
+    {
+        try
+        {
+            await FinalizeShutdownOnMainThreadCoreAsync();
+        }
+        finally
+        {
+            await ReleaseOutstandingPagesAsync();
+        }
+    }
+
+    private async Task FinalizeShutdownOnMainThreadCoreAsync()
     {
         _suppressReconciliation = true;
         _activeOperationId = null;
@@ -394,6 +408,20 @@ internal sealed class MauiNavigationPresenter :
         _trackedBranchHosts.Clear();
         _trackedModalPages.Clear();
         _lastState = NavigationState.Empty;
+    }
+
+    // Router disposal waits for every entry lease, so no page the factory built may keep holding one: not one a failed
+    // recovery left untracked, and not one this shutdown's own cleanup failed to reach.
+    private async Task ReleaseOutstandingPagesAsync()
+    {
+        try
+        {
+            await _pageFactory.ReleaseOutstandingPagesAsync();
+        }
+        catch (Exception ex)
+        {
+            WritePageReleaseFailure(null, ex);
+        }
     }
 
     public async ValueTask AttachWindowAsync(
@@ -2121,6 +2149,21 @@ internal sealed class MauiNavigationPresenter :
                 foreach (var child in navigationPage.Navigation.NavigationStack.Reverse().ToArray())
                 {
                     await DetachPageTreeAsync(child, visited, failures);
+                }
+
+                // A route may map to a NavigationPage itself; it holds its entry's lease like any route page.
+                // Stack containers carry no route entry and are not the factory's.
+                if (shouldRelease && GetRouteEntryId(navigationPage) is not null)
+                {
+                    try
+                    {
+                        await _pageFactory.ReleasePageAsync(navigationPage);
+                    }
+                    catch (Exception ex)
+                    {
+                        failures.Add(ex);
+                        pageReleaseSucceeded = false;
+                    }
                 }
 
                 break;

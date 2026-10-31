@@ -378,11 +378,14 @@ public sealed class NavigationDiagnostics
         return kind.ToString().EndsWith("Failed", StringComparison.Ordinal) ||
                kind is NavigationDiagnosticEventKind.NavigationFailed or
                    NavigationDiagnosticEventKind.RequestRedirectLoopDetected or
-                   NavigationDiagnosticEventKind.DiagnosticObserverFailed
+                   NavigationDiagnosticEventKind.DiagnosticObserverFailed or
+                   NavigationDiagnosticEventKind.EntryLeaseDefectReported
             ? LogLevel.Error
             : kind is NavigationDiagnosticEventKind.RouteNotMatched or
                     NavigationDiagnosticEventKind.BackUnhandled or
                     NavigationDiagnosticEventKind.ReconciliationRejected or
+                    NavigationDiagnosticEventKind.EntryLeaseNotInPlan or
+                    NavigationDiagnosticEventKind.EntryLeaseShutdownWaiting or
                     NavigationDiagnosticEventKind.DeferredRequestStoreQuarantined or
                     NavigationDiagnosticEventKind.DeferredRequestStoreOverflowed
                 ? LogLevel.Warning
@@ -414,7 +417,8 @@ public sealed class NavigationDiagnostics
                 NavigationDiagnosticPhase.RequestPolicy,
             NavigationDiagnosticEventKind.PlanningStarted or
                 NavigationDiagnosticEventKind.PlanningCompleted or
-                NavigationDiagnosticEventKind.PlanningFailed =>
+                NavigationDiagnosticEventKind.PlanningFailed or
+                NavigationDiagnosticEventKind.EntryLeaseNotInPlan =>
                 NavigationDiagnosticPhase.Planning,
             NavigationDiagnosticEventKind.RequestTransformStarted or
                 NavigationDiagnosticEventKind.RequestTransformCompleted or
@@ -431,6 +435,9 @@ public sealed class NavigationDiagnostics
                 NavigationDiagnosticEventKind.PresentationRollbackCompleted or
                 NavigationDiagnosticEventKind.PresentationRollbackFailed or
                 NavigationDiagnosticEventKind.PresentationPageReleaseFailed or
+                NavigationDiagnosticEventKind.EntryLeaseDefectReported or
+                NavigationDiagnosticEventKind.EntryLeaseReleaseFailed or
+                NavigationDiagnosticEventKind.EntryLeaseShutdownWaiting or
                 NavigationDiagnosticEventKind.PresentationCompleted or
                 NavigationDiagnosticEventKind.PresentationFailed =>
                 NavigationDiagnosticPhase.Presentation,

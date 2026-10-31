@@ -1975,7 +1975,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         var options = new MauiRoutePresentationOptions { UseScopedPages = true };
         options.Pages.MapPage<TestPageRoute>((_, _) => new ContentPage());
         var presenter = new MauiNavigationPresenter(
-            new MauiRoutePageFactory(provider, options),
+            TestEntryLeases.Factory(provider, options),
             presentationOptions: options);
 
         await presenter.ApplyAsync(
@@ -2017,7 +2017,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         var options = new MauiRoutePresentationOptions { UseScopedPages = true };
         options.Pages.MapPage<TestPageRoute>((_, _) => new ContentPage());
         var presenter = new MauiNavigationPresenter(
-            new MauiRoutePageFactory(provider, options),
+            TestEntryLeases.Factory(provider, options),
             presentationOptions: options);
 
         await presenter.ApplyAsync(
@@ -2839,7 +2839,6 @@ public sealed class MauiNavigationPresenterLifecycleTests
         public ValueTask ReleasePresentationPageAsync(Page page) =>
             ValueTask.FromException(new InvalidOperationException("Release failed before relinquishing resources."));
 
-        public MauiPageAbandonment? CaptureAbandonment(Page page) => null;
     }
 
     private sealed class ThrowingPlanner : IAppNavigationPlanner

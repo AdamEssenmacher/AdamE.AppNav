@@ -2,6 +2,7 @@ using System.Diagnostics;
 using AdamE.AppNav.Back;
 using AdamE.AppNav.Diagnostics;
 using AdamE.AppNav.History;
+using AdamE.AppNav.Leases;
 using AdamE.AppNav.Internal;
 using AdamE.AppNav.Plans;
 using AdamE.AppNav.Policies;
@@ -23,6 +24,8 @@ internal sealed class RouterNavigator : IRouterNavigator
     private readonly IReadOnlyList<IBackNavigationPolicy> _backNavigationPolicies;
     private readonly RouterRequestResolver _requestResolver;
     private readonly RouterNavigationDiagnostics _diagnostics;
+    private readonly RouteEntryLeaseRegistry? _entryLeases;
+    private readonly TimeSpan _entryLeaseShutdownWarningDelay;
     private readonly SemaphoreSlim _operationLock = new(1, 1);
     private readonly Lock _lifetimeGate = new();
     private readonly Lock _reconciliationGate = new();
@@ -31,6 +34,7 @@ internal sealed class RouterNavigator : IRouterNavigator
     private readonly CancellationTokenSource _shutdownCancellation = new();
     private readonly int _maxHistoryEntries;
     private Task _reconciliationQueue = Task.CompletedTask;
+    private Task _entryLeaseDrain = Task.CompletedTask;
     private int _activeOperations;
     private bool _shutdownStarted;
     private bool _shutdownSignalIssued;
@@ -70,6 +74,18 @@ internal sealed class RouterNavigator : IRouterNavigator
         _backNavigator = options.BackNavigator ?? new DefaultBackNavigator(diagnostics: diagnostics);
         _backNavigationPolicies = options.BackNavigationPolicies.ToArray();
         _maxHistoryEntries = options.MaxHistoryEntries;
+        if (!IsValidWarningDelay(options.EntryLeaseShutdownWarningDelay))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(options),
+                options.EntryLeaseShutdownWarningDelay,
+                "EntryLeaseShutdownWarningDelay must be positive and at most about 49 days, or " +
+                "Timeout.InfiniteTimeSpan to turn the warning off.");
+        }
+
+        _entryLeaseShutdownWarningDelay = options.EntryLeaseShutdownWarningDelay;
+        _entryLeases = options.EntryLeases;
+        _entryLeases?.Bind(CurrentState);
 
         _presenter.ReconciliationRequested += OnPresenterReconciliationRequested;
     }
@@ -83,6 +99,13 @@ internal sealed class RouterNavigator : IRouterNavigator
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (RouteEntryLeaseNavigation.TryGetLease(request, out RouteEntryLease? lease) &&
+            !ReferenceEquals(lease.Registry, _entryLeases))
+        {
+            throw new InvalidOperationException(
+                "The request's route-entry lease belongs to another registry, or this router has no entry leases; " +
+                "send a lease only through the router configured with the registry that opened it.");
+        }
 
         RouterOperationContext? operationContext = null;
         var operationAdmitted = false;
@@ -202,6 +225,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             _diagnostics.Write(NavigationDiagnosticEventKind.PresentationStarted, operationId, plan.Kind.ToString());
             try
             {
+                _entryLeases?.BeginPresentation();
                 await _presenter.ApplyAsync(plan,
                     new NavigationPresentationContext(request, route, state, operationId), operationCancellation)
                     .ConfigureAwait(false);
@@ -215,6 +239,11 @@ internal sealed class RouterNavigator : IRouterNavigator
                 _diagnostics.WriteFailure(NavigationDiagnosticEventKind.PresentationFailed,
                     operationId, plan.Kind.ToString(), exception, timer);
                 throw;
+            }
+            finally
+            {
+                // A refresh commits nothing, so leases its presenter opened outside the state end with it.
+                _entryLeases?.EndPresentation(state);
             }
             // Refresh is neither navigation nor an observed host-state replacement. State/history stay identical.
         }
@@ -234,7 +263,12 @@ internal sealed class RouterNavigator : IRouterNavigator
 
     public void Dispose()
     {
-        _ = StartShutdown();
+        // A failed lease release faults shutdown; only DisposeAsync can surface it, so observe it here.
+        _ = StartShutdown().ContinueWith(
+            static task => _ = task.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
     public ValueTask DisposeAsync()
@@ -293,6 +327,19 @@ internal sealed class RouterNavigator : IRouterNavigator
                     new NavigationPlanningContext(effectiveRequest, route, CurrentState, operationId),
                     cancellationToken).ConfigureAwait(false);
                 NavigationStateValidator.ValidatePlan(plan, "App navigation planner");
+                if (_entryLeases is not null)
+                    RouteEntryLeaseRegistry.ValidateUniqueEntryIds(plan.TargetState, "App navigation planner");
+                if (RouteEntryLeaseNavigation.TryGetLease(request, out RouteEntryLease? sentLease) &&
+                    sentLease.EntryId is { } sentEntryId &&
+                    !RouteEntryLeaseRegistry.EntryIds(plan.TargetState).Contains(sentEntryId))
+                {
+                    // The lease will be abandoned when the request ends; say why instead of leaving it silent.
+                    _diagnostics.Write(
+                        NavigationDiagnosticEventKind.EntryLeaseNotInPlan,
+                        operationId,
+                        "The plan does not contain the entry of the route-entry lease sent with this request.",
+                        RouterNavigationDiagnostics.Data((NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
+                }
                 activity.SetTag("navigation.plan_kind", plan.Kind);
                 _diagnostics.Write(
                     NavigationDiagnosticEventKind.PlanningCompleted,
@@ -324,6 +371,7 @@ internal sealed class RouterNavigator : IRouterNavigator
                 RouterNavigationDiagnostics.Data((NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
             try
             {
+                _entryLeases?.BeginPresentation();
                 await _presenter.ApplyAsync(
                     plan,
                     new NavigationPresentationContext(finalizedRequest, finalRoute, CurrentState, operationId),
@@ -344,10 +392,12 @@ internal sealed class RouterNavigator : IRouterNavigator
                     ex,
                     presentationTimer,
                     (NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString()));
+                _entryLeases?.Abandon(CurrentState);
                 throw;
             }
 
             CurrentState = plan.TargetState;
+            _entryLeases?.Commit(CurrentState);
             History = History.Push(
                 CreateHistoryEntry(finalizedRequest, finalRoute, CurrentState),
                 _maxHistoryEntries);
@@ -403,7 +453,10 @@ internal sealed class RouterNavigator : IRouterNavigator
                 return BackNavigationResult.Unhandled;
             }
 
-            NavigationStateValidator.ValidatePlan(plan, $"Back navigator '{_backNavigator.GetType().Name}'");
+            string backPlanSource = $"Back navigator '{_backNavigator.GetType().Name}'";
+            NavigationStateValidator.ValidatePlan(plan, backPlanSource);
+            if (_entryLeases is not null)
+                RouteEntryLeaseRegistry.ValidateUniqueEntryIds(plan.TargetState, backPlanSource);
             var policyContext = new BackNavigationPolicyContext(backRequest, backContext, plan);
             foreach (IBackNavigationPolicy policy in _backNavigationPolicies)
             {
@@ -476,6 +529,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             var presentationTimer = Stopwatch.StartNew();
             try
             {
+                _entryLeases?.BeginPresentation();
                 await _presenter.ApplyAsync(
                     plan,
                     new NavigationPresentationContext(request, route, CurrentState, operationId),
@@ -496,10 +550,12 @@ internal sealed class RouterNavigator : IRouterNavigator
                     ex,
                     presentationTimer,
                     (NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString()));
+                _entryLeases?.Abandon(CurrentState);
                 throw;
             }
 
             CurrentState = plan.TargetState;
+            _entryLeases?.Commit(CurrentState);
             History = History.Push(CreateHistoryEntry(request, route, CurrentState),
                 _maxHistoryEntries);
 
@@ -562,6 +618,8 @@ internal sealed class RouterNavigator : IRouterNavigator
         try
         {
             NavigationStateValidator.ValidatePlan(plan, "Navigation reconciliation");
+            if (_entryLeases is not null)
+                RouteEntryLeaseRegistry.ValidateUniqueEntryIds(plan.TargetState, "Navigation reconciliation");
 
             AppRoute finalRoute = ResolvePresentedRoute(plan.TargetState, request.WindowId, route);
             RouterNavigationRequest finalizedRequest = request;
@@ -573,6 +631,7 @@ internal sealed class RouterNavigator : IRouterNavigator
                 RouterNavigationDiagnostics.Data((NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
             try
             {
+                _entryLeases?.BeginPresentation();
                 await _presenter.ApplyAsync(
                     plan,
                     new NavigationPresentationContext(finalizedRequest, finalRoute, CurrentState, operationId),
@@ -593,10 +652,12 @@ internal sealed class RouterNavigator : IRouterNavigator
                     ex,
                     presentationTimer,
                     (NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString()));
+                _entryLeases?.Abandon(CurrentState);
                 throw;
             }
 
             CurrentState = plan.TargetState;
+            _entryLeases?.Commit(CurrentState);
             History = History.Push(
                 CreateHistoryEntry(finalizedRequest, finalRoute, CurrentState),
                 _maxHistoryEntries);
@@ -830,6 +891,14 @@ internal sealed class RouterNavigator : IRouterNavigator
 
             if (signalShutdown)
             {
+                // Retire every lease first: their release may need presenter teardown that runs alongside this.
+                if (_entryLeases is not null)
+                {
+                    _entryLeaseDrain = _entryLeases.ShutdownAsync();
+                    // Timed from the start of disposal, so a presenter whose ApplyAsync never returns is reported too.
+                    _ = WarnIfEntryLeasesHoldShutdownAsync();
+                }
+
                 try
                 {
                     _ = ObserveShutdownCancellationAsync(_shutdownCancellation.CancelAsync());
@@ -898,8 +967,76 @@ internal sealed class RouterNavigator : IRouterNavigator
         }
         finally
         {
+            if (_entryLeaseDrain.IsCompletedSuccessfully)
+                _shutdownCompletion.TrySetResult(true);
+            else
+                _ = CompleteShutdownAfterEntryLeasesAsync();
+        }
+    }
+
+    private async Task CompleteShutdownAfterEntryLeasesAsync()
+    {
+        try
+        {
+            await _entryLeaseDrain.ConfigureAwait(false);
             _shutdownCompletion.TrySetResult(true);
         }
+        catch (Exception ex)
+        {
+            // A release failed: its resources stay retained, and disposal throws so the owner disposes nothing after.
+            _shutdownCompletion.TrySetException(ex);
+        }
+    }
+
+    // Task.Delay accepts at most uint.MaxValue - 1 milliseconds.
+    internal static bool IsValidWarningDelay(TimeSpan delay)
+    {
+        return delay == Timeout.InfiniteTimeSpan ||
+               (delay > TimeSpan.Zero && delay.TotalMilliseconds <= uint.MaxValue - 1);
+    }
+
+    // Shutdown has no timeout; when it is still waiting after the delay, say which leases hold it and why.
+    private async Task WarnIfEntryLeasesHoldShutdownAsync()
+    {
+        if (_entryLeases is null || _entryLeaseShutdownWarningDelay == Timeout.InfiniteTimeSpan)
+            return;
+
+        using var delay = new CancellationTokenSource();
+        Task finished = await Task.WhenAny(
+            _entryLeaseDrain,
+            Task.Delay(_entryLeaseShutdownWarningDelay, delay.Token)).ConfigureAwait(false);
+        if (finished == _entryLeaseDrain)
+        {
+            await delay.CancelAsync().ConfigureAwait(false);
+            return;
+        }
+
+        (IReadOnlyList<string> held, string summary) = _entryLeases.DescribeUnsettled();
+        if (held.Count == 0)
+            return;
+
+        int operations;
+        lock (_lifetimeGate)
+        {
+            operations = _activeOperations;
+        }
+
+        if (operations > 0)
+            summary += $"; navigation operations still running: {operations}";
+
+        // The message names entries by ID, which only full-mode diagnostics keep; Count and Reason survive safe mode.
+        _diagnostics.Write(
+            NavigationDiagnosticEventKind.EntryLeaseShutdownWaiting,
+            Guid.NewGuid().ToString("N"),
+            $"Router disposal is still waiting for {held.Count} route-entry lease(s) after " +
+            $"{_entryLeaseShutdownWarningDelay.TotalSeconds:0.###} s: " + string.Join("; ", held) +
+            (operations > 0 ? $"; {operations} navigation operation(s), such as a presenter's ApplyAsync, still running" : "") +
+            ".",
+            new Dictionary<string, object?>
+            {
+                [NavigationDiagnosticDataKeys.Count] = held.Count,
+                [NavigationDiagnosticDataKeys.Reason] = summary
+            });
     }
 
     private CancellationToken CreateOperationCancellation(

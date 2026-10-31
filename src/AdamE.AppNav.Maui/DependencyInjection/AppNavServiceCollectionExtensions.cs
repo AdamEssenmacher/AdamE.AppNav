@@ -1,5 +1,6 @@
 using AdamE.AppNav.Back;
 using AdamE.AppNav.Diagnostics;
+using AdamE.AppNav.Leases;
 using AdamE.AppNav.Maui;
 using AdamE.AppNav.Maui.AppLinks;
 using AdamE.AppNav.Maui.Requests;
@@ -236,6 +237,7 @@ public static class AppNavServiceCollectionExtensions
             navigatorOptions.FallbackRouteFactory;
         int maxRedirects = navigatorOptions.MaxRedirects;
         int maxHistoryEntries = navigatorOptions.MaxHistoryEntries;
+        TimeSpan entryLeaseShutdownWarningDelay = navigatorOptions.EntryLeaseShutdownWarningDelay;
 
         services.AddAppNavBoundaryServices();
         services.AddAppNavPresentationServices();
@@ -251,7 +253,9 @@ public static class AppNavServiceCollectionExtensions
                 RequestPolicies = provider.GetServices<INavigationRequestPolicy>().ToArray(),
                 FallbackRouteFactory = fallbackRouteFactory,
                 MaxRedirects = maxRedirects,
-                MaxHistoryEntries = maxHistoryEntries
+                MaxHistoryEntries = maxHistoryEntries,
+                EntryLeases = provider.GetRequiredService<RouteEntryLeaseRegistry>(),
+                EntryLeaseShutdownWarningDelay = entryLeaseShutdownWarningDelay
             };
 
             MauiNavigationPresenter presenter = provider.GetRequiredService<MauiNavigationPresenter>();
@@ -325,6 +329,10 @@ public static class AppNavServiceCollectionExtensions
     {
         services.TryAddSingleton(CreatePresentationOptions);
         services.TryAddSingleton<IMauiPresentationOperationPolicy, DefaultMauiPresentationOperationPolicy>();
+        services.TryAddSingleton<IRouteEntryLeaseHost>(provider =>
+            new MauiRouteEntryLeaseHost(provider.GetService<NavigationDiagnostics>()));
+        services.TryAddSingleton(provider =>
+            new RouteEntryLeaseRegistry(provider.GetRequiredService<IRouteEntryLeaseHost>()));
         services.AddSingleton<IMauiRoutePageFactory, MauiRoutePageFactory>();
         services.AddSingleton(provider => new MauiNavigationPresenter(
             provider.GetRequiredService<IMauiRoutePageFactory>(),

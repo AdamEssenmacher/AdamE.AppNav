@@ -1,5 +1,6 @@
 using AdamE.AppNav.Back;
 using AdamE.AppNav.Diagnostics;
+using AdamE.AppNav.Leases;
 using AdamE.AppNav.Policies;
 using AdamE.AppNav.State;
 using Microsoft.Extensions.Logging;
@@ -78,4 +79,32 @@ public sealed class RouterNavigatorFactoryOptions
     /// <see cref="Logger"/> are not supplied.
     /// </summary>
     public ILoggerFactory? LoggerFactory { get; init; }
+
+    /// <summary>
+    /// Gets the registry whose route-entry leases the router retires on commit, abandonment, and shutdown.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A registry serves one router, and its host is the UI dispatcher core releases leases on. Give the presenter this
+    /// same registry. When it is set, the router's <c>DisposeAsync</c> completes only after every lease has been
+    /// released; if any release failed, it throws <see cref="RouteEntryLeaseReleaseException"/> (an
+    /// <see cref="AggregateException"/> of them when several failed) and the resources stay retained. Synchronous <c>Dispose</c> starts the same shutdown and returns at once, so an owner that must not
+    /// dispose what leases borrow uses <c>DisposeAsync</c>.
+    /// </para>
+    /// <para>
+    /// Releases need the presenter to detach its artifacts and the UI dispatcher to be free: start the presenter's
+    /// teardown alongside the router's disposal rather than after awaiting it, and never block the UI thread waiting
+    /// for disposal.
+    /// </para>
+    /// </remarks>
+    public RouteEntryLeaseRegistry? EntryLeases { get; init; }
+
+    /// <summary>
+    /// Gets how long the router's disposal waits for route-entry leases before it writes
+    /// <see cref="NavigationDiagnosticEventKind.EntryLeaseShutdownWaiting"/>, naming each lease still held and what
+    /// holds it. The delay is measured from the start of disposal. The default is five seconds;
+    /// <see cref="Timeout.InfiniteTimeSpan"/> turns the warning off.
+    /// </summary>
+    /// <remarks>The warning changes nothing: disposal keeps waiting, and no lease is released early.</remarks>
+    public TimeSpan EntryLeaseShutdownWarningDelay { get; init; } = TimeSpan.FromSeconds(5);
 }

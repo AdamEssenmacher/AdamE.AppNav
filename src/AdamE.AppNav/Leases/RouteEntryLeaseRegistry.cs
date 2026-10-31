@@ -1,0 +1,686 @@
+using System.Diagnostics.CodeAnalysis;
+using AdamE.AppNav.Navigation;
+using AdamE.AppNav.State;
+
+namespace AdamE.AppNav.Leases;
+
+/// <summary>
+/// Holds the current lease of each leased route entry, and retires and releases leases as the router commits,
+/// abandons, and shuts down.
+/// </summary>
+/// <remarks>
+/// One registry serves one router: pass it through <c>RouterNavigatorFactoryOptions.EntryLeases</c> and give the same
+/// instance to the presenter. See the entry-leases design note for the full contract.
+/// </remarks>
+public sealed class RouteEntryLeaseRegistry
+{
+    private readonly IRouteEntryLeaseHost _host;
+    private readonly Dictionary<string, RouteEntryLease> _current = new(StringComparer.Ordinal);
+    // Leases not yet released: shutdown retires them, including those a fault keeps from releasing.
+    private readonly HashSet<RouteEntryLease> _live = new(ReferenceEqualityComparer.Instance);
+    // Leases neither released nor kept by a reported fatal failure: shutdown waits for them.
+    private readonly HashSet<RouteEntryLease> _unsettled = new(ReferenceEqualityComparer.Instance);
+    private readonly TaskCompletionSource _drained = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    // Every release that could not complete; router disposal throws them once everything else has settled.
+    private readonly List<RouteEntryLeaseReleaseException> _failures = [];
+    // Leases the adapter opened during the operation in progress; core closes them when the operation ends.
+    private readonly List<RouteEntryLease> _operationAdapterLeases = [];
+    // Whether the router is inside a presenter's ApplyAsync: the only time GetOrOpen may open a lease.
+    private bool _presenting;
+    private HashSet<string> _committedIds = new(StringComparer.Ordinal);
+    private bool _bound;
+    private bool _sealed;
+
+    public RouteEntryLeaseRegistry(IRouteEntryLeaseHost host)
+    {
+        _host = host ?? throw new ArgumentNullException(nameof(host));
+    }
+
+    internal Lock Gate { get; } = new();
+
+    /// <summary>
+    /// Opens the lease of a new occurrence of <paramref name="entryId"/>, before the application sends the request that
+    /// presents it with <see cref="RouteEntryLeaseNavigation.NavigateAsync"/>.
+    /// </summary>
+    /// <param name="entryId">The route-entry ID the request will present.</param>
+    /// <param name="parent">A lease that must outlive this one, or <see langword="null"/>.</param>
+    /// <exception cref="InvalidOperationException">
+    /// The entry ID already has a current lease, or <paramref name="parent"/> is closed.
+    /// </exception>
+    /// <exception cref="ObjectDisposedException">The router has shut down.</exception>
+    public RouteEntryLease Open(string entryId, RouteEntryLease? parent = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(entryId);
+        RouteEntryLease lease;
+        lock (Gate)
+        {
+            if (_current.ContainsKey(entryId))
+            {
+                throw new InvalidOperationException(
+                    $"Route entry '{entryId}' already has a current lease. Use a new entry ID for a new occurrence.");
+            }
+
+            lease = OpenLocked(entryId, parent, sent: false);
+        }
+
+        RetireIfBornUnderRetiredParent(lease);
+        return lease;
+    }
+
+    /// <summary>Opens an application lease that belongs to no entry, such as a handle several entry leases share.</summary>
+    /// <remarks>It retires only when the application retires it, when its parent retires, or at shutdown.</remarks>
+    /// <exception cref="ObjectDisposedException">The router has shut down.</exception>
+    public RouteEntryLease OpenApplicationLease(RouteEntryLease? parent = null)
+    {
+        RouteEntryLease lease;
+        lock (Gate)
+        {
+            lease = OpenLocked(null, parent, sent: false);
+        }
+
+        RetireIfBornUnderRetiredParent(lease);
+        return lease;
+    }
+
+    /// <summary>
+    /// For an adapter inside <c>ApplyAsync</c>: returns the current lease of <paramref name="entryId"/>, or opens one
+    /// that belongs to the presentation in progress.
+    /// </summary>
+    /// <param name="entryId">The entry being presented.</param>
+    /// <param name="opened">
+    /// <see langword="true"/> when this call opened the lease; the adapter is then its opener. It attaches what the
+    /// entry borrows during this operation and may close the lease early; core closes it when the operation ends.
+    /// When <see langword="false"/>, the lease belongs to whoever opened it: never close it.
+    /// </param>
+    /// <remarks>
+    /// The returned lease may be retired, or retire at any time. Attach with <see cref="RouteEntryLease.TryAttach"/>
+    /// before changing the native tree; when it returns <see langword="false"/>, present a placeholder if the lease is
+    /// committed, and otherwise fail the presentation, for example with <see cref="OperationCanceledException"/>:
+    /// presenting it would commit an entry whose resources are being released.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">
+    /// No router has this registry as its <c>EntryLeases</c>, or the entry has no lease and the router is not
+    /// presenting, so no operation would ever close the lease it opened.
+    /// </exception>
+    /// <exception cref="ObjectDisposedException">The router has shut down.</exception>
+    public RouteEntryLease GetOrOpen(string entryId, out bool opened)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(entryId);
+        lock (Gate)
+        {
+            if (!_bound)
+            {
+                throw new InvalidOperationException(
+                    "This route-entry lease registry serves no router. Give the presenter the registry passed to the " +
+                    "router as RouterNavigatorFactoryOptions.EntryLeases.");
+            }
+
+            ObjectDisposedException.ThrowIf(_sealed, this);
+            if (_current.TryGetValue(entryId, out RouteEntryLease? existing))
+            {
+                opened = false;
+                return existing;
+            }
+
+            // Only an operation's end closes an adapter-opened lease, so one opened outside an operation never would.
+            if (!_presenting)
+            {
+                throw new InvalidOperationException(
+                    $"Route entry '{entryId}' has no lease, and GetOrOpen opens one only while the router is presenting " +
+                    "(inside ApplyAsync). Build an entry's native view during presentation, or have the application " +
+                    "open the entry's lease with Open.");
+            }
+
+            opened = true;
+            RouteEntryLease lease = OpenLocked(entryId, null, sent: true);
+            lease.MarkAdapterOpenedLocked();
+            _operationAdapterLeases.Add(lease);
+            return lease;
+        }
+    }
+
+    /// <summary>Gets the current lease of <paramref name="entryId"/>, if it has one.</summary>
+    public bool TryGet(string entryId, [NotNullWhen(true)] out RouteEntryLease? lease)
+    {
+        ArgumentNullException.ThrowIfNull(entryId);
+        lock (Gate)
+        {
+            return _current.TryGetValue(entryId, out lease);
+        }
+    }
+
+    internal void Bind(NavigationState initialState)
+    {
+        lock (Gate)
+        {
+            if (_bound)
+                throw new InvalidOperationException("A route-entry lease registry serves exactly one router.");
+
+            ValidateUniqueEntryIds(initialState, "Router initial state");
+            _bound = true;
+            CommitLocked(EntryIds(initialState), []);
+        }
+    }
+
+    // One occurrence, one lease: with leases configured, an entry ID may appear only once in a state.
+    internal static void ValidateUniqueEntryIds(NavigationState state, string source)
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string entryId in EnumerateEntryIds(state))
+        {
+            if (!ids.Add(entryId))
+            {
+                throw new AppNavigationConfigurationException(
+                    $"{source} produced a state in which route-entry id '{entryId}' appears more than once. With " +
+                    "route-entry leases, each entry id must be unique across the whole state; make the entry-id " +
+                    "factory include what distinguishes the occurrences, such as the branch.");
+            }
+        }
+    }
+
+    // What holds each lease shutdown is still waiting for, for the router's shutdown warning. Leases names each one by
+    // its entry ID; Summary counts the holders without IDs, so it survives safe-mode diagnostics.
+    internal (IReadOnlyList<string> Leases, string Summary) DescribeUnsettled()
+    {
+        lock (Gate)
+        {
+            string[] leases = _unsettled
+                .Select(static lease => lease.DescribeHoldersLocked())
+                .Order(StringComparer.Ordinal)
+                .ToArray();
+            int notClosed = 0, artifacts = 0, pendingWork = 0, children = 0;
+            foreach (RouteEntryLease lease in _unsettled)
+                lease.CountHoldersLocked(ref notClosed, ref artifacts, ref pendingWork, ref children);
+
+            return (leases,
+                $"not closed: {notClosed}; native artifacts not detached: {artifacts}; " +
+                $"pending work: {pendingWork}; child leases not released: {children}");
+        }
+    }
+
+    // The router is about to call the presenter's ApplyAsync; Commit, EndPresentation or Abandon ends it.
+    internal void BeginPresentation()
+    {
+        lock (Gate)
+        {
+            _presenting = true;
+        }
+    }
+
+    internal void Commit(NavigationState state)
+    {
+        HashSet<string> ids = EntryIds(state);
+        var dropped = new List<RouteEntryLease>();
+        List<RouteEntryLease> stray;
+        RouteEntryLease[] closed;
+        lock (Gate)
+        {
+            CommitLocked(ids, dropped);
+            stray = TakeStrayAdapterLeasesLocked(ids);
+            closed = CloseOperationAdapterLeasesLocked();
+        }
+
+        Retire(dropped, RouteEntryLeaseRetirement.Dropped);
+        Retire(stray, RouteEntryLeaseRetirement.Abandoned);
+        foreach (RouteEntryLease lease in closed)
+            TryStartRelease(lease);
+    }
+
+    // An operation that commits nothing, such as a refresh, ends: leases its presenter opened outside the state end.
+    internal void EndPresentation(NavigationState committed)
+    {
+        List<RouteEntryLease> stray;
+        RouteEntryLease[] closed;
+        lock (Gate)
+        {
+            stray = TakeStrayAdapterLeasesLocked(EntryIds(committed));
+            closed = CloseOperationAdapterLeasesLocked();
+        }
+
+        Retire(stray, RouteEntryLeaseRetirement.Abandoned);
+        foreach (RouteEntryLease lease in closed)
+            TryStartRelease(lease);
+    }
+
+    // A presentation failed or was cancelled, once ApplyAsync has returned: the leases its adapter opened end with it.
+    // A lease the application sent with its own request ends with that request (EndRequest), never with another
+    // request's failure, even one for the same entry.
+    internal void Abandon(NavigationState committed)
+    {
+        EndPresentation(committed);
+    }
+
+    internal void Send(RouteEntryLease lease)
+    {
+        ArgumentNullException.ThrowIfNull(lease);
+        if (!ReferenceEquals(lease.Registry, this) || lease.EntryId is null)
+            throw new ArgumentException("Only an entry lease of this registry can be sent.", nameof(lease));
+
+        lock (Gate)
+        {
+            if (lease.IsSentLocked)
+                throw new InvalidOperationException($"The lease of route entry '{lease.EntryId}' was already sent.");
+
+            // A lease abandoned, retired or replaced before it was sent cannot carry a request: its entry would
+            // commit without a lease, or with released resources.
+            if (lease.IsClosedLocked && !lease.IsCommittedLocked)
+            {
+                throw new InvalidOperationException(
+                    $"The lease of route entry '{lease.EntryId}' was closed before it was sent, which abandoned it. " +
+                    "Close a lease after its request has ended.");
+            }
+
+            if (!lease.IsOpenLocked || !IsCurrentLocked(lease))
+            {
+                throw new InvalidOperationException(
+                    $"The lease of route entry '{lease.EntryId}' is no longer open and current, so it cannot be sent.");
+            }
+
+            lease.MarkSentLocked();
+        }
+    }
+
+    // The lease's request ended. Whatever its outcome, the occurrence ends unless the request committed it.
+    internal void EndRequest(RouteEntryLease lease)
+    {
+        lock (Gate)
+        {
+            lease.EndRequestLocked();
+            if (!lease.IsCommittedLocked && IsCurrentLocked(lease) && !lease.IsOpenLocked)
+            {
+                // Retired by the application while in flight: the request that kept it current has ended.
+                _current.Remove(lease.EntryId ?? throw new InvalidOperationException("Only entry leases are sent."));
+            }
+        }
+
+        AbandonUncommitted(lease);
+    }
+
+    internal void Close(RouteEntryLease lease)
+    {
+        bool abandon;
+        lock (Gate)
+        {
+            abandon = lease.CloseLocked();
+            // Retired by the application before it was ever sent: nothing will commit it, so its ID is free at once,
+            // as when a request ends, rather than once its release has run.
+            if (!abandon &&
+                lease.EntryId is { } entryId &&
+                !lease.IsSentLocked &&
+                !lease.IsCommittedLocked &&
+                !lease.IsOpenLocked &&
+                IsCurrentLocked(lease))
+            {
+                _current.Remove(entryId);
+            }
+        }
+
+        if (abandon)
+            AbandonUncommitted(lease);
+        else
+            TryStartRelease(lease);
+    }
+
+    internal Task ShutdownAsync()
+    {
+        RouteEntryLease[] leases;
+        lock (Gate)
+        {
+            if (!_sealed)
+            {
+                _sealed = true;
+                _current.Clear();
+            }
+
+            // Retiring the roots retires every descendant with a deterministic Parent reason.
+            leases = _live.Where(static lease => lease.Parent is null).ToArray();
+            if (_unsettled.Count == 0)
+                CompleteDrainLocked();
+        }
+
+        Retire(leases, RouteEntryLeaseRetirement.Shutdown);
+        return _drained.Task;
+    }
+
+    internal void Retire(IReadOnlyCollection<RouteEntryLease> leases, RouteEntryLeaseRetirement reason)
+    {
+        if (leases.Count == 0)
+            return;
+
+        var retired = new List<RouteEntryLease>();
+        lock (Gate)
+        {
+            foreach (RouteEntryLease lease in leases)
+                lease.RetireLocked(reason, retired);
+        }
+
+        foreach (RouteEntryLease lease in retired)
+            lease.NotifyRetired();
+    }
+
+    internal void StartRelease(RouteEntryLease lease)
+    {
+        _ = ReleaseAsync(lease);
+    }
+
+    // Runs work on the host and completes only once that work has: core does not take the host's task on trust. A host
+    // whose task completes before the work has finished, or that never runs it, fails here, which core treats as a
+    // host failure (fatal). The work's own exception is rethrown even if the host swallowed it.
+    internal async Task InvokeOnHostAsync(Func<ValueTask> work)
+    {
+        var finished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        try
+        {
+            await _host.InvokeAsync(async () =>
+            {
+                try
+                {
+                    await work().ConfigureAwait(false);
+                    finished.TrySetResult();
+                }
+                catch (Exception ex)
+                {
+                    finished.TrySetException(ex);
+                    throw;
+                }
+            }).ConfigureAwait(false);
+        }
+        catch when (finished.Task.IsFaulted)
+        {
+            // The work's own exception, not however the host wrapped it; awaiting it also observes it.
+            await finished.Task.ConfigureAwait(false);
+            throw;
+        }
+
+        if (!finished.Task.IsCompleted)
+            throw new RouteEntryLeaseHostCompletedEarlyException();
+
+        await finished.Task.ConfigureAwait(false);
+    }
+
+    internal void ReportDefect(RouteEntryLease lease, Exception exception)
+    {
+        try
+        {
+            _host.ReportDefect(new RouteEntryLeaseReleaseException(
+                lease.EntryId,
+                lease.EntryId is null
+                    ? "Retiring or releasing an application lease raised a defect; it continued."
+                    : $"Retiring or releasing the lease of route entry '{lease.EntryId}' raised a defect; it continued.",
+                exception));
+        }
+        catch
+        {
+            // A failing reporter must not stop the release it reports on.
+        }
+    }
+
+    // Leases an adapter opened during the operation that just ended, for entries that state does not contain: a
+    // presenter that used GetOrOpen as a lookup, or an operation that did not commit them.
+    private List<RouteEntryLease> TakeStrayAdapterLeasesLocked(HashSet<string> committedIds)
+    {
+        var stray = new List<RouteEntryLease>();
+        foreach ((string entryId, RouteEntryLease lease) in _current.ToArray())
+        {
+            if (!lease.IsAdapterOpenedLocked || !lease.IsAbandonableLocked || committedIds.Contains(entryId))
+                continue;
+
+            stray.Add(lease);
+            _current.Remove(entryId);
+        }
+
+        return stray;
+    }
+
+    // The operation is over, so its adapter attaches nothing more: closing every lease it opened means an adapter that
+    // never closes one cannot keep it from releasing. Artifacts it attached still hold the lease. This list, not
+    // _current, is the source, so a lease opened while shutdown cleared _current is closed too.
+    private RouteEntryLease[] CloseOperationAdapterLeasesLocked()
+    {
+        _presenting = false;
+        RouteEntryLease[] leases = _operationAdapterLeases.ToArray();
+        _operationAdapterLeases.Clear();
+        foreach (RouteEntryLease lease in leases)
+            lease.CloseLocked();
+
+        return leases;
+    }
+
+    private bool IsCurrentLocked(RouteEntryLease lease)
+    {
+        return lease.EntryId is { } entryId &&
+               _current.TryGetValue(entryId, out RouteEntryLease? current) &&
+               ReferenceEquals(current, lease);
+    }
+
+    private void AbandonUncommitted(RouteEntryLease lease)
+    {
+        lock (Gate)
+        {
+            if (!lease.IsAbandonableLocked)
+                return;
+
+            if (lease.EntryId is { } entryId &&
+                _current.TryGetValue(entryId, out RouteEntryLease? current) &&
+                ReferenceEquals(current, lease))
+            {
+                _current.Remove(entryId);
+            }
+        }
+
+        Retire([lease], RouteEntryLeaseRetirement.Abandoned);
+    }
+
+    private RouteEntryLease OpenLocked(string? entryId, RouteEntryLease? parent, bool sent)
+    {
+        ObjectDisposedException.ThrowIf(_sealed, this);
+        if (parent is not null && !ReferenceEquals(parent.Registry, this))
+            throw new ArgumentException("The parent lease belongs to another registry.", nameof(parent));
+
+        var lease = new RouteEntryLease(
+            this,
+            entryId,
+            parent,
+            entryId is not null && _committedIds.Contains(entryId),
+            sent);
+        parent?.AddChildLocked(lease);
+        if (entryId is not null)
+            _current.Add(entryId, lease);
+        _live.Add(lease);
+        _unsettled.Add(lease);
+        return lease;
+    }
+
+    private void RetireIfBornUnderRetiredParent(RouteEntryLease lease)
+    {
+        if (lease.Parent is { } parent && parent.IsRetired)
+            Retire([lease], RouteEntryLeaseRetirement.Parent);
+    }
+
+    private void CommitLocked(HashSet<string> ids, List<RouteEntryLease> dropped)
+    {
+        _committedIds = ids;
+        foreach ((string entryId, RouteEntryLease lease) in _current.ToArray())
+        {
+            if (ids.Contains(entryId))
+            {
+                lease.MarkCommittedLocked();
+            }
+            else if (lease.IsCommittedLocked)
+            {
+                lease.ClearCommittedLocked();
+                dropped.Add(lease);
+                _current.Remove(entryId);
+            }
+        }
+    }
+
+    private void TryStartRelease(RouteEntryLease lease)
+    {
+        bool release;
+        lock (Gate)
+        {
+            release = lease.TryBeginReleaseLocked();
+        }
+
+        if (release)
+            StartRelease(lease);
+    }
+
+    private async Task ReleaseAsync(RouteEntryLease lease)
+    {
+        // Never release inline: the caller may hold core's operation lock or its own.
+        await Task.CompletedTask.ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
+        try
+        {
+            await InvokeOnHostAsync(lease.DisposeResourcesAsync).ConfigureAwait(false);
+        }
+        catch (RouteEntryLeaseHostCompletedEarlyException ex)
+        {
+            // The release may still be running on the host, so its resources are not reliably kept.
+            Fault(
+                lease,
+                ex,
+                lease.EntryId is null
+                    ? "The host's task completed while an application lease's release was still running; its " +
+                      "resources may be partly disposed, and its ancestors kept theirs."
+                    : $"The host's task completed while the release of route entry '{lease.EntryId}' was still " +
+                      "running; its resources may be partly disposed, and its ancestors kept theirs.");
+            return;
+        }
+        catch (Exception ex)
+        {
+            Fault(lease, ex);
+            return;
+        }
+
+        RouteEntryLease? parent = lease.Parent;
+        lock (Gate)
+        {
+            lease.CompleteReleaseLocked();
+            // A committed occurrence stays current, so presentation still sees it retired until a commit drops it;
+            // so does one whose request is still in flight, until that request ends.
+            if (lease.EntryId is { } entryId &&
+                !lease.IsCommittedLocked &&
+                !lease.IsInFlightLocked &&
+                IsCurrentLocked(lease))
+            {
+                _current.Remove(entryId);
+            }
+
+            _live.Remove(lease);
+            SettleLocked([lease]);
+        }
+
+        lease.SignalReleased();
+        if (parent is not null)
+            TryStartRelease(parent);
+    }
+
+    // The host could not run the lease's retirement work, so it is never released: its resources and every ancestor's
+    // are kept, as for a release the host could not run.
+    internal void FaultRetirement(RouteEntryLease lease, Exception exception)
+    {
+        Fault(
+            lease,
+            exception,
+            lease.EntryId is null
+                ? "The host could not run an application lease's retirement work; it and its ancestors kept their resources."
+                : $"The host could not run the retirement work of route entry '{lease.EntryId}'; it and its ancestors " +
+                  "kept their resources.");
+    }
+
+    // The release could not run, so its resources and every ancestor's are kept.
+    private void Fault(RouteEntryLease lease, Exception exception, string? message = null)
+    {
+        var failure = new RouteEntryLeaseReleaseException(
+            lease.EntryId,
+            message ?? (lease.EntryId is null
+                ? "An application lease could not be released safely; it and its ancestors kept their resources."
+                : $"The lease of route entry '{lease.EntryId}' could not be released safely; it and its ancestors " +
+                  "kept their resources."),
+            exception is RouteEntryLeaseFatalDisposalException { InnerException: { } disposal } ? disposal : exception);
+        lock (Gate)
+        {
+            // A lease faults once; a second failure, such as more retirement work the broken host refused, adds nothing.
+            if (lease.IsFaultedLocked)
+                return;
+
+            _failures.Add(failure);
+            var settled = new List<RouteEntryLease>();
+            lease.FaultLocked(settled);
+            SettleLocked(settled);
+        }
+
+        try
+        {
+            _host.ReportFatal(failure);
+        }
+        catch
+        {
+            // The host's fatal boundary owns the failure; a failing reporter must not resurrect the lease.
+        }
+    }
+
+    private void SettleLocked(IEnumerable<RouteEntryLease> leases)
+    {
+        foreach (RouteEntryLease lease in leases)
+            _unsettled.Remove(lease);
+
+        if (_sealed && _unsettled.Count == 0)
+            CompleteDrainLocked();
+    }
+
+    // Shutdown step 5: disposal returns only when every release finished; a failed one makes it throw instead.
+    private void CompleteDrainLocked()
+    {
+        if (_failures.Count == 0)
+        {
+            _drained.TrySetResult();
+            return;
+        }
+
+        _drained.TrySetException(_failures.Count == 1
+            ? _failures[0]
+            : new AggregateException("Route-entry leases could not be released; their resources were kept.", _failures));
+    }
+
+    internal static HashSet<string> EntryIds(NavigationState state)
+    {
+        return new HashSet<string>(EnumerateEntryIds(state), StringComparer.Ordinal);
+    }
+
+    private static IEnumerable<string> EnumerateEntryIds(NavigationState state)
+    {
+        var ids = new List<string>();
+        foreach (WindowNode window in state.Windows)
+        {
+            if (window.Root is not null)
+                AddEntryIds(window.Root, ids);
+            foreach (ModalNode modal in window.Modals)
+                AddEntryIds(modal, ids);
+        }
+
+        return ids;
+    }
+
+    private static void AddEntryIds(NavigationNode node, List<string> ids)
+    {
+        switch (node)
+        {
+            case StackNode stack:
+                foreach (RouteEntry entry in stack.Entries)
+                    ids.Add(entry.Id);
+                break;
+            case BranchHostNode branchHost:
+                foreach (NavigationBranch branch in branchHost.Branches)
+                    AddEntryIds(branch.Content, ids);
+                break;
+            case ModalNode modal:
+                ids.Add(modal.RouteEntry.Id);
+                if (modal.Content is not null)
+                    AddEntryIds(modal.Content, ids);
+                break;
+        }
+    }
+}

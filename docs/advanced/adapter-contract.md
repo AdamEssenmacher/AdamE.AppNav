@@ -17,16 +17,36 @@ using only public core APIs and is created with the router through
 - supported topology validation;
 - logical state, history, diagnostics, and operation serialization;
 - commit only after successful presentation;
-- shutdown and presenter-event detachment orchestration.
+- when a route entry's [lease](entry-leases.md) retires: on a commit that
+  drops the entry, on abandonment when its request ends without committing it,
+  when its parent retires, and at shutdown, always notified asynchronously;
+- when a retired lease is released: only once its opener has closed it and no
+  artifact, child, retirement work, or tracked preparation still holds it,
+  children first, on the host dispatcher, never inline and never by force;
+- shutdown and presenter-event detachment orchestration, returning only after
+  every lease has been released, and throwing instead if any release failed.
 
 ## Adapter owns
 
 - UI artifacts and mapping from `RouteEntry` to them;
+- attaching each native artifact to its entry's lease, and detaching it once
+  the artifact no longer uses the lease, including during rollback and
+  shutdown, and finishing rollback before `ApplyAsync` throws;
+- the leases it opens inside `ApplyAsync` for resources it builds, such as the
+  MAUI page factory's DI scope, which it closes as their opener;
+- presenting a placeholder for an entry whose lease is retired but still
+  committed, instead of rebuilding it;
 - host lifecycle, thread affinity, and native event subscription;
-- DI lifetime and release of UI scopes;
 - native container mutation, rollback, verification, and recovery;
 - native-to-logical reconciliation;
 - platform ingress and storage choices.
+
+The host supplies the `IRouteEntryLeaseHost`: the UI dispatcher that runs
+retirement work and releases, and the boundary that receives defects and fatal
+failures. It also starts the adapter's teardown alongside the router's
+disposal. The application owns what an entry borrows when it builds it: it
+opens the lease before navigating with `NavigateAsync(request, lease)`,
+attaches what it built, retires the lease for its own reasons, and closes it.
 
 That mapping is presentation policy, not route identity. Core does not require
 a `RouteEntry` to equal one page or one view model. An adapter may use one or
@@ -35,8 +55,10 @@ the logical target consistently. The built-in MAUI adapter uses one anchor
 `Page` per entry and optionally lets that route own additional presentation
 pages; another host can choose a different artifact model.
 
-The presenter must leave logical state uncommitted on failure or cancellation.
-After recreating native host artifacts, call `IRouterNavigator.RefreshPresentationAsync`.
+The presenter must leave logical state uncommitted on failure or cancellation,
+and must finish its rollback before `ApplyAsync` throws: core abandons the
+leases the presentation introduced only then. After recreating native host artifacts, detach the
+old artifacts and call `IRouterNavigator.RefreshPresentationAsync`.
 The router serializes refresh behind pending operations, then reapplies its current
 accepted state without planning a new route or changing history. Do not reapply a
 privately cached target outside that operation: it may precede or follow a concurrent
@@ -85,6 +107,7 @@ storage rather than MAUI artifacts.
 ## Next steps
 
 - Review [topology and planning](../concepts/02-topology-and-planning.md).
+- Read the [entry-leases](entry-leases.md) design note.
 - Use maintainer [testing](../maintainers/testing.md) to run adapter contracts.
 - Handle [navigation outcomes and
   failures](../guides/04-navigation-outcomes-and-failure-handling.md).

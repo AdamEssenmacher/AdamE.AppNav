@@ -33,7 +33,8 @@ Presentation pages:
 
 - do not add routes, route entries, or logical history;
 - inherit the owner page binding context by default;
-- are resolved in independent DI scopes and released when popped;
+- are resolved in independent DI scopes and released when popped, and keep
+  their owner's route-entry lease, and so its scope, alive until then;
 - require a nonblank key unique within the owner segment;
 - are transient and are not restored after process recreation.
 
@@ -41,6 +42,14 @@ The active route must be hosted by a router-owned `NavigationPage`. A route-only
 modal without a navigation stack cannot push presentation pages.
 
 ## Lifecycle hooks
+
+With `UseScopedPages`, the page factory opens an [entry lease](entry-leases.md)
+for each route-entry occurrence it presents and gives that lease one DI scope.
+A page rebuilt for an entry that is still committed resolves from the same
+scope, and the scope is disposed only after the commit that drops the entry and
+the release of every page built for it. When the application opened the entry's
+lease itself, it owns what the entry borrows, and each page keeps a scope of
+its own.
 
 Route pages can receive constructor-injected, scoped
 `IMauiRoutePageLifecycleHook` services. AppNav enters `OnPageCreatedAsync`,
