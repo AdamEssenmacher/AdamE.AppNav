@@ -755,6 +755,54 @@ public sealed class RouteEntryLeaseTests
     }
 
     [Fact]
+    public async Task ShutdownWarningReportsAPresentationThatNeverReturns()
+    {
+        var warning = new TaskCompletionSource<NavigationDiagnosticEvent>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var diagnostics = new NavigationDiagnostics(
+            options: new NavigationDiagnosticsOptions { DataMode = NavigationDiagnosticDataMode.Full });
+        diagnostics.AddObserver(new MessageObserver(NavigationDiagnosticEventKind.EntryLeaseShutdownWaiting, warning));
+        var leases = new RouteEntryLeaseRegistry(new RecordingLeaseHost());
+        var presenter = new RecordingNavigationPresenter();
+        var presenting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var hung = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        presenter.OnApplyAsync = async (_, _, _) =>
+        {
+            leases.GetOrOpen("one", out _);
+            presenting.SetResult();
+            // A presenter that ignores cancellation and never returns until the test lets it.
+            await hung.Task;
+        };
+        IRouterNavigator router = RouterNavigatorFactory.Create(
+            TestRoutes.CreateTable(),
+            new TestNavigationPlanner((context, _) => ValueTask.FromResult(new NavigationPlan(
+                TestNavigationState.State(
+                    "main",
+                    TestNavigationState.Window(
+                        "main",
+                        TestNavigationState.Stack("stack", TestNavigationState.Entry("one", context.Route))))))),
+            presenter,
+            new RouterNavigatorFactoryOptions
+            {
+                EntryLeases = leases,
+                Diagnostics = diagnostics,
+                EntryLeaseShutdownWarningDelay = TimeSpan.FromMilliseconds(20)
+            });
+        Task navigation = router.NavigateAsync(new TestRoutes.StoreRoute("one")).AsTask();
+        await presenting.Task.WaitAsync(Timeout);
+
+        Task disposal = router.DisposeAsync().AsTask();
+        NavigationDiagnosticEvent diagnostic = await warning.Task.WaitAsync(Timeout);
+
+        Assert.Contains("navigation operation(s), such as a presenter's ApplyAsync, still running", diagnostic.Message,
+            StringComparison.Ordinal);
+        Assert.False(disposal.IsCompleted);
+        hung.SetResult();
+        // The operation ends however its presenter returns; either way it closes the lease the presenter opened.
+        await navigation.ContinueWith(static _ => { }, TaskScheduler.Default).WaitAsync(Timeout);
+        await disposal.WaitAsync(Timeout);
+    }
+
+    [Fact]
     public void ShutdownWarningDelayMustBePositiveOrInfinite()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => RouterNavigatorFactory.Create(

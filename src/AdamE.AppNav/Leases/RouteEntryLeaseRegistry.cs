@@ -44,7 +44,9 @@ public sealed class RouteEntryLeaseRegistry
     /// </summary>
     /// <param name="entryId">The route-entry ID the request will present.</param>
     /// <param name="parent">A lease that must outlive this one, or <see langword="null"/>.</param>
-    /// <exception cref="InvalidOperationException">The entry ID already has a current lease.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// The entry ID already has a current lease, or <paramref name="parent"/> is closed.
+    /// </exception>
     /// <exception cref="ObjectDisposedException">The router has shut down.</exception>
     public RouteEntryLease Open(string entryId, RouteEntryLease? parent = null)
     {
@@ -90,7 +92,11 @@ public sealed class RouteEntryLeaseRegistry
     /// entry borrows during this operation and may close the lease early; core closes it when the operation ends.
     /// When <see langword="false"/>, the lease belongs to whoever opened it: never close it.
     /// </param>
-    /// <remarks>The returned lease may be retired; when it is also committed, present a placeholder for the entry.</remarks>
+    /// <remarks>
+    /// The returned lease may be retired. When it is also committed, present a placeholder for the entry. When it is
+    /// retired but not committed, fail the presentation before changing the native tree, for example with
+    /// <see cref="OperationCanceledException"/>: presenting it would commit an entry whose resources are being released.
+    /// </remarks>
     /// <exception cref="InvalidOperationException">
     /// No router has this registry as its <c>EntryLeases</c>, or the entry has no lease and the router is not
     /// presenting, so no operation would ever close the lease it opened.
@@ -108,6 +114,7 @@ public sealed class RouteEntryLeaseRegistry
                     "router as RouterNavigatorFactoryOptions.EntryLeases.");
             }
 
+            ObjectDisposedException.ThrowIf(_sealed, this);
             if (_current.TryGetValue(entryId, out RouteEntryLease? existing))
             {
                 opened = false;

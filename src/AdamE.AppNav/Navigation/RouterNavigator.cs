@@ -893,7 +893,11 @@ internal sealed class RouterNavigator : IRouterNavigator
             {
                 // Retire every lease first: their release may need presenter teardown that runs alongside this.
                 if (_entryLeases is not null)
+                {
                     _entryLeaseDrain = _entryLeases.ShutdownAsync();
+                    // Timed from the start of disposal, so a presenter whose ApplyAsync never returns is reported too.
+                    _ = WarnIfEntryLeasesHoldShutdownAsync();
+                }
 
                 try
                 {
@@ -974,7 +978,6 @@ internal sealed class RouterNavigator : IRouterNavigator
     {
         try
         {
-            await WarnIfEntryLeasesHoldShutdownAsync().ConfigureAwait(false);
             await _entryLeaseDrain.ConfigureAwait(false);
             _shutdownCompletion.TrySetResult(true);
         }
@@ -1005,12 +1008,23 @@ internal sealed class RouterNavigator : IRouterNavigator
         if (held.Count == 0)
             return;
 
+        int operations;
+        lock (_lifetimeGate)
+        {
+            operations = _activeOperations;
+        }
+
+        if (operations > 0)
+            summary += $"; navigation operations still running: {operations}";
+
         // The message names entries by ID, which only full-mode diagnostics keep; Count and Reason survive safe mode.
         _diagnostics.Write(
             NavigationDiagnosticEventKind.EntryLeaseShutdownWaiting,
             Guid.NewGuid().ToString("N"),
             $"Router disposal is still waiting for {held.Count} route-entry lease(s) after " +
-            $"{_entryLeaseShutdownWarningDelay.TotalSeconds:0.###} s: " + string.Join("; ", held) + ".",
+            $"{_entryLeaseShutdownWarningDelay.TotalSeconds:0.###} s: " + string.Join("; ", held) +
+            (operations > 0 ? $"; {operations} navigation operation(s), such as a presenter's ApplyAsync, still running" : "") +
+            ".",
             new Dictionary<string, object?>
             {
                 [NavigationDiagnosticDataKeys.Count] = held.Count,

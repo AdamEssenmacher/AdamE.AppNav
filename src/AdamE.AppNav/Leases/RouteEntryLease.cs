@@ -218,7 +218,10 @@ public sealed class RouteEntryLease
 
     /// <summary>Records that a native artifact uses the lease. A retired lease accepts no new artifacts.</summary>
     /// <param name="attachment">The attachment to detach once the artifact no longer uses the lease.</param>
-    /// <returns><see langword="false"/> when the lease has retired.</returns>
+    /// <returns>
+    /// <see langword="false"/> when the lease has retired. An adapter then presents a placeholder if the lease is
+    /// committed, and otherwise fails the presentation.
+    /// </returns>
     public bool TryAttach([NotNullWhen(true)] out RouteEntryLeaseAttachment? attachment)
     {
         lock (_registry.Gate)

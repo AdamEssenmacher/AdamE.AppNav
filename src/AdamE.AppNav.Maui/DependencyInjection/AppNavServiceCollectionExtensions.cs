@@ -237,6 +237,7 @@ public static class AppNavServiceCollectionExtensions
             navigatorOptions.FallbackRouteFactory;
         int maxRedirects = navigatorOptions.MaxRedirects;
         int maxHistoryEntries = navigatorOptions.MaxHistoryEntries;
+        TimeSpan entryLeaseShutdownWarningDelay = navigatorOptions.EntryLeaseShutdownWarningDelay;
 
         services.AddAppNavBoundaryServices();
         services.AddAppNavPresentationServices();
@@ -253,7 +254,8 @@ public static class AppNavServiceCollectionExtensions
                 FallbackRouteFactory = fallbackRouteFactory,
                 MaxRedirects = maxRedirects,
                 MaxHistoryEntries = maxHistoryEntries,
-                EntryLeases = provider.GetRequiredService<RouteEntryLeaseRegistry>()
+                EntryLeases = provider.GetRequiredService<RouteEntryLeaseRegistry>(),
+                EntryLeaseShutdownWarningDelay = entryLeaseShutdownWarningDelay
             };
 
             MauiNavigationPresenter presenter = provider.GetRequiredService<MauiNavigationPresenter>();

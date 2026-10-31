@@ -171,6 +171,15 @@ ones. A presenter that requires a lease for every entry looks it up with
 `TryGet` and fails the presentation when there is none, rather than calling
 `GetOrOpen`.
 
+Before changing the native tree, a presenter checks each entry's lease. A
+retired lease that is still committed gets a placeholder that borrows nothing.
+A retired lease that is not committed fails the presentation, for example with
+`OperationCanceledException`, because presenting it would commit an entry whose
+resources are being released. `TryAttach` returns `false` for both.
+`tests/AdamE.AppNav.AdapterContract.Tests/PublicLeaseAdapterContractTests.cs`
+has a presenter and a host written against the public API alone that follow
+these rules.
+
 Detach an artifact only once it has left the native tree, and dispose it only
 after that. Release runs after the last detach, so this order keeps a released
 resource from being reached through a view that is still on screen. On .NET for
@@ -222,10 +231,13 @@ Router disposal follows this order:
 
 Shutdown has no timeout. If disposal is still waiting after
 `RouterNavigatorFactoryOptions.EntryLeaseShutdownWarningDelay` (five seconds by
-default), the router writes one `EntryLeaseShutdownWaiting` warning and keeps
-waiting. In full-mode diagnostics its message names each lease and what holds
-it: not retired, not closed, native artifacts not detached, pending work, or
-child leases not released. In safe mode the entry IDs are dropped, and `Count`
+default, measured from the start of disposal; MAUI apps set it with
+`AppNavNavigatorOptions.EntryLeaseShutdownWarningDelay`), the router writes one
+`EntryLeaseShutdownWaiting` warning and keeps waiting. In full-mode diagnostics
+its message names each lease and what holds it: not retired, not closed, native
+artifacts not detached, pending work, or child leases not released. It also says
+when a navigation operation, such as a presenter's `ApplyAsync` that never
+returns, is still running. In safe mode the entry IDs are dropped, and `Count`
 and `Reason` keep the totals. `Timeout.InfiniteTimeSpan` turns the warning off.
 
 ## Not in scope

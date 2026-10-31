@@ -4,13 +4,25 @@ namespace AdamE.AppNav.Leases;
 /// The UI dispatcher that runs entry-lease retirement work and releases, and the boundary that receives their failures.
 /// </summary>
 /// <remarks>
+/// <para>
 /// The host supplies it when it creates the router. A UI host runs <see cref="InvokeAsync"/> on its UI dispatcher; core
 /// never calls it inline from a navigation operation. Shutdown waits for releases that run here, so the host must not
 /// block its UI thread waiting for the router's disposal.
+/// </para>
+/// <para>
+/// <see cref="ReportDefect"/> and <see cref="ReportFatal"/> may be called from any thread and must return promptly:
+/// record or post the failure, never block on the dispatcher. A host whose fatal boundary ends the process, as MAUI's
+/// does by rethrowing on the main loop, should do so from <see cref="ReportFatal"/>. The adapter contract tests in the
+/// repository include a host and a lease-aware presenter written against the public API alone.
+/// </para>
 /// </remarks>
 public interface IRouteEntryLeaseHost
 {
     /// <summary>Runs <paramref name="work"/> on the host's dispatcher and completes when it has finished.</summary>
+    /// <remarks>
+    /// When the caller is already on the dispatcher, the host may run the work inline. A task that faults or never runs
+    /// the work is a host failure, which core treats as fatal for that lease.
+    /// </remarks>
     Task InvokeAsync(Func<ValueTask> work);
 
     /// <summary>
