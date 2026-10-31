@@ -9,7 +9,11 @@ public enum RouteEntryLeaseRetirement
     /// <summary>A commit produced a state that no longer contains the entry.</summary>
     Dropped = 1,
 
-    /// <summary>The presentation that introduced the entry failed or was cancelled before committing it.</summary>
+    /// <summary>
+    /// The lease's entry ended without being committed: its request failed, was cancelled, rejected by a policy, or
+    /// refused; its plan omitted the entry; the router shut down while it waited; it was closed before it was sent; or an
+    /// adapter opened it for an entry the resulting state does not contain.
+    /// </summary>
     Abandoned = 2,
 
     /// <summary>The application retired the lease.</summary>

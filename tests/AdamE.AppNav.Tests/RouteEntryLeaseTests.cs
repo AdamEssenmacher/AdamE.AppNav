@@ -414,10 +414,14 @@ public sealed class RouteEntryLeaseTests
 
         presenter.OnApplyAsync = null;
         await router.NavigateAsync(new TestRoutes.StoreRoute("one"));
-        RouteEntryLease committed = leases.GetOrOpen("one", out bool lateOpen);
-        Assert.True(lateOpen);
+        // Outside a presentation, GetOrOpen opens nothing: no operation would close what it opened.
+        InvalidOperationException refusal = Assert.Throws<InvalidOperationException>(
+            () => leases.GetOrOpen("one", out _));
+        Assert.Contains("only while the router is presenting", refusal.Message, StringComparison.Ordinal);
+        RouteEntryLease committed = leases.Open("one");
         Assert.True(committed.IsCommitted);
         committed.Close();
+        Assert.False(committed.IsRetired);
         Assert.Throws<InvalidOperationException>(() => leases.Open("one"));
         Assert.Throws<InvalidOperationException>(() => CreateRouter(leases, new RecordingNavigationPresenter()));
     }

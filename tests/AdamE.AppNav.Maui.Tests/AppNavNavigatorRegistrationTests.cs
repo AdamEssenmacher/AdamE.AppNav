@@ -531,8 +531,10 @@ public sealed class AppNavNavigatorRegistrationTests
             pages => pages.MapPage<InlineRoute>((_, _) => new InlinePage()));
 
         using var provider = services.BuildServiceProvider();
-        // The router binds the lease registry the page factory opens entry leases from.
+        // The router binds the lease registry the page factory opens entry leases from; pages for entries without a
+        // lease are built only while the router is presenting, as the presenter would build them.
         _ = provider.GetRequiredService<IAppNavRuntime>();
+        provider.GetRequiredService<RouteEntryLeaseRegistry>().BeginPresentation();
         var pageFactory = provider.GetRequiredService<IMauiRoutePageFactory>();
 
         Assert.IsType<InlinePage>(await pageFactory.CreatePageAsync(new RouteEntry("inline", new InlineRoute("inline"))));

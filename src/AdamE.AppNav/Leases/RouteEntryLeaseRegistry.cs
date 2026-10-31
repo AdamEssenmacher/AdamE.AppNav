@@ -25,6 +25,8 @@ public sealed class RouteEntryLeaseRegistry
     private readonly List<RouteEntryLeaseReleaseException> _failures = [];
     // Leases the adapter opened during the operation in progress; core closes them when the operation ends.
     private readonly List<RouteEntryLease> _operationAdapterLeases = [];
+    // Whether the router is inside a presenter's ApplyAsync: the only time GetOrOpen may open a lease.
+    private bool _presenting;
     private HashSet<string> _committedIds = new(StringComparer.Ordinal);
     private bool _bound;
     private bool _sealed;
@@ -86,10 +88,12 @@ public sealed class RouteEntryLeaseRegistry
     /// <param name="opened">
     /// <see langword="true"/> when this call opened the lease; the adapter is then its opener. It attaches what the
     /// entry borrows during this operation and may close the lease early; core closes it when the operation ends.
+    /// When <see langword="false"/>, the lease belongs to whoever opened it: never close it.
     /// </param>
     /// <remarks>The returned lease may be retired; when it is also committed, present a placeholder for the entry.</remarks>
     /// <exception cref="InvalidOperationException">
-    /// No router has this registry as its <c>EntryLeases</c>, so no operation would ever end the lease.
+    /// No router has this registry as its <c>EntryLeases</c>, or the entry has no lease and the router is not
+    /// presenting, so no operation would ever close the lease it opened.
     /// </exception>
     /// <exception cref="ObjectDisposedException">The router has shut down.</exception>
     public RouteEntryLease GetOrOpen(string entryId, out bool opened)
@@ -108,6 +112,15 @@ public sealed class RouteEntryLeaseRegistry
             {
                 opened = false;
                 return existing;
+            }
+
+            // Only an operation's end closes an adapter-opened lease, so one opened outside an operation never would.
+            if (!_presenting)
+            {
+                throw new InvalidOperationException(
+                    $"Route entry '{entryId}' has no lease, and GetOrOpen opens one only while the router is presenting " +
+                    "(inside ApplyAsync). Build an entry's native view during presentation, or have the application " +
+                    "open the entry's lease with Open.");
             }
 
             opened = true;
@@ -174,6 +187,15 @@ public sealed class RouteEntryLeaseRegistry
             return (leases,
                 $"not closed: {notClosed}; native artifacts not detached: {artifacts}; " +
                 $"pending work: {pendingWork}; child leases not released: {children}");
+        }
+    }
+
+    // The router is about to call the presenter's ApplyAsync; Commit, EndPresentation or Abandon ends it.
+    internal void BeginPresentation()
+    {
+        lock (Gate)
+        {
+            _presenting = true;
         }
     }
 
@@ -363,6 +385,7 @@ public sealed class RouteEntryLeaseRegistry
     // _current, is the source, so a lease opened while shutdown cleared _current is closed too.
     private RouteEntryLease[] CloseOperationAdapterLeasesLocked()
     {
+        _presenting = false;
         RouteEntryLease[] leases = _operationAdapterLeases.ToArray();
         _operationAdapterLeases.Clear();
         foreach (RouteEntryLease lease in leases)

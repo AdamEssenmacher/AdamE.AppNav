@@ -97,7 +97,14 @@ entry lease that was never sent nor committed abandons it.
 lease opened for an entry that is already committed is committed from birth,
 and a commit that drops the entry clears it.
 Core never builds what an entry borrows. A committed entry that has no lease is
-a defect: an adapter that requires leases fails the presentation.
+a defect: an adapter that requires leases fails the presentation. The router's
+initial state opens no leases: an adapter that opens them with `GetOrOpen`
+does so when it first presents that state, while an application whose adapter
+requires leases opens one with `Open` for each initial entry before the first
+presentation (such a lease is committed from birth). `GetOrOpen` opens a lease
+only while the router is presenting; outside `ApplyAsync` it returns an
+existing lease, or throws. An adapter that gets `opened == false` does not own
+the lease and never closes it.
 
 ## Retirement
 

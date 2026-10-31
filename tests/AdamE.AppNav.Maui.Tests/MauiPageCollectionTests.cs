@@ -69,6 +69,7 @@ public sealed class MauiPageCollectionTests
                             [new RouteEntry($"route-{index}", route)]))
                 ],
                 "main");
+            leases.BeginPresentation();
             await presenter.ApplyAsync(
                 new NavigationPlan(targetState),
                 new NavigationPresentationContext(

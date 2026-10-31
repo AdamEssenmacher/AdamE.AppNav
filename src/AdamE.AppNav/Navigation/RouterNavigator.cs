@@ -225,6 +225,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             _diagnostics.Write(NavigationDiagnosticEventKind.PresentationStarted, operationId, plan.Kind.ToString());
             try
             {
+                _entryLeases?.BeginPresentation();
                 await _presenter.ApplyAsync(plan,
                     new NavigationPresentationContext(request, route, state, operationId), operationCancellation)
                     .ConfigureAwait(false);
@@ -370,6 +371,7 @@ internal sealed class RouterNavigator : IRouterNavigator
                 RouterNavigationDiagnostics.Data((NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
             try
             {
+                _entryLeases?.BeginPresentation();
                 await _presenter.ApplyAsync(
                     plan,
                     new NavigationPresentationContext(finalizedRequest, finalRoute, CurrentState, operationId),
@@ -527,6 +529,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             var presentationTimer = Stopwatch.StartNew();
             try
             {
+                _entryLeases?.BeginPresentation();
                 await _presenter.ApplyAsync(
                     plan,
                     new NavigationPresentationContext(request, route, CurrentState, operationId),
@@ -628,6 +631,7 @@ internal sealed class RouterNavigator : IRouterNavigator
                 RouterNavigationDiagnostics.Data((NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
             try
             {
+                _entryLeases?.BeginPresentation();
                 await _presenter.ApplyAsync(
                     plan,
                     new NavigationPresentationContext(finalizedRequest, finalRoute, CurrentState, operationId),

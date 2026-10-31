@@ -12,6 +12,8 @@ internal static class TestEntryLeases
     public static RouteEntryLeaseRegistry Bound(RouteEntryLeaseRegistry leases, NavigationState? committed = null)
     {
         leases.Bind(committed ?? NavigationState.Empty);
+        // Presenter-only tests have no router, so they present as one open operation.
+        leases.BeginPresentation();
         return leases;
     }
 
