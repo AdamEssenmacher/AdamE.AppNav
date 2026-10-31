@@ -21,6 +21,8 @@ public sealed class RouteEntryLeaseRegistry
     // Leases neither released nor kept by a reported fatal failure: shutdown waits for them.
     private readonly HashSet<RouteEntryLease> _unsettled = new(ReferenceEqualityComparer.Instance);
     private readonly TaskCompletionSource _drained = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    // Every release that could not complete; router disposal throws them once everything else has settled.
+    private readonly List<RouteEntryLeaseReleaseException> _failures = [];
     private HashSet<string> _committedIds = new(StringComparer.Ordinal);
     private bool _bound;
     private bool _sealed;
@@ -168,27 +170,12 @@ public sealed class RouteEntryLeaseRegistry
         Retire(stray, RouteEntryLeaseRetirement.Abandoned);
     }
 
-    // A presentation failed or was cancelled: leases it introduced are abandoned once ApplyAsync has returned.
-    internal void Abandon(NavigationState target, NavigationState committed)
+    // A presentation failed or was cancelled, once ApplyAsync has returned: the leases its adapter opened end with it.
+    // A lease the application sent with its own request ends with that request (EndRequest), never with another
+    // request's failure, even one for the same entry.
+    internal void Abandon(NavigationState committed)
     {
-        HashSet<string> targetIds = EntryIds(target);
-        HashSet<string> committedIds = EntryIds(committed);
-        var abandoned = new List<RouteEntryLease>();
-        lock (Gate)
-        {
-            foreach ((string entryId, RouteEntryLease lease) in _current.ToArray())
-            {
-                if (!lease.IsAbandonableLocked || !targetIds.Contains(entryId) || committedIds.Contains(entryId))
-                    continue;
-
-                abandoned.Add(lease);
-                _current.Remove(entryId);
-            }
-
-            abandoned.AddRange(TakeStrayAdapterLeasesLocked(committedIds));
-        }
-
-        Retire(abandoned, RouteEntryLeaseRetirement.Abandoned);
+        EndPresentation(committed);
     }
 
     internal void Send(RouteEntryLease lease)
@@ -258,7 +245,7 @@ public sealed class RouteEntryLeaseRegistry
             // Retiring the roots retires every descendant with a deterministic Parent reason.
             leases = _live.Where(static lease => lease.Parent is null).ToArray();
             if (_unsettled.Count == 0)
-                _drained.TrySetResult();
+                CompleteDrainLocked();
         }
 
         Retire(leases, RouteEntryLeaseRetirement.Shutdown);
@@ -295,8 +282,8 @@ public sealed class RouteEntryLeaseRegistry
             _host.ReportDefect(new RouteEntryLeaseReleaseException(
                 lease.EntryId,
                 lease.EntryId is null
-                    ? "Releasing an application lease raised a defect; its release continued."
-                    : $"Releasing the lease of route entry '{lease.EntryId}' raised a defect; its release continued.",
+                    ? "Retiring or releasing an application lease raised a defect; it continued."
+                    : $"Retiring or releasing the lease of route entry '{lease.EntryId}' raised a defect; it continued.",
                 exception));
         }
         catch
@@ -443,13 +430,6 @@ public sealed class RouteEntryLeaseRegistry
     // The release could not run, so its resources and every ancestor's are kept.
     private void Fault(RouteEntryLease lease, Exception exception)
     {
-        lock (Gate)
-        {
-            var settled = new List<RouteEntryLease>();
-            lease.FaultLocked(settled);
-            SettleLocked(settled);
-        }
-
         var failure = new RouteEntryLeaseReleaseException(
             lease.EntryId,
             lease.EntryId is null
@@ -457,6 +437,14 @@ public sealed class RouteEntryLeaseRegistry
                 : $"The lease of route entry '{lease.EntryId}' could not be released safely; it and its ancestors " +
                   "kept their resources.",
             exception is RouteEntryLeaseFatalDisposalException { InnerException: { } disposal } ? disposal : exception);
+        lock (Gate)
+        {
+            _failures.Add(failure);
+            var settled = new List<RouteEntryLease>();
+            lease.FaultLocked(settled);
+            SettleLocked(settled);
+        }
+
         try
         {
             _host.ReportFatal(failure);
@@ -473,7 +461,21 @@ public sealed class RouteEntryLeaseRegistry
             _unsettled.Remove(lease);
 
         if (_sealed && _unsettled.Count == 0)
+            CompleteDrainLocked();
+    }
+
+    // Shutdown step 5: disposal returns only when every release finished; a failed one makes it throw instead.
+    private void CompleteDrainLocked()
+    {
+        if (_failures.Count == 0)
+        {
             _drained.TrySetResult();
+            return;
+        }
+
+        _drained.TrySetException(_failures.Count == 1
+            ? _failures[0]
+            : new AggregateException("Route-entry leases could not be released; their resources were kept.", _failures));
     }
 
     internal static HashSet<string> EntryIds(NavigationState state)

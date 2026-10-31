@@ -251,7 +251,12 @@ internal sealed class RouterNavigator : IRouterNavigator
 
     public void Dispose()
     {
-        _ = StartShutdown();
+        // A failed lease release faults shutdown; only DisposeAsync can surface it, so observe it here.
+        _ = StartShutdown().ContinueWith(
+            static task => _ = task.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
     public ValueTask DisposeAsync()
@@ -374,7 +379,7 @@ internal sealed class RouterNavigator : IRouterNavigator
                     ex,
                     presentationTimer,
                     (NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString()));
-                _entryLeases?.Abandon(plan.TargetState, CurrentState);
+                _entryLeases?.Abandon(CurrentState);
                 throw;
             }
 
@@ -531,7 +536,7 @@ internal sealed class RouterNavigator : IRouterNavigator
                     ex,
                     presentationTimer,
                     (NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString()));
-                _entryLeases?.Abandon(plan.TargetState, CurrentState);
+                _entryLeases?.Abandon(CurrentState);
                 throw;
             }
 
@@ -632,7 +637,7 @@ internal sealed class RouterNavigator : IRouterNavigator
                     ex,
                     presentationTimer,
                     (NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString()));
-                _entryLeases?.Abandon(plan.TargetState, CurrentState);
+                _entryLeases?.Abandon(CurrentState);
                 throw;
             }
 
@@ -943,7 +948,7 @@ internal sealed class RouterNavigator : IRouterNavigator
         }
         finally
         {
-            if (_entryLeaseDrain.IsCompleted)
+            if (_entryLeaseDrain.IsCompletedSuccessfully)
                 _shutdownCompletion.TrySetResult(true);
             else
                 _ = CompleteShutdownAfterEntryLeasesAsync();
@@ -952,9 +957,16 @@ internal sealed class RouterNavigator : IRouterNavigator
 
     private async Task CompleteShutdownAfterEntryLeasesAsync()
     {
-        // Unsafe releases settle the drain after reaching the host's fatal boundary, so this never faults.
-        await _entryLeaseDrain.ConfigureAwait(false);
-        _shutdownCompletion.TrySetResult(true);
+        try
+        {
+            await _entryLeaseDrain.ConfigureAwait(false);
+            _shutdownCompletion.TrySetResult(true);
+        }
+        catch (Exception ex)
+        {
+            // A release failed: its resources stay retained, and disposal throws so the owner disposes nothing after.
+            _shutdownCompletion.TrySetException(ex);
+        }
     }
 
     private CancellationToken CreateOperationCancellation(

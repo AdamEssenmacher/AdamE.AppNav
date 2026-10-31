@@ -425,6 +425,15 @@ flyouts are rejected before native presentation because `FlyoutPage` is a root
 navigation control. Custom factories can support a different placement set.
 Unmapped branch hosts retain the existing `TabbedPage` behavior.
 
+## Route-entry leases
+
+`AddAppNav` registers a `RouteEntryLeaseRegistry` and gives it to the router
+and the page factory. With scoped pages, the factory opens a lease for each
+entry it presents and gives that occurrence one DI scope. An app that builds
+what an entry borrows itself resolves the registry from DI, opens the lease,
+and navigates with `NavigateAsync(request, lease)`. See [Entry
+leases](../advanced/entry-leases.md).
+
 ## Route-owned presentation pages
 
 Workflows that use several native pages for one semantic route are documented

@@ -24,7 +24,7 @@ using only public core APIs and is created with the router through
   artifact, child, retirement work, or tracked preparation still holds it,
   children first, on the host dispatcher, never inline and never by force;
 - shutdown and presenter-event detachment orchestration, returning only after
-  every lease has been released or its failure has reached the fatal boundary.
+  every lease has been released, and throwing instead if any release failed.
 
 ## Adapter owns
 

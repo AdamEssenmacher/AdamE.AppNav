@@ -48,7 +48,8 @@ A lease is opened by whoever builds what the entry borrows.
 
 - **The application**, on its UI thread, before it navigates: `Open(entryId)`
   or `Open(entryId, parent)`, then `navigator.NavigateAsync(request, lease)`,
-  which links the lease to that one request. Only the router configured with
+  which links the lease to that one request instance (a navigator decorator
+  must pass it through unchanged). Only the router configured with
   the lease's registry accepts it; any other router refuses the request before
   admission, and the lease is abandoned. When the plan does not contain the
   lease's entry, the router reports `EntryLeaseNotInPlan` before the lease is
@@ -56,9 +57,12 @@ A lease is opened by whoever builds what the entry borrows.
 - **The adapter**, inside `ApplyAsync`: `GetOrOpen(entryId, out opened)`
   returns the current lease, or opens one that belongs to the presentation in
   progress. The MAUI page factory opens a lease this way for each entry and
-  attaches the entry's DI scope to it. When that operation ends, a lease it
-  opened for an entry the resulting state does not contain is abandoned, so a
-  presenter that uses `GetOrOpen` as a lookup cannot leave one behind.
+  attaches the entry's DI scope to it. When the application opened the lease
+  itself, the application owns what the entry borrows: the factory adds
+  nothing to that lease and gives each page a scope of its own. When the
+  operation ends, a lease it opened for an entry the resulting state does not
+  contain is abandoned, so a presenter that uses `GetOrOpen` as a lookup cannot
+  leave one behind.
 
 The opener attaches resources with `Own`, retirement work with `OnRetired`, and
 in-flight preparations with `Track`. `Own` takes an optional
@@ -85,18 +89,21 @@ earliest of:
 - abandonment (`Abandoned`): the lease's request ends without a commit that
   contains the entry. That covers a failed or cancelled presentation, a policy
   rejection, a planner failure, a request cancelled while queued, router
-  disposal while it waits, and a lease its opener closes without sending. An
-  adapter-opened lease is abandoned when the presentation that opened it fails
-  or is cancelled;
+  disposal while it waits, and a lease its opener closes without sending. Only
+  the lease's own request abandons it: another request's failure never does,
+  even one for the same entry. An adapter-opened lease is abandoned when the
+  operation that opened it ends without committing it;
 - `Retire()` from the application, at any time and for any reason it owns
   (`Application`);
 - its parent retiring (`Parent`), or the router shutting down (`Shutdown`).
 
-Retirement notifications are always asynchronous. The token's callbacks and the
-`OnRetired` work never run inline: not inside `ApplyAsync`, not under core's
-operation lock, and not under the lock of a caller that retires a lease.
-`OnRetired` work runs on the host dispatcher and is awaited before release; a
-failure in it is a survived defect.
+Retirement notifications are always asynchronous. Core never runs the token's
+callbacks or the `OnRetired` work inline: not inside `ApplyAsync`, not under
+core's operation lock, and not under the lock of a caller that retires a lease.
+The token is cancelled with `CancelAsync`, so its callbacks run on the thread
+pool; as with any token, a callback registered after retirement runs at once,
+inside `Register`. `OnRetired` work runs on the host dispatcher and is awaited
+before release; a failure in it is a survived defect.
 
 Retiring a lease does not navigate. A retired entry that is still committed
 stays in the state until the application starts an ordinary navigation that
@@ -164,7 +171,11 @@ Router disposal follows this order:
    router's disposal, as the MAUI `AppNavRuntime` does.
 3. The openers close their leases, attaching anything they still hand over.
 4. Every release finishes, or its failure reaches the fatal boundary.
-5. The router's disposal returns.
+5. The router's disposal returns. If any release failed, during shutdown or
+   earlier, `DisposeAsync` throws `RouteEntryLeaseReleaseException` (or an
+   `AggregateException` of them) instead, and the failed leases and their
+   ancestors keep their resources, so the owner disposes nothing that they
+   borrow.
 
 ## Not in scope
 

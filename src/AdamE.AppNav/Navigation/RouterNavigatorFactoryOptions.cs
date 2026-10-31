@@ -84,8 +84,9 @@ public sealed class RouterNavigatorFactoryOptions
     /// Gets the registry whose route-entry leases the router retires on commit, abandonment, and shutdown.
     /// </summary>
     /// <remarks>
-    /// A registry serves one router. When it is set, the router's disposal completes only after every lease has been
-    /// released or its unsafe release has been reported to the registry's host.
+    /// A registry serves one router, and its host is the UI dispatcher core releases leases on. When it is set, the
+    /// router's disposal completes only after every lease has been released; if any release failed, disposal throws
+    /// <see cref="RouteEntryLeaseReleaseException"/> and the resources stay retained.
     /// </remarks>
     public RouteEntryLeaseRegistry? EntryLeases { get; init; }
 }

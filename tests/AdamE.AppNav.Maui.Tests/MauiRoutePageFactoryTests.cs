@@ -159,7 +159,8 @@ public sealed class MauiRoutePageFactoryTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
             factory.CreatePageAsync(Entry("pending")).AsTask());
 
-        Assert.IsNotType<ScopedRoutePage>(placeholder);
+        Assert.Equal(typeof(ContentPage), placeholder.GetType());
+        Assert.Null(placeholder.BindingContext);
         await Assert.ThrowsAsync<InvalidOperationException>(() => factory
             .CreatePresentationPageAsync(typeof(ScopedRoutePage), placeholder, inheritBindingContext: true)
             .AsTask());
@@ -202,8 +203,8 @@ public sealed class MauiRoutePageFactoryTests
         Page lost = await factory.CreatePageAsync(Entry("lost"));
         Assert.True(leases.TryGet("lost", out RouteEntryLease? lease));
         lease.Retire();
-        await Task.Delay(20);
-        Assert.False(lease.Released.IsCompleted);
+        await lease.RetirementNotified.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.False(lease.IsReleaseStarted);
 
         await factory.ReleaseOutstandingPagesAsync();
 
@@ -234,8 +235,8 @@ public sealed class MauiRoutePageFactoryTests
             .CreatePresentationPageAsync(typeof(ScopedRoutePresentationPage), owner, inheritBindingContext: false)
             .AsTask());
         await factory.ReleasePageAsync(owner);
-        await Task.Delay(20);
-        Assert.False(lease.Released.IsCompleted);
+        await lease.RetirementNotified.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.False(lease.IsReleaseStarted);
 
         await factory.ReleasePresentationPageAsync(presentation);
         await lease.Released.WaitAsync(TimeSpan.FromSeconds(10));

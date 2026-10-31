@@ -50,7 +50,12 @@ public sealed class RouteEntryLease
     /// <summary>Gets the lease that must outlive this one, if any.</summary>
     public RouteEntryLease? Parent { get; }
 
-    /// <summary>Gets a token that is cancelled when the lease retires. Its callbacks never run inline.</summary>
+    /// <summary>Gets a token that is cancelled when the lease retires.</summary>
+    /// <remarks>
+    /// Core cancels it with <see cref="CancellationTokenSource.CancelAsync"/>, so callbacks registered before retirement
+    /// run on the thread pool, never inline in a navigation; one registered after retirement runs at once, as with any
+    /// token. Use <see cref="OnRetired"/> for work that must run on the host dispatcher before release.
+    /// </remarks>
     public CancellationToken RetiredToken { get; }
 
     /// <summary>Gets a task that completes after the lease's resources have been released.</summary>
