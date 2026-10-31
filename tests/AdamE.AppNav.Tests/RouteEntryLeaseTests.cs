@@ -803,6 +803,38 @@ public sealed class RouteEntryLeaseTests
     }
 
     [Fact]
+    public void ShutdownWarningDelayLongerThanTaskDelayAcceptsIsRefused()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => RouterNavigatorFactory.Create(
+            TestRoutes.CreateTable(),
+            new TestNavigationPlanner((_, _) => ValueTask.FromResult(new NavigationPlan(NavigationState.Empty))),
+            new RecordingNavigationPresenter(),
+            new RouterNavigatorFactoryOptions { EntryLeaseShutdownWarningDelay = TimeSpan.MaxValue }));
+    }
+
+    [Fact]
+    public async Task UnsentLeaseRetiredAndClosedFreesItsEntryIdAtOnce()
+    {
+        var leases = new RouteEntryLeaseRegistry(new RecordingLeaseHost());
+        await using IRouterNavigator router = CreateRouter(leases, new RecordingNavigationPresenter());
+        RouteEntryLease first = leases.Open("one");
+        var preparation = new TaskCompletionSource();
+        // Pending work keeps the first lease from releasing, so only Close can free the ID.
+        first.Track(preparation.Task);
+
+        first.Retire();
+        first.Close();
+        RouteEntryLease retry = leases.Open("one");
+
+        Assert.NotSame(first, retry);
+        preparation.SetResult();
+        await first.Released.WaitAsync(Timeout);
+        Assert.True(leases.TryGet("one", out RouteEntryLease? current));
+        Assert.Same(retry, current);
+        retry.Close();
+    }
+
+    [Fact]
     public void ShutdownWarningDelayMustBePositiveOrInfinite()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => RouterNavigatorFactory.Create(

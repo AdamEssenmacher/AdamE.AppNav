@@ -238,43 +238,45 @@ public sealed class PublicLeaseAdapterContractTests
                 .SelectMany(static stack => stack.Entries)
                 .ToArray();
 
-            // Check every lease before changing the native tree, so a refusal leaves nothing to roll back.
-            var leasesById = new Dictionary<string, (RouteEntryLease Lease, bool Opened)>(StringComparer.Ordinal);
-            foreach (RouteEntry entry in entries)
+            // Attach first, then change the native tree. TryAttach is the check: the application may retire a lease at
+            // any time, so a separate IsRetired check before attaching could be stale by the time it attaches.
+            var staged = new Dictionary<string, RouteEntryLeaseAttachment?>(StringComparer.Ordinal);
+            try
             {
-                RouteEntryLease lease = leases.GetOrOpen(entry.Id, out bool opened);
-                if (lease.IsRetired && !lease.IsCommitted)
-                    throw new OperationCanceledException($"The lease of route entry '{entry.Id}' has retired.");
+                foreach (RouteEntry entry in entries)
+                {
+                    if (_views.ContainsKey(entry.Id))
+                        continue;
 
-                leasesById[entry.Id] = (lease, opened);
+                    RouteEntryLease lease = leases.GetOrOpen(entry.Id, out bool opened);
+                    // The adapter that opened the lease attaches what the entry borrows during this operation.
+                    if (opened)
+                        lease.Own(new LoggedResource($"{entry.Id} scope", log));
+
+                    if (lease.TryAttach(out RouteEntryLeaseAttachment? attachment))
+                        staged[entry.Id] = attachment;
+                    else if (lease.IsCommitted)
+                        staged[entry.Id] = null; // Retired but still committed: a placeholder that borrows nothing.
+                    else
+                        throw new OperationCanceledException($"The lease of route entry '{entry.Id}' has retired.");
+                }
+            }
+            catch
+            {
+                // Nothing was shown yet, so undoing the attachments is the whole rollback.
+                foreach (RouteEntryLeaseAttachment? attachment in staged.Values)
+                    attachment?.Detach();
+                throw;
             }
 
-            foreach (string shown in _views.Keys.Where(id => !leasesById.ContainsKey(id)).ToArray())
+            var target = new HashSet<string>(entries.Select(static entry => entry.Id), StringComparer.Ordinal);
+            foreach (string shown in _views.Keys.Where(id => !target.Contains(id)).ToArray())
                 Remove(shown);
 
-            foreach (RouteEntry entry in entries)
+            foreach ((string entryId, RouteEntryLeaseAttachment? attachment) in staged)
             {
-                if (_views.ContainsKey(entry.Id))
-                    continue;
-
-                (RouteEntryLease lease, bool opened) = leasesById[entry.Id];
-                if (lease.IsRetired)
-                {
-                    // Retired but still committed: show a placeholder that borrows nothing.
-                    Log($"placeholder {entry.Id}");
-                    _views[entry.Id] = null;
-                    continue;
-                }
-
-                // The adapter that opened the lease attaches what the entry borrows during this operation.
-                if (opened)
-                    lease.Own(new LoggedResource($"{entry.Id} scope", log));
-
-                if (!lease.TryAttach(out RouteEntryLeaseAttachment? attachment))
-                    throw new OperationCanceledException($"The lease of route entry '{entry.Id}' has retired.");
-
-                Log($"shown {entry.Id}");
-                _views[entry.Id] = attachment;
+                Log(attachment is null ? $"placeholder {entryId}" : $"shown {entryId}");
+                _views[entryId] = attachment;
             }
 
             return ValueTask.CompletedTask;

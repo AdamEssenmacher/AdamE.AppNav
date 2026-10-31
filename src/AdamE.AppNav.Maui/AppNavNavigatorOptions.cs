@@ -38,12 +38,15 @@ public sealed class AppNavNavigatorOptions
                 "MaxRedirects cannot be negative.");
         }
 
-        if (EntryLeaseShutdownWarningDelay <= TimeSpan.Zero && EntryLeaseShutdownWarningDelay != Timeout.InfiniteTimeSpan)
+        if (EntryLeaseShutdownWarningDelay != Timeout.InfiniteTimeSpan &&
+            (EntryLeaseShutdownWarningDelay <= TimeSpan.Zero ||
+             EntryLeaseShutdownWarningDelay.TotalMilliseconds > uint.MaxValue - 1))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(EntryLeaseShutdownWarningDelay),
                 EntryLeaseShutdownWarningDelay,
-                "EntryLeaseShutdownWarningDelay must be positive, or Timeout.InfiniteTimeSpan to turn the warning off.");
+                "EntryLeaseShutdownWarningDelay must be positive and at most about 49 days, or " +
+                "Timeout.InfiniteTimeSpan to turn the warning off.");
         }
 
         if (MaxHistoryEntries < 0)

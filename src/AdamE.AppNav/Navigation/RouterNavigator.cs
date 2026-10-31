@@ -74,13 +74,13 @@ internal sealed class RouterNavigator : IRouterNavigator
         _backNavigator = options.BackNavigator ?? new DefaultBackNavigator(diagnostics: diagnostics);
         _backNavigationPolicies = options.BackNavigationPolicies.ToArray();
         _maxHistoryEntries = options.MaxHistoryEntries;
-        if (options.EntryLeaseShutdownWarningDelay <= TimeSpan.Zero &&
-            options.EntryLeaseShutdownWarningDelay != Timeout.InfiniteTimeSpan)
+        if (!IsValidWarningDelay(options.EntryLeaseShutdownWarningDelay))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(options),
                 options.EntryLeaseShutdownWarningDelay,
-                "EntryLeaseShutdownWarningDelay must be positive, or Timeout.InfiniteTimeSpan to turn the warning off.");
+                "EntryLeaseShutdownWarningDelay must be positive and at most about 49 days, or " +
+                "Timeout.InfiniteTimeSpan to turn the warning off.");
         }
 
         _entryLeaseShutdownWarningDelay = options.EntryLeaseShutdownWarningDelay;
@@ -986,6 +986,13 @@ internal sealed class RouterNavigator : IRouterNavigator
             // A release failed: its resources stay retained, and disposal throws so the owner disposes nothing after.
             _shutdownCompletion.TrySetException(ex);
         }
+    }
+
+    // Task.Delay accepts at most uint.MaxValue - 1 milliseconds.
+    internal static bool IsValidWarningDelay(TimeSpan delay)
+    {
+        return delay == Timeout.InfiniteTimeSpan ||
+               (delay > TimeSpan.Zero && delay.TotalMilliseconds <= uint.MaxValue - 1);
     }
 
     // Shutdown has no timeout; when it is still waiting after the delay, say which leases hold it and why.

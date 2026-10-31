@@ -93,9 +93,10 @@ public sealed class RouteEntryLeaseRegistry
     /// When <see langword="false"/>, the lease belongs to whoever opened it: never close it.
     /// </param>
     /// <remarks>
-    /// The returned lease may be retired. When it is also committed, present a placeholder for the entry. When it is
-    /// retired but not committed, fail the presentation before changing the native tree, for example with
-    /// <see cref="OperationCanceledException"/>: presenting it would commit an entry whose resources are being released.
+    /// The returned lease may be retired, or retire at any time. Attach with <see cref="RouteEntryLease.TryAttach"/>
+    /// before changing the native tree; when it returns <see langword="false"/>, present a placeholder if the lease is
+    /// committed, and otherwise fail the presentation, for example with <see cref="OperationCanceledException"/>:
+    /// presenting it would commit an entry whose resources are being released.
     /// </remarks>
     /// <exception cref="InvalidOperationException">
     /// No router has this registry as its <c>EntryLeases</c>, or the entry has no lease and the router is not
@@ -301,6 +302,17 @@ public sealed class RouteEntryLeaseRegistry
         lock (Gate)
         {
             abandon = lease.CloseLocked();
+            // Retired by the application before it was ever sent: nothing will commit it, so its ID is free at once,
+            // as when a request ends, rather than once its release has run.
+            if (!abandon &&
+                lease.EntryId is { } entryId &&
+                !lease.IsSentLocked &&
+                !lease.IsCommittedLocked &&
+                !lease.IsOpenLocked &&
+                IsCurrentLocked(lease))
+            {
+                _current.Remove(entryId);
+            }
         }
 
         if (abandon)

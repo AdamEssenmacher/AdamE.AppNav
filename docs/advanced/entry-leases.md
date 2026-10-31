@@ -171,11 +171,15 @@ ones. A presenter that requires a lease for every entry looks it up with
 `TryGet` and fails the presentation when there is none, rather than calling
 `GetOrOpen`.
 
-Before changing the native tree, a presenter checks each entry's lease. A
-retired lease that is still committed gets a placeholder that borrows nothing.
-A retired lease that is not committed fails the presentation, for example with
+A presenter attaches first and changes the native tree after. It calls
+`TryAttach` for each entry it will show, and that call is the check: the
+application may retire a lease at any time, so a separate `IsRetired` check
+could be stale by the time the presenter attaches. When `TryAttach` returns
+`false`, a lease that is still committed gets a placeholder that borrows
+nothing. A lease that is not committed fails the presentation, for example with
 `OperationCanceledException`, because presenting it would commit an entry whose
-resources are being released. `TryAttach` returns `false` for both.
+resources are being released. The presenter detaches what it attached in this
+operation before it throws.
 `tests/AdamE.AppNav.AdapterContract.Tests/PublicLeaseAdapterContractTests.cs`
 has a presenter and a host written against the public API alone that follow
 these rules.
