@@ -96,11 +96,15 @@ public sealed class MauiPlatformWindowIntegrationTests
                 await navigator.NavigateAsync(new PlatformDetailRoute("retired"));
                 var navigationPage = Assert.IsType<NavigationPage>(window.Page);
                 var retiredPage = Assert.IsType<PlatformDetailPage>(navigationPage.CurrentPage);
+                RouteEntryLeaseRegistry leases = provider.GetRequiredService<RouteEntryLeaseRegistry>();
+                Assert.True(leases.TryGet("detail-retired", out RouteEntryLease? retiredLease));
 
                 NavigationResult result = await navigator
                     .NavigateAsync(new PlatformHomeRoute())
                     .AsTask()
                     .WaitAsync(TimeSpan.FromSeconds(5));
+                // The commit drops the detail occurrence; its lease releases the scope asynchronously on this thread.
+                await retiredLease.Released.WaitAsync(TimeSpan.FromSeconds(5));
 
                 InvalidOperationException reentryFailure = Assert.IsType<InvalidOperationException>(
                     lifecycleHook.ReentryFailure);
