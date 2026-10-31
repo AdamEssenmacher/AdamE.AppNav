@@ -363,7 +363,35 @@ public sealed class RouteEntryLeaseRegistry
         _ = ReleaseAsync(lease);
     }
 
-    internal Task InvokeOnHostAsync(Func<ValueTask> work) => _host.InvokeAsync(work);
+    // Runs work on the host and completes only once that work has: core does not take the host's task on trust. A host
+    // whose task completes before the work has finished, or that never runs it, fails here, which core treats as a
+    // host failure (fatal). The work's own exception is rethrown even if the host swallowed it.
+    internal async Task InvokeOnHostAsync(Func<ValueTask> work)
+    {
+        var finished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await _host.InvokeAsync(async () =>
+        {
+            try
+            {
+                await work().ConfigureAwait(false);
+                finished.TrySetResult();
+            }
+            catch (Exception ex)
+            {
+                finished.TrySetException(ex);
+                throw;
+            }
+        }).ConfigureAwait(false);
+
+        if (!finished.Task.IsCompleted)
+        {
+            throw new InvalidOperationException(
+                "The route-entry lease host's InvokeAsync completed before the work it was given had finished. Its " +
+                "task must complete only after the work's ValueTask completes, and fault with its exception.");
+        }
+
+        await finished.Task.ConfigureAwait(false);
+    }
 
     internal void ReportDefect(RouteEntryLease lease, Exception exception)
     {
@@ -500,7 +528,7 @@ public sealed class RouteEntryLeaseRegistry
         await Task.CompletedTask.ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
         try
         {
-            await _host.InvokeAsync(lease.DisposeResourcesAsync).ConfigureAwait(false);
+            await InvokeOnHostAsync(lease.DisposeResourcesAsync).ConfigureAwait(false);
         }
         catch (Exception ex)
         {

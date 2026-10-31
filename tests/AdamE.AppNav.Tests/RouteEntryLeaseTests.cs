@@ -835,6 +835,34 @@ public sealed class RouteEntryLeaseTests
     }
 
     [Fact]
+    public async Task HostWhoseTaskCompletesBeforeTheWorkIsFatalAndKeepsTheParentsResources()
+    {
+        var host = new FireAndForgetHost();
+        var leases = new RouteEntryLeaseRegistry(host);
+        IRouterNavigator router = CreateRouter(leases, new RecordingNavigationPresenter());
+        RouteEntryLease parent = leases.OpenApplicationLease();
+        var parentDisposed = false;
+        parent.Own(() => parentDisposed = true);
+        RouteEntryLease child = leases.Open("one", parent);
+        var slowDisposal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        child.Own(new SlowResource(slowDisposal.Task));
+        child.Close();
+        parent.Close();
+
+        parent.Retire();
+        RouteEntryLeaseReleaseException fatal = await host.Fatal.Task.WaitAsync(Timeout);
+
+        Assert.Contains("completed before the work", fatal.InnerException?.Message, StringComparison.Ordinal);
+        Assert.False(child.Released.IsCompleted);
+        Assert.False(parent.Released.IsCompleted);
+        Assert.False(parentDisposed);
+        slowDisposal.SetResult();
+        // The failed release faults shutdown, so the owner disposes nothing the leases borrow.
+        await Assert.ThrowsAsync<RouteEntryLeaseReleaseException>(() => router.DisposeAsync().AsTask().WaitAsync(Timeout));
+        Assert.False(parentDisposed);
+    }
+
+    [Fact]
     public void ShutdownWarningDelayMustBePositiveOrInfinite()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => RouterNavigatorFactory.Create(
@@ -1075,6 +1103,30 @@ public sealed class RouteEntryLeaseTests
                 RequestPolicies = policy is null ? [] : [policy],
                 Diagnostics = diagnostics
             });
+    }
+
+    // A host that posts the work and returns at once, as a dispatcher's Action overload would.
+    private sealed class FireAndForgetHost : IRouteEntryLeaseHost
+    {
+        public TaskCompletionSource<RouteEntryLeaseReleaseException> Fatal { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task InvokeAsync(Func<ValueTask> work)
+        {
+            _ = Task.Run(async () => await work());
+            return Task.CompletedTask;
+        }
+
+        public void ReportDefect(RouteEntryLeaseReleaseException defect)
+        {
+        }
+
+        public void ReportFatal(RouteEntryLeaseReleaseException failure) => Fatal.TrySetResult(failure);
+    }
+
+    private sealed class SlowResource(Task disposal) : IAsyncDisposable
+    {
+        public ValueTask DisposeAsync() => new(disposal);
     }
 
     private sealed class MessageObserver(NavigationDiagnosticEventKind kind, TaskCompletionSource<NavigationDiagnosticEvent> seen)

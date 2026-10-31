@@ -207,6 +207,9 @@ and only then disposes it.
   not complete keeps its parent's resources, when the host cannot run the
   release, or when the host cannot run the lease's retirement work, since
   releasing would then dispose resources whose retirement work never ran.
+  Core does not take the host's task on trust: if `InvokeAsync` completes
+  before the work it was given has finished (a dispatcher `Action` overload
+  that discards the `ValueTask`, say), that is a host failure too.
   Core never forces disposal.
 - Core imposes no timeouts. A disposer that never completes, an attachment
   that is never detached, or a lease that is never closed keeps its release,
