@@ -106,6 +106,9 @@ static AdamE.AppNav.Leases.RouteEntryLeaseNavigation.NavigateAsync(this AdamE.Ap
 AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.EntryLeaseNotInPlan = 80 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
 AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.EntryLeaseDefectReported = 81 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
 AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.EntryLeaseReleaseFailed = 82 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.EntryLeaseShutdownWaiting = 83 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Navigation.RouterNavigatorFactoryOptions.EntryLeaseShutdownWarningDelay.get -> System.TimeSpan
+AdamE.AppNav.Navigation.RouterNavigatorFactoryOptions.EntryLeaseShutdownWarningDelay.init -> void
 AdamE.AppNav.Leases.RouteEntryLease.Own(System.Action! release, AdamE.AppNav.Leases.RouteEntryLeaseDisposalFailure failure) -> void
 AdamE.AppNav.Leases.RouteEntryLease.Own(System.IAsyncDisposable! resource, AdamE.AppNav.Leases.RouteEntryLeaseDisposalFailure failure) -> void
 AdamE.AppNav.Leases.RouteEntryLeaseDisposalFailure

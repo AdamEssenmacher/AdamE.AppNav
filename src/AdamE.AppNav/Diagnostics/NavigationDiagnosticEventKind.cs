@@ -338,5 +338,11 @@ public enum NavigationDiagnosticEventKind
     /// <summary>
     /// A route-entry lease could not be released; it and its ancestors keep their resources.
     /// </summary>
-    EntryLeaseReleaseFailed
+    EntryLeaseReleaseFailed,
+
+    /// <summary>
+    /// The router's disposal is still waiting for route-entry leases after its warning delay; the message names each
+    /// lease and what holds it.
+    /// </summary>
+    EntryLeaseShutdownWaiting
 }

@@ -51,7 +51,7 @@ public sealed class MauiPageCollectionTests
         });
         // The router normally drives the registry; this presenter-only cycle commits each state itself. It uses the
         // production host, which disposes on the main thread, so no idle pool thread is the last to touch a scope.
-        var leases = new RouteEntryLeaseRegistry(new MauiRouteEntryLeaseHost());
+        RouteEntryLeaseRegistry leases = TestEntryLeases.Bound(new RouteEntryLeaseRegistry(new MauiRouteEntryLeaseHost()));
         var presenter = new MauiNavigationPresenter(
             TestEntryLeases.Factory(provider, options, leases),
             presentationOptions: options);

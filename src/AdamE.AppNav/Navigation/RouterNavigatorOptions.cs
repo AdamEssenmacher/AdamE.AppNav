@@ -35,4 +35,6 @@ internal sealed class RouterNavigatorOptions
     public ILoggerFactory? LoggerFactory { get; init; }
 
     public RouteEntryLeaseRegistry? EntryLeases { get; init; }
+
+    public TimeSpan EntryLeaseShutdownWarningDelay { get; init; } = TimeSpan.FromSeconds(5);
 }

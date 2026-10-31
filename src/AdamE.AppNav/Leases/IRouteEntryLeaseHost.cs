@@ -5,7 +5,8 @@ namespace AdamE.AppNav.Leases;
 /// </summary>
 /// <remarks>
 /// The host supplies it when it creates the router. A UI host runs <see cref="InvokeAsync"/> on its UI dispatcher; core
-/// never calls it inline from a navigation operation.
+/// never calls it inline from a navigation operation. Shutdown waits for releases that run here, so the host must not
+/// block its UI thread waiting for the router's disposal.
 /// </remarks>
 public interface IRouteEntryLeaseHost
 {

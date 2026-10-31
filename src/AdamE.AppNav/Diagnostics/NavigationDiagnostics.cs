@@ -385,6 +385,7 @@ public sealed class NavigationDiagnostics
                     NavigationDiagnosticEventKind.BackUnhandled or
                     NavigationDiagnosticEventKind.ReconciliationRejected or
                     NavigationDiagnosticEventKind.EntryLeaseNotInPlan or
+                    NavigationDiagnosticEventKind.EntryLeaseShutdownWaiting or
                     NavigationDiagnosticEventKind.DeferredRequestStoreQuarantined or
                     NavigationDiagnosticEventKind.DeferredRequestStoreOverflowed
                 ? LogLevel.Warning
@@ -436,6 +437,7 @@ public sealed class NavigationDiagnostics
                 NavigationDiagnosticEventKind.PresentationPageReleaseFailed or
                 NavigationDiagnosticEventKind.EntryLeaseDefectReported or
                 NavigationDiagnosticEventKind.EntryLeaseReleaseFailed or
+                NavigationDiagnosticEventKind.EntryLeaseShutdownWaiting or
                 NavigationDiagnosticEventKind.PresentationCompleted or
                 NavigationDiagnosticEventKind.PresentationFailed =>
                 NavigationDiagnosticPhase.Presentation,

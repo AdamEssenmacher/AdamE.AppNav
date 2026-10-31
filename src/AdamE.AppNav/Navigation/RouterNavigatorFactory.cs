@@ -57,7 +57,8 @@ public static class RouterNavigatorFactory
                 MaxHistoryEntries = options.MaxHistoryEntries,
                 Logger = options.Logger,
                 LoggerFactory = options.LoggerFactory,
-                EntryLeases = options.EntryLeases
+                EntryLeases = options.EntryLeases,
+                EntryLeaseShutdownWarningDelay = options.EntryLeaseShutdownWarningDelay
             });
     }
 }

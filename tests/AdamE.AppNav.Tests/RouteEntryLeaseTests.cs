@@ -631,6 +631,162 @@ public sealed class RouteEntryLeaseTests
     }
 
     [Fact]
+    public async Task LeaseAnAdapterOpensForACommittedEntryIsClosedWhenItsOperationEnds()
+    {
+        var leases = new RouteEntryLeaseRegistry(new RecordingLeaseHost());
+        var presenter = new RecordingNavigationPresenter();
+        await using IRouterNavigator router = CreateRouter(leases, presenter);
+        RouteEntryLease? lookedUp = null;
+        presenter.OnApplyAsync = (_, _, _) =>
+        {
+            // A presenter that uses GetOrOpen as a lookup for the entry it presents, and never closes it.
+            presenter.OnApplyAsync = null;
+            lookedUp = leases.GetOrOpen("one", out bool opened);
+            Assert.True(opened);
+            return ValueTask.CompletedTask;
+        };
+
+        await router.NavigateAsync(new TestRoutes.StoreRoute("one"));
+
+        Assert.NotNull(lookedUp);
+        Assert.True(lookedUp.IsCommitted);
+        Assert.Throws<InvalidOperationException>(() => lookedUp.Own(() => { }));
+
+        await router.NavigateAsync(new TestRoutes.StoreRoute("two"));
+
+        await lookedUp.Released.WaitAsync(Timeout);
+        Assert.Equal(RouteEntryLeaseRetirement.Dropped, lookedUp.Retirement);
+    }
+
+    [Fact]
+    public async Task ShutdownStillWaitingAfterTheDelayNamesEachLeaseAndWhatHoldsIt()
+    {
+        var warning = new TaskCompletionSource<NavigationDiagnosticEvent>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var diagnostics = new NavigationDiagnostics(
+            options: new NavigationDiagnosticsOptions { DataMode = NavigationDiagnosticDataMode.Full });
+        diagnostics.AddObserver(new MessageObserver(NavigationDiagnosticEventKind.EntryLeaseShutdownWaiting, warning));
+        var leases = new RouteEntryLeaseRegistry(new RecordingLeaseHost());
+        IRouterNavigator router = RouterNavigatorFactory.Create(
+            TestRoutes.CreateTable(),
+            new TestNavigationPlanner((_, _) => ValueTask.FromResult(new NavigationPlan(NavigationState.Empty))),
+            new RecordingNavigationPresenter(),
+            new RouterNavigatorFactoryOptions
+            {
+                EntryLeases = leases,
+                Diagnostics = diagnostics,
+                EntryLeaseShutdownWarningDelay = TimeSpan.FromMilliseconds(20)
+            });
+        RouteEntryLease unclosed = leases.Open("one");
+
+        Task disposal = router.DisposeAsync().AsTask();
+        NavigationDiagnosticEvent diagnostic = await warning.Task.WaitAsync(Timeout);
+
+        Assert.Contains("lease of route entry 'one' (not closed by its opener)", diagnostic.Message, StringComparison.Ordinal);
+        Assert.Equal(1, diagnostic.Data[NavigationDiagnosticDataKeys.Count]);
+        Assert.Equal(
+            "not closed: 1; native artifacts not detached: 0; pending work: 0; child leases not released: 0",
+            diagnostic.Data[NavigationDiagnosticDataKeys.Reason]);
+        Assert.False(disposal.IsCompleted);
+        unclosed.Close();
+        await disposal.WaitAsync(Timeout);
+    }
+
+    [Fact]
+    public async Task SafeModeShutdownWarningKeepsTheCountsButNotTheEntryIds()
+    {
+        var warning = new TaskCompletionSource<NavigationDiagnosticEvent>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var diagnostics = new NavigationDiagnostics();
+        diagnostics.AddObserver(new MessageObserver(NavigationDiagnosticEventKind.EntryLeaseShutdownWaiting, warning));
+        var leases = new RouteEntryLeaseRegistry(new RecordingLeaseHost());
+        IRouterNavigator router = RouterNavigatorFactory.Create(
+            TestRoutes.CreateTable(),
+            new TestNavigationPlanner((_, _) => ValueTask.FromResult(new NavigationPlan(NavigationState.Empty))),
+            new RecordingNavigationPresenter(),
+            new RouterNavigatorFactoryOptions
+            {
+                EntryLeases = leases,
+                Diagnostics = diagnostics,
+                EntryLeaseShutdownWarningDelay = TimeSpan.FromMilliseconds(20)
+            });
+        RouteEntryLease unclosed = leases.Open("private-entry");
+
+        Task disposal = router.DisposeAsync().AsTask();
+        NavigationDiagnosticEvent diagnostic = await warning.Task.WaitAsync(Timeout);
+
+        Assert.DoesNotContain("private-entry", diagnostic.Message, StringComparison.Ordinal);
+        Assert.Equal(1, diagnostic.Data[NavigationDiagnosticDataKeys.Count]);
+        Assert.StartsWith("not closed: 1;", (string?)diagnostic.Data[NavigationDiagnosticDataKeys.Reason]);
+        unclosed.Close();
+        await disposal.WaitAsync(Timeout);
+    }
+
+    [Fact]
+    public async Task HostThatCannotRunRetirementWorkIsFatalAndKeepsTheResources()
+    {
+        var host = new RecordingLeaseHost();
+        var leases = new RouteEntryLeaseRegistry(host);
+        IRouterNavigator router = CreateRouter(leases, new RecordingNavigationPresenter());
+        RouteEntryLease lease = leases.Open("one");
+        var resourceDisposed = false;
+        var workRan = false;
+        lease.Own(() => resourceDisposed = true);
+        lease.OnRetired(() =>
+        {
+            workRan = true;
+            return ValueTask.CompletedTask;
+        });
+        lease.Close();
+        host.FailInvocations = true;
+
+        lease.Retire();
+        RouteEntryLeaseReleaseException fatal = await host.Fatal.Task.WaitAsync(Timeout);
+
+        Assert.Equal("one", fatal.EntryId);
+        Assert.Contains("retirement work", fatal.Message, StringComparison.Ordinal);
+        Assert.False(workRan);
+        Assert.False(resourceDisposed);
+        Assert.False(lease.Released.IsCompleted);
+        await Assert.ThrowsAnyAsync<Exception>(() => router.DisposeAsync().AsTask().WaitAsync(Timeout));
+        Assert.False(resourceDisposed);
+    }
+
+    [Fact]
+    public void ShutdownWarningDelayMustBePositiveOrInfinite()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => RouterNavigatorFactory.Create(
+            TestRoutes.CreateTable(),
+            new TestNavigationPlanner((_, _) => ValueTask.FromResult(new NavigationPlan(NavigationState.Empty))),
+            new RecordingNavigationPresenter(),
+            new RouterNavigatorFactoryOptions { EntryLeaseShutdownWarningDelay = TimeSpan.Zero }));
+    }
+
+    [Fact]
+    public void RegistryThatServesNoRouterRefusesAdapterLeases()
+    {
+        var leases = new RouteEntryLeaseRegistry(new RecordingLeaseHost());
+
+        InvalidOperationException refusal = Assert.Throws<InvalidOperationException>(
+            () => leases.GetOrOpen("one", out _));
+
+        Assert.Contains("EntryLeases", refusal.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LeaseClosedBeforeItWasSentIsRefusedWithTheReason()
+    {
+        var leases = new RouteEntryLeaseRegistry(new RecordingLeaseHost());
+        await using IRouterNavigator router = CreateRouter(leases, new RecordingNavigationPresenter());
+        RouteEntryLease lease = leases.Open("one");
+        lease.Close();
+
+        InvalidOperationException refusal = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => router.NavigateAsync(Request("one"), lease).AsTask());
+
+        Assert.Contains("closed before it was sent", refusal.Message, StringComparison.Ordinal);
+        Assert.Equal(RouteEntryLeaseRetirement.Abandoned, lease.Retirement);
+    }
+
+    [Fact]
     public async Task OneRequestInstanceCannotCarryTwoLeasesAtOnce()
     {
         var leases = new RouteEntryLeaseRegistry(new RecordingLeaseHost());
@@ -835,6 +991,16 @@ public sealed class RouteEntryLeaseTests
                 RequestPolicies = policy is null ? [] : [policy],
                 Diagnostics = diagnostics
             });
+    }
+
+    private sealed class MessageObserver(NavigationDiagnosticEventKind kind, TaskCompletionSource<NavigationDiagnosticEvent> seen)
+        : INavigationDiagnosticObserver
+    {
+        public void OnNavigationDiagnosticEvent(NavigationDiagnosticEvent diagnostic)
+        {
+            if (diagnostic.Kind == kind)
+                seen.TrySetResult(diagnostic);
+        }
     }
 
     private sealed class RecordingObserver(List<NavigationDiagnosticEventKind> events) : INavigationDiagnosticObserver

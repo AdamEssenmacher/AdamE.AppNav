@@ -18,7 +18,20 @@ public static class RouteEntryLeaseNavigation
     /// <remarks>
     /// That covers a failed or cancelled presentation, a policy rejection, a planner failure, a request cancelled while
     /// queued, and router disposal while it waits. A lease is sent once, and only through the router whose
-    /// <c>EntryLeases</c> registry opened it; any other router refuses it before admission.
+    /// <c>EntryLeases</c> registry opened it; any other router refuses it before admission. Close the lease after this
+    /// call ends, in a <c>finally</c> block:
+    /// <code>
+    /// RouteEntryLease lease = leases.Open(entryId);
+    /// try
+    /// {
+    ///     lease.Own(viewModel);
+    ///     await navigator.NavigateAsync(request, lease);
+    /// }
+    /// finally
+    /// {
+    ///     lease.Close();
+    /// }
+    /// </code>
     /// </remarks>
     public static async ValueTask<NavigationResult> NavigateAsync(
         this IRouterNavigator navigator,

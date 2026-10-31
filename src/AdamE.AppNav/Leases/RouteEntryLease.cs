@@ -113,6 +113,10 @@ public sealed class RouteEntryLease
     /// Closes the lease to resources and children. Its opener calls this once it has attached everything; the lease is
     /// never released before. Closing an entry lease that was never sent nor committed abandons it.
     /// </summary>
+    /// <remarks>
+    /// An application closes a lease it sends after the request has ended, whatever its outcome, so put the call in a
+    /// <c>finally</c> block. A lease that is never closed is never released, and the router's disposal waits for it.
+    /// </remarks>
     public void Close()
     {
         _registry.Close(this);
@@ -167,7 +171,9 @@ public sealed class RouteEntryLease
     /// </summary>
     /// <remarks>
     /// Use it for disposal the application owns at retirement, such as cancelling a pending provider request. A
-    /// failure is reported to the host as a survived defect. Added after retirement, the work runs at once.
+    /// failure is reported to the host as a survived defect. If the host cannot run the work, the lease is never
+    /// released: it and its ancestors keep their resources, and the failure goes to the host's fatal boundary. Added
+    /// after retirement, the work runs at once.
     /// </remarks>
     /// <exception cref="InvalidOperationException">The lease is closed.</exception>
     public void OnRetired(Func<ValueTask> work)
@@ -239,6 +245,8 @@ public sealed class RouteEntryLease
     internal bool IsAbandonableLocked => _state == LeaseState.Open && !_committed;
 
     internal bool IsSentLocked => _sent;
+
+    internal bool IsClosedLocked => _closed;
 
     internal void MarkCommittedLocked() => _committed = true;
 
@@ -332,6 +340,35 @@ public sealed class RouteEntryLease
         _ = RunRetirementWorkAsync(cancellation, work);
     }
 
+    internal void CountHoldersLocked(ref int notClosed, ref int artifacts, ref int pendingWork, ref int children)
+    {
+        if (!_closed)
+            notClosed++;
+        artifacts += _attachments;
+        pendingWork += _pendingWork;
+        children += _children.Count;
+    }
+
+    internal string DescribeHoldersLocked()
+    {
+        var holders = new List<string>();
+        if (_state == LeaseState.Open)
+            holders.Add("not retired");
+        if (!_closed)
+            holders.Add("not closed by its opener");
+        if (_attachments > 0)
+            holders.Add($"{_attachments} native artifact(s) not detached");
+        if (_pendingWork > 0)
+            holders.Add($"{_pendingWork} pending work item(s)");
+        if (_children.Count > 0)
+            holders.Add($"{_children.Count} child lease(s) not released");
+        if (_state == LeaseState.Releasing)
+            holders.Add("releasing on the host");
+
+        string name = EntryId is null ? "application lease" : $"lease of route entry '{EntryId}'";
+        return holders.Count == 0 ? name : $"{name} ({string.Join(", ", holders)})";
+    }
+
     internal bool TryBeginReleaseLocked()
     {
         if (_state != LeaseState.Retired || !_closed || _blocked ||
@@ -397,6 +434,8 @@ public sealed class RouteEntryLease
 
     internal void SignalReleased() => _released.TrySetResult();
 
+    internal bool IsFaultedLocked => _state == LeaseState.Faulted;
+
     internal void FaultLocked(List<RouteEntryLease> settled)
     {
         _state = LeaseState.Faulted;
@@ -438,14 +477,31 @@ public sealed class RouteEntryLease
 
         foreach (Func<ValueTask> item in work)
         {
+            // The work's own failure is a survived defect; the host failing to run it is fatal, because release would
+            // then dispose resources whose retirement work never ran.
+            Exception? workFailure = null;
             try
             {
-                await _registry.InvokeOnHostAsync(item).ConfigureAwait(false);
+                await _registry.InvokeOnHostAsync(async () =>
+                {
+                    try
+                    {
+                        await item().ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        workFailure = ex;
+                    }
+                }).ConfigureAwait(false);
             }
-            catch (Exception ex)
+            catch (Exception hostFailure)
             {
-                _registry.ReportDefect(this, ex);
+                _registry.FaultRetirement(this, hostFailure);
+                break;
             }
+
+            if (workFailure is not null)
+                _registry.ReportDefect(this, workFailure);
         }
 
         WorkFinished();

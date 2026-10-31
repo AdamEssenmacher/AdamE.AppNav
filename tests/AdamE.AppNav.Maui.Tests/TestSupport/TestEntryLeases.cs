@@ -1,10 +1,19 @@
 using AdamE.AppNav.Leases;
+using AdamE.AppNav.State;
 
 namespace AdamE.AppNav.Maui.Tests;
 
 internal static class TestEntryLeases
 {
-    public static RouteEntryLeaseRegistry Create() => new(new InlineHost());
+    // Presenter-only tests commit states themselves, so the registry is bound as a router would bind it.
+    public static RouteEntryLeaseRegistry Create(NavigationState? committed = null) =>
+        Bound(new RouteEntryLeaseRegistry(new InlineHost()), committed);
+
+    public static RouteEntryLeaseRegistry Bound(RouteEntryLeaseRegistry leases, NavigationState? committed = null)
+    {
+        leases.Bind(committed ?? NavigationState.Empty);
+        return leases;
+    }
 
     public static MauiRoutePageFactory Factory(
         IServiceProvider provider,

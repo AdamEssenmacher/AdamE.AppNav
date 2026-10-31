@@ -53,7 +53,24 @@ A lease is opened by whoever builds what the entry borrows.
   the lease's registry accepts it; any other router refuses the request before
   admission, and the lease is abandoned. When the plan does not contain the
   lease's entry, the router reports `EntryLeaseNotInPlan` before the lease is
-  abandoned.
+  abandoned. Close the lease once the request has ended, whatever its outcome:
+
+  ```csharp
+  RouteEntryLease lease = leases.Open(entryId);
+  try
+  {
+      lease.Own(viewModel);
+      await navigator.NavigateAsync(request, lease);
+  }
+  finally
+  {
+      lease.Close();
+  }
+  ```
+
+  Without the `finally`, a failed or cancelled navigation leaves the lease
+  retired but open: it is never released, and the router's disposal waits for
+  it. Closing before sending abandons the lease, and the send is refused.
 - **The adapter**, inside `ApplyAsync`: `GetOrOpen(entryId, out opened)`
   returns the current lease, or opens one that belongs to the presentation in
   progress. The MAUI page factory opens a lease this way for each entry and
@@ -61,10 +78,11 @@ A lease is opened by whoever builds what the entry borrows.
   itself, the application owns what the entry borrows: the factory adds
   nothing to that lease and gives each page a scope of its own. When the
   operation ends, a lease it opened for an entry the resulting state does not
-  contain is abandoned and closed, so a presenter that uses `GetOrOpen` as a
-  lookup cannot leave one behind. A lease it opened for an entry the state does
-  contain stays open until the adapter closes it, as the page factory does once
-  it has attached the entry's scope.
+  contain is abandoned. Core closes every lease the adapter opened when its
+  operation ends, so a presenter that uses `GetOrOpen` as a lookup cannot leave
+  one behind. An adapter attaches what an entry borrows during the operation
+  that opened its lease; it may close the lease earlier, as the page factory
+  does once it has attached the entry's scope.
 
 The opener attaches resources with `Own`, retirement work with `OnRetired`, and
 in-flight preparations with `Track`. `Own` takes an optional
@@ -146,6 +164,16 @@ ones. A presenter that requires a lease for every entry looks it up with
 `TryGet` and fails the presentation when there is none, rather than calling
 `GetOrOpen`.
 
+Detach an artifact only once it has left the native tree, and dispose it only
+after that. Release runs after the last detach, so this order keeps a released
+resource from being reached through a view that is still on screen. On .NET for
+Android it also avoids a crash: disposing a view that is still attached frees
+its Java peer, and the view's next detach, attach or visibility callback then
+fails to find a managed instance. Removing a view after disposing it does
+nothing, because its handle is gone. So an Android presenter removes the view
+(`RemoveView`, finishing any transition) while the peer is live, detaches it,
+and only then disposes it.
+
 ## Failures
 
 - A disposer owned as `RouteEntryLeaseDisposalFailure.Defect`, the default,
@@ -156,11 +184,14 @@ ones. A presenter that requires a lease for every entry looks it up with
   `IRouteEntryLeaseHost.ReportFatal`, which surfaces it through the host's
   fatal boundary. That happens when a disposer owned as
   `RouteEntryLeaseDisposalFailure.Fatal` throws, so a child whose release did
-  not complete keeps its parent's resources, or when the host cannot run the
-  release. Core never forces disposal.
+  not complete keeps its parent's resources, when the host cannot run the
+  release, or when the host cannot run the lease's retirement work, since
+  releasing would then dispose resources whose retirement work never ran.
+  Core never forces disposal.
 - Core imposes no timeouts. A disposer that never completes, an attachment
   that is never detached, or a lease that is never closed keeps its release,
-  and so the router's disposal, waiting.
+  and so the router's disposal, waiting; the shutdown warning below names
+  what holds each lease.
 
 ## Shutdown
 
@@ -170,14 +201,25 @@ Router disposal follows this order:
    work.
 2. The adapter detaches and disposes its native artifacts, acknowledging each
    one. Core does not call the adapter's teardown: the host does, alongside the
-   router's disposal, as the MAUI `AppNavRuntime` does.
+   router's disposal, as the MAUI `AppNavRuntime` does. A host that awaits the
+   router's disposal before starting that teardown, or blocks its UI thread
+   while it waits, never finishes shutting down.
 3. The openers close their leases, attaching anything they still hand over.
 4. Every release finishes, or its failure reaches the fatal boundary.
 5. The router's disposal returns. If any release failed, during shutdown or
    earlier, `DisposeAsync` throws `RouteEntryLeaseReleaseException` (or an
    `AggregateException` of them) instead, and the failed leases and their
    ancestors keep their resources, so the owner disposes nothing that they
-   borrow.
+   borrow. Only `DisposeAsync` waits: synchronous `Dispose` starts the same
+   shutdown and returns at once.
+
+Shutdown has no timeout. If disposal is still waiting after
+`RouterNavigatorFactoryOptions.EntryLeaseShutdownWarningDelay` (five seconds by
+default), the router writes one `EntryLeaseShutdownWaiting` warning and keeps
+waiting. In full-mode diagnostics its message names each lease and what holds
+it: not retired, not closed, native artifacts not detached, pending work, or
+child leases not released. In safe mode the entry IDs are dropped, and `Count`
+and `Reason` keep the totals. `Timeout.InfiniteTimeSpan` turns the warning off.
 
 ## Not in scope
 

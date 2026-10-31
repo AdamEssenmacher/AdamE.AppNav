@@ -140,11 +140,10 @@ public sealed class MauiRoutePageFactoryTests
         using var provider = new ServiceCollection().BuildServiceProvider();
         var options = new MauiRoutePresentationOptions();
         options.Pages.MapPage<TestPageRoute>((_, _) => new ScopedRoutePage());
-        RouteEntryLeaseRegistry leases = TestEntryLeases.Create();
         var committed = new NavigationState(
             [new WindowNode("main", new StackNode("stack", [Entry("committed")]))],
             "main");
-        leases.Bind(committed);
+        RouteEntryLeaseRegistry leases = TestEntryLeases.Create(committed);
         var factory = TestEntryLeases.Factory(provider, options, leases);
         RouteEntryLease committedLease = leases.GetOrOpen("committed", out _);
         committedLease.Close();

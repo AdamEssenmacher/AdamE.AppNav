@@ -25,6 +25,7 @@ internal sealed class RouterNavigator : IRouterNavigator
     private readonly RouterRequestResolver _requestResolver;
     private readonly RouterNavigationDiagnostics _diagnostics;
     private readonly RouteEntryLeaseRegistry? _entryLeases;
+    private readonly TimeSpan _entryLeaseShutdownWarningDelay;
     private readonly SemaphoreSlim _operationLock = new(1, 1);
     private readonly Lock _lifetimeGate = new();
     private readonly Lock _reconciliationGate = new();
@@ -73,6 +74,16 @@ internal sealed class RouterNavigator : IRouterNavigator
         _backNavigator = options.BackNavigator ?? new DefaultBackNavigator(diagnostics: diagnostics);
         _backNavigationPolicies = options.BackNavigationPolicies.ToArray();
         _maxHistoryEntries = options.MaxHistoryEntries;
+        if (options.EntryLeaseShutdownWarningDelay <= TimeSpan.Zero &&
+            options.EntryLeaseShutdownWarningDelay != Timeout.InfiniteTimeSpan)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(options),
+                options.EntryLeaseShutdownWarningDelay,
+                "EntryLeaseShutdownWarningDelay must be positive, or Timeout.InfiniteTimeSpan to turn the warning off.");
+        }
+
+        _entryLeaseShutdownWarningDelay = options.EntryLeaseShutdownWarningDelay;
         _entryLeases = options.EntryLeases;
         _entryLeases?.Bind(CurrentState);
 
@@ -959,6 +970,7 @@ internal sealed class RouterNavigator : IRouterNavigator
     {
         try
         {
+            await WarnIfEntryLeasesHoldShutdownAsync().ConfigureAwait(false);
             await _entryLeaseDrain.ConfigureAwait(false);
             _shutdownCompletion.TrySetResult(true);
         }
@@ -967,6 +979,39 @@ internal sealed class RouterNavigator : IRouterNavigator
             // A release failed: its resources stay retained, and disposal throws so the owner disposes nothing after.
             _shutdownCompletion.TrySetException(ex);
         }
+    }
+
+    // Shutdown has no timeout; when it is still waiting after the delay, say which leases hold it and why.
+    private async Task WarnIfEntryLeasesHoldShutdownAsync()
+    {
+        if (_entryLeases is null || _entryLeaseShutdownWarningDelay == Timeout.InfiniteTimeSpan)
+            return;
+
+        using var delay = new CancellationTokenSource();
+        Task finished = await Task.WhenAny(
+            _entryLeaseDrain,
+            Task.Delay(_entryLeaseShutdownWarningDelay, delay.Token)).ConfigureAwait(false);
+        if (finished == _entryLeaseDrain)
+        {
+            await delay.CancelAsync().ConfigureAwait(false);
+            return;
+        }
+
+        (IReadOnlyList<string> held, string summary) = _entryLeases.DescribeUnsettled();
+        if (held.Count == 0)
+            return;
+
+        // The message names entries by ID, which only full-mode diagnostics keep; Count and Reason survive safe mode.
+        _diagnostics.Write(
+            NavigationDiagnosticEventKind.EntryLeaseShutdownWaiting,
+            Guid.NewGuid().ToString("N"),
+            $"Router disposal is still waiting for {held.Count} route-entry lease(s) after " +
+            $"{_entryLeaseShutdownWarningDelay.TotalSeconds:0.###} s: " + string.Join("; ", held) + ".",
+            new Dictionary<string, object?>
+            {
+                [NavigationDiagnosticDataKeys.Count] = held.Count,
+                [NavigationDiagnosticDataKeys.Reason] = summary
+            });
     }
 
     private CancellationToken CreateOperationCancellation(
