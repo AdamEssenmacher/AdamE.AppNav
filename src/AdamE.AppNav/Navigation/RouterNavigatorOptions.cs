@@ -1,6 +1,7 @@
 using AdamE.AppNav.Diagnostics;
 using AdamE.AppNav.Back;
 using AdamE.AppNav.History;
+using AdamE.AppNav.Leases;
 using AdamE.AppNav.Policies;
 using AdamE.AppNav.State;
 using Microsoft.Extensions.Logging;
@@ -32,4 +33,6 @@ internal sealed class RouterNavigatorOptions
     public ILogger? Logger { get; init; }
 
     public ILoggerFactory? LoggerFactory { get; init; }
+
+    public RouteEntryLeaseRegistry? EntryLeases { get; init; }
 }

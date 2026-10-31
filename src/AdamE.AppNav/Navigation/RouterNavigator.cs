@@ -2,6 +2,7 @@ using System.Diagnostics;
 using AdamE.AppNav.Back;
 using AdamE.AppNav.Diagnostics;
 using AdamE.AppNav.History;
+using AdamE.AppNav.Leases;
 using AdamE.AppNav.Internal;
 using AdamE.AppNav.Plans;
 using AdamE.AppNav.Policies;
@@ -23,6 +24,7 @@ internal sealed class RouterNavigator : IRouterNavigator
     private readonly IReadOnlyList<IBackNavigationPolicy> _backNavigationPolicies;
     private readonly RouterRequestResolver _requestResolver;
     private readonly RouterNavigationDiagnostics _diagnostics;
+    private readonly RouteEntryLeaseRegistry? _entryLeases;
     private readonly SemaphoreSlim _operationLock = new(1, 1);
     private readonly Lock _lifetimeGate = new();
     private readonly Lock _reconciliationGate = new();
@@ -31,6 +33,7 @@ internal sealed class RouterNavigator : IRouterNavigator
     private readonly CancellationTokenSource _shutdownCancellation = new();
     private readonly int _maxHistoryEntries;
     private Task _reconciliationQueue = Task.CompletedTask;
+    private Task _entryLeaseDrain = Task.CompletedTask;
     private int _activeOperations;
     private bool _shutdownStarted;
     private bool _shutdownSignalIssued;
@@ -70,6 +73,8 @@ internal sealed class RouterNavigator : IRouterNavigator
         _backNavigator = options.BackNavigator ?? new DefaultBackNavigator(diagnostics: diagnostics);
         _backNavigationPolicies = options.BackNavigationPolicies.ToArray();
         _maxHistoryEntries = options.MaxHistoryEntries;
+        _entryLeases = options.EntryLeases;
+        _entryLeases?.Bind(CurrentState);
 
         _presenter.ReconciliationRequested += OnPresenterReconciliationRequested;
     }
@@ -344,10 +349,12 @@ internal sealed class RouterNavigator : IRouterNavigator
                     ex,
                     presentationTimer,
                     (NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString()));
+                _entryLeases?.Abandon(plan.TargetState, CurrentState);
                 throw;
             }
 
             CurrentState = plan.TargetState;
+            _entryLeases?.Commit(CurrentState);
             History = History.Push(
                 CreateHistoryEntry(finalizedRequest, finalRoute, CurrentState),
                 _maxHistoryEntries);
@@ -496,10 +503,12 @@ internal sealed class RouterNavigator : IRouterNavigator
                     ex,
                     presentationTimer,
                     (NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString()));
+                _entryLeases?.Abandon(plan.TargetState, CurrentState);
                 throw;
             }
 
             CurrentState = plan.TargetState;
+            _entryLeases?.Commit(CurrentState);
             History = History.Push(CreateHistoryEntry(request, route, CurrentState),
                 _maxHistoryEntries);
 
@@ -593,10 +602,12 @@ internal sealed class RouterNavigator : IRouterNavigator
                     ex,
                     presentationTimer,
                     (NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString()));
+                _entryLeases?.Abandon(plan.TargetState, CurrentState);
                 throw;
             }
 
             CurrentState = plan.TargetState;
+            _entryLeases?.Commit(CurrentState);
             History = History.Push(
                 CreateHistoryEntry(finalizedRequest, finalRoute, CurrentState),
                 _maxHistoryEntries);
@@ -830,6 +841,10 @@ internal sealed class RouterNavigator : IRouterNavigator
 
             if (signalShutdown)
             {
+                // Retire every lease first: their release may need presenter teardown that runs alongside this.
+                if (_entryLeases is not null)
+                    _entryLeaseDrain = _entryLeases.ShutdownAsync();
+
                 try
                 {
                     _ = ObserveShutdownCancellationAsync(_shutdownCancellation.CancelAsync());
@@ -898,8 +913,18 @@ internal sealed class RouterNavigator : IRouterNavigator
         }
         finally
         {
-            _shutdownCompletion.TrySetResult(true);
+            if (_entryLeaseDrain.IsCompleted)
+                _shutdownCompletion.TrySetResult(true);
+            else
+                _ = CompleteShutdownAfterEntryLeasesAsync();
         }
+    }
+
+    private async Task CompleteShutdownAfterEntryLeasesAsync()
+    {
+        // Unsafe releases settle the drain after reaching the host's fatal boundary, so this never faults.
+        await _entryLeaseDrain.ConfigureAwait(false);
+        _shutdownCompletion.TrySetResult(true);
     }
 
     private CancellationToken CreateOperationCancellation(

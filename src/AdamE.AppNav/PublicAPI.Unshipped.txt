@@ -62,3 +62,39 @@ AdamE.AppNav.Presentation.NavigationReconciliation.Deconstruct(out AdamE.AppNav.
 AdamE.AppNav.Presentation.NavigationReconciliation.NavigationReconciliation(AdamE.AppNav.State.NavigationState! BaseState, AdamE.AppNav.State.NavigationState! TargetState, AdamE.AppNav.Presentation.NavigationReconciliationSource Source, AdamE.AppNav.AppRoute? Route = null, string? Reason = null) -> void
 *REMOVED*AdamE.AppNav.Presentation.NavigationReconciliation.Deconstruct(out AdamE.AppNav.State.NavigationState! TargetState, out AdamE.AppNav.Presentation.NavigationReconciliationSource Source, out AdamE.AppNav.AppRoute? Route, out string? Reason) -> void
 *REMOVED*AdamE.AppNav.Presentation.NavigationReconciliation.NavigationReconciliation(AdamE.AppNav.State.NavigationState! TargetState, AdamE.AppNav.Presentation.NavigationReconciliationSource Source, AdamE.AppNav.AppRoute? Route = null, string? Reason = null) -> void
+AdamE.AppNav.Leases.IRouteEntryLeaseHost
+AdamE.AppNav.Leases.IRouteEntryLeaseHost.InvokeAsync(System.Func<System.Threading.Tasks.ValueTask>! release) -> System.Threading.Tasks.Task!
+AdamE.AppNav.Leases.IRouteEntryLeaseHost.ReportFatal(AdamE.AppNav.Leases.RouteEntryLeaseReleaseException! failure) -> void
+AdamE.AppNav.Leases.RouteEntryLease
+AdamE.AppNav.Leases.RouteEntryLease.EntryId.get -> string?
+AdamE.AppNav.Leases.RouteEntryLease.IsCommitted.get -> bool
+AdamE.AppNav.Leases.RouteEntryLease.IsRetired.get -> bool
+AdamE.AppNav.Leases.RouteEntryLease.OpenChild() -> AdamE.AppNav.Leases.RouteEntryLease!
+AdamE.AppNav.Leases.RouteEntryLease.Own(System.IAsyncDisposable! resource) -> void
+AdamE.AppNav.Leases.RouteEntryLease.Own(System.IDisposable! resource) -> void
+AdamE.AppNav.Leases.RouteEntryLease.Parent.get -> AdamE.AppNav.Leases.RouteEntryLease?
+AdamE.AppNav.Leases.RouteEntryLease.Released.get -> System.Threading.Tasks.Task!
+AdamE.AppNav.Leases.RouteEntryLease.Retire() -> void
+AdamE.AppNav.Leases.RouteEntryLease.RetiredToken.get -> System.Threading.CancellationToken
+AdamE.AppNav.Leases.RouteEntryLease.Retirement.get -> AdamE.AppNav.Leases.RouteEntryLeaseRetirement
+AdamE.AppNav.Leases.RouteEntryLease.Track(System.Threading.Tasks.Task! work) -> void
+AdamE.AppNav.Leases.RouteEntryLease.TryAttach(out AdamE.AppNav.Leases.RouteEntryLeaseAttachment? attachment) -> bool
+AdamE.AppNav.Leases.RouteEntryLeaseAttachment
+AdamE.AppNav.Leases.RouteEntryLeaseAttachment.Detach() -> void
+AdamE.AppNav.Leases.RouteEntryLeaseRegistry
+AdamE.AppNav.Leases.RouteEntryLeaseRegistry.GetOrOpen(string! entryId) -> AdamE.AppNav.Leases.RouteEntryLease!
+AdamE.AppNav.Leases.RouteEntryLeaseRegistry.Open(string! entryId, AdamE.AppNav.Leases.RouteEntryLease? parent = null) -> AdamE.AppNav.Leases.RouteEntryLease!
+AdamE.AppNav.Leases.RouteEntryLeaseRegistry.RouteEntryLeaseRegistry(AdamE.AppNav.Leases.IRouteEntryLeaseHost! host) -> void
+AdamE.AppNav.Leases.RouteEntryLeaseRegistry.TryGet(string! entryId, out AdamE.AppNav.Leases.RouteEntryLease? lease) -> bool
+AdamE.AppNav.Leases.RouteEntryLeaseReleaseException
+AdamE.AppNav.Leases.RouteEntryLeaseReleaseException.EntryId.get -> string?
+AdamE.AppNav.Leases.RouteEntryLeaseReleaseException.RouteEntryLeaseReleaseException(string? entryId, string! message, System.Exception! innerException) -> void
+AdamE.AppNav.Leases.RouteEntryLeaseRetirement
+AdamE.AppNav.Leases.RouteEntryLeaseRetirement.Abandoned = 2 -> AdamE.AppNav.Leases.RouteEntryLeaseRetirement
+AdamE.AppNav.Leases.RouteEntryLeaseRetirement.Application = 3 -> AdamE.AppNav.Leases.RouteEntryLeaseRetirement
+AdamE.AppNav.Leases.RouteEntryLeaseRetirement.Dropped = 1 -> AdamE.AppNav.Leases.RouteEntryLeaseRetirement
+AdamE.AppNav.Leases.RouteEntryLeaseRetirement.None = 0 -> AdamE.AppNav.Leases.RouteEntryLeaseRetirement
+AdamE.AppNav.Leases.RouteEntryLeaseRetirement.Parent = 4 -> AdamE.AppNav.Leases.RouteEntryLeaseRetirement
+AdamE.AppNav.Leases.RouteEntryLeaseRetirement.Shutdown = 5 -> AdamE.AppNav.Leases.RouteEntryLeaseRetirement
+AdamE.AppNav.Navigation.RouterNavigatorFactoryOptions.EntryLeases.get -> AdamE.AppNav.Leases.RouteEntryLeaseRegistry?
+AdamE.AppNav.Navigation.RouterNavigatorFactoryOptions.EntryLeases.init -> void

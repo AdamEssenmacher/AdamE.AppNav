@@ -56,7 +56,8 @@ public static class RouterNavigatorFactory
                 MaxRedirects = options.MaxRedirects,
                 MaxHistoryEntries = options.MaxHistoryEntries,
                 Logger = options.Logger,
-                LoggerFactory = options.LoggerFactory
+                LoggerFactory = options.LoggerFactory,
+                EntryLeases = options.EntryLeases
             });
     }
 }
