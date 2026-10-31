@@ -613,10 +613,9 @@ public sealed class RouteEntryLeaseTests
         var strays = new List<RouteEntryLease>();
         presenter.OnApplyAsync = (_, _, _) =>
         {
-            // A presenter that uses GetOrOpen as a lookup for an entry the plan does not contain.
+            // A presenter that uses GetOrOpen as a lookup for an entry the plan does not contain, and never closes it.
             RouteEntryLease stray = leases.GetOrOpen("elsewhere", out bool opened);
             Assert.True(opened);
-            stray.Close();
             strays.Add(stray);
             return ValueTask.CompletedTask;
         };
@@ -629,6 +628,38 @@ public sealed class RouteEntryLeaseTests
         await Task.WhenAll(strays.Select(static stray => stray.Released)).WaitAsync(Timeout);
         Assert.False(leases.TryGet("elsewhere", out _));
         leases.Open("elsewhere").Close();
+    }
+
+    [Fact]
+    public async Task OneRequestInstanceCannotCarryTwoLeasesAtOnce()
+    {
+        var leases = new RouteEntryLeaseRegistry(new RecordingLeaseHost());
+        var presenter = new RecordingNavigationPresenter();
+        await using IRouterNavigator router = CreateRouter(leases, presenter);
+        var presenting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var proceed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        presenter.OnApplyAsync = async (_, _, _) =>
+        {
+            presenter.OnApplyAsync = null;
+            presenting.SetResult();
+            await proceed.Task;
+        };
+        RouterNavigationRequest request = Request("one");
+        RouteEntryLease first = leases.Open("one");
+        Task<NavigationResult> sending = router.NavigateAsync(request, first).AsTask();
+        await presenting.Task.WaitAsync(Timeout);
+        var foreign = new RouteEntryLeaseRegistry(new RecordingLeaseHost());
+        RouteEntryLease second = foreign.Open("one");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => router.NavigateAsync(request, second).AsTask());
+
+        // The refused send left the second lease unsent, so closing it abandons it.
+        second.Close();
+        Assert.Equal(RouteEntryLeaseRetirement.Abandoned, second.Retirement);
+        proceed.SetResult();
+        await sending.WaitAsync(Timeout);
+        Assert.True(first.IsCommitted);
+        first.Close();
     }
 
     [Fact]

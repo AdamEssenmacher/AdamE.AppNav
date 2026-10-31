@@ -22,13 +22,13 @@ internal sealed class MauiRouteEntryLeaseHost(
     public void ReportDefect(RouteEntryLeaseReleaseException defect)
     {
         ArgumentNullException.ThrowIfNull(defect);
-        Write(defect);
+        Write(NavigationDiagnosticEventKind.EntryLeaseDefectReported, defect);
     }
 
     public void ReportFatal(RouteEntryLeaseReleaseException failure)
     {
         ArgumentNullException.ThrowIfNull(failure);
-        Write(failure);
+        Write(NavigationDiagnosticEventKind.EntryLeaseReleaseFailed, failure);
 
         // The resources were kept; an unhandled exception on the main loop is MAUI's fatal boundary.
         try
@@ -42,10 +42,10 @@ internal sealed class MauiRouteEntryLeaseHost(
         }
     }
 
-    private void Write(RouteEntryLeaseReleaseException failure)
+    private void Write(NavigationDiagnosticEventKind kind, RouteEntryLeaseReleaseException failure)
     {
         diagnostics?.Write(
-            NavigationDiagnosticEventKind.PresentationPageReleaseFailed,
+            kind,
             Guid.NewGuid().ToString("N"),
             failure.Message,
             new Dictionary<string, object?>

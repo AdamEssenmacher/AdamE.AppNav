@@ -378,7 +378,8 @@ public sealed class NavigationDiagnostics
         return kind.ToString().EndsWith("Failed", StringComparison.Ordinal) ||
                kind is NavigationDiagnosticEventKind.NavigationFailed or
                    NavigationDiagnosticEventKind.RequestRedirectLoopDetected or
-                   NavigationDiagnosticEventKind.DiagnosticObserverFailed
+                   NavigationDiagnosticEventKind.DiagnosticObserverFailed or
+                   NavigationDiagnosticEventKind.EntryLeaseDefectReported
             ? LogLevel.Error
             : kind is NavigationDiagnosticEventKind.RouteNotMatched or
                     NavigationDiagnosticEventKind.BackUnhandled or
@@ -433,6 +434,8 @@ public sealed class NavigationDiagnostics
                 NavigationDiagnosticEventKind.PresentationRollbackCompleted or
                 NavigationDiagnosticEventKind.PresentationRollbackFailed or
                 NavigationDiagnosticEventKind.PresentationPageReleaseFailed or
+                NavigationDiagnosticEventKind.EntryLeaseDefectReported or
+                NavigationDiagnosticEventKind.EntryLeaseReleaseFailed or
                 NavigationDiagnosticEventKind.PresentationCompleted or
                 NavigationDiagnosticEventKind.PresentationFailed =>
                 NavigationDiagnosticPhase.Presentation,

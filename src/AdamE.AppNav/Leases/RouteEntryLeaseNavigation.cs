@@ -30,8 +30,23 @@ public static class RouteEntryLeaseNavigation
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(lease);
 
-        lease.Registry.Send(lease);
-        s_requestLeases.AddOrUpdate(request, lease);
+        // One request instance carries one lease at a time; sharing it would link the router's checks to the wrong lease.
+        if (!s_requestLeases.TryAdd(request, lease))
+        {
+            throw new InvalidOperationException(
+                "This request is already being sent with a route-entry lease; create a request for each navigation.");
+        }
+
+        try
+        {
+            lease.Registry.Send(lease);
+        }
+        catch
+        {
+            s_requestLeases.Remove(request);
+            throw;
+        }
+
         try
         {
             return await navigator.NavigateAsync(request, cancellationToken).ConfigureAwait(false);

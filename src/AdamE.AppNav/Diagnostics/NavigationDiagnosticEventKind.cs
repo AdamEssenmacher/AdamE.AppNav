@@ -328,5 +328,15 @@ public enum NavigationDiagnosticEventKind
     /// <summary>
     /// A request was sent with a route-entry lease whose entry its plan does not contain, so the lease will be abandoned.
     /// </summary>
-    EntryLeaseNotInPlan
+    EntryLeaseNotInPlan,
+
+    /// <summary>
+    /// Retiring or releasing a route-entry lease raised a defect that the release survived.
+    /// </summary>
+    EntryLeaseDefectReported,
+
+    /// <summary>
+    /// A route-entry lease could not be released; it and its ancestors keep their resources.
+    /// </summary>
+    EntryLeaseReleaseFailed
 }

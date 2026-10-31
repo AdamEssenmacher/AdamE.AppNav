@@ -302,6 +302,9 @@ public sealed class RouteEntryLeaseRegistry
             if (!lease.IsAdapterOpenedLocked || !lease.IsAbandonableLocked || committedIds.Contains(entryId))
                 continue;
 
+            // The operation is over, so its adapter attaches nothing more: closing here means a lookup that never
+            // closes cannot keep the lease from releasing. Artifacts it attached still hold the lease.
+            lease.CloseLocked();
             stray.Add(lease);
             _current.Remove(entryId);
         }

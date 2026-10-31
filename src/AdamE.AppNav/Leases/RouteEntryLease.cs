@@ -28,6 +28,7 @@ public sealed class RouteEntryLease
     private bool _adapterOpened;
     private bool _closed;
     private bool _blocked;
+    private bool _retirementWorkTaken;
 
     internal RouteEntryLease(
         RouteEntryLeaseRegistry registry,
@@ -176,7 +177,9 @@ public sealed class RouteEntryLease
         lock (_registry.Gate)
         {
             ThrowIfClosed();
-            runNow = _state != LeaseState.Open;
+            // Until the retirement notification has taken its work, new work joins it, so it runs after the token is
+            // cancelled; retirement already holds the lease until then.
+            runNow = _retirementWorkTaken;
             if (runNow)
                 _pendingWork++;
             else
@@ -313,6 +316,7 @@ public sealed class RouteEntryLease
         {
             work = _retirementWork.ToArray();
             _retirementWork.Clear();
+            _retirementWorkTaken = true;
         }
 
         Task cancellation;

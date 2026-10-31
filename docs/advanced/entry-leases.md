@@ -61,8 +61,10 @@ A lease is opened by whoever builds what the entry borrows.
   itself, the application owns what the entry borrows: the factory adds
   nothing to that lease and gives each page a scope of its own. When the
   operation ends, a lease it opened for an entry the resulting state does not
-  contain is abandoned, so a presenter that uses `GetOrOpen` as a lookup cannot
-  leave one behind.
+  contain is abandoned and closed, so a presenter that uses `GetOrOpen` as a
+  lookup cannot leave one behind. A lease it opened for an entry the state does
+  contain stays open until the adapter closes it, as the page factory does once
+  it has attached the entry's scope.
 
 The opener attaches resources with `Own`, retirement work with `OnRetired`, and
 in-flight preparations with `Track`. `Own` takes an optional
@@ -71,7 +73,7 @@ resource means. Resources may be attached after
 retirement: an application may hand over a view model only when the entry
 retires. So a lease accepts resources and children until its opener calls
 `Close()`, and it is never released before then. Closing an application-opened
-entry lease that was never sent abandons it.
+entry lease that was never sent nor committed abandons it.
 
 `IsCommitted` says whether the entry is in the router's committed state. A
 lease opened for an entry that is already committed is committed from birth,
