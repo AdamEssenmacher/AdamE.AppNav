@@ -63,15 +63,17 @@ AdamE.AppNav.Presentation.NavigationReconciliation.NavigationReconciliation(Adam
 *REMOVED*AdamE.AppNav.Presentation.NavigationReconciliation.Deconstruct(out AdamE.AppNav.State.NavigationState! TargetState, out AdamE.AppNav.Presentation.NavigationReconciliationSource Source, out AdamE.AppNav.AppRoute? Route, out string? Reason) -> void
 *REMOVED*AdamE.AppNav.Presentation.NavigationReconciliation.NavigationReconciliation(AdamE.AppNav.State.NavigationState! TargetState, AdamE.AppNav.Presentation.NavigationReconciliationSource Source, AdamE.AppNav.AppRoute? Route = null, string? Reason = null) -> void
 AdamE.AppNav.Leases.IRouteEntryLeaseHost
-AdamE.AppNav.Leases.IRouteEntryLeaseHost.InvokeAsync(System.Func<System.Threading.Tasks.ValueTask>! release) -> System.Threading.Tasks.Task!
+AdamE.AppNav.Leases.IRouteEntryLeaseHost.InvokeAsync(System.Func<System.Threading.Tasks.ValueTask>! work) -> System.Threading.Tasks.Task!
+AdamE.AppNav.Leases.IRouteEntryLeaseHost.ReportDefect(AdamE.AppNav.Leases.RouteEntryLeaseReleaseException! defect) -> void
 AdamE.AppNav.Leases.IRouteEntryLeaseHost.ReportFatal(AdamE.AppNav.Leases.RouteEntryLeaseReleaseException! failure) -> void
 AdamE.AppNav.Leases.RouteEntryLease
+AdamE.AppNav.Leases.RouteEntryLease.Close() -> void
 AdamE.AppNav.Leases.RouteEntryLease.EntryId.get -> string?
 AdamE.AppNav.Leases.RouteEntryLease.IsCommitted.get -> bool
 AdamE.AppNav.Leases.RouteEntryLease.IsRetired.get -> bool
-AdamE.AppNav.Leases.RouteEntryLease.OpenChild() -> AdamE.AppNav.Leases.RouteEntryLease!
+AdamE.AppNav.Leases.RouteEntryLease.OnRetired(System.Func<System.Threading.Tasks.ValueTask>! work) -> void
+AdamE.AppNav.Leases.RouteEntryLease.Own(System.Action! release) -> void
 AdamE.AppNav.Leases.RouteEntryLease.Own(System.IAsyncDisposable! resource) -> void
-AdamE.AppNav.Leases.RouteEntryLease.Own(System.IDisposable! resource) -> void
 AdamE.AppNav.Leases.RouteEntryLease.Parent.get -> AdamE.AppNav.Leases.RouteEntryLease?
 AdamE.AppNav.Leases.RouteEntryLease.Released.get -> System.Threading.Tasks.Task!
 AdamE.AppNav.Leases.RouteEntryLease.Retire() -> void
@@ -81,9 +83,11 @@ AdamE.AppNav.Leases.RouteEntryLease.Track(System.Threading.Tasks.Task! work) -> 
 AdamE.AppNav.Leases.RouteEntryLease.TryAttach(out AdamE.AppNav.Leases.RouteEntryLeaseAttachment? attachment) -> bool
 AdamE.AppNav.Leases.RouteEntryLeaseAttachment
 AdamE.AppNav.Leases.RouteEntryLeaseAttachment.Detach() -> void
+AdamE.AppNav.Leases.RouteEntryLeaseNavigation
 AdamE.AppNav.Leases.RouteEntryLeaseRegistry
-AdamE.AppNav.Leases.RouteEntryLeaseRegistry.GetOrOpen(string! entryId) -> AdamE.AppNav.Leases.RouteEntryLease!
+AdamE.AppNav.Leases.RouteEntryLeaseRegistry.GetOrOpen(string! entryId, out bool opened) -> AdamE.AppNav.Leases.RouteEntryLease!
 AdamE.AppNav.Leases.RouteEntryLeaseRegistry.Open(string! entryId, AdamE.AppNav.Leases.RouteEntryLease? parent = null) -> AdamE.AppNav.Leases.RouteEntryLease!
+AdamE.AppNav.Leases.RouteEntryLeaseRegistry.OpenApplicationLease(AdamE.AppNav.Leases.RouteEntryLease? parent = null) -> AdamE.AppNav.Leases.RouteEntryLease!
 AdamE.AppNav.Leases.RouteEntryLeaseRegistry.RouteEntryLeaseRegistry(AdamE.AppNav.Leases.IRouteEntryLeaseHost! host) -> void
 AdamE.AppNav.Leases.RouteEntryLeaseRegistry.TryGet(string! entryId, out AdamE.AppNav.Leases.RouteEntryLease? lease) -> bool
 AdamE.AppNav.Leases.RouteEntryLeaseReleaseException
@@ -98,3 +102,4 @@ AdamE.AppNav.Leases.RouteEntryLeaseRetirement.Parent = 4 -> AdamE.AppNav.Leases.
 AdamE.AppNav.Leases.RouteEntryLeaseRetirement.Shutdown = 5 -> AdamE.AppNav.Leases.RouteEntryLeaseRetirement
 AdamE.AppNav.Navigation.RouterNavigatorFactoryOptions.EntryLeases.get -> AdamE.AppNav.Leases.RouteEntryLeaseRegistry?
 AdamE.AppNav.Navigation.RouterNavigatorFactoryOptions.EntryLeases.init -> void
+static AdamE.AppNav.Leases.RouteEntryLeaseNavigation.NavigateAsync(this AdamE.AppNav.Navigation.IRouterNavigator! navigator, AdamE.AppNav.Requests.RouterNavigationRequest! request, AdamE.AppNav.Leases.RouteEntryLease! lease, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<AdamE.AppNav.Navigation.NavigationResult!>

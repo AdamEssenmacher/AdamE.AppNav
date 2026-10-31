@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using AdamE.AppNav.Leases;
 using AdamE.AppNav.Plans;
 using AdamE.AppNav.Presentation;
 using AdamE.AppNav.Requests;
@@ -48,8 +49,10 @@ public sealed class MauiPageCollectionTests
             references.Add(new WeakReference(hook));
             return page;
         });
+        // The router normally drives the registry; this presenter-only cycle commits each state itself.
+        RouteEntryLeaseRegistry leases = TestEntryLeases.Create();
         var presenter = new MauiNavigationPresenter(
-            new MauiRoutePageFactory(provider, options),
+            TestEntryLeases.Factory(provider, options, leases),
             presentationOptions: options);
         NavigationState currentState = NavigationState.Empty;
 
@@ -72,10 +75,13 @@ public sealed class MauiPageCollectionTests
                     route,
                     currentState,
                     Guid.NewGuid().ToString("N")));
+            leases.Commit(targetState);
             currentState = targetState;
         }
 
+        Task leaseDrain = leases.ShutdownAsync();
         await presenter.StartShutdown();
+        await leaseDrain;
         return references.ToArray();
     }
 

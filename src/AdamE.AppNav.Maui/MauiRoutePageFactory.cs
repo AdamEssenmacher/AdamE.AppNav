@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+using AdamE.AppNav.Leases;
 using AdamE.AppNav.Navigation;
 using AdamE.AppNav.State;
 using Microsoft.Extensions.DependencyInjection;
@@ -37,28 +39,6 @@ internal interface IMauiRoutePageFactory
     ValueTask ReleasePageAsync(Page page);
 
     ValueTask ReleasePresentationPageAsync(Page page);
-
-    MauiPageAbandonment? CaptureAbandonment(Page page);
-}
-
-internal sealed class MauiPageAbandonment : IAsyncDisposable
-{
-    private IAsyncDisposable? _scope;
-
-    public MauiPageAbandonment(IAsyncDisposable? scope, string pageTypeName)
-    {
-        _scope = scope;
-        PageTypeName = pageTypeName;
-    }
-
-    public string PageTypeName { get; }
-
-    public async ValueTask DisposeAsync()
-    {
-        IAsyncDisposable? scope = Interlocked.Exchange(ref _scope, null);
-        if (scope is not null)
-            await scope.DisposeAsync().ConfigureAwait(false);
-    }
 }
 
 /// <summary>
@@ -71,8 +51,9 @@ internal sealed class MauiPageAbandonment : IAsyncDisposable
 /// or <see cref="IRouterNavigator.ReconcileAsync"/> on the same navigator. Schedule follow-up navigation to run after
 /// the callback and its owning router operation have completed.
 /// <para>
-/// <see cref="OnPageReleasedAsync"/> represents normal page retirement. The internal page-free abandonment path does
-/// not invoke this page-based callback.
+/// <see cref="OnPageReleasedAsync"/> runs when the page leaves the native tree. With scoped pages, the hook comes from
+/// its route entry's scope, which the entry's <see cref="RouteEntryLease"/> disposes later, once core has retired the
+/// entry and every page built for it has been released.
 /// </para>
 /// </remarks>
 public interface IMauiRoutePageLifecycleHook
@@ -102,11 +83,18 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
 
     private readonly IServiceProvider _serviceProvider;
     private readonly MauiRoutePresentationOptions _options;
+    private readonly RouteEntryLeaseRegistry _leases;
+    // The DI scope of each entry occurrence whose lease this factory opened, owned and disposed by that lease.
+    private readonly ConditionalWeakTable<RouteEntryLease, IServiceProvider> _entryServices = new();
 
-    public MauiRoutePageFactory(IServiceProvider serviceProvider, MauiRoutePresentationOptions options)
+    public MauiRoutePageFactory(
+        IServiceProvider serviceProvider,
+        MauiRoutePresentationOptions options,
+        RouteEntryLeaseRegistry leases)
     {
         _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
         _options = options ?? throw new ArgumentNullException(nameof(options));
+        _leases = leases ?? throw new ArgumentNullException(nameof(leases));
     }
 
     public async ValueTask<Page> CreatePageAsync(
@@ -115,25 +103,36 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
     {
         ArgumentNullException.ThrowIfNull(entry);
 
-        IAsyncDisposable? scope = null;
-        IServiceProvider services = _serviceProvider;
-        if (_options.UseScopedPages)
+        RouteEntryLease lease = _leases.GetOrOpen(entry.Id, out bool opened);
+        if (opened)
+            OpenEntryServices(lease);
+
+        if (!lease.TryAttach(out RouteEntryLeaseAttachment? attachment))
         {
-            AsyncServiceScope asyncScope = _serviceProvider.CreateAsyncScope();
-            scope = asyncScope;
-            services = asyncScope.ServiceProvider;
+            // A retired entry that is still committed stays until the application navigates; it is never rebuilt.
+            if (lease.IsCommitted)
+                return CreatePlaceholderPage();
+
+            throw new OperationCanceledException(
+                $"The lease of route entry '{entry.Id}' retired before the entry was presented.",
+                lease.RetiredToken);
         }
 
         Page? page = null;
+        IAsyncDisposable? pageScope = null;
         try
         {
+            IServiceProvider services = ServicesFor(lease, out pageScope);
             if (_options.Pages.TryCreatePage(services, entry, out page))
             {
                 var handle = new PageHandle(
-                    scope,
+                    lease,
+                    attachment,
+                    pageScope,
                     services.GetServices<IMauiRoutePageLifecycleHook>().ToArray());
                 SetPageHandle(page, handle);
-                scope = null;
+                attachment = null;
+                pageScope = null;
                 foreach (IMauiRoutePageLifecycleHook hook in handle.GetActiveHooks())
                     await hook.OnPageCreatedAsync(page, entry, cancellationToken);
 
@@ -147,7 +146,7 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
         {
             try
             {
-                await CleanupFailedCreationAsync(page, scope).ConfigureAwait(false);
+                await CleanupFailedCreationAsync(page, attachment, pageScope).ConfigureAwait(false);
             }
             catch (Exception cleanupException)
             {
@@ -174,6 +173,16 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
                 nameof(pageType));
         }
 
+        // A presentation page can share its owner's view model, so it holds the owner's lease too.
+        RouteEntryLeaseAttachment? attachment = null;
+        RouteEntryLease? ownerLease = GetPageHandle(ownerRoutePage)?.Lease;
+        if (ownerLease is not null && !ownerLease.TryAttach(out attachment))
+        {
+            throw new OperationCanceledException(
+                "The owning route entry retired before its presentation page was created.",
+                ownerLease.RetiredToken);
+        }
+
         IAsyncDisposable? scope = null;
         IServiceProvider services = _serviceProvider;
         if (_options.UseScopedPages)
@@ -194,7 +203,8 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
             }
 
             page = resolvedPage;
-            SetPageHandle(page, new PageHandle(scope, []));
+            SetPageHandle(page, new PageHandle(ownerLease, attachment, scope, []));
+            attachment = null;
             scope = null;
 
             if (inheritBindingContext)
@@ -206,7 +216,7 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
         {
             try
             {
-                await CleanupFailedCreationAsync(page, scope).ConfigureAwait(false);
+                await CleanupFailedCreationAsync(page, attachment, scope).ConfigureAwait(false);
             }
             catch (Exception cleanupException)
             {
@@ -244,15 +254,57 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
         return ReleaseCoreAsync(page);
     }
 
-    public MauiPageAbandonment? CaptureAbandonment(Page page)
+    // This factory opened the lease inside the presentation, so it is the opener: it attaches the entry's scope and
+    // closes the lease. Core abandons the lease if the presentation fails.
+    private void OpenEntryServices(RouteEntryLease lease)
     {
-        ArgumentNullException.ThrowIfNull(page);
-        PageHandle? handle = GetPageHandle(page);
-        return handle?.TryClaimAbandonment(
-            page.GetType().FullName ?? page.GetType().Name);
+        try
+        {
+            if (_options.UseScopedPages)
+            {
+                AsyncServiceScope scope = _serviceProvider.CreateAsyncScope();
+                lease.Own(scope);
+                lock (_entryServices)
+                {
+                    _entryServices.Add(lease, scope.ServiceProvider);
+                }
+            }
+        }
+        finally
+        {
+            lease.Close();
+        }
     }
 
-    private static async ValueTask CleanupFailedCreationAsync(Page? page, IAsyncDisposable? unattachedScope)
+    private IServiceProvider ServicesFor(RouteEntryLease lease, out IAsyncDisposable? pageScope)
+    {
+        pageScope = null;
+        if (!_options.UseScopedPages)
+            return _serviceProvider;
+
+        lock (_entryServices)
+        {
+            if (_entryServices.TryGetValue(lease, out IServiceProvider? services))
+                return services;
+        }
+
+        // The application opened this lease and owns what the entry borrows, so the page keeps a scope of its own.
+        AsyncServiceScope scope = _serviceProvider.CreateAsyncScope();
+        pageScope = scope;
+        return scope.ServiceProvider;
+    }
+
+    private static ContentPage CreatePlaceholderPage()
+    {
+        var page = new ContentPage();
+        SetPageHandle(page, new PageHandle(null, null, null, []));
+        return page;
+    }
+
+    private static async ValueTask CleanupFailedCreationAsync(
+        Page? page,
+        RouteEntryLeaseAttachment? unattachedLease,
+        IAsyncDisposable? unattachedScope)
     {
         var failures = new List<Exception>();
         if (page is not null)
@@ -279,6 +331,7 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
             }
         }
 
+        unattachedLease?.Detach();
         if (failures.Count > 0)
             throw new AggregateException("Page creation cleanup failed.", failures);
     }
@@ -338,6 +391,8 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
             }
         }
 
+        // The page has left the native tree whatever its cleanup did, so it no longer holds the entry's lease.
+        resources.Attachment?.Detach();
         if (failures.Count > 0)
             throw new AggregateException("One or more page cleanup operations failed.", failures);
     }
@@ -355,23 +410,31 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
     private sealed class PageHandle
     {
         private readonly Lock _gate = new();
+        private RouteEntryLeaseAttachment? _attachment;
         private IAsyncDisposable? _scope;
         private IReadOnlyList<IMauiRoutePageLifecycleHook> _hooks;
-        private PageOwnershipState _state;
+        private bool _released;
 
         public PageHandle(
+            RouteEntryLease? lease,
+            RouteEntryLeaseAttachment? attachment,
             IAsyncDisposable? scope,
             IReadOnlyList<IMauiRoutePageLifecycleHook> hooks)
         {
+            Lease = lease;
+            _attachment = attachment;
             _scope = scope;
             _hooks = hooks;
         }
+
+        // The route entry's lease for route pages, the owner's for presentation pages, none for placeholders.
+        public RouteEntryLease? Lease { get; }
 
         public IReadOnlyList<IMauiRoutePageLifecycleHook> GetActiveHooks()
         {
             lock (_gate)
             {
-                if (_state != PageOwnershipState.Active)
+                if (_released)
                     throw new InvalidOperationException("The route page is no longer active.");
 
                 return _hooks;
@@ -382,48 +445,24 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
         {
             lock (_gate)
             {
-                if (_state != PageOwnershipState.Active)
+                if (_released)
                 {
                     resources = default;
                     return false;
                 }
 
-                _state = PageOwnershipState.Released;
-                resources = TakeResources();
+                _released = true;
+                resources = new PageReleaseResources(_attachment, _scope, _hooks);
+                _attachment = null;
+                _scope = null;
+                _hooks = [];
                 return true;
             }
-        }
-
-        public MauiPageAbandonment? TryClaimAbandonment(string pageTypeName)
-        {
-            lock (_gate)
-            {
-                if (_state != PageOwnershipState.Active)
-                    return null;
-
-                _state = PageOwnershipState.Abandoned;
-                PageReleaseResources resources = TakeResources();
-                return new MauiPageAbandonment(resources.Scope, pageTypeName);
-            }
-        }
-
-        private PageReleaseResources TakeResources()
-        {
-            var resources = new PageReleaseResources(_scope, _hooks);
-            _scope = null;
-            _hooks = [];
-            return resources;
         }
     }
 
     private readonly record struct PageReleaseResources(
+        RouteEntryLeaseAttachment? Attachment,
         IAsyncDisposable? Scope,
         IReadOnlyList<IMauiRoutePageLifecycleHook> Hooks);
-
-    private enum PageOwnershipState
-    {
-        Active,
-        Released,
-        Abandoned
-    }
 }

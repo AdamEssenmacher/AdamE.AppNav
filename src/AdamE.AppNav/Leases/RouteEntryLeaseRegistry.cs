@@ -9,8 +9,7 @@ namespace AdamE.AppNav.Leases;
 /// </summary>
 /// <remarks>
 /// One registry serves one router: pass it through <c>RouterNavigatorFactoryOptions.EntryLeases</c> and give the same
-/// instance to the presenter. Open leases on the application's UI thread before sending the request that presents
-/// the entry.
+/// instance to the presenter. See the entry-leases design note for the full contract.
 /// </remarks>
 public sealed class RouteEntryLeaseRegistry
 {
@@ -29,7 +28,10 @@ public sealed class RouteEntryLeaseRegistry
 
     internal Lock Gate { get; } = new();
 
-    /// <summary>Opens the lease of a new occurrence of <paramref name="entryId"/>.</summary>
+    /// <summary>
+    /// Opens the lease of a new occurrence of <paramref name="entryId"/>, before the application sends the request that
+    /// presents it with <see cref="RouteEntryLeaseNavigation.NavigateAsync"/>.
+    /// </summary>
     /// <param name="entryId">The route-entry ID the request will present.</param>
     /// <param name="parent">A lease that must outlive this one, or <see langword="null"/>.</param>
     /// <exception cref="InvalidOperationException">The entry ID already has a current lease.</exception>
@@ -46,28 +48,51 @@ public sealed class RouteEntryLeaseRegistry
                     $"Route entry '{entryId}' already has a current lease. Use a new entry ID for a new occurrence.");
             }
 
-            lease = OpenLocked(entryId, parent);
+            lease = OpenLocked(entryId, parent, sent: false);
         }
 
-        RetireIfBornRetired(lease);
+        RetireIfBornUnderRetiredParent(lease);
         return lease;
     }
 
-    /// <summary>Returns the current lease of <paramref name="entryId"/>, opening one when there is none.</summary>
-    /// <remarks>
-    /// For adapters that build per-entry resources during presentation. The returned lease may be retired; when it is
-    /// also committed, present a placeholder for the entry.
-    /// </remarks>
+    /// <summary>Opens an application lease that belongs to no entry, such as a handle several entry leases share.</summary>
+    /// <remarks>It retires only when the application retires it, when its parent retires, or at shutdown.</remarks>
     /// <exception cref="ObjectDisposedException">The router has shut down.</exception>
-    public RouteEntryLease GetOrOpen(string entryId)
+    public RouteEntryLease OpenApplicationLease(RouteEntryLease? parent = null)
+    {
+        RouteEntryLease lease;
+        lock (Gate)
+        {
+            lease = OpenLocked(null, parent, sent: false);
+        }
+
+        RetireIfBornUnderRetiredParent(lease);
+        return lease;
+    }
+
+    /// <summary>
+    /// For an adapter inside <c>ApplyAsync</c>: returns the current lease of <paramref name="entryId"/>, or opens one
+    /// that belongs to the presentation in progress.
+    /// </summary>
+    /// <param name="entryId">The entry being presented.</param>
+    /// <param name="opened">
+    /// <see langword="true"/> when this call opened the lease; the adapter is then its opener and closes it.
+    /// </param>
+    /// <remarks>The returned lease may be retired; when it is also committed, present a placeholder for the entry.</remarks>
+    /// <exception cref="ObjectDisposedException">The router has shut down.</exception>
+    public RouteEntryLease GetOrOpen(string entryId, out bool opened)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(entryId);
         lock (Gate)
         {
             if (_current.TryGetValue(entryId, out RouteEntryLease? existing))
+            {
+                opened = false;
                 return existing;
+            }
 
-            return OpenLocked(entryId, null);
+            opened = true;
+            return OpenLocked(entryId, null, sent: true);
         }
     }
 
@@ -79,18 +104,6 @@ public sealed class RouteEntryLeaseRegistry
         {
             return _current.TryGetValue(entryId, out lease);
         }
-    }
-
-    internal RouteEntryLease OpenChild(RouteEntryLease parent)
-    {
-        RouteEntryLease lease;
-        lock (Gate)
-        {
-            lease = OpenLocked(null, parent);
-        }
-
-        RetireIfBornRetired(lease);
-        return lease;
     }
 
     internal void Bind(NavigationState initialState)
@@ -117,6 +130,7 @@ public sealed class RouteEntryLeaseRegistry
         Retire(dropped, RouteEntryLeaseRetirement.Dropped);
     }
 
+    // A presentation failed or was cancelled: leases it introduced are abandoned once ApplyAsync has returned.
     internal void Abandon(NavigationState target, NavigationState committed)
     {
         HashSet<string> targetIds = EntryIds(target);
@@ -126,7 +140,7 @@ public sealed class RouteEntryLeaseRegistry
         {
             foreach ((string entryId, RouteEntryLease lease) in _current.ToArray())
             {
-                if (lease.IsCommittedLocked || !targetIds.Contains(entryId) || committedIds.Contains(entryId))
+                if (!lease.IsAbandonableLocked || !targetIds.Contains(entryId) || committedIds.Contains(entryId))
                     continue;
 
                 abandoned.Add(lease);
@@ -135,6 +149,41 @@ public sealed class RouteEntryLeaseRegistry
         }
 
         Retire(abandoned, RouteEntryLeaseRetirement.Abandoned);
+    }
+
+    internal void Send(RouteEntryLease lease)
+    {
+        ArgumentNullException.ThrowIfNull(lease);
+        if (!ReferenceEquals(lease.Registry, this) || lease.EntryId is null)
+            throw new ArgumentException("Only an entry lease of this registry can be sent.", nameof(lease));
+
+        lock (Gate)
+        {
+            if (lease.IsSentLocked)
+                throw new InvalidOperationException($"The lease of route entry '{lease.EntryId}' was already sent.");
+
+            lease.MarkSentLocked();
+        }
+    }
+
+    // The lease's request ended. Whatever its outcome, a lease it did not commit is abandoned.
+    internal void EndRequest(RouteEntryLease lease)
+    {
+        AbandonUncommitted(lease);
+    }
+
+    internal void Close(RouteEntryLease lease)
+    {
+        bool abandon;
+        lock (Gate)
+        {
+            abandon = lease.CloseLocked();
+        }
+
+        if (abandon)
+            AbandonUncommitted(lease);
+        else
+            TryStartRelease(lease);
     }
 
     internal Task ShutdownAsync()
@@ -170,11 +219,7 @@ public sealed class RouteEntryLeaseRegistry
         }
 
         foreach (RouteEntryLease lease in retired)
-            _ = ObserveCancellationAsync(lease.CancelRetirementAsync());
-
-        // Descendants were added after their ancestors; release can only start bottom-up.
-        for (int index = retired.Count - 1; index >= 0; index--)
-            TryStartRelease(retired[index]);
+            lease.NotifyRetired();
     }
 
     internal void StartRelease(RouteEntryLease lease)
@@ -182,7 +227,44 @@ public sealed class RouteEntryLeaseRegistry
         _ = ReleaseAsync(lease);
     }
 
-    private RouteEntryLease OpenLocked(string? entryId, RouteEntryLease? parent)
+    internal Task InvokeOnHostAsync(Func<ValueTask> work) => _host.InvokeAsync(work);
+
+    internal void ReportDefect(RouteEntryLease lease, Exception exception)
+    {
+        try
+        {
+            _host.ReportDefect(new RouteEntryLeaseReleaseException(
+                lease.EntryId,
+                lease.EntryId is null
+                    ? "Releasing an application lease raised a defect; its release continued."
+                    : $"Releasing the lease of route entry '{lease.EntryId}' raised a defect; its release continued.",
+                exception));
+        }
+        catch
+        {
+            // A failing reporter must not stop the release it reports on.
+        }
+    }
+
+    private void AbandonUncommitted(RouteEntryLease lease)
+    {
+        lock (Gate)
+        {
+            if (!lease.IsAbandonableLocked)
+                return;
+
+            if (lease.EntryId is { } entryId &&
+                _current.TryGetValue(entryId, out RouteEntryLease? current) &&
+                ReferenceEquals(current, lease))
+            {
+                _current.Remove(entryId);
+            }
+        }
+
+        Retire([lease], RouteEntryLeaseRetirement.Abandoned);
+    }
+
+    private RouteEntryLease OpenLocked(string? entryId, RouteEntryLease? parent, bool sent)
     {
         ObjectDisposedException.ThrowIf(_sealed, this);
         if (parent is not null && !ReferenceEquals(parent.Registry, this))
@@ -192,7 +274,8 @@ public sealed class RouteEntryLeaseRegistry
             this,
             entryId,
             parent,
-            entryId is not null && _committedIds.Contains(entryId));
+            entryId is not null && _committedIds.Contains(entryId),
+            sent);
         parent?.AddChildLocked(lease);
         if (entryId is not null)
             _current.Add(entryId, lease);
@@ -200,7 +283,7 @@ public sealed class RouteEntryLeaseRegistry
         return lease;
     }
 
-    private void RetireIfBornRetired(RouteEntryLease lease)
+    private void RetireIfBornUnderRetiredParent(RouteEntryLease lease)
     {
         if (lease.Parent is { } parent && parent.IsRetired)
             Retire([lease], RouteEntryLeaseRetirement.Parent);
@@ -237,6 +320,8 @@ public sealed class RouteEntryLeaseRegistry
 
     private async Task ReleaseAsync(RouteEntryLease lease)
     {
+        // Never release inline: the caller may hold core's operation lock or its own.
+        await Task.CompletedTask.ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
         try
         {
             await _host.InvokeAsync(lease.DisposeResourcesAsync).ConfigureAwait(false);
@@ -268,6 +353,7 @@ public sealed class RouteEntryLeaseRegistry
             TryStartRelease(parent);
     }
 
+    // The release could not run, so its resources and every ancestor's are kept.
     private void Fault(RouteEntryLease lease, Exception exception)
     {
         lock (Gate)
@@ -280,8 +366,9 @@ public sealed class RouteEntryLeaseRegistry
         var failure = new RouteEntryLeaseReleaseException(
             lease.EntryId,
             lease.EntryId is null
-                ? "A child route-entry lease could not be released safely; its resources were kept."
-                : $"The lease of route entry '{lease.EntryId}' could not be released safely; its resources were kept.",
+                ? "An application lease could not be released; it and its ancestors kept their resources."
+                : $"The lease of route entry '{lease.EntryId}' could not be released; it and its ancestors kept " +
+                  "their resources.",
             exception);
         try
         {
@@ -300,18 +387,6 @@ public sealed class RouteEntryLeaseRegistry
 
         if (_sealed && _unsettled.Count == 0)
             _drained.TrySetResult();
-    }
-
-    private static async Task ObserveCancellationAsync(Task cancellation)
-    {
-        try
-        {
-            await cancellation.ConfigureAwait(false);
-        }
-        catch
-        {
-            // Retirement callbacks belong to their registrants; they cannot stop retirement.
-        }
     }
 
     internal static HashSet<string> EntryIds(NavigationState state)

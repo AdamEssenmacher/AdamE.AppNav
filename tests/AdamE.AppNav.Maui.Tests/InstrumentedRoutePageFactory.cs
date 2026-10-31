@@ -6,7 +6,6 @@ namespace AdamE.AppNav.Maui.Tests;
 
 internal sealed class InstrumentedRoutePageFactory : IMauiRoutePageFactory
 {
-    public MauiPageAbandonment? CaptureAbandonment(Page page) => null;
 
     private readonly Func<RouteEntry, Page>? _createPage;
     private readonly Action<Page, RouteEntry, MauiRoutePageUpdateContext>? _updatePage;

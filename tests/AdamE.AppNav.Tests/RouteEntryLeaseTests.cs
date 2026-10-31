@@ -1,32 +1,40 @@
 using AdamE.AppNav.Leases;
 using AdamE.AppNav.Navigation;
 using AdamE.AppNav.Plans;
+using AdamE.AppNav.Policies;
+using AdamE.AppNav.Requests;
 using AdamE.AppNav.State;
 
 namespace AdamE.AppNav.Tests;
 
 public sealed class RouteEntryLeaseTests
 {
+    private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
+
+    [ThreadStatic]
+    private static bool t_retiring;
+
     [Fact]
-    public async Task CommitThatDropsTheEntryRetiresAndReleasesIt()
+    public async Task CommitThatDropsTheEntryRetiresAndReleasesItOnTheHostDispatcher()
     {
         var host = new RecordingLeaseHost();
         var leases = new RouteEntryLeaseRegistry(host);
         await using IRouterNavigator router = CreateRouter(leases, new RecordingNavigationPresenter());
         RouteEntryLease one = leases.Open("one");
         var resource = new RecordingResource(host);
-        one.Own(resource);
-
-        await router.NavigateAsync(new TestRoutes.StoreRoute("one"));
+        one.Own(resource.Dispose);
+        await router.NavigateAsync(Request("one"), one);
+        one.Close();
 
         Assert.True(one.IsCommitted);
         Assert.False(one.IsRetired);
 
         await router.NavigateAsync(new TestRoutes.StoreRoute("two"));
 
-        Assert.True(one.RetiredToken.IsCancellationRequested);
+        Assert.True(one.IsRetired);
         Assert.Equal(RouteEntryLeaseRetirement.Dropped, one.Retirement);
         await one.Released.WaitAsync(Timeout);
+        Assert.True(one.RetiredToken.IsCancellationRequested);
         Assert.True(resource.Disposed);
         Assert.True(resource.DisposedOnHostDispatcher);
         Assert.False(leases.TryGet("one", out _));
@@ -38,46 +46,44 @@ public sealed class RouteEntryLeaseTests
         var host = new RecordingLeaseHost();
         var leases = new RouteEntryLeaseRegistry(host);
         await using IRouterNavigator router = CreateRouter(leases, new RecordingNavigationPresenter());
-        RouteEntryLease one = leases.Open("one");
+        RouteEntryLease one = await OpenSentClosedAsync(router, leases, "one");
         var resource = new RecordingResource(host);
-        one.Own(resource);
-        await router.NavigateAsync(new TestRoutes.StoreRoute("one"));
         Assert.True(one.TryAttach(out RouteEntryLeaseAttachment? oldView));
 
         // Host recreation: the old view detaches and the refresh attaches a new one.
         oldView.Detach();
         await router.RefreshPresentationAsync();
         Assert.True(one.TryAttach(out RouteEntryLeaseAttachment? newView));
-        Assert.False(resource.Disposed);
+        await Task.Delay(20);
+        Assert.False(one.Released.IsCompleted);
 
         await router.NavigateAsync(new TestRoutes.StoreRoute("two"));
         Assert.True(one.IsRetired);
-        Assert.False(one.Released.IsCompleted);
         Assert.False(one.TryAttach(out _));
+        await Task.Delay(20);
+        Assert.False(one.Released.IsCompleted);
 
         newView.Detach();
         newView.Detach();
         await one.Released.WaitAsync(Timeout);
-        Assert.True(resource.Disposed);
+        GC.KeepAlive(resource);
     }
 
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task FailedOrCancelledPresentationAbandonsOnlyTheEntriesItIntroduced(bool cancel)
+    public async Task FailedOrCancelledPresentationAbandonsItsLeaseAfterTheAdaptersRollback(bool cancel)
     {
         var host = new RecordingLeaseHost();
         var leases = new RouteEntryLeaseRegistry(host);
         var presenter = new RecordingNavigationPresenter();
         await using IRouterNavigator router = CreateRouter(leases, presenter);
-        RouteEntryLease one = leases.Open("one");
-        await router.NavigateAsync(new TestRoutes.StoreRoute("one"));
+        RouteEntryLease one = await OpenSentClosedAsync(router, leases, "one");
         RouteEntryLease two = leases.Open("two");
-        RouteEntryLease queued = leases.Open("three");
-        RouteEntryLeaseAttachment? rolledBack = null;
+        RouteEntryLease unsent = leases.Open("three");
         presenter.OnApplyAsync = (_, _, _) =>
         {
-            Assert.True(two.TryAttach(out rolledBack));
+            Assert.True(two.TryAttach(out RouteEntryLeaseAttachment? rolledBack));
             // The adapter's rollback detaches what it built before ApplyAsync returns.
             rolledBack.Detach();
             Assert.False(two.IsRetired);
@@ -86,42 +92,148 @@ public sealed class RouteEntryLeaseTests
                 : ValueTask.FromException(new InvalidOperationException("Presentation failed"));
         };
 
-        await Assert.ThrowsAnyAsync<Exception>(() => router.NavigateAsync(new TestRoutes.StoreRoute("two")).AsTask());
+        await Assert.ThrowsAnyAsync<Exception>(() => router.NavigateAsync(Request("two"), two).AsTask());
+        // Release also waits for its opener to close it.
+        await Task.Delay(20);
+        Assert.False(two.Released.IsCompleted);
+        two.Close();
 
         Assert.Equal(RouteEntryLeaseRetirement.Abandoned, two.Retirement);
         await two.Released.WaitAsync(Timeout);
         Assert.False(one.IsRetired);
-        Assert.False(queued.IsRetired);
+        Assert.False(unsent.IsRetired);
         Assert.False(leases.TryGet("two", out _));
 
         // The ID is free for a new occurrence.
         presenter.OnApplyAsync = null;
         RouteEntryLease retry = leases.Open("two");
-        await router.NavigateAsync(new TestRoutes.StoreRoute("two"));
+        await router.NavigateAsync(Request("two"), retry);
         Assert.True(retry.IsCommitted);
+        foreach (RouteEntryLease lease in new[] { unsent, retry })
+            lease.Close();
     }
 
     [Fact]
-    public async Task ApplicationRetirementKeepsACommittedEntryUntilANavigationRemovesIt()
+    public async Task RequestThatEndsWithoutCommittingTheEntryAbandonsItsLease()
+    {
+        var leases = new RouteEntryLeaseRegistry(new RecordingLeaseHost());
+        var rejectTwo = new RejectingPolicy("two");
+        await using IRouterNavigator router = CreateRouter(leases, new RecordingNavigationPresenter(), rejectTwo);
+
+        // A policy rejection never reaches presentation.
+        RouteEntryLease rejected = leases.Open("two");
+        await Assert.ThrowsAnyAsync<Exception>(() => router.NavigateAsync(Request("two"), rejected).AsTask());
+        Assert.Equal(RouteEntryLeaseRetirement.Abandoned, rejected.Retirement);
+
+        // A request that commits a state without the entry abandons it too.
+        RouteEntryLease elsewhere = leases.Open("four");
+        await router.NavigateAsync(Request("one"), elsewhere);
+        Assert.Equal(RouteEntryLeaseRetirement.Abandoned, elsewhere.Retirement);
+
+        // A request cancelled while queued.
+        RouteEntryLease queued = leases.Open("five");
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            router.NavigateAsync(Request("five"), queued, new CancellationToken(true)).AsTask());
+        Assert.Equal(RouteEntryLeaseRetirement.Abandoned, queued.Retirement);
+
+        // A lease its opener closes without ever sending.
+        RouteEntryLease neverSent = leases.Open("six");
+        neverSent.Close();
+        Assert.Equal(RouteEntryLeaseRetirement.Abandoned, neverSent.Retirement);
+        await neverSent.Released.WaitAsync(Timeout);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            router.NavigateAsync(Request("two"), rejected).AsTask());
+        foreach (RouteEntryLease lease in new[] { rejected, elsewhere, queued })
+        {
+            lease.Close();
+            await lease.Released.WaitAsync(Timeout);
+        }
+    }
+
+    [Fact]
+    public async Task ResourcesMayBeAttachedAfterRetirementAndReleaseWaitsForClose()
+    {
+        var host = new RecordingLeaseHost();
+        var leases = new RouteEntryLeaseRegistry(host);
+        await using IRouterNavigator router = CreateRouter(leases, new RecordingNavigationPresenter());
+        RouteEntryLease root = leases.Open("one");
+        await router.NavigateAsync(Request("one"), root);
+
+        root.Retire();
+        await Task.Delay(20);
+        Assert.False(root.Released.IsCompleted);
+
+        // The root's view model is handed over only at retirement.
+        var viewModel = new RecordingResource(host);
+        root.Own(viewModel.Dispose);
+        root.Close();
+
+        await root.Released.WaitAsync(Timeout);
+        Assert.True(viewModel.Disposed);
+        Assert.Throws<InvalidOperationException>(() => root.Own(new RecordingResource(host).Dispose));
+    }
+
+    [Fact]
+    public async Task RetirementIsNeverDeliveredInlineAndItsWorkIsAwaitedBeforeRelease()
+    {
+        var host = new RecordingLeaseHost();
+        var leases = new RouteEntryLeaseRegistry(host);
+        await using IRouterNavigator router = CreateRouter(leases, new RecordingNavigationPresenter());
+        var callbackInline = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var providerRequest = new TaskCompletionSource();
+        bool workInline = true;
+        bool workOnDispatcher = false;
+        RouteEntryLease lease = await OpenSentClosedAsync(router, leases, "one", opened =>
+        {
+            opened.RetiredToken.Register(() => callbackInline.TrySetResult(t_retiring));
+            opened.OnRetired(async () =>
+            {
+                workInline = t_retiring;
+                workOnDispatcher = host.IsOnDispatcher;
+                await providerRequest.Task;
+            });
+        });
+
+        t_retiring = true;
+        try
+        {
+            lease.Retire();
+        }
+        finally
+        {
+            t_retiring = false;
+        }
+
+        Assert.False(await callbackInline.Task.WaitAsync(Timeout));
+        await Task.Delay(20);
+        Assert.False(workInline);
+        Assert.True(workOnDispatcher);
+        Assert.False(lease.Released.IsCompleted);
+
+        providerRequest.SetResult();
+        await lease.Released.WaitAsync(Timeout);
+    }
+
+    [Fact]
+    public async Task ApplicationRetirementKeepsACommittedEntryCurrentForPlaceholdersUntilANavigationRemovesIt()
     {
         var host = new RecordingLeaseHost();
         var leases = new RouteEntryLeaseRegistry(host);
         var presenter = new RecordingNavigationPresenter();
         await using IRouterNavigator router = CreateRouter(leases, presenter);
-        RouteEntryLease one = leases.Open("one");
         var resource = new RecordingResource(host);
-        one.Own(resource);
-        await router.NavigateAsync(new TestRoutes.StoreRoute("one"));
+        RouteEntryLease one = await OpenSentClosedAsync(router, leases, "one", opened => opened.Own(resource.Dispose));
         Assert.True(one.TryAttach(out RouteEntryLeaseAttachment? view));
 
         one.Retire();
 
-        Assert.True(one.RetiredToken.IsCancellationRequested);
+        Assert.True(one.IsRetired);
         Assert.Equal(RouteEntryLeaseRetirement.Application, one.Retirement);
-        await Task.Delay(50);
+        await Task.Delay(20);
         Assert.False(resource.Disposed);
 
-        // A refresh after recreation finds a retired, committed entry and presents a placeholder.
+        // Recreation: the old view detaches and the refresh finds a retired, committed entry.
         view.Detach();
         bool? placeholder = null;
         presenter.OnApplyAsync = (plan, _, _) =>
@@ -135,38 +247,43 @@ public sealed class RouteEntryLeaseTests
         await router.RefreshPresentationAsync();
         Assert.True(placeholder);
 
-        // Its last view detached, so it was released while still committed; it stays current until dropped.
         await one.Released.WaitAsync(Timeout);
         Assert.True(resource.Disposed);
-        Assert.Same(one, leases.GetOrOpen("one"));
+        Assert.Same(one, leases.GetOrOpen("one", out bool opened));
+        Assert.False(opened);
 
         presenter.OnApplyAsync = null;
         await router.NavigateAsync(new TestRoutes.StoreRoute("two"));
         Assert.False(leases.TryGet("one", out _));
-        Assert.Equal(RouteEntryLeaseRetirement.Application, one.Retirement);
     }
 
     [Fact]
-    public async Task ParentRetiresItsChildrenAndIsReleasedAfterThemAndAfterTrackedWork()
+    public async Task ApplicationLeaseParentsEntryLeasesAndIsReleasedAfterThemAndAfterTrackedWork()
     {
         var host = new RecordingLeaseHost();
         var leases = new RouteEntryLeaseRegistry(host);
         await using IRouterNavigator router = CreateRouter(leases, new RecordingNavigationPresenter());
-        RouteEntryLease frame = leases.Open("one");
+        RouteEntryLease selection = leases.OpenApplicationLease();
+        RouteEntryLease frame = leases.Open("one", selection);
         RouteEntryLease answer = leases.Open("answer", frame);
-        RouteEntryLease tab = frame.OpenChild();
+        RouteEntryLease tab = leases.OpenApplicationLease(frame);
         var order = new List<string>();
-        frame.Own(new RecordingResource(host, () => order.Add("frame")));
-        answer.Own(new RecordingResource(host, () => order.Add("answer")));
-        tab.Own(new RecordingResource(host, () => order.Add("tab")));
+        selection.Own(new RecordingResource(host, () => order.Add("selection")).Dispose);
+        frame.Own(new RecordingResource(host, () => order.Add("frame")).Dispose);
+        answer.Own(new RecordingResource(host, () => order.Add("answer")).Dispose);
+        tab.Own(new RecordingResource(host, () => order.Add("tab")).Dispose);
         var preparation = new TaskCompletionSource();
         frame.Track(preparation.Task);
         Assert.True(tab.TryAttach(out RouteEntryLeaseAttachment? tabView));
-        await router.NavigateAsync(new TestRoutes.StoreRoute("one"));
+        foreach (RouteEntryLease lease in new[] { tab, selection })
+            lease.Close();
+        await router.NavigateAsync(Request("one"), frame);
+        frame.Close();
 
-        await router.NavigateAsync(new TestRoutes.StoreRoute("two"));
+        selection.Retire();
+        answer.Close();
 
-        Assert.Equal(RouteEntryLeaseRetirement.Dropped, frame.Retirement);
+        Assert.Equal(RouteEntryLeaseRetirement.Parent, frame.Retirement);
         Assert.Equal(RouteEntryLeaseRetirement.Parent, answer.Retirement);
         Assert.Equal(RouteEntryLeaseRetirement.Parent, tab.Retirement);
         await answer.Released.WaitAsync(Timeout);
@@ -174,123 +291,159 @@ public sealed class RouteEntryLeaseTests
 
         tabView.Detach();
         await tab.Released.WaitAsync(Timeout);
+        await Task.Delay(20);
         Assert.False(frame.Released.IsCompleted);
 
         preparation.SetResult();
-        await frame.Released.WaitAsync(Timeout);
-        Assert.Equal("frame", order[^1]);
-        Assert.Equal(3, order.Count);
-        Assert.Null(tab.EntryId);
-        Assert.Same(frame, tab.Parent);
+        await selection.Released.WaitAsync(Timeout);
+        Assert.Equal(["answer", "tab", "frame", "selection"], order);
+        Assert.Null(selection.EntryId);
     }
 
     [Fact]
-    public async Task UnsafeReleaseKeepsResourcesAndReachesTheFatalBoundary()
+    public async Task ThrowingDisposerIsASurvivedDefectAndReleaseContinues()
     {
         var host = new RecordingLeaseHost();
         var leases = new RouteEntryLeaseRegistry(host);
         await using IRouterNavigator router = CreateRouter(leases, new RecordingNavigationPresenter());
-        RouteEntryLease frame = leases.Open("one");
-        RouteEntryLease child = frame.OpenChild();
-        var frameResource = new RecordingResource(host);
+        RouteEntryLease lease = leases.OpenApplicationLease();
         var first = new RecordingResource(host);
-        frame.Own(frameResource);
-        child.Own(first);
-        child.Own(new RecordingResource(host, () => throw new InvalidOperationException("Dispose failed")));
-        await router.NavigateAsync(new TestRoutes.StoreRoute("one"));
+        lease.Own(first.Dispose);
+        lease.Own(new RecordingResource(host, () => throw new InvalidOperationException("Dispose failed")).Dispose);
+        lease.Close();
 
-        await router.NavigateAsync(new TestRoutes.StoreRoute("two"));
+        lease.Retire();
+
+        await lease.Released.WaitAsync(Timeout);
+        Assert.True(first.Disposed);
+        RouteEntryLeaseReleaseException defect = Assert.Single(host.Defects);
+        Assert.IsType<InvalidOperationException>(defect.InnerException);
+        Assert.False(host.Fatal.Task.IsCompleted);
+    }
+
+    [Fact]
+    public async Task ChildWhoseReleaseCannotCompleteKeepsItsParentsResourcesAndIsFatal()
+    {
+        var host = new RecordingLeaseHost();
+        var leases = new RouteEntryLeaseRegistry(host);
+        IRouterNavigator router = CreateRouter(leases, new RecordingNavigationPresenter());
+        RouteEntryLease frame = leases.OpenApplicationLease();
+        RouteEntryLease child = leases.OpenApplicationLease(frame);
+        var frameResource = new RecordingResource(host);
+        frame.Own(frameResource.Dispose);
+        child.Own(new RecordingResource(host).Dispose);
+        frame.Close();
+        child.Close();
+        host.FailInvocations = true;
+
+        frame.Retire();
 
         RouteEntryLeaseReleaseException failure = await host.Fatal.Task.WaitAsync(Timeout);
         Assert.Null(failure.EntryId);
-        Assert.IsType<InvalidOperationException>(failure.InnerException);
-        Assert.False(first.Disposed);
+        await Task.Delay(20);
         Assert.False(frameResource.Disposed);
         Assert.False(child.Released.IsCompleted);
         Assert.False(frame.Released.IsCompleted);
-        Assert.Throws<InvalidOperationException>(() => child.Own(new RecordingResource(host)));
+
+        // Router disposal still returns once the failure has reached the fatal boundary.
+        await router.DisposeAsync().AsTask().WaitAsync(Timeout);
     }
 
     [Fact]
-    public async Task RouterDisposalRetiresEveryLeaseAndCompletesOnlyAfterEveryRelease()
+    public async Task RouterDisposalRetiresEveryLeaseAndReturnsAfterDetachmentCloseAndRelease()
     {
         var host = new RecordingLeaseHost();
         var leases = new RouteEntryLeaseRegistry(host);
         IRouterNavigator router = CreateRouter(leases, new RecordingNavigationPresenter());
-        RouteEntryLease one = leases.Open("one");
+        RouteEntryLease root = leases.Open("one");
         RouteEntryLease pending = leases.Open("pending");
-        var resource = new RecordingResource(host);
-        one.Own(resource);
-        await router.NavigateAsync(new TestRoutes.StoreRoute("one"));
-        Assert.True(one.TryAttach(out RouteEntryLeaseAttachment? view));
+        pending.Close();
+        await router.NavigateAsync(Request("one"), root);
+        Assert.True(root.TryAttach(out RouteEntryLeaseAttachment? view));
 
         Task disposal = router.DisposeAsync().AsTask();
 
-        Assert.Equal(RouteEntryLeaseRetirement.Shutdown, one.Retirement);
-        Assert.Equal(RouteEntryLeaseRetirement.Shutdown, pending.Retirement);
-        await pending.Released.WaitAsync(Timeout);
+        // 1. Every lease is retired and the router stops accepting work.
+        Assert.Equal(RouteEntryLeaseRetirement.Shutdown, root.Retirement);
+        Assert.Throws<ObjectDisposedException>(() => leases.Open("late"));
         await Task.Delay(50);
         Assert.False(disposal.IsCompleted);
 
-        // The adapter's own shutdown detaches its artifacts.
+        // 2. The adapter detaches its artifacts.
         view.Detach();
+        await Task.Delay(50);
+        Assert.False(disposal.IsCompleted);
+
+        // 3. The application hands over the root's view model and closes its lease.
+        var viewModel = new RecordingResource(host);
+        root.Own(viewModel.Dispose);
+        root.Close();
+
+        // 4–5. Every release finishes, then disposal returns.
         await disposal.WaitAsync(Timeout);
-        Assert.True(resource.Disposed);
-        Assert.Throws<ObjectDisposedException>(() => leases.Open("late"));
+        Assert.True(viewModel.Disposed);
+        Assert.True(pending.Released.IsCompleted);
     }
 
     [Fact]
-    public async Task RouterDisposalCompletesAfterAnUnsafeReleaseIsReported()
-    {
-        var host = new RecordingLeaseHost();
-        var leases = new RouteEntryLeaseRegistry(host);
-        IRouterNavigator router = CreateRouter(leases, new RecordingNavigationPresenter());
-        RouteEntryLease one = leases.Open("one");
-        one.OpenChild().Own(new RecordingResource(host, () => throw new InvalidOperationException("Dispose failed")));
-        await router.NavigateAsync(new TestRoutes.StoreRoute("one"));
-
-        await router.DisposeAsync().AsTask().WaitAsync(Timeout);
-
-        Assert.True(host.Fatal.Task.IsCompleted);
-        Assert.False(one.Released.IsCompleted);
-    }
-
-    [Fact]
-    public async Task LeaseOpenedForACommittedEntryIsCommittedFromBirthAndGetOrOpenReusesTheCurrentLease()
+    public async Task AdapterOpensALeaseInsidePresentationThatACommitOwnsAndAFailureAbandons()
     {
         var leases = new RouteEntryLeaseRegistry(new RecordingLeaseHost());
-        await using IRouterNavigator router = CreateRouter(leases, new RecordingNavigationPresenter());
+        var presenter = new RecordingNavigationPresenter();
+        await using IRouterNavigator router = CreateRouter(leases, presenter);
+        RouteEntryLease? opened = null;
+        presenter.OnApplyAsync = (plan, _, _) =>
+        {
+            if (plan.Kind == NavigationPlanKind.Refresh)
+                return ValueTask.CompletedTask;
+            RouteEntryLease lease = leases.GetOrOpen("one", out bool isNew);
+            Assert.True(isNew);
+            lease.Close();
+            opened = lease;
+            return ValueTask.FromException(new InvalidOperationException("Presentation failed"));
+        };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            router.NavigateAsync(new TestRoutes.StoreRoute("one")).AsTask());
+
+        Assert.NotNull(opened);
+        Assert.Equal(RouteEntryLeaseRetirement.Abandoned, opened.Retirement);
+        await opened.Released.WaitAsync(Timeout);
+
+        presenter.OnApplyAsync = null;
         await router.NavigateAsync(new TestRoutes.StoreRoute("one"));
-
-        RouteEntryLease lease = leases.GetOrOpen("one");
-
-        Assert.True(lease.IsCommitted);
-        Assert.Same(lease, leases.GetOrOpen("one"));
+        RouteEntryLease committed = leases.GetOrOpen("one", out bool lateOpen);
+        Assert.True(lateOpen);
+        Assert.True(committed.IsCommitted);
+        committed.Close();
         Assert.Throws<InvalidOperationException>(() => leases.Open("one"));
         Assert.Throws<InvalidOperationException>(() => CreateRouter(leases, new RecordingNavigationPresenter()));
     }
 
-    [Fact]
-    public async Task ChildOpenedUnderARetiredParentIsBornRetired()
+    private static async Task<RouteEntryLease> OpenSentClosedAsync(
+        IRouterNavigator router,
+        RouteEntryLeaseRegistry leases,
+        string entryId,
+        Action<RouteEntryLease>? attach = null)
     {
-        var host = new RecordingLeaseHost();
-        var leases = new RouteEntryLeaseRegistry(host);
-        await using IRouterNavigator router = CreateRouter(leases, new RecordingNavigationPresenter());
-        RouteEntryLease parent = leases.Open("one");
-        Assert.True(parent.TryAttach(out RouteEntryLeaseAttachment? view));
-        parent.Retire();
-
-        RouteEntryLease child = parent.OpenChild();
-
-        Assert.Equal(RouteEntryLeaseRetirement.Parent, child.Retirement);
-        await child.Released.WaitAsync(Timeout);
-        view.Detach();
-        await parent.Released.WaitAsync(Timeout);
+        RouteEntryLease lease = leases.Open(entryId);
+        attach?.Invoke(lease);
+        await router.NavigateAsync(Request(entryId), lease);
+        lease.Close();
+        return lease;
     }
 
-    private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
+    private static RouterNavigationRequest Request(string storeId)
+    {
+        return RouterNavigationRequest.FromRoute(
+            new TestRoutes.StoreRoute(storeId),
+            NavigationRequestSource.InAppCommand);
+    }
 
-    private static IRouterNavigator CreateRouter(RouteEntryLeaseRegistry leases, RecordingNavigationPresenter presenter)
+    private static IRouterNavigator CreateRouter(
+        RouteEntryLeaseRegistry leases,
+        RecordingNavigationPresenter presenter,
+        INavigationRequestPolicy? policy = null)
     {
         // Each store is one entry whose ID is the store ID, so navigating to another store drops the previous one.
         var planner = new TestNavigationPlanner((context, _) =>
@@ -307,23 +460,63 @@ public sealed class RouteEntryLeaseTests
             TestRoutes.CreateTable(),
             planner,
             presenter,
-            new RouterNavigatorFactoryOptions { EntryLeases = leases });
+            new RouterNavigatorFactoryOptions
+            {
+                EntryLeases = leases,
+                RequestPolicies = policy is null ? [] : [policy]
+            });
+    }
+
+    private sealed class RejectingPolicy(string storeId) : INavigationRequestPolicy
+    {
+        public ValueTask<RouterNavigationRequest> ApplyAsync(
+            NavigationRequestPolicyContext context,
+            CancellationToken cancellationToken = default)
+        {
+            return context.Route is TestRoutes.StoreRoute route && route.StoreId == storeId
+                ? ValueTask.FromException<RouterNavigationRequest>(new UnauthorizedAccessException("Rejected"))
+                : ValueTask.FromResult(context.Request);
+        }
     }
 
     private sealed class RecordingLeaseHost : IRouteEntryLeaseHost
     {
         private readonly AsyncLocal<bool> _onDispatcher = new();
+        private readonly List<RouteEntryLeaseReleaseException> _defects = [];
 
         public TaskCompletionSource<RouteEntryLeaseReleaseException> Fatal { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        public IReadOnlyList<RouteEntryLeaseReleaseException> Defects
+        {
+            get
+            {
+                lock (_defects)
+                {
+                    return _defects.ToArray();
+                }
+            }
+        }
+
         public bool IsOnDispatcher => _onDispatcher.Value;
 
-        public async Task InvokeAsync(Func<ValueTask> release)
+        public bool FailInvocations { get; set; }
+
+        public async Task InvokeAsync(Func<ValueTask> work)
         {
             await Task.Yield();
+            if (FailInvocations)
+                throw new InvalidOperationException("The dispatcher is gone.");
             _onDispatcher.Value = true;
-            await release();
+            await work();
+        }
+
+        public void ReportDefect(RouteEntryLeaseReleaseException defect)
+        {
+            lock (_defects)
+            {
+                _defects.Add(defect);
+            }
         }
 
         public void ReportFatal(RouteEntryLeaseReleaseException failure) => Fatal.TrySetResult(failure);

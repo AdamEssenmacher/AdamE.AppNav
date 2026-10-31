@@ -44,6 +44,7 @@ public sealed class PublicApiContractTests
                 "AdamE.AppNav.Leases.IRouteEntryLeaseHost",
                 "AdamE.AppNav.Leases.RouteEntryLease",
                 "AdamE.AppNav.Leases.RouteEntryLeaseAttachment",
+                "AdamE.AppNav.Leases.RouteEntryLeaseNavigation",
                 "AdamE.AppNav.Leases.RouteEntryLeaseRegistry",
                 "AdamE.AppNav.Leases.RouteEntryLeaseReleaseException",
                 "AdamE.AppNav.Leases.RouteEntryLeaseRetirement",
