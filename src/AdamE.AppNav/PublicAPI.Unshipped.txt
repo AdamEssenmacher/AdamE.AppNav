@@ -103,3 +103,9 @@ AdamE.AppNav.Leases.RouteEntryLeaseRetirement.Shutdown = 5 -> AdamE.AppNav.Lease
 AdamE.AppNav.Navigation.RouterNavigatorFactoryOptions.EntryLeases.get -> AdamE.AppNav.Leases.RouteEntryLeaseRegistry?
 AdamE.AppNav.Navigation.RouterNavigatorFactoryOptions.EntryLeases.init -> void
 static AdamE.AppNav.Leases.RouteEntryLeaseNavigation.NavigateAsync(this AdamE.AppNav.Navigation.IRouterNavigator! navigator, AdamE.AppNav.Requests.RouterNavigationRequest! request, AdamE.AppNav.Leases.RouteEntryLease! lease, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<AdamE.AppNav.Navigation.NavigationResult!>
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.EntryLeaseNotInPlan = 80 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Leases.RouteEntryLease.Own(System.Action! release, AdamE.AppNav.Leases.RouteEntryLeaseDisposalFailure failure) -> void
+AdamE.AppNav.Leases.RouteEntryLease.Own(System.IAsyncDisposable! resource, AdamE.AppNav.Leases.RouteEntryLeaseDisposalFailure failure) -> void
+AdamE.AppNav.Leases.RouteEntryLeaseDisposalFailure
+AdamE.AppNav.Leases.RouteEntryLeaseDisposalFailure.Defect = 0 -> AdamE.AppNav.Leases.RouteEntryLeaseDisposalFailure
+AdamE.AppNav.Leases.RouteEntryLeaseDisposalFailure.Fatal = 1 -> AdamE.AppNav.Leases.RouteEntryLeaseDisposalFailure

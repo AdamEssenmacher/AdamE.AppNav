@@ -88,6 +88,13 @@ internal sealed class RouterNavigator : IRouterNavigator
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (RouteEntryLeaseNavigation.TryGetLease(request, out RouteEntryLease? lease) &&
+            !ReferenceEquals(lease.Registry, _entryLeases))
+        {
+            throw new InvalidOperationException(
+                "The request's route-entry lease belongs to another registry, or this router has no entry leases; " +
+                "send a lease only through the router configured with the registry that opened it.");
+        }
 
         RouterOperationContext? operationContext = null;
         var operationAdmitted = false;
@@ -221,6 +228,11 @@ internal sealed class RouterNavigator : IRouterNavigator
                     operationId, plan.Kind.ToString(), exception, timer);
                 throw;
             }
+            finally
+            {
+                // A refresh commits nothing, so leases its presenter opened outside the state end with it.
+                _entryLeases?.EndPresentation(state);
+            }
             // Refresh is neither navigation nor an observed host-state replacement. State/history stay identical.
         }
         finally
@@ -300,6 +312,17 @@ internal sealed class RouterNavigator : IRouterNavigator
                 NavigationStateValidator.ValidatePlan(plan, "App navigation planner");
                 if (_entryLeases is not null)
                     RouteEntryLeaseRegistry.ValidateUniqueEntryIds(plan.TargetState, "App navigation planner");
+                if (RouteEntryLeaseNavigation.TryGetLease(request, out RouteEntryLease? sentLease) &&
+                    sentLease.EntryId is { } sentEntryId &&
+                    !RouteEntryLeaseRegistry.EntryIds(plan.TargetState).Contains(sentEntryId))
+                {
+                    // The lease will be abandoned when the request ends; say why instead of leaving it silent.
+                    _diagnostics.Write(
+                        NavigationDiagnosticEventKind.EntryLeaseNotInPlan,
+                        operationId,
+                        "The plan does not contain the entry of the route-entry lease sent with this request.",
+                        RouterNavigationDiagnostics.Data((NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
+                }
                 activity.SetTag("navigation.plan_kind", plan.Kind);
                 _diagnostics.Write(
                     NavigationDiagnosticEventKind.PlanningCompleted,

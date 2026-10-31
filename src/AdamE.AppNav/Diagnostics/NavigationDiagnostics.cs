@@ -383,6 +383,7 @@ public sealed class NavigationDiagnostics
             : kind is NavigationDiagnosticEventKind.RouteNotMatched or
                     NavigationDiagnosticEventKind.BackUnhandled or
                     NavigationDiagnosticEventKind.ReconciliationRejected or
+                    NavigationDiagnosticEventKind.EntryLeaseNotInPlan or
                     NavigationDiagnosticEventKind.DeferredRequestStoreQuarantined or
                     NavigationDiagnosticEventKind.DeferredRequestStoreOverflowed
                 ? LogLevel.Warning
@@ -414,7 +415,8 @@ public sealed class NavigationDiagnostics
                 NavigationDiagnosticPhase.RequestPolicy,
             NavigationDiagnosticEventKind.PlanningStarted or
                 NavigationDiagnosticEventKind.PlanningCompleted or
-                NavigationDiagnosticEventKind.PlanningFailed =>
+                NavigationDiagnosticEventKind.PlanningFailed or
+                NavigationDiagnosticEventKind.EntryLeaseNotInPlan =>
                 NavigationDiagnosticPhase.Planning,
             NavigationDiagnosticEventKind.RequestTransformStarted or
                 NavigationDiagnosticEventKind.RequestTransformCompleted or

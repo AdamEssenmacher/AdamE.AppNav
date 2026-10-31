@@ -190,12 +190,18 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
 
         // A presentation page can share its owner's view model, so it holds the owner's lease too.
         RouteEntryLeaseAttachment? attachment = null;
-        RouteEntryLease? ownerLease = GetPageHandle(ownerRoutePage)?.Lease;
+        PageHandle? ownerHandle = GetPageHandle(ownerRoutePage);
+        if (ownerHandle is { IsPlaceholder: true })
+        {
+            throw new InvalidOperationException(
+                "A retired route entry is shown as a placeholder and cannot present pages until a navigation removes it.");
+        }
+
+        RouteEntryLease? ownerLease = ownerHandle?.Lease;
         if (ownerLease is not null && !ownerLease.TryAttach(out attachment))
         {
-            throw new OperationCanceledException(
-                "The owning route entry retired before its presentation page was created.",
-                ownerLease.RetiredToken);
+            throw new InvalidOperationException(
+                "The owning route entry has retired, so it cannot present new pages until a navigation removes it.");
         }
 
         IAsyncDisposable? scope = null;
@@ -291,6 +297,15 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
                 {
                     _entryServices.Add(lease, scope.ServiceProvider);
                 }
+
+                // Owned last, so released first: the released scope is no longer reachable through its lease.
+                lease.Own(() =>
+                {
+                    lock (_entryServices)
+                    {
+                        _entryServices.Remove(lease);
+                    }
+                });
             }
         }
         finally
@@ -353,7 +368,7 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
     private static ContentPage CreatePlaceholderPage()
     {
         var page = new ContentPage();
-        SetPageHandle(page, new PageHandle(null, null, null, []));
+        SetPageHandle(page, new PageHandle(null, null, null, [], isPlaceholder: true));
         return page;
     }
 
@@ -480,8 +495,10 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
             RouteEntryLease? lease,
             RouteEntryLeaseAttachment? attachment,
             IAsyncDisposable? scope,
-            IReadOnlyList<IMauiRoutePageLifecycleHook> hooks)
+            IReadOnlyList<IMauiRoutePageLifecycleHook> hooks,
+            bool isPlaceholder = false)
         {
+            IsPlaceholder = isPlaceholder;
             Lease = lease;
             _attachment = attachment;
             _scope = scope;
@@ -490,6 +507,8 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
 
         // The route entry's lease for route pages, the owner's for presentation pages, none for placeholders.
         public RouteEntryLease? Lease { get; }
+
+        public bool IsPlaceholder { get; }
 
         public IReadOnlyList<IMauiRoutePageLifecycleHook> GetActiveHooks()
         {

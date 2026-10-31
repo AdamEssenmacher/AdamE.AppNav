@@ -160,6 +160,9 @@ public sealed class MauiRoutePageFactoryTests
             factory.CreatePageAsync(Entry("pending")).AsTask());
 
         Assert.IsNotType<ScopedRoutePage>(placeholder);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => factory
+            .CreatePresentationPageAsync(typeof(ScopedRoutePage), placeholder, inheritBindingContext: true)
+            .AsTask());
         await factory.ReleasePageAsync(placeholder);
         preparation.SetResult();
         pending.Close();
@@ -227,7 +230,7 @@ public sealed class MauiRoutePageFactoryTests
         Assert.True(leases.TryGet("owner", out RouteEntryLease? lease));
         lease.Retire();
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => factory
+        await Assert.ThrowsAsync<InvalidOperationException>(() => factory
             .CreatePresentationPageAsync(typeof(ScopedRoutePresentationPage), owner, inheritBindingContext: false)
             .AsTask());
         await factory.ReleasePageAsync(owner);

@@ -48,20 +48,30 @@ A lease is opened by whoever builds what the entry borrows.
 
 - **The application**, on its UI thread, before it navigates: `Open(entryId)`
   or `Open(entryId, parent)`, then `navigator.NavigateAsync(request, lease)`,
-  which links the lease to that one request.
+  which links the lease to that one request. Only the router configured with
+  the lease's registry accepts it; any other router refuses the request before
+  admission, and the lease is abandoned. When the plan does not contain the
+  lease's entry, the router reports `EntryLeaseNotInPlan` before the lease is
+  abandoned.
 - **The adapter**, inside `ApplyAsync`: `GetOrOpen(entryId, out opened)`
   returns the current lease, or opens one that belongs to the presentation in
   progress. The MAUI page factory opens a lease this way for each entry and
-  attaches the entry's DI scope to it.
+  attaches the entry's DI scope to it. When that operation ends, a lease it
+  opened for an entry the resulting state does not contain is abandoned, so a
+  presenter that uses `GetOrOpen` as a lookup cannot leave one behind.
 
 The opener attaches resources with `Own`, retirement work with `OnRetired`, and
-in-flight preparations with `Track`. Resources may be attached after
+in-flight preparations with `Track`. `Own` takes an optional
+`RouteEntryLeaseDisposalFailure` that says what a failure to dispose that
+resource means. Resources may be attached after
 retirement: an application may hand over a view model only when the entry
 retires. So a lease accepts resources and children until its opener calls
 `Close()`, and it is never released before then. Closing an application-opened
 entry lease that was never sent abandons it.
 
-A lease opened for an entry that is already committed is committed from birth.
+`IsCommitted` says whether the entry is in the router's committed state. A
+lease opened for an entry that is already committed is committed from birth,
+and a commit that drops the entry clears it.
 Core never builds what an entry borrows. A committed entry that has no lease is
 a defect: an adapter that requires leases fails the presentation.
 
@@ -129,12 +139,16 @@ ones. A presenter that requires a lease for every entry looks it up with
 
 ## Failures
 
-- A disposer or retirement work that throws is a survived defect, reported to
+- A disposer owned as `RouteEntryLeaseDisposalFailure.Defect`, the default,
+  or retirement work that throws is a survived defect, reported to
   `IRouteEntryLeaseHost.ReportDefect`; release continues.
-- A release that cannot complete, because the host could not run it, keeps
-  that lease's resources and every ancestor's, never completes `Released`, and
-  goes to `IRouteEntryLeaseHost.ReportFatal`, which surfaces it through the
-  host's fatal boundary. Core never forces disposal.
+- A release that cannot complete keeps that lease's undisposed resources and
+  every ancestor's, never completes `Released`, and goes to
+  `IRouteEntryLeaseHost.ReportFatal`, which surfaces it through the host's
+  fatal boundary. That happens when a disposer owned as
+  `RouteEntryLeaseDisposalFailure.Fatal` throws, so a child whose release did
+  not complete keeps its parent's resources, or when the host cannot run the
+  release. Core never forces disposal.
 - Core imposes no timeouts. A disposer that never completes, an attachment
   that is never detached, or a lease that is never closed keeps its release,
   and so the router's disposal, waiting.

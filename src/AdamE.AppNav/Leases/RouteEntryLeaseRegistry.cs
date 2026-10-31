@@ -96,7 +96,9 @@ public sealed class RouteEntryLeaseRegistry
             }
 
             opened = true;
-            return OpenLocked(entryId, null, sent: true);
+            RouteEntryLease lease = OpenLocked(entryId, null, sent: true);
+            lease.MarkAdapterOpenedLocked();
+            return lease;
         }
     }
 
@@ -143,12 +145,27 @@ public sealed class RouteEntryLeaseRegistry
     {
         HashSet<string> ids = EntryIds(state);
         var dropped = new List<RouteEntryLease>();
+        List<RouteEntryLease> stray;
         lock (Gate)
         {
             CommitLocked(ids, dropped);
+            stray = TakeStrayAdapterLeasesLocked(ids);
         }
 
         Retire(dropped, RouteEntryLeaseRetirement.Dropped);
+        Retire(stray, RouteEntryLeaseRetirement.Abandoned);
+    }
+
+    // An operation that commits nothing, such as a refresh, ends: leases its presenter opened outside the state end.
+    internal void EndPresentation(NavigationState committed)
+    {
+        List<RouteEntryLease> stray;
+        lock (Gate)
+        {
+            stray = TakeStrayAdapterLeasesLocked(EntryIds(committed));
+        }
+
+        Retire(stray, RouteEntryLeaseRetirement.Abandoned);
     }
 
     // A presentation failed or was cancelled: leases it introduced are abandoned once ApplyAsync has returned.
@@ -167,6 +184,8 @@ public sealed class RouteEntryLeaseRegistry
                 abandoned.Add(lease);
                 _current.Remove(entryId);
             }
+
+            abandoned.AddRange(TakeStrayAdapterLeasesLocked(committedIds));
         }
 
         Retire(abandoned, RouteEntryLeaseRetirement.Abandoned);
@@ -286,6 +305,23 @@ public sealed class RouteEntryLeaseRegistry
         }
     }
 
+    // Leases an adapter opened during the operation that just ended, for entries that state does not contain: a
+    // presenter that used GetOrOpen as a lookup, or an operation that did not commit them.
+    private List<RouteEntryLease> TakeStrayAdapterLeasesLocked(HashSet<string> committedIds)
+    {
+        var stray = new List<RouteEntryLease>();
+        foreach ((string entryId, RouteEntryLease lease) in _current.ToArray())
+        {
+            if (!lease.IsAdapterOpenedLocked || !lease.IsAbandonableLocked || committedIds.Contains(entryId))
+                continue;
+
+            stray.Add(lease);
+            _current.Remove(entryId);
+        }
+
+        return stray;
+    }
+
     private bool IsCurrentLocked(RouteEntryLease lease)
     {
         return lease.EntryId is { } entryId &&
@@ -348,6 +384,7 @@ public sealed class RouteEntryLeaseRegistry
             }
             else if (lease.IsCommittedLocked)
             {
+                lease.ClearCommittedLocked();
                 dropped.Add(lease);
                 _current.Remove(entryId);
             }
@@ -416,10 +453,10 @@ public sealed class RouteEntryLeaseRegistry
         var failure = new RouteEntryLeaseReleaseException(
             lease.EntryId,
             lease.EntryId is null
-                ? "An application lease could not be released; it and its ancestors kept their resources."
-                : $"The lease of route entry '{lease.EntryId}' could not be released; it and its ancestors kept " +
-                  "their resources.",
-            exception);
+                ? "An application lease could not be released safely; it and its ancestors kept their resources."
+                : $"The lease of route entry '{lease.EntryId}' could not be released safely; it and its ancestors " +
+                  "kept their resources.",
+            exception is RouteEntryLeaseFatalDisposalException { InnerException: { } disposal } ? disposal : exception);
         try
         {
             _host.ReportFatal(failure);

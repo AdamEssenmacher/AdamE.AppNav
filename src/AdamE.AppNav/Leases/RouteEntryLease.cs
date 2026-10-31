@@ -14,7 +14,8 @@ public sealed class RouteEntryLease
     private readonly RouteEntryLeaseRegistry _registry;
     private readonly CancellationTokenSource _retirement = new();
     private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    private readonly List<object> _resources = [];
+    private readonly List<OwnedResource> _resources = [];
+    private readonly TaskCompletionSource _retirementNotified = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly List<Func<ValueTask>> _retirementWork = [];
     private readonly List<RouteEntryLease> _children = [];
     private int _attachments;
@@ -24,6 +25,7 @@ public sealed class RouteEntryLease
     private bool _committed;
     private bool _sent;
     private bool _inFlight;
+    private bool _adapterOpened;
     private bool _closed;
     private bool _blocked;
 
@@ -67,8 +69,11 @@ public sealed class RouteEntryLease
         }
     }
 
-    /// <summary>Gets whether a router commit has contained the lease's entry.</summary>
-    /// <remarks>A retired lease that is still committed is presented as a placeholder until a navigation removes it.</remarks>
+    /// <summary>Gets whether the lease's entry is in the router's committed state.</summary>
+    /// <remarks>
+    /// It becomes false when a commit drops the entry. A retired lease that is still committed is presented as a
+    /// placeholder until a navigation removes it.
+    /// </remarks>
     public bool IsCommitted
     {
         get
@@ -108,21 +113,47 @@ public sealed class RouteEntryLease
     }
 
     /// <summary>Adds a resource that is disposed when the lease is released, in reverse order of ownership.</summary>
-    /// <remarks>Resources may be added after retirement, until the lease is closed.</remarks>
+    /// <remarks>
+    /// Resources may be added after retirement, until the lease is closed. A failure to dispose it is a survived
+    /// defect; see <see cref="Own(IAsyncDisposable, RouteEntryLeaseDisposalFailure)"/> to make it fatal instead.
+    /// </remarks>
     /// <exception cref="InvalidOperationException">The lease is closed.</exception>
     public void Own(IAsyncDisposable resource)
     {
+        Own(resource, RouteEntryLeaseDisposalFailure.Defect);
+    }
+
+    /// <summary>
+    /// Adds a resource that is disposed when the lease is released, and says what a failure to dispose it means.
+    /// </summary>
+    /// <remarks>
+    /// With <see cref="RouteEntryLeaseDisposalFailure.Fatal"/>, a failure stops the release: this lease keeps the
+    /// resources it has not yet disposed, every ancestor keeps all of its own, and the failure goes to the host's
+    /// fatal boundary.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">The lease is closed.</exception>
+    public void Own(IAsyncDisposable resource, RouteEntryLeaseDisposalFailure failure)
+    {
         ArgumentNullException.ThrowIfNull(resource);
-        OwnCore(resource);
+        OwnCore(new OwnedResource(resource, failure));
     }
 
     /// <summary>Adds a release action that runs when the lease is released, in reverse order of ownership.</summary>
-    /// <remarks>Pass <c>resource.Dispose</c> to own a synchronously disposable resource.</remarks>
+    /// <remarks>Pass <c>resource.Dispose</c> to own a synchronously disposable resource. A failure is a survived
+    /// defect.</remarks>
     /// <exception cref="InvalidOperationException">The lease is closed.</exception>
     public void Own(Action release)
     {
+        Own(release, RouteEntryLeaseDisposalFailure.Defect);
+    }
+
+    /// <summary>Adds a release action, and says what its failure means.</summary>
+    /// <inheritdoc cref="Own(IAsyncDisposable, RouteEntryLeaseDisposalFailure)" path="/remarks"/>
+    /// <exception cref="InvalidOperationException">The lease is closed.</exception>
+    public void Own(Action release, RouteEntryLeaseDisposalFailure failure)
+    {
         ArgumentNullException.ThrowIfNull(release);
-        OwnCore(release);
+        OwnCore(new OwnedResource(release, failure));
     }
 
     /// <summary>
@@ -202,6 +233,29 @@ public sealed class RouteEntryLease
     internal bool IsSentLocked => _sent;
 
     internal void MarkCommittedLocked() => _committed = true;
+
+    // A commit dropped the entry: it is no longer in the router's committed state.
+    internal void ClearCommittedLocked() => _committed = false;
+
+    // Opened by an adapter during a presentation; the operation that opened it commits or abandons it.
+    internal bool IsAdapterOpenedLocked => _adapterOpened;
+
+    internal void MarkAdapterOpenedLocked() => _adapterOpened = true;
+
+    // For tests: completes once this lease's retirement notification and its retirement work have run.
+    internal Task RetirementNotified => _retirementNotified.Task;
+
+    // For tests: whether release has started, decided synchronously by whichever call met its last condition.
+    internal bool IsReleaseStarted
+    {
+        get
+        {
+            lock (_registry.Gate)
+            {
+                return _state is LeaseState.Releasing or LeaseState.Released or LeaseState.Faulted;
+            }
+        }
+    }
 
     internal bool IsOpenLocked => _state == LeaseState.Open;
 
@@ -283,7 +337,7 @@ public sealed class RouteEntryLease
 
     internal async ValueTask DisposeResourcesAsync()
     {
-        object[] resources;
+        OwnedResource[] resources;
         lock (_registry.Gate)
         {
             resources = _resources.ToArray();
@@ -292,9 +346,12 @@ public sealed class RouteEntryLease
 
         for (int index = resources.Length - 1; index >= 0; index--)
         {
+            OwnedResource resource = resources[index];
+            // Nothing this release disposed stays reachable through it, whatever still references the release.
+            resources[index] = default;
             try
             {
-                switch (resources[index])
+                switch (resource.Value)
                 {
                     case IAsyncDisposable asyncDisposable:
                         await asyncDisposable.DisposeAsync();
@@ -303,6 +360,17 @@ public sealed class RouteEntryLease
                         release();
                         break;
                 }
+            }
+            catch (Exception ex) when (resource.Failure == RouteEntryLeaseDisposalFailure.Fatal)
+            {
+                // The release cannot be shown safe: keep what has not been disposed, and let the registry fault this
+                // lease and its ancestors.
+                lock (_registry.Gate)
+                {
+                    _resources.AddRange(resources.Take(index));
+                }
+
+                throw new RouteEntryLeaseFatalDisposalException(ex);
             }
             catch (Exception ex)
             {
@@ -372,9 +440,10 @@ public sealed class RouteEntryLease
         }
 
         WorkFinished();
+        _retirementNotified.TrySetResult();
     }
 
-    private void OwnCore(object resource)
+    private void OwnCore(OwnedResource resource)
     {
         lock (_registry.Gate)
         {
@@ -407,6 +476,8 @@ public sealed class RouteEntryLease
         if (_state is LeaseState.Releasing or LeaseState.Released or LeaseState.Faulted)
             throw new InvalidOperationException("The route-entry lease is already being released.");
     }
+
+    private readonly record struct OwnedResource(object Value, RouteEntryLeaseDisposalFailure Failure);
 
     internal enum LeaseState
     {
