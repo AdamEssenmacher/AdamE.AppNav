@@ -1,5 +1,6 @@
 using AdamE.AppNav.Back;
 using AdamE.AppNav.Diagnostics;
+using AdamE.AppNav.Leases;
 using AdamE.AppNav.Policies;
 using AdamE.AppNav.State;
 using Microsoft.Extensions.Logging;
@@ -78,4 +79,13 @@ public sealed class RouterNavigatorFactoryOptions
     /// <see cref="Logger"/> are not supplied.
     /// </summary>
     public ILoggerFactory? LoggerFactory { get; init; }
+
+    /// <summary>
+    /// Gets the registry whose route-entry leases the router retires on commit, abandonment, and shutdown.
+    /// </summary>
+    /// <remarks>
+    /// A registry serves one router. When it is set, the router's disposal completes only after every lease has been
+    /// released or its unsafe release has been reported to the registry's host.
+    /// </remarks>
+    public RouteEntryLeaseRegistry? EntryLeases { get; init; }
 }

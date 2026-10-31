@@ -77,6 +77,7 @@ and provenance.
 ## Write another adapter
 
 - Read the [adapter contract](advanced/adapter-contract.md).
+- Own what each route entry borrows with [entry leases](advanced/entry-leases.md).
 - Use the host-independent [topology model](concepts/02-topology-and-planning.md).
 
 ## Maintain and release AppNav
@@ -104,6 +105,7 @@ Every documentation page is indexed here:
 - [Requests and provenance](concepts/03-requests-and-provenance.md)
 - [Route-owned presentation pages](advanced/route-owned-presentation-pages.md)
 - [Adapter contract](advanced/adapter-contract.md)
+- [Entry leases](advanced/entry-leases.md)
 - [Logging, tracing, and diagnostics](reference/diagnostics.md)
 - [Glossary](reference/glossary.md)
 - [Source-generator diagnostics](reference/source-generator-diagnostics.md)

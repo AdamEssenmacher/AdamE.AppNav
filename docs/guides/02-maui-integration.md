@@ -266,7 +266,8 @@ crosses a redirect.
 The MAUI `AppNavRuntime` is the sole shutdown owner for its factory-created
 navigator and presenter. Both disposal forms stop admission and cancel accepted
 work; asynchronous disposal additionally waits for rollback, native cleanup,
-page release, and async scope disposal. Work past the presentation commit point
+page release, and the release of every [route-entry
+lease](../advanced/entry-leases.md), which disposes the page scopes. Work past the presentation commit point
 completes successfully. Public presentation surfaces force runtime creation so
 DI cannot dispose presenter dependencies independently.
 

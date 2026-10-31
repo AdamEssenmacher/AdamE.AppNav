@@ -1,3 +1,4 @@
+using AdamE.AppNav.Leases;
 using AdamE.AppNav.State;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Maui.ApplicationModel;
@@ -14,7 +15,7 @@ public sealed class MauiRoutePageFactoryTests
         var options = new MauiRoutePresentationOptions();
 
         var returned = options.Pages.AddModule(new ModulePages());
-        var factory = new MauiRoutePageFactory(provider, options);
+        var factory = TestEntryLeases.Factory(provider, options);
 
         var page = await factory.CreatePageAsync(new RouteEntry("module-route", new ModulePageRoute()));
 
@@ -31,7 +32,7 @@ public sealed class MauiRoutePageFactoryTests
         using var provider = services.BuildServiceProvider();
         var options = new MauiRoutePresentationOptions();
         options.Pages.MapPageFromServices<TestPageRoute, ServiceResolvedPage>();
-        var factory = new MauiRoutePageFactory(provider, options);
+        var factory = TestEntryLeases.Factory(provider, options);
 
         var page = Assert.IsType<ServiceResolvedPage>(await factory.CreatePageAsync(Entry("route-1")));
 
@@ -52,7 +53,8 @@ public sealed class MauiRoutePageFactoryTests
             UseScopedPages = true
         };
         options.Pages.MapPageFromServices<TestPageRoute, ScopedPage>();
-        var factory = new MauiRoutePageFactory(provider, options);
+        RouteEntryLeaseRegistry leases = TestEntryLeases.Create();
+        var factory = TestEntryLeases.Factory(provider, options, leases);
 
         var page = Assert.IsType<ScopedPage>(await factory.CreatePageAsync(Entry("route-1")));
         await factory.UpdatePageAsync(
@@ -60,6 +62,8 @@ public sealed class MauiRoutePageFactoryTests
             Entry("route-2"),
             new MauiRoutePageUpdateContext(MauiRoutePageReuseKind.ExplicitTarget));
         await factory.ReleasePageAsync(page);
+        Assert.False(page.Marker.IsDisposed);
+        await TestEntryLeases.RetireAndReleaseAsync(leases, "route-1");
 
         var tracker = provider.GetRequiredService<LifecycleTracker>();
         Assert.Equal(
@@ -83,12 +87,14 @@ public sealed class MauiRoutePageFactoryTests
         await using ServiceProvider provider = services.BuildServiceProvider();
         var options = new MauiRoutePresentationOptions { UseScopedPages = true };
         options.Pages.MapPageFromServices<TestPageRoute, AsyncScopedPage>();
-        var factory = new MauiRoutePageFactory(provider, options);
+        RouteEntryLeaseRegistry leases = TestEntryLeases.Create();
+        var factory = TestEntryLeases.Factory(provider, options, leases);
 
         var page = Assert.IsType<AsyncScopedPage>(await factory.CreatePageAsync(Entry("async")));
         page.BindingContext = new object();
         await factory.ReleasePageAsync(page);
         await factory.ReleasePageAsync(page);
+        await TestEntryLeases.RetireAndReleaseAsync(leases, "async");
 
         Assert.Equal(1, page.Marker.DisposeCount);
         Assert.Null(page.BindingContext);
@@ -98,74 +104,96 @@ public sealed class MauiRoutePageFactoryTests
     }
 
     [Fact]
-    public async Task AbandonmentDisposesScopeWithoutMutatingPageOrInvokingReleaseHook()
+    public async Task PagesOfOneEntryShareItsScopeUntilTheEntryLeaseIsReleased()
     {
         var services = new ServiceCollection();
         services.AddSingleton<LifecycleTracker>();
         services.AddScoped<AsyncScopedMarker>();
-        services.AddScoped<IMauiRoutePageLifecycleHook, AsyncRecordingLifecycleHook>();
         services.AddTransient<AsyncScopedPage>();
         await using ServiceProvider provider = services.BuildServiceProvider();
         var options = new MauiRoutePresentationOptions { UseScopedPages = true };
         options.Pages.MapPageFromServices<TestPageRoute, AsyncScopedPage>();
-        var factory = new MauiRoutePageFactory(provider, options);
-        var bindingContext = new object();
-        var page = Assert.IsType<AsyncScopedPage>(await factory.CreatePageAsync(Entry("abandoned")));
-        page.BindingContext = bindingContext;
+        RouteEntryLeaseRegistry leases = TestEntryLeases.Create();
+        var factory = TestEntryLeases.Factory(provider, options, leases);
 
-        MauiPageAbandonment abandonment = Assert.IsType<MauiPageAbandonment>(
-            factory.CaptureAbandonment(page));
-        await factory.ReleasePageAsync(page);
+        var first = Assert.IsType<AsyncScopedPage>(await factory.CreatePageAsync(Entry("entry")));
+        await factory.ReleasePageAsync(first);
+        var rebuilt = Assert.IsType<AsyncScopedPage>(await factory.CreatePageAsync(Entry("entry")));
+        var other = Assert.IsType<AsyncScopedPage>(await factory.CreatePageAsync(Entry("other")));
 
-        Assert.Same(bindingContext, page.BindingContext);
-        Assert.Equal(["async-created:abandoned"], provider.GetRequiredService<LifecycleTracker>().Events);
-        Assert.Equal(0, page.Marker.DisposeCount);
+        Assert.Same(first.Marker, rebuilt.Marker);
+        Assert.NotSame(first.Marker, other.Marker);
+        Assert.True(leases.TryGet("entry", out RouteEntryLease? lease));
+        lease.Retire();
+        Assert.Equal(0, first.Marker.DisposeCount);
 
-        await abandonment.DisposeAsync();
-        await abandonment.DisposeAsync();
-
-        Assert.Equal(1, page.Marker.DisposeCount);
-        Assert.Same(bindingContext, page.BindingContext);
-        Assert.Equal(["async-created:abandoned"], provider.GetRequiredService<LifecycleTracker>().Events);
+        await factory.ReleasePageAsync(rebuilt);
+        await lease.Released.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(1, first.Marker.DisposeCount);
+        Assert.Equal(0, other.Marker.DisposeCount);
     }
 
     [Fact]
-    public async Task NormalReleaseAndAbandonmentHaveExactlyOneWinner()
+    public async Task RetiredCommittedEntryGetsAPlaceholderAndRetiredPendingEntryIsRefused()
+    {
+        using var provider = new ServiceCollection().BuildServiceProvider();
+        var options = new MauiRoutePresentationOptions();
+        options.Pages.MapPage<TestPageRoute>((_, _) => new ScopedRoutePage());
+        RouteEntryLeaseRegistry leases = TestEntryLeases.Create();
+        var committed = new NavigationState(
+            [new WindowNode("main", new StackNode("stack", [Entry("committed")]))],
+            "main");
+        leases.Bind(committed);
+        var factory = TestEntryLeases.Factory(provider, options, leases);
+        RouteEntryLease committedLease = leases.GetOrOpen("committed", out _);
+        committedLease.Close();
+        committedLease.Retire();
+        // An uncommitted lease is current only until it is released, so tracked work keeps this one unreleased.
+        var preparation = new TaskCompletionSource();
+        RouteEntryLease pending = leases.Open("pending");
+        pending.Track(preparation.Task);
+        pending.Retire();
+
+        Page placeholder = await factory.CreatePageAsync(Entry("committed"));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            factory.CreatePageAsync(Entry("pending")).AsTask());
+
+        Assert.IsNotType<ScopedRoutePage>(placeholder);
+        await factory.ReleasePageAsync(placeholder);
+        preparation.SetResult();
+        pending.Close();
+        await pending.Released.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.IsType<ScopedRoutePage>(await factory.CreatePageAsync(Entry("pending")));
+    }
+
+    [Fact]
+    public async Task PresentationPageHoldsItsOwnersLease()
     {
         var services = new ServiceCollection();
-        services.AddSingleton<LifecycleTracker>();
-        services.AddScoped<AsyncScopedMarker>();
-        services.AddScoped<IMauiRoutePageLifecycleHook, AsyncRecordingLifecycleHook>();
-        services.AddTransient<AsyncScopedPage>();
+        services.AddTransient<ScopedRoutePage>();
+        services.AddTransient<ScopedRoutePresentationPage>();
         await using ServiceProvider provider = services.BuildServiceProvider();
         var options = new MauiRoutePresentationOptions { UseScopedPages = true };
-        options.Pages.MapPageFromServices<TestPageRoute, AsyncScopedPage>();
-        var factory = new MauiRoutePageFactory(provider, options);
-        var page = Assert.IsType<AsyncScopedPage>(await factory.CreatePageAsync(Entry("race")));
-        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        options.Pages.MapPageFromServices<TestPageRoute, ScopedRoutePage>();
+        RouteEntryLeaseRegistry leases = TestEntryLeases.Create();
+        var factory = TestEntryLeases.Factory(provider, options, leases);
+        Page owner = await factory.CreatePageAsync(Entry("owner"));
+        Page presentation = await factory.CreatePresentationPageAsync(
+            typeof(ScopedRoutePresentationPage),
+            owner,
+            inheritBindingContext: false);
+        Assert.True(leases.TryGet("owner", out RouteEntryLease? lease));
+        lease.Retire();
 
-        Task<MauiPageAbandonment?> capture = Task.Run(async () =>
-        {
-            await start.Task;
-            return factory.CaptureAbandonment(page);
-        });
-        Task release = Task.Run(async () =>
-        {
-            await start.Task;
-            await factory.ReleasePageAsync(page);
-        });
-        start.TrySetResult();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => factory
+            .CreatePresentationPageAsync(typeof(ScopedRoutePresentationPage), owner, inheritBindingContext: false)
+            .AsTask());
+        await factory.ReleasePageAsync(owner);
+        await Task.Delay(20);
+        Assert.False(lease.Released.IsCompleted);
 
-        MauiPageAbandonment? capturedAbandonment = await capture;
-        await release;
-        if (capturedAbandonment is { } abandonment)
-            await abandonment.DisposeAsync();
-
-        Assert.Equal(1, page.Marker.DisposeCount);
-        int releasedCallbacks = provider.GetRequiredService<LifecycleTracker>().Events
-            .Count(static value => value.StartsWith("async-released:", StringComparison.Ordinal));
-        Assert.Equal(capturedAbandonment is null ? 1 : 0, releasedCallbacks);
-        Assert.Null(factory.CaptureAbandonment(page));
+        await factory.ReleasePresentationPageAsync(presentation);
+        await lease.Released.WaitAsync(TimeSpan.FromSeconds(10));
     }
 
     [Fact]
@@ -239,7 +267,7 @@ public sealed class MauiRoutePageFactoryTests
     }
 
     [Fact]
-    public async Task LifecycleHookResolutionFailureDisposesUnattachedPageScope()
+    public async Task LifecycleHookResolutionFailureLeavesTheScopeToTheEntryLease()
     {
         var services = new ServiceCollection();
         services.AddSingleton<FailureCleanupTracker>();
@@ -250,12 +278,16 @@ public sealed class MauiRoutePageFactoryTests
         await using ServiceProvider provider = services.BuildServiceProvider();
         var options = new MauiRoutePresentationOptions { UseScopedPages = true };
         options.Pages.MapPageFromServices<TestPageRoute, ScopedFailurePage>();
-        var factory = new MauiRoutePageFactory(provider, options);
+        RouteEntryLeaseRegistry leases = TestEntryLeases.Create();
+        var factory = TestEntryLeases.Factory(provider, options, leases);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => factory
             .CreatePageAsync(Entry("failure"))
             .AsTask());
 
+        // The scope belongs to the entry's lease, which core abandons after the failed presentation.
+        Assert.Equal(0, provider.GetRequiredService<FailureCleanupTracker>().DisposeCount);
+        await TestEntryLeases.RetireAndReleaseAsync(leases, "failure");
         Assert.Equal(1, provider.GetRequiredService<FailureCleanupTracker>().DisposeCount);
     }
 
@@ -270,7 +302,7 @@ public sealed class MauiRoutePageFactoryTests
         {
             UseScopedPages = true
         };
-        var factory = new MauiRoutePageFactory(provider, options);
+        var factory = TestEntryLeases.Factory(provider, options);
         var ownerBindingContext = new object();
         var owner = new ContentPage { BindingContext = ownerBindingContext };
 
@@ -294,7 +326,7 @@ public sealed class MauiRoutePageFactoryTests
         var services = new ServiceCollection();
         services.AddTransient<IndependentBindingPage>();
         using var provider = services.BuildServiceProvider();
-        var factory = new MauiRoutePageFactory(provider, new MauiRoutePresentationOptions());
+        var factory = TestEntryLeases.Factory(provider, new MauiRoutePresentationOptions());
         var owner = new ContentPage { BindingContext = new object() };
 
         var page = Assert.IsType<IndependentBindingPage>(await factory.CreatePresentationPageAsync(
@@ -317,7 +349,7 @@ public sealed class MauiRoutePageFactoryTests
         options.Pages
             .MapPage<BaseMappedRoute>((_, _) => new BaseMappedPage())
             .MapPage<DerivedMappedRoute>((_, _) => new DerivedMappedPage());
-        var factory = new MauiRoutePageFactory(provider, options);
+        var factory = TestEntryLeases.Factory(provider, options);
 
         var page = await factory.CreatePageAsync(new RouteEntry("derived-route", new DerivedMappedRoute()));
 
@@ -330,7 +362,7 @@ public sealed class MauiRoutePageFactoryTests
         using var provider = new ServiceCollection().BuildServiceProvider();
         var options = new MauiRoutePresentationOptions();
         options.Pages.MapPage<BaseMappedRoute>((_, _) => new BaseMappedPage());
-        var factory = new MauiRoutePageFactory(provider, options);
+        var factory = TestEntryLeases.Factory(provider, options);
 
         var page = await factory.CreatePageAsync(new RouteEntry("derived-route", new DerivedMappedRoute()));
 
@@ -356,7 +388,7 @@ public sealed class MauiRoutePageFactoryTests
     {
         var options = new MauiRoutePresentationOptions();
         options.Pages.MapPage<TestPageRoute>((_, _) => new ContentPage());
-        return new MauiRoutePageFactory(provider, options);
+        return TestEntryLeases.Factory(provider, options);
     }
 
     private static async Task CompleteGateFromWorkerAsync(GatedLifecycleHook gate)
@@ -397,6 +429,10 @@ public sealed class MauiRoutePageFactoryTests
     {
         public PageDependency Dependency { get; } = dependency;
     }
+
+    private sealed class ScopedRoutePage : ContentPage;
+
+    private sealed class ScopedRoutePresentationPage : ContentPage;
 
     private sealed class ScopedPage(ScopedMarker marker) : ContentPage
     {
