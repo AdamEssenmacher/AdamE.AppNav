@@ -24,7 +24,8 @@ public interface IRouteEntryLeaseHost
     /// exception. Beware dispatcher overloads that take an <see cref="Action"/>: passing <c>() => work()</c> to one
     /// discards the <see cref="ValueTask"/>. When the caller is already on the dispatcher, the host may run the work
     /// inline. Core checks that the work finished: a task that faults, completes early, or never runs the work is a
-    /// host failure, which core treats as fatal for that lease.
+    /// host failure, which core treats as fatal for that lease. The check can only see early completion when the work
+    /// actually yields, so test a host with a resource whose disposal is asynchronous.
     /// </remarks>
     Task InvokeAsync(Func<ValueTask> work);
 

@@ -369,26 +369,31 @@ public sealed class RouteEntryLeaseRegistry
     internal async Task InvokeOnHostAsync(Func<ValueTask> work)
     {
         var finished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        await _host.InvokeAsync(async () =>
+        try
         {
-            try
+            await _host.InvokeAsync(async () =>
             {
-                await work().ConfigureAwait(false);
-                finished.TrySetResult();
-            }
-            catch (Exception ex)
-            {
-                finished.TrySetException(ex);
-                throw;
-            }
-        }).ConfigureAwait(false);
+                try
+                {
+                    await work().ConfigureAwait(false);
+                    finished.TrySetResult();
+                }
+                catch (Exception ex)
+                {
+                    finished.TrySetException(ex);
+                    throw;
+                }
+            }).ConfigureAwait(false);
+        }
+        catch when (finished.Task.IsFaulted)
+        {
+            // The work's own exception, not however the host wrapped it; awaiting it also observes it.
+            await finished.Task.ConfigureAwait(false);
+            throw;
+        }
 
         if (!finished.Task.IsCompleted)
-        {
-            throw new InvalidOperationException(
-                "The route-entry lease host's InvokeAsync completed before the work it was given had finished. Its " +
-                "task must complete only after the work's ValueTask completes, and fault with its exception.");
-        }
+            throw new RouteEntryLeaseHostCompletedEarlyException();
 
         await finished.Task.ConfigureAwait(false);
     }
@@ -529,6 +534,19 @@ public sealed class RouteEntryLeaseRegistry
         try
         {
             await InvokeOnHostAsync(lease.DisposeResourcesAsync).ConfigureAwait(false);
+        }
+        catch (RouteEntryLeaseHostCompletedEarlyException ex)
+        {
+            // The release may still be running on the host, so its resources are not reliably kept.
+            Fault(
+                lease,
+                ex,
+                lease.EntryId is null
+                    ? "The host's task completed while an application lease's release was still running; its " +
+                      "resources may be partly disposed, and its ancestors kept theirs."
+                    : $"The host's task completed while the release of route entry '{lease.EntryId}' was still " +
+                      "running; its resources may be partly disposed, and its ancestors kept theirs.");
+            return;
         }
         catch (Exception ex)
         {
