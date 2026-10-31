@@ -298,6 +298,8 @@ internal sealed class RouterNavigator : IRouterNavigator
                     new NavigationPlanningContext(effectiveRequest, route, CurrentState, operationId),
                     cancellationToken).ConfigureAwait(false);
                 NavigationStateValidator.ValidatePlan(plan, "App navigation planner");
+                if (_entryLeases is not null)
+                    RouteEntryLeaseRegistry.ValidateUniqueEntryIds(plan.TargetState, "App navigation planner");
                 activity.SetTag("navigation.plan_kind", plan.Kind);
                 _diagnostics.Write(
                     NavigationDiagnosticEventKind.PlanningCompleted,
@@ -410,7 +412,10 @@ internal sealed class RouterNavigator : IRouterNavigator
                 return BackNavigationResult.Unhandled;
             }
 
-            NavigationStateValidator.ValidatePlan(plan, $"Back navigator '{_backNavigator.GetType().Name}'");
+            string backPlanSource = $"Back navigator '{_backNavigator.GetType().Name}'";
+            NavigationStateValidator.ValidatePlan(plan, backPlanSource);
+            if (_entryLeases is not null)
+                RouteEntryLeaseRegistry.ValidateUniqueEntryIds(plan.TargetState, backPlanSource);
             var policyContext = new BackNavigationPolicyContext(backRequest, backContext, plan);
             foreach (IBackNavigationPolicy policy in _backNavigationPolicies)
             {
@@ -571,6 +576,8 @@ internal sealed class RouterNavigator : IRouterNavigator
         try
         {
             NavigationStateValidator.ValidatePlan(plan, "Navigation reconciliation");
+            if (_entryLeases is not null)
+                RouteEntryLeaseRegistry.ValidateUniqueEntryIds(plan.TargetState, "Navigation reconciliation");
 
             AppRoute finalRoute = ResolvePresentedRoute(plan.TargetState, request.WindowId, route);
             RouterNavigationRequest finalizedRequest = request;

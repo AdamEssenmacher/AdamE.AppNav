@@ -23,6 +23,7 @@ public sealed class RouteEntryLease
     private LeaseState _state;
     private bool _committed;
     private bool _sent;
+    private bool _inFlight;
     private bool _closed;
     private bool _blocked;
 
@@ -202,7 +203,20 @@ public sealed class RouteEntryLease
 
     internal void MarkCommittedLocked() => _committed = true;
 
-    internal void MarkSentLocked() => _sent = true;
+    internal bool IsOpenLocked => _state == LeaseState.Open;
+
+    // A sent lease stays its entry's current lease until its request ends, even if it is released meanwhile.
+    internal bool IsInFlightLocked => _inFlight;
+
+    internal void MarkSentLocked()
+    {
+        _sent = true;
+        _inFlight = true;
+    }
+
+    internal void EndRequestLocked() => _inFlight = false;
+
+    internal bool IsReleasedLocked => _state == LeaseState.Released;
 
     // Returns whether closing abandons the lease: an entry lease that never reached a request or a commit.
     internal bool CloseLocked()

@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using AdamE.AppNav.Navigation;
 using AdamE.AppNav.State;
 
 namespace AdamE.AppNav.Leases;
@@ -15,6 +16,9 @@ public sealed class RouteEntryLeaseRegistry
 {
     private readonly IRouteEntryLeaseHost _host;
     private readonly Dictionary<string, RouteEntryLease> _current = new(StringComparer.Ordinal);
+    // Leases not yet released: shutdown retires them, including those a fault keeps from releasing.
+    private readonly HashSet<RouteEntryLease> _live = new(ReferenceEqualityComparer.Instance);
+    // Leases neither released nor kept by a reported fatal failure: shutdown waits for them.
     private readonly HashSet<RouteEntryLease> _unsettled = new(ReferenceEqualityComparer.Instance);
     private readonly TaskCompletionSource _drained = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private HashSet<string> _committedIds = new(StringComparer.Ordinal);
@@ -113,8 +117,25 @@ public sealed class RouteEntryLeaseRegistry
             if (_bound)
                 throw new InvalidOperationException("A route-entry lease registry serves exactly one router.");
 
+            ValidateUniqueEntryIds(initialState, "Router initial state");
             _bound = true;
             CommitLocked(EntryIds(initialState), []);
+        }
+    }
+
+    // One occurrence, one lease: with leases configured, an entry ID may appear only once in a state.
+    internal static void ValidateUniqueEntryIds(NavigationState state, string source)
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string entryId in EnumerateEntryIds(state))
+        {
+            if (!ids.Add(entryId))
+            {
+                throw new AppNavigationConfigurationException(
+                    $"{source} produced a state in which route-entry id '{entryId}' appears more than once. With " +
+                    "route-entry leases, each entry id must be unique across the whole state; make the entry-id " +
+                    "factory include what distinguishes the occurrences, such as the branch.");
+            }
         }
     }
 
@@ -162,13 +183,31 @@ public sealed class RouteEntryLeaseRegistry
             if (lease.IsSentLocked)
                 throw new InvalidOperationException($"The lease of route entry '{lease.EntryId}' was already sent.");
 
+            // A lease abandoned, retired or replaced before it was sent cannot carry a request: its entry would
+            // commit without a lease, or with released resources.
+            if (!lease.IsOpenLocked || !IsCurrentLocked(lease))
+            {
+                throw new InvalidOperationException(
+                    $"The lease of route entry '{lease.EntryId}' is no longer open and current, so it cannot be sent.");
+            }
+
             lease.MarkSentLocked();
         }
     }
 
-    // The lease's request ended. Whatever its outcome, a lease it did not commit is abandoned.
+    // The lease's request ended. Whatever its outcome, the occurrence ends unless the request committed it.
     internal void EndRequest(RouteEntryLease lease)
     {
+        lock (Gate)
+        {
+            lease.EndRequestLocked();
+            if (!lease.IsCommittedLocked && IsCurrentLocked(lease) && !lease.IsOpenLocked)
+            {
+                // Retired by the application while in flight: the request that kept it current has ended.
+                _current.Remove(lease.EntryId ?? throw new InvalidOperationException("Only entry leases are sent."));
+            }
+        }
+
         AbandonUncommitted(lease);
     }
 
@@ -197,8 +236,9 @@ public sealed class RouteEntryLeaseRegistry
                 _current.Clear();
             }
 
-            leases = _unsettled.ToArray();
-            if (leases.Length == 0)
+            // Retiring the roots retires every descendant with a deterministic Parent reason.
+            leases = _live.Where(static lease => lease.Parent is null).ToArray();
+            if (_unsettled.Count == 0)
                 _drained.TrySetResult();
         }
 
@@ -246,6 +286,13 @@ public sealed class RouteEntryLeaseRegistry
         }
     }
 
+    private bool IsCurrentLocked(RouteEntryLease lease)
+    {
+        return lease.EntryId is { } entryId &&
+               _current.TryGetValue(entryId, out RouteEntryLease? current) &&
+               ReferenceEquals(current, lease);
+    }
+
     private void AbandonUncommitted(RouteEntryLease lease)
     {
         lock (Gate)
@@ -279,6 +326,7 @@ public sealed class RouteEntryLeaseRegistry
         parent?.AddChildLocked(lease);
         if (entryId is not null)
             _current.Add(entryId, lease);
+        _live.Add(lease);
         _unsettled.Add(lease);
         return lease;
     }
@@ -336,15 +384,17 @@ public sealed class RouteEntryLeaseRegistry
         lock (Gate)
         {
             lease.CompleteReleaseLocked();
-            // A committed occurrence stays current, so presentation still sees it retired until a commit drops it.
+            // A committed occurrence stays current, so presentation still sees it retired until a commit drops it;
+            // so does one whose request is still in flight, until that request ends.
             if (lease.EntryId is { } entryId &&
                 !lease.IsCommittedLocked &&
-                _current.TryGetValue(entryId, out RouteEntryLease? current) &&
-                ReferenceEquals(current, lease))
+                !lease.IsInFlightLocked &&
+                IsCurrentLocked(lease))
             {
                 _current.Remove(entryId);
             }
 
+            _live.Remove(lease);
             SettleLocked([lease]);
         }
 
@@ -391,7 +441,12 @@ public sealed class RouteEntryLeaseRegistry
 
     internal static HashSet<string> EntryIds(NavigationState state)
     {
-        var ids = new HashSet<string>(StringComparer.Ordinal);
+        return new HashSet<string>(EnumerateEntryIds(state), StringComparer.Ordinal);
+    }
+
+    private static IEnumerable<string> EnumerateEntryIds(NavigationState state)
+    {
+        var ids = new List<string>();
         foreach (WindowNode window in state.Windows)
         {
             if (window.Root is not null)
@@ -403,7 +458,7 @@ public sealed class RouteEntryLeaseRegistry
         return ids;
     }
 
-    private static void AddEntryIds(NavigationNode node, HashSet<string> ids)
+    private static void AddEntryIds(NavigationNode node, List<string> ids)
     {
         switch (node)
         {

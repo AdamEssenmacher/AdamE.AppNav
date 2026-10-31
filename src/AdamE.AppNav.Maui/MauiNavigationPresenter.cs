@@ -394,6 +394,17 @@ internal sealed class MauiNavigationPresenter :
         _trackedBranchHosts.Clear();
         _trackedModalPages.Clear();
         _lastState = NavigationState.Empty;
+
+        // Router disposal waits for every entry lease, so no page the factory built may keep holding one,
+        // including pages a failed recovery left untracked.
+        try
+        {
+            await _pageFactory.ReleaseOutstandingPagesAsync();
+        }
+        catch (Exception ex)
+        {
+            WritePageReleaseFailure(null, ex);
+        }
     }
 
     public async ValueTask AttachWindowAsync(
@@ -2121,6 +2132,21 @@ internal sealed class MauiNavigationPresenter :
                 foreach (var child in navigationPage.Navigation.NavigationStack.Reverse().ToArray())
                 {
                     await DetachPageTreeAsync(child, visited, failures);
+                }
+
+                // A route may map to a NavigationPage itself; it holds its entry's lease like any route page.
+                // Stack containers carry no route entry and are not the factory's.
+                if (shouldRelease && GetRouteEntryId(navigationPage) is not null)
+                {
+                    try
+                    {
+                        await _pageFactory.ReleasePageAsync(navigationPage);
+                    }
+                    catch (Exception ex)
+                    {
+                        failures.Add(ex);
+                        pageReleaseSucceeded = false;
+                    }
                 }
 
                 break;

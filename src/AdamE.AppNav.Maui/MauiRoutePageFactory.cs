@@ -39,6 +39,9 @@ internal interface IMauiRoutePageFactory
     ValueTask ReleasePageAsync(Page page);
 
     ValueTask ReleasePresentationPageAsync(Page page);
+
+    /// <summary>Releases every page this factory built that has not been released, at presenter shutdown.</summary>
+    ValueTask ReleaseOutstandingPagesAsync() => ValueTask.CompletedTask;
 }
 
 /// <summary>
@@ -86,6 +89,8 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
     private readonly RouteEntryLeaseRegistry _leases;
     // The DI scope of each entry occurrence whose lease this factory opened, owned and disposed by that lease.
     private readonly ConditionalWeakTable<RouteEntryLease, IServiceProvider> _entryServices = new();
+    // Pages built and not yet released, so shutdown can detach every artifact even if the presenter lost one.
+    private readonly HashSet<Page> _outstandingPages = new(ReferenceEqualityComparer.Instance);
 
     public MauiRoutePageFactory(
         IServiceProvider serviceProvider,
@@ -125,6 +130,15 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
             IServiceProvider services = ServicesFor(lease, out pageScope);
             if (_options.Pages.TryCreatePage(services, entry, out page))
             {
+                if (GetPageHandle(page) is not null)
+                {
+                    // Never release the live page this resolution returned again.
+                    page = null;
+                    throw new AppNavigationConfigurationException(
+                        $"The page factory for route type '{entry.Route.GetType().FullName}' returned a page that is " +
+                        "already presented. Route pages must be new instances; register them as transient.");
+                }
+
                 var handle = new PageHandle(
                     lease,
                     attachment,
@@ -133,6 +147,7 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
                 SetPageHandle(page, handle);
                 attachment = null;
                 pageScope = null;
+                Track(page);
                 foreach (IMauiRoutePageLifecycleHook hook in handle.GetActiveHooks())
                     await hook.OnPageCreatedAsync(page, entry, cancellationToken);
 
@@ -184,17 +199,17 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
         }
 
         IAsyncDisposable? scope = null;
-        IServiceProvider services = _serviceProvider;
-        if (_options.UseScopedPages)
-        {
-            AsyncServiceScope asyncScope = _serviceProvider.CreateAsyncScope();
-            scope = asyncScope;
-            services = asyncScope.ServiceProvider;
-        }
-
         Page? page = null;
         try
         {
+            IServiceProvider services = _serviceProvider;
+            if (_options.UseScopedPages)
+            {
+                AsyncServiceScope asyncScope = _serviceProvider.CreateAsyncScope();
+                scope = asyncScope;
+                services = asyncScope.ServiceProvider;
+            }
+
             cancellationToken.ThrowIfCancellationRequested();
             if (services.GetRequiredService(pageType) is not Page resolvedPage)
             {
@@ -202,10 +217,18 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
                     $"Registered presentation page service '{pageType.FullName}' did not resolve to a MAUI Page.");
             }
 
+            if (GetPageHandle(resolvedPage) is not null)
+            {
+                throw new AppNavigationConfigurationException(
+                    $"Presentation page service '{pageType.FullName}' returned a page that is already presented. " +
+                    "Register presentation pages as transient.");
+            }
+
             page = resolvedPage;
             SetPageHandle(page, new PageHandle(ownerLease, attachment, scope, []));
             attachment = null;
             scope = null;
+            Track(page);
 
             if (inheritBindingContext)
                 page.BindingContext = ownerRoutePage.BindingContext;
@@ -294,6 +317,39 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
         return scope.ServiceProvider;
     }
 
+    public async ValueTask ReleaseOutstandingPagesAsync()
+    {
+        Page[] pages;
+        lock (_outstandingPages)
+        {
+            pages = _outstandingPages.ToArray();
+        }
+
+        var failures = new List<Exception>();
+        foreach (Page page in pages)
+        {
+            try
+            {
+                await ReleaseCoreAsync(page);
+            }
+            catch (Exception ex)
+            {
+                failures.Add(ex);
+            }
+        }
+
+        if (failures.Count > 0)
+            throw new AggregateException("One or more outstanding pages could not be released.", failures);
+    }
+
+    private void Track(Page page)
+    {
+        lock (_outstandingPages)
+        {
+            _outstandingPages.Add(page);
+        }
+    }
+
     private static ContentPage CreatePlaceholderPage()
     {
         var page = new ContentPage();
@@ -301,7 +357,7 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
         return page;
     }
 
-    private static async ValueTask CleanupFailedCreationAsync(
+    private async ValueTask CleanupFailedCreationAsync(
         Page? page,
         RouteEntryLeaseAttachment? unattachedLease,
         IAsyncDisposable? unattachedScope)
@@ -336,7 +392,7 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
             throw new AggregateException("Page creation cleanup failed.", failures);
     }
 
-    private static async ValueTask ReleaseCoreAsync(Page page)
+    private async ValueTask ReleaseCoreAsync(Page page)
     {
         PageHandle? handle = GetPageHandle(page);
         if (handle is null)
@@ -347,6 +403,11 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
 
         if (!handle.TryClaimRelease(out PageReleaseResources resources))
             return;
+
+        lock (_outstandingPages)
+        {
+            _outstandingPages.Remove(page);
+        }
 
         var failures = new List<Exception>();
         try

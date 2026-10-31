@@ -11,6 +11,6 @@ public sealed class RouteEntryLeaseReleaseException : Exception
         EntryId = entryId;
     }
 
-    /// <summary>Gets the entry ID of the lease, or <see langword="null"/> for a child lease without one.</summary>
+    /// <summary>Gets the entry ID of the lease, or <see langword="null"/> for an application lease.</summary>
     public string? EntryId { get; }
 }

@@ -1,4 +1,5 @@
 using AdamE.AppNav.Leases;
+using AdamE.AppNav.Navigation;
 using AdamE.AppNav.State;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Maui.ApplicationModel;
@@ -164,6 +165,47 @@ public sealed class MauiRoutePageFactoryTests
         pending.Close();
         await pending.Released.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.IsType<ScopedRoutePage>(await factory.CreatePageAsync(Entry("pending")));
+    }
+
+    [Fact]
+    public async Task PageFactoryThatReturnsALivePageAgainIsRejectedWithoutReleasingIt()
+    {
+        using var provider = new ServiceCollection().BuildServiceProvider();
+        var options = new MauiRoutePresentationOptions();
+        var shared = new ScopedRoutePage();
+        options.Pages.MapPage<TestPageRoute>((_, _) => shared);
+        RouteEntryLeaseRegistry leases = TestEntryLeases.Create();
+        var factory = TestEntryLeases.Factory(provider, options, leases);
+        Page first = await factory.CreatePageAsync(Entry("first"));
+
+        await Assert.ThrowsAsync<AppNavigationConfigurationException>(() =>
+            factory.CreatePageAsync(Entry("second")).AsTask());
+
+        Assert.Same(shared, first);
+        Assert.True(leases.TryGet("first", out RouteEntryLease? lease));
+        lease.Retire();
+        await factory.ReleasePageAsync(first);
+        await lease.Released.WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public async Task ReleasingOutstandingPagesDetachesEveryArtifactAtShutdown()
+    {
+        using var provider = new ServiceCollection().BuildServiceProvider();
+        var options = new MauiRoutePresentationOptions();
+        options.Pages.MapPage<TestPageRoute>((_, _) => new ScopedRoutePage());
+        RouteEntryLeaseRegistry leases = TestEntryLeases.Create();
+        var factory = TestEntryLeases.Factory(provider, options, leases);
+        Page lost = await factory.CreatePageAsync(Entry("lost"));
+        Assert.True(leases.TryGet("lost", out RouteEntryLease? lease));
+        lease.Retire();
+        await Task.Delay(20);
+        Assert.False(lease.Released.IsCompleted);
+
+        await factory.ReleaseOutstandingPagesAsync();
+
+        await lease.Released.WaitAsync(TimeSpan.FromSeconds(10));
+        await factory.ReleasePageAsync(lost);
     }
 
     [Fact]

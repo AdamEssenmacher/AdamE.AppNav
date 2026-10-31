@@ -36,8 +36,11 @@ occurrence of a still-current entry uses a fresh entry ID. A lease that was
 never committed stops being current once it is released; a committed one stays
 current, even after release, until a commit drops it.
 
-Leased entry IDs are looked up across the whole navigation state, so an ID that
-has a lease should appear at most once in any state.
+Leases are keyed by entry ID across the whole navigation state, so with a
+registry configured an entry ID must appear at most once in any state, not just
+once per stack. The router rejects a plan, or an initial state, that repeats
+one, before presentation, with `AppNavigationConfigurationException`. Two tabs
+that show the same route need entry IDs that include the tab.
 
 ## Opening, attaching, and closing
 
@@ -132,6 +135,9 @@ ones. A presenter that requires a lease for every entry looks it up with
   that lease's resources and every ancestor's, never completes `Released`, and
   goes to `IRouteEntryLeaseHost.ReportFatal`, which surfaces it through the
   host's fatal boundary. Core never forces disposal.
+- Core imposes no timeouts. A disposer that never completes, an attachment
+  that is never detached, or a lease that is never closed keeps its release,
+  and so the router's disposal, waiting.
 
 ## Shutdown
 

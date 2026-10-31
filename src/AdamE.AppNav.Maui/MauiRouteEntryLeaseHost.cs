@@ -31,7 +31,15 @@ internal sealed class MauiRouteEntryLeaseHost(
         Write(failure);
 
         // The resources were kept; an unhandled exception on the main loop is MAUI's fatal boundary.
-        _mainThreadDispatcher.BeginInvoke(() => throw failure);
+        try
+        {
+            _mainThreadDispatcher.BeginInvoke(() => throw failure);
+        }
+        catch
+        {
+            // The dispatcher itself may be what failed; an unhandled thread-pool exception still ends the process.
+            ThreadPool.UnsafeQueueUserWorkItem(static exception => throw exception, failure, preferLocal: false);
+        }
     }
 
     private void Write(RouteEntryLeaseReleaseException failure)
