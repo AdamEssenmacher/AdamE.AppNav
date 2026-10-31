@@ -111,6 +111,19 @@ Release never runs inline either. It runs on the host dispatcher, children
 before their parent, and disposes the lease's own resources in reverse order of
 `Own`. `Released` completes afterwards.
 
+## Artifacts in other hosts
+
+An artifact is whatever native object borrows the lease; the attachment API
+names no host type. A UIKit presenter attaches each entry's view controller and
+detaches it when that controller leaves the hierarchy, including a pop the
+platform commits before the router reconciles: the lease is still committed
+then, so nothing is released until the reconciliation's commit retires it. An
+Android presenter attaches the views of each Activity epoch and detaches them
+all when the Activity is destroyed; the refresh after recreation attaches new
+ones. A presenter that requires a lease for every entry looks it up with
+`TryGet` and fails the presentation when there is none, rather than calling
+`GetOrOpen`.
+
 ## Failures
 
 - A disposer or retirement work that throws is a survived defect, reported to
