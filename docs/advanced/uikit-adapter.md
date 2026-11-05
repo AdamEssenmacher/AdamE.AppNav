@@ -7,20 +7,19 @@ developers should start with [UIKit integration](../guides/08-uikit-integration.
 
 ## Origin
 
-The presenter was built and proven in Scavos, a production .NET iOS app, and
-extracted here once every Scavos route had moved onto
-[entry leases](entry-leases.md). Extraction made its Scavos-specific parts
-generic:
+The presenter was built and proven in a production .NET iOS app, and extracted
+here once every route in that app had moved onto [entry leases](entry-leases.md).
+Extraction made its app-specific parts generic:
 
-| In Scavos | Here |
+| In the original app | Here |
 | --- | --- |
-| Scavos's window, stack and modal IDs, and its one Game-owned modal | `UIKitNavigationTopology`, declared by the app and checked before each plan is presented |
-| A Scavos screen type mapped to a native page | `IUIKitPageFactory` and `UIKitPage` |
-| The Home screen's own navigation controller | A root page that `IsNavigationStack`, the app's or `UIKitPage.InNavigationStack`'s |
-| The zoom from a Home row into its Game | `UIKitNavigationPresenterOptions.ConfiguringPush` |
-| Scavos's composition recording pops and Back | `IUIKitNavigationHost`, with `UIKitRouterNavigationHost` for an app that lets the router decide |
-| The renderer kits' cleanup-failure exception | `UIKitCleanupFailureException`, which a host wraps its own signal in |
-| Lease attachment and placeholders in the Scavos host | The presenter, through `UIKitNavigationPresenterOptions.EntryLeases` |
+| The app's own window, stack and modal IDs, and one modal owned by a pushed screen | `UIKitNavigationTopology`, declared by the app and checked before each plan is presented |
+| The app's screen types mapped to native pages | `IUIKitPageFactory` and `UIKitPage` |
+| The home screen's own navigation controller | A root page that `IsNavigationStack`, the app's or `UIKitPage.InNavigationStack`'s |
+| A zoom from a list row into the screen it opens | `UIKitNavigationPresenterOptions.ConfiguringPush` |
+| The app's composition recording pops and Back | `IUIKitNavigationHost`, with `UIKitRouterNavigationHost` for an app that lets the router decide |
+| The app's own cleanup-failure exception | `UIKitCleanupFailureException`, which a host wraps its own signal in |
+| Lease attachment and placeholders in the app's host | The presenter, through `UIKitNavigationPresenterOptions.EntryLeases` |
 
 ## Supported shape, and how it grows
 
@@ -83,7 +82,7 @@ use what their entry borrows. The presenter keeps that page's loan and lease
 attachment, and fails each later operation, and its own disposal, with that same
 failure. Pages it had already retired release; the pages still shown are never
 retired again, so they keep theirs too.
-The host decides what to do with an app in that state; Scavos ends the process.
+The host decides what to do with an app in that state, such as ending the process.
 
 ## Native events
 

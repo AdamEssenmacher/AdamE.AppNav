@@ -271,8 +271,9 @@ onboarding path. [`Commerce.Sample`](samples/Commerce.Sample/README.md) is the
 advanced sample with a native flyout, independent stacks, all standard
 dispositions, trusted origins, compatibility transforms, and external ingress.
 
-Scavos is the source-level dogfood application used during preview hardening. It
-is not part of this repository's onboarding path.
+AppNav is also dogfooded at source level in a production application during
+preview hardening. That application is not part of this repository or its
+onboarding path.
 
 ## Versioning and publication
 

@@ -5,7 +5,7 @@
 This is an internal public-preview design checkpoint for AppNav maintainers. It
 is not application integration guidance.
 
-Source generators are now part of the preview package contract. Revisit this API split during Scavos public-preview
+Source generators are now part of the preview package contract. Revisit this API split during public-preview
 dogfooding and before declaring the API stable.
 
 Re-open the API question only if one or more of these pressures appear:
@@ -24,5 +24,5 @@ construct the full `RouterNavigationRequest` envelope; no second navigator facad
 
 ## Next steps
 
-- Revisit this checkpoint during Scavos preview dogfooding.
+- Revisit this checkpoint during preview dogfooding.
 - Record any accepted API change in the relevant [release notes](../release-notes/index.md).

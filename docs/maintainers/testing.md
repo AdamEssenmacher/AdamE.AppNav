@@ -61,8 +61,8 @@ and `packages` packs and inspects `AdamE.AppNav.iOS`.
 ## Scenario coverage
 
 Cover cold/warm ingress, startup buffering, burst overflow, tab changes, Back/swipe, modal dismissal, deferred restore,
-retry bypass, cancellation, injected presentation failure, rollback/rebuild, and disposal. Scavos provides the advanced
-five-branch dogfood matrix; the in-memory lab is preferred for deterministic native automation.
+retry bypass, cancellation, injected presentation failure, rollback/rebuild, and disposal. A production dogfood application provides
+the advanced five-branch matrix; the in-memory lab is preferred for deterministic native automation.
 
 ## Next steps
 
