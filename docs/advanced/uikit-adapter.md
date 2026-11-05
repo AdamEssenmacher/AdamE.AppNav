@@ -103,7 +103,10 @@ AppNav refusing it as reentrant:
 `UIKitRouterNavigationHost` records a pop as a `HostBack` reconciliation from
 the router's current state, retrying when another operation committed first. A
 modal owned by a popped entry goes with it. If the host cannot record a pop,
-an accepted-state refresh can restore the router's stack. The router checks
+the presenter reports that through `ReportRecoveredFailure` and nothing more: the
+router still shows the popped entry until a later operation, and the next
+refresh re-presents the router's stack. An app that wants that at once requests a
+refresh from its failure sink. The router checks
 queued modal Back requests against the top modal when it admits them.
 
 ## How it is checked

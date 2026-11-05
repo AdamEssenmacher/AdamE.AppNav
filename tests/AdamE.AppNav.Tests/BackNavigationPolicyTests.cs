@@ -296,7 +296,7 @@ public sealed class BackNavigationPolicyTests
             return BackNavigationPolicyDecision.Continue;
         });
         NavigationState state = DefaultState();
-        WindowNode window = state.ActiveWindow!;
+        WindowNode window = Assert.IsType<WindowNode>(state.ActiveWindow);
         state = state.ReplaceWindow(window with { Modals = [new ModalNode("sheet", Entry("modal-entry"))] });
         var presenter = new RecordingNavigationPresenter();
         await using var navigator = CreateNavigator(presenter, state, policy);
@@ -309,8 +309,9 @@ public sealed class BackNavigationPolicyTests
 
         Assert.Equal(BackNavigationStatus.Completed, (await first).Status);
         Assert.Equal(BackNavigationStatus.Canceled, (await queued).Status);
-        Assert.Empty(navigator.CurrentState.ActiveWindow!.Modals);
-        Assert.Equal(2, Assert.IsType<StackNode>(navigator.CurrentState.ActiveWindow.Root).Entries.Count);
+        WindowNode after = Assert.IsType<WindowNode>(navigator.CurrentState.ActiveWindow);
+        Assert.Empty(after.Modals);
+        Assert.Equal(2, Assert.IsType<StackNode>(after.Root).Entries.Count);
         Assert.Equal(1, policy.CallCount);
         Assert.Equal(1, presenter.ApplyCount);
     }

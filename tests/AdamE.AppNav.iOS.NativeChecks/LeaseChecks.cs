@@ -436,12 +436,16 @@ internal static class LeaseChecks
     {
         var host = new MainThreadLeaseHost();
         var leases = new RouteEntryLeaseRegistry(host);
+        var hostFailures = new List<Exception>();
         var shown = new Dictionary<string, (UIViewController Controller, RouteEntryLease? Lease)>(StringComparer.Ordinal);
         UIKitNavigationPresenter presenter = new(
             window,
             Topology,
             new RequestPages(request => shown[request.Entry.Id] = (new UIViewController(), request.Lease)),
-            new UIKitRouterNavigationHost(static () => throw new InvalidOperationException("No events."), Topology, static _ => { }),
+            new UIKitRouterNavigationHost(
+                static () => throw new InvalidOperationException("This flow raises no native events."),
+                Topology,
+                hostFailures.Add),
             new UIKitNavigationPresenterOptions { EntryLeases = leases });
         IRouterNavigator router = RouterNavigatorFactory.Create(
             new RouteTableBuilder().Build(),
@@ -477,7 +481,9 @@ internal static class LeaseChecks
             await disposal.WaitAsync(Soon, token);
         }
 
-        Require(host.Failures.Count == 0, "A presenter-opened lease reported a failure.");
+        Require(
+            host.Failures.Count == 0 && hostFailures.Count == 0,
+            "A presenter-opened lease reported a failure, or the presenter raised an unexpected native event.");
     }
 
     private sealed class RequestPages(Func<UIKitPageRequest, (UIViewController Controller, RouteEntryLease? Lease)> pages)

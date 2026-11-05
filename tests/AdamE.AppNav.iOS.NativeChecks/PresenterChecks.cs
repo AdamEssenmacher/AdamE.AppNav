@@ -26,9 +26,20 @@ internal static class PresenterChecks
         ("foreign-hierarchy-retirement", ForeignHierarchyRetirementAsync)
     ];
 
+    // Host callbacks arrive in a later turn of the main run loop: let every one already posted run before asserting
+    // that none was made.
+    private static async Task<bool> NoHostCallAsync(Func<int> calls)
+    {
+        var drained = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        UIApplication.SharedApplication.BeginInvokeOnMainThread(() => drained.TrySetResult());
+        await drained.Task;
+        return calls() == 0;
+    }
+
     private static async Task EmptyStartupRefreshAsync(UIWindow window, CancellationToken token)
     {
-        using var hidden = new UIWindow(window.WindowScene!);
+        using var hidden = new UIWindow(
+            window.WindowScene ?? throw new InvalidOperationException("The check window has no scene."));
         await using var presenter = Presenter(hidden, _ => throw new InvalidOperationException("Empty state built a page."));
         await ApplyAsync(presenter, NavigationState.Empty, NavigationState.Empty, token, NavigationPlanKind.Refresh)
             .WaitAsync(TimeSpan.FromSeconds(5), token);
@@ -63,14 +74,21 @@ internal static class PresenterChecks
         NavigationState modalState = Shows("modal-event-root", "event-modal");
         await ApplyAsync(presenter, rootState, NavigationState.Empty, token);
         await ApplyAsync(presenter, modalState, rootState, token);
-        UIPresentationController presentation = modal.PresentationController!;
+        UIPresentationController presentation = modal.PresentationController
+                                                ?? throw new InvalidOperationException("The modal has no presentation.");
         presentation.Delegate.DidAttemptToDismiss(presentation);
         await backStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), token);
         presentation.Delegate.DidAttemptToDismiss(presentation);
 
         await PresentForeignAsync(modal, foreign, token);
+        // An accepted-state refresh with a modal up is a read-only acknowledgment: it neither re-presents the modal nor
+        // installs a new presentation delegate, which any mutating apply would.
+        NativeHandle delegateBefore = presentation.WeakDelegate?.Handle ?? NativeHandle.Zero;
         await ApplyAsync(presenter, modalState, modalState, token, NavigationPlanKind.Refresh);
-        Require(ReferenceEquals(modal.PresentedViewController, foreign), "Refresh removed the modal's alert.");
+        Require(
+            ReferenceEquals(modal.PresentedViewController, foreign)
+            && (presentation.WeakDelegate?.Handle ?? NativeHandle.Zero) == delegateBefore,
+            "Refresh removed the modal's alert, or mutated native instead of acknowledging it.");
         try
         {
             await ApplyAsync(presenter, rootState, modalState, token);
@@ -106,7 +124,8 @@ internal static class PresenterChecks
         NavigationState pushedState = Pushed("failed-pop-root", "failed-pop-page");
         await ApplyAsync(presenter, rootState, NavigationState.Empty, token);
         await ApplyAsync(presenter, pushedState, rootState, token);
-        var stack = (UINavigationController)window.RootViewController!;
+        var stack = window.RootViewController as UINavigationController
+                    ?? throw new InvalidOperationException("The root page has no navigation stack.");
         _ = stack.PopViewController(true);
         Require(ReferenceEquals(await reported.Task.WaitAsync(TimeSpan.FromSeconds(5), token), failure),
             "The failed pop record was not reported.");
@@ -192,6 +211,7 @@ internal static class PresenterChecks
     private static async Task HealthyPresentationAsync(UIWindow window, CancellationToken token)
     {
         int back = 0;
+        bool backOnMain = false;
         var backRequested = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var failures = new List<Exception>();
         var root = new ProbeController();
@@ -219,7 +239,7 @@ internal static class PresenterChecks
             _ =>
             {
                 back++;
-                Require(NSThread.IsMain, "The host's Back request did not run on the main thread.");
+                backOnMain = NSThread.IsMain;
                 backRequested.TrySetResult();
                 return Task.CompletedTask;
             },
@@ -282,6 +302,7 @@ internal static class PresenterChecks
         // The request reaches the host in a later turn of the main run loop, outside any router operation.
         await backRequested.Task.WaitAsync(TimeSpan.FromSeconds(10), token);
         Require(back == 1, "A native dismissal intent did not reach the host's Back request once.");
+        Require(backOnMain, "The host's Back request did not run on the main thread.");
         Require(
             ReferenceEquals(root.PresentedViewController, sheet),
             "A Back intent changed native state without an accepted plan.");
@@ -565,7 +586,7 @@ internal static class PresenterChecks
                 .SequenceEqual(uikitDelegates)
             && navigation.Delegate is not null
             && pushed.NavigationItem.BackAction is null
-            && back == 0
+            && await NoHostCallAsync(() => back)
             && navigation.ViewControllers is { Length: 2 },
             "The pushed page is not under the root page's bar with UIKit's own back button and back-swipes.");
         await PresentForeignAsync(pushed, sdkChild, token);
@@ -732,8 +753,7 @@ internal static class PresenterChecks
         await recorded.Task.WaitAsync(token);
         Require(
             popped is ["pop-pushed"]
-            && back == 0
-            && refreshes == 0
+            && await NoHostCallAsync(() => back + refreshes)
             && failures.Count == 0
             && navigation.ViewControllers is { Length: 1 } shown
             && ReferenceEquals(shown[0], root)

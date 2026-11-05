@@ -16,7 +16,8 @@ internal static class TopologyChecks
         ("topology-refused-before-building", RefusedBeforeBuildingAsync),
         ("topology-owned-modal", OwnedModalAsync),
         ("topology-misplaced-stack", MisplacedStackAsync),
-        ("topology-modal-over-any-entry", OverAnyEntryAsync)
+        ("topology-modal-over-any-entry", OverAnyEntryAsync),
+        ("topology-adapted-popover", AdaptedPopoverAsync)
     ];
 
     private static UIKitNavigationTopology OwningTopology { get; } = Topology.WithOwnedModal(
@@ -146,7 +147,16 @@ internal static class TopologyChecks
             && navigation.ViewControllers is { Length: 2 },
             "The owned modal was not presented over its owner on the stack.");
         await ApplyAsync(presenter, ownedState, ownedState, token, AdamE.AppNav.Plans.NavigationPlanKind.Refresh);
-        await ApplyAsync(presenter, rootState, ownedState, token);
+        // Leaving the modal keeps its owner on the stack; then leaving the owner too.
+        await ApplyAsync(presenter, pushedState, ownedState, token);
+        Require(
+            navigation.PresentedViewController is null
+            && owned is { Retired: true, DetachedAtRetirement: true }
+            && !pushed.Retired
+            && ReferenceEquals(pushed.View?.Window, window)
+            && navigation.ViewControllers is { Length: 2 },
+            "Leaving the owned modal did not keep its owner shown on the stack.");
+        await ApplyAsync(presenter, rootState, pushedState, token);
         Require(
             navigation.PresentedViewController is null
             && owned is { Retired: true, DetachedAtRetirement: true }
@@ -193,7 +203,9 @@ internal static class TopologyChecks
         UIKitNavigationTopology topology = Topology.WithModal(anywhere, UIKitModalPlacement.OverAnyEntry);
         var root = new ProbeController();
         var pushed = new ProbeController();
-        var modal = new ProbeController();
+        // Full screen, so UIKit takes the pushed page out of the window under it, which the stack's verification accepts.
+        var modal = new ProbeController { ModalPresentationStyle = UIModalPresentationStyle.FullScreen };
+        var replacement = new ProbeController();
         await using UIKitNavigationPresenter presenter = Presenter(
             window,
             (entry, _) => ValueTask.FromResult(
@@ -201,6 +213,7 @@ internal static class TopologyChecks
                 {
                     "any-root" => UIKitPage.InNavigationStack(root),
                     "any-pushed" => Page(pushed),
+                    "any-replacement" => Page(replacement),
                     _ => Page(modal)
                 }),
             topology: topology);
@@ -216,6 +229,54 @@ internal static class TopologyChecks
             ReferenceEquals(window.RootViewController?.PresentedViewController, modal)
             && ReferenceEquals(modal.View?.Window, window),
             "A modal declared over any entry was not presented over a pushed page.");
+
+        // The modal's own alert is the modal's, not foreign UI over the pushed page: replacing the pushed page under
+        // them keeps both.
+        using var alert = UIAlertController.Create("Keep?", null, UIAlertControllerStyle.Alert);
+        alert.AddAction(UIAlertAction.Create("Cancel", UIAlertActionStyle.Cancel, null));
+        await PresentForeignAsync(modal, alert, token);
+        await ApplyAsync(
+            presenter,
+            Plan([Entry("any-root"), Entry("any-replacement")], new ModalNode(anywhere, Entry("any-modal"))),
+            Plan([Entry("any-root"), Entry("any-pushed")], new ModalNode(anywhere, Entry("any-modal"))),
+            token);
+        Require(
+            ReferenceEquals(window.RootViewController?.PresentedViewController, modal)
+            && ReferenceEquals(modal.PresentedViewController, alert)
+            && pushed.Retired
+            && (window.RootViewController as UINavigationController)?.ViewControllers is { Length: 2 } replaced
+            && ReferenceEquals(replaced[1], replacement),
+            "Replacing the pushed page under a modal with its own alert refused, or took the modal or its alert down.");
+    }
+
+    // A popover modal in a compact width: UIKit adapts it to a sheet, which keeps the root page in the window, and the
+    // presenter presents and verifies it like any other modal.
+    private static async Task AdaptedPopoverAsync(UIWindow window, CancellationToken token)
+    {
+        var root = new ProbeController();
+        var popover = new ProbeController { ModalPresentationStyle = UIModalPresentationStyle.Popover };
+        await using UIKitNavigationPresenter presenter = Presenter(
+            window,
+            (entry, _) =>
+            {
+                if (entry.Id == "popover-root")
+                    return ValueTask.FromResult(UIKitPage.InNavigationStack(root));
+                UIPopoverPresentationController anchor = popover.PopoverPresentationController
+                                                         ?? throw new InvalidOperationException("No popover controller.");
+                anchor.SourceView = root.View ?? throw new InvalidOperationException("The root page has no view.");
+                anchor.SourceRect = new CoreGraphics.CGRect(0, 0, 1, 1);
+                return ValueTask.FromResult(Page(popover));
+            });
+        Require(
+            window.TraitCollection.HorizontalSizeClass == UIUserInterfaceSizeClass.Compact,
+            "This check needs a compact-width simulator, where a popover adapts.");
+        NavigationState rootState = Shows("popover-root");
+        await ApplyAsync(presenter, rootState, NavigationState.Empty, token);
+        await ApplyAsync(presenter, Shows("popover-root", "popover"), rootState, token);
+        Require(
+            ReferenceEquals(window.RootViewController?.PresentedViewController, popover)
+            && ReferenceEquals(popover.View?.Window, window),
+            "An adapted popover was not presented and verified.");
     }
 
     private static RouteEntry Entry(string id, string? owner = null) =>

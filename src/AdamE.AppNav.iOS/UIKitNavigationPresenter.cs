@@ -16,8 +16,8 @@ namespace AdamE.AppNav.iOS;
 /// <para>
 /// AppNav alone owns history. UIKit owns the stack's back button and back-swipes: a pop UIKit commits is a fact the
 /// presenter reports through <see cref="IUIKitNavigationHost.RecordNativePopAsync"/>, never a request to refuse. A
-/// modal's swipe-down is refused and becomes a Back request through <see cref="IUIKitNavigationHost.RequestBackAsync"/>,
-/// so the router's Back policy decides.
+/// modal's swipe-down is refused and becomes a Back request for that modal through
+/// <see cref="IUIKitNavigationHost.RequestModalBackAsync"/>, so the router's Back policy decides.
 /// </para>
 /// <para>
 /// Each operation resolves the plan into pages, changes native state, waits for a displayed frame and verifies the
@@ -468,7 +468,7 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
                         if (SharesController(candidate, unsafeOwners))
                             continue;
                         if (SharesController(candidate, owners))
-                            ReleaseOnly(candidate);
+                            ReleaseOnly(candidate, OwnStack(candidate, owners));
                         else
                             Retire(candidate);
                     }
@@ -503,10 +503,26 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
                                || ReferenceEquals(other.OriginalContent, page.Controller)
                                || ReferenceEquals(other.Controller, page.OriginalContent)));
 
-    private void ReleaseOnly(PresentedPage page)
+    // A root page whose content another page shows still brought its own navigation controller, which nobody else
+    // holds: that one is this page's to dispose.
+    private static UINavigationController? OwnStack(PresentedPage page, IEnumerable<PresentedPage?> others) =>
+        page.Stack is { } stack && !others.Any(other => other is not null
+                                                       && (ReferenceEquals(other.Controller, stack)
+                                                           || ReferenceEquals(other.OriginalContent, stack)))
+            ? stack
+            : null;
+
+    private void ReleaseOnly(PresentedPage page, UINavigationController? ownStack = null)
     {
         try
         {
+            if (ownStack is not null)
+            {
+                // Empty it first, so disposing it never disposes the content another page still shows.
+                ownStack.SetViewControllers([], false);
+                ownStack.Dispose();
+            }
+
             page.ReleaseLoan();
         }
         catch (Exception failure)
@@ -664,7 +680,7 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
                 throw new InvalidOperationException(
                     $"The placeholder for entry '{entry.Id}' has its own delegate: the presenter is that delegate.");
         }
-        catch (InvalidOperationException misuse)
+        catch (InvalidOperationException misuse) when (misuse is not ObjectDisposedException)
         {
             return new PresentedPage(blank, null, null, null, null, default, owner, false, placeholder: true)
             {
@@ -993,8 +1009,9 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
             throw new InvalidOperationException("The native stack differs from AppNav's accepted target.");
     }
 
-    // A modal presented by the root may take the pages under it out of the window: one whose presentation, as UIKit
-    // adapted it, removes the presenter's view (full screen, say), or one presented over the entry that owns it.
+    // A modal presented by the root may take the pages under it out of the window: one whose presentation removes the
+    // presenter's view (full screen, say), or one presented over the entry that owns it. A popover in a compact width
+    // adapts to a sheet, which keeps the presenter's view, since the presenter's own delegate asks for no other style.
     private bool ModalCoversStack(Surface target) =>
         target is { Modal: { } modal }
         && (modal.Controller.PresentationController?.ShouldRemovePresentersView == true
@@ -1171,7 +1188,7 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
     // A host callback runs on the main thread, in a later turn of its run loop, with no execution context from the
     // operation that reported it: the router's operation context flows through every await inside ApplyAsync, and a
     // host that calls the router from it would be refused as a reentrant operation, losing a pop or a repair.
-    private static Task DetachedAsync(Func<Task> callback)
+    private Task DetachedAsync(Func<Task> callback)
     {
         var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using (ExecutionContext.SuppressFlow())
@@ -1181,6 +1198,13 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
             {
                 try
                 {
+                    // Disposal may have begun since the event was posted: a host is never called after it.
+                    if (Volatile.Read(ref _disposed) != 0)
+                    {
+                        _ = done.TrySetCanceled(_shutdown.Token);
+                        return;
+                    }
+
                     await callback();
                     _ = done.TrySetResult();
                 }
@@ -1255,8 +1279,10 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
         _shownModal = null;
     }
 
+    // What a page presented itself: the chain up to the route modal. The route modal, and whatever it presents in turn
+    // (its own alert, say), are the modal's.
     private UIViewController[] ForeignChildren(UIViewController original) =>
-        [.. PresentedChildren(original).Where(child => !ReferenceEquals(child, _shownModal))];
+        [.. PresentedChildren(original).TakeWhile(child => !ReferenceEquals(child, _shownModal))];
 
     private static UIViewController[] PresentedChildren(UIViewController original)
     {

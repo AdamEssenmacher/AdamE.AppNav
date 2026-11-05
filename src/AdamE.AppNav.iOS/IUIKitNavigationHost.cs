@@ -18,12 +18,15 @@ namespace AdamE.AppNav.iOS;
 public interface IUIKitNavigationHost
 {
     /// <summary>
-    /// The person tried to dismiss a modal by swiping it down. The presenter refused the dismissal; this is a Back
-    /// request, which the router's Back policy may refuse too.
+    /// A Back request for the window, which the router's Back policy may refuse. The presenter itself calls
+    /// <see cref="RequestModalBackAsync"/>; this is what that member's default implementation forwards to.
     /// </summary>
     Task RequestBackAsync(CancellationToken cancellationToken);
 
-    /// <summary>Requests Back for the modal entry that raised the dismissal attempt.</summary>
+    /// <summary>
+    /// The person tried to dismiss the modal entry <paramref name="entryId"/> by swiping it down. The presenter refused
+    /// the dismissal; this is a Back request for that modal, which the router's Back policy may refuse too.
+    /// </summary>
     /// <remarks>A host that queues this request should check the entry when it admits the request. The default
     /// implementation forwards to <see cref="RequestBackAsync"/> for hosts that handle their own admission.</remarks>
     Task RequestModalBackAsync(string entryId, CancellationToken cancellationToken) => RequestBackAsync(cancellationToken);
