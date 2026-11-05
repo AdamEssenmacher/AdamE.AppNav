@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using AdamE.AppNav.Back;
 using AdamE.AppNav.Diagnostics;
 using AdamE.AppNav.History;
@@ -93,8 +94,8 @@ public sealed class MauiExternalNavigationDispatcherTests
                 originalUri: qrUri,
                 correlationId: "scan-789"));
         var diagnostics = new NavigationDiagnostics();
-        var events = new List<NavigationDiagnosticEvent>();
-        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+        var events = new ConcurrentQueue<NavigationDiagnosticEvent>();
+        diagnostics.EventWritten += (_, diagnosticEvent) => events.Enqueue(diagnosticEvent);
         var navigator = new RecordingRouterNavigator();
         var services = new ServiceCollection();
         services.AddSingleton(diagnostics);
@@ -303,8 +304,8 @@ public sealed class MauiExternalNavigationDispatcherTests
         var second = RouterNavigationRequest.FromRoute(new TestRoute("second"), NavigationRequestSource.AppLink);
         var third = RouterNavigationRequest.FromRoute(new TestRoute("third"), NavigationRequestSource.AppLink);
         var diagnostics = new NavigationDiagnostics();
-        var events = new List<NavigationDiagnosticEvent>();
-        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+        var events = new ConcurrentQueue<NavigationDiagnosticEvent>();
+        diagnostics.EventWritten += (_, diagnosticEvent) => events.Enqueue(diagnosticEvent);
         var options = new MauiExternalNavigationOptions { MaximumPendingRequests = 2 };
         var navigator = new RecordingRouterNavigator();
         using ServiceProvider provider = CreateDispatcherProvider(navigator, diagnostics, options);
@@ -335,8 +336,8 @@ public sealed class MauiExternalNavigationDispatcherTests
         var firstStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var diagnostics = new NavigationDiagnostics();
-        var events = new List<NavigationDiagnosticEvent>();
-        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+        var events = new ConcurrentQueue<NavigationDiagnosticEvent>();
+        diagnostics.EventWritten += (_, diagnosticEvent) => events.Enqueue(diagnosticEvent);
         var navigator = new RecordingRouterNavigator(async (request, cancellationToken) =>
         {
             if (Equals(request, first))
@@ -410,8 +411,8 @@ public sealed class MauiExternalNavigationDispatcherTests
         Assert.True(MauiExternalNavigationBridge.Submit(third, options));
 
         var diagnostics = new NavigationDiagnostics();
-        var events = new List<NavigationDiagnosticEvent>();
-        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+        var events = new ConcurrentQueue<NavigationDiagnosticEvent>();
+        diagnostics.EventWritten += (_, diagnosticEvent) => events.Enqueue(diagnosticEvent);
         var navigator = new RecordingRouterNavigator();
         using ServiceProvider provider = CreateDispatcherProvider(navigator, diagnostics, options);
         var dispatcher = provider.GetRequiredService<MauiExternalNavigationDispatcher>();
@@ -439,8 +440,8 @@ public sealed class MauiExternalNavigationDispatcherTests
         var runtimeOptions = new MauiExternalNavigationOptions()
             .AllowOrigin(new Uri("https://runtime.example"));
         var diagnostics = new NavigationDiagnostics();
-        var events = new List<NavigationDiagnosticEvent>();
-        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+        var events = new ConcurrentQueue<NavigationDiagnosticEvent>();
+        diagnostics.EventWritten += (_, diagnosticEvent) => events.Enqueue(diagnosticEvent);
         var navigator = new RecordingRouterNavigator();
         using ServiceProvider provider = CreateDispatcherProvider(navigator, diagnostics, runtimeOptions);
         var dispatcher = provider.GetRequiredService<MauiExternalNavigationDispatcher>();
@@ -472,8 +473,8 @@ public sealed class MauiExternalNavigationDispatcherTests
         Assert.False(MauiExternalNavigationBridge.Submit(rejected, options));
 
         var diagnostics = new NavigationDiagnostics();
-        var events = new List<NavigationDiagnosticEvent>();
-        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+        var events = new ConcurrentQueue<NavigationDiagnosticEvent>();
+        diagnostics.EventWritten += (_, diagnosticEvent) => events.Enqueue(diagnosticEvent);
         using ServiceProvider provider = CreateDispatcherProvider(
             new RecordingRouterNavigator(),
             diagnostics,
@@ -587,8 +588,8 @@ public sealed class MauiExternalNavigationDispatcherTests
         var firstCancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var firstAttempts = 0;
         var diagnostics = new NavigationDiagnostics();
-        var events = new List<NavigationDiagnosticEvent>();
-        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+        var events = new ConcurrentQueue<NavigationDiagnosticEvent>();
+        diagnostics.EventWritten += (_, diagnosticEvent) => events.Enqueue(diagnosticEvent);
         var navigator = new RecordingRouterNavigator((request, cancellationToken) =>
         {
             if (!Equals(request, first) || ++firstAttempts > 1)
@@ -615,6 +616,10 @@ public sealed class MauiExternalNavigationDispatcherTests
 
         Assert.Equal([first, first, third], navigator.Calls);
         Assert.False(dispatcher.HasPendingRequests);
+        // The dispatcher writes the overflow after releasing its lock, on the thread that saw the cancellation, so the
+        // requeued requests can already have been dispatched on another thread when it lands.
+        await WaitUntilAsync(() => events.Any(diagnosticEvent =>
+            diagnosticEvent.Kind == NavigationDiagnosticEventKind.ExternalNavigationOverflowed));
         NavigationDiagnosticEvent overflow = Assert.Single(events, diagnosticEvent =>
             diagnosticEvent.Kind == NavigationDiagnosticEventKind.ExternalNavigationOverflowed);
         Assert.Equal("PendingLimit", overflow.Data[NavigationDiagnosticDataKeys.ExternalNavigationReason]);
@@ -624,8 +629,8 @@ public sealed class MauiExternalNavigationDispatcherTests
     public void ExpiredRequest_IsRejectedBeforeQueueing()
     {
         var diagnostics = new NavigationDiagnostics();
-        var events = new List<NavigationDiagnosticEvent>();
-        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+        var events = new ConcurrentQueue<NavigationDiagnosticEvent>();
+        diagnostics.EventWritten += (_, diagnosticEvent) => events.Enqueue(diagnosticEvent);
         var options = new MauiExternalNavigationOptions { MaximumRequestAge = TimeSpan.FromMinutes(1) };
         using ServiceProvider provider = CreateDispatcherProvider(
             new RecordingRouterNavigator(),
@@ -768,8 +773,8 @@ public sealed class MauiExternalNavigationDispatcherTests
         var navigationStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var navigationCancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var diagnostics = new NavigationDiagnostics();
-        var events = new List<NavigationDiagnosticEvent>();
-        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+        var events = new ConcurrentQueue<NavigationDiagnosticEvent>();
+        diagnostics.EventWritten += (_, diagnosticEvent) => events.Enqueue(diagnosticEvent);
         var navigator = new RecordingRouterNavigator((_, cancellationToken) =>
         {
             navigationStarted.TrySetResult();

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using AdamE.AppNav.Maui.AppLinks;
 using AdamE.AppNav.Requests;
 using AdamE.AppNav.Diagnostics;
@@ -98,8 +99,8 @@ public sealed class MauiAppLinkRequestFactoryTests
     public void OversizedLifecycleValueIsRejectedBeforeUriParsingOrApplicationFiltering()
     {
         var diagnostics = new NavigationDiagnostics();
-        var events = new List<NavigationDiagnosticEvent>();
-        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+        var events = new ConcurrentQueue<NavigationDiagnosticEvent>();
+        diagnostics.EventWritten += (_, diagnosticEvent) => events.Enqueue(diagnosticEvent);
         int filterCalls = 0;
         var options = new MauiExternalNavigationOptions
         {
@@ -137,8 +138,8 @@ public sealed class MauiAppLinkRequestFactoryTests
     public void RelativeLifecycleValueProducesOnlyStructuralRejectionDiagnostics()
     {
         var diagnostics = new NavigationDiagnostics();
-        var events = new List<NavigationDiagnosticEvent>();
-        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+        var events = new ConcurrentQueue<NavigationDiagnosticEvent>();
+        diagnostics.EventWritten += (_, diagnosticEvent) => events.Enqueue(diagnosticEvent);
         var options = new MauiExternalNavigationOptions();
         options.AllowOrigin(new Uri("https://example.com"));
         using var provider = CreateAppLinkDispatcherProvider(options, diagnostics);
@@ -178,8 +179,8 @@ public sealed class MauiAppLinkRequestFactoryTests
     {
         using var intent = CreateAndroidIntent("https://example.com/stores/northwind");
         var diagnostics = new NavigationDiagnostics();
-        var events = new List<NavigationDiagnosticEvent>();
-        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+        var events = new ConcurrentQueue<NavigationDiagnosticEvent>();
+        diagnostics.EventWritten += (_, diagnosticEvent) => events.Enqueue(diagnosticEvent);
         var options = new MauiExternalNavigationOptions();
         options.AllowOrigin(new Uri("https://example.com"));
         using var provider = CreateAppLinkDispatcherProvider(options, diagnostics);
@@ -238,8 +239,8 @@ public sealed class MauiAppLinkRequestFactoryTests
     {
         using var intent = CreateAndroidIntent(incoming);
         var diagnostics = new NavigationDiagnostics();
-        var events = new List<NavigationDiagnosticEvent>();
-        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+        var events = new ConcurrentQueue<NavigationDiagnosticEvent>();
+        diagnostics.EventWritten += (_, diagnosticEvent) => events.Enqueue(diagnosticEvent);
         var options = new MauiExternalNavigationOptions
         {
             MaximumUriLength = maximumUriLength

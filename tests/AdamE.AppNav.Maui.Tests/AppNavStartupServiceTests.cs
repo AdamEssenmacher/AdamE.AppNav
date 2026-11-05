@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Reflection;
 using System.Text.Json;
 using AdamE.AppNav.Back;
@@ -618,8 +619,8 @@ public sealed class AppNavStartupServiceTests
     public async Task StartAsync_DeferredRequestsPending_WritesDiagnosticAndRunsFallback()
     {
         var diagnostics = new NavigationDiagnostics();
-        var events = new List<NavigationDiagnosticEvent>();
-        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+        var events = new ConcurrentQueue<NavigationDiagnosticEvent>();
+        diagnostics.EventWritten += (_, diagnosticEvent) => events.Enqueue(diagnosticEvent);
         var navigator = new RecordingRouterNavigator();
         var deferredStore = new RecordingDeferredRequestStore { HasDeferredRequestsResult = true };
         using var services = new ServiceCollection()
@@ -764,8 +765,8 @@ public sealed class AppNavStartupServiceTests
     public async Task StartAsync_UnexpectedCustomStoreFailureIsNonDestructiveAndFailsStartup()
     {
         var diagnostics = new NavigationDiagnostics();
-        var events = new List<NavigationDiagnosticEvent>();
-        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+        var events = new ConcurrentQueue<NavigationDiagnosticEvent>();
+        diagnostics.EventWritten += (_, diagnosticEvent) => events.Enqueue(diagnosticEvent);
         var navigator = new RecordingRouterNavigator();
         var deferredStore = new RecordingDeferredRequestStore
         {
@@ -814,8 +815,8 @@ public sealed class AppNavStartupServiceTests
     public async Task StartAsync_InvalidFileDeferredRequestStore_QuarantinesAndRunsFallback()
     {
         var diagnostics = new NavigationDiagnostics();
-        var events = new List<NavigationDiagnosticEvent>();
-        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+        var events = new ConcurrentQueue<NavigationDiagnosticEvent>();
+        diagnostics.EventWritten += (_, diagnosticEvent) => events.Enqueue(diagnosticEvent);
         var navigator = new RecordingRouterNavigator();
         var routes = RouteTable.Create(builder => builder.MapRoute<TestRoute>("/stores/{id}"));
         var directory = CreateStoreDirectory();
