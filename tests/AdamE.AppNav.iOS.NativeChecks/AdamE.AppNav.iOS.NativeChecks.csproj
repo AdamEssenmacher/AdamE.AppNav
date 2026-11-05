@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Native checks of the UIKit presenter, in a plain UIKit app on a simulator: eng/run-ios-native-checks.sh. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-ios</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- The checks read iOS 16+ API; the package itself supports iOS 15. -->
+    <SupportedOSPlatformVersion>17.0</SupportedOSPlatformVersion>
+    <ApplicationTitle>AppNav iOS checks</ApplicationTitle>
+    <ApplicationId>com.adame.appnav.ios.nativechecks</ApplicationId>
+    <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+    <ApplicationVersion>1</ApplicationVersion>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">iossimulator-arm64</RuntimeIdentifier>
+    <ValidateXcodeVersion>false</ValidateXcodeVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AdamE.AppNav.iOS\AdamE.AppNav.iOS.csproj" />
+  </ItemGroup>
+
+</Project>

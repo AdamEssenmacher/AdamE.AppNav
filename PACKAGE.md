@@ -14,9 +14,11 @@ identity.
 | --- | --- |
 | `AdamE.AppNav` | Routes, matching, policy, planning, state, history, diagnostics, and orchestration |
 | `AdamE.AppNav.Maui` | MAUI page mapping, native presentation, lifecycle ingress, startup, and file-backed deferred navigation |
+| `AdamE.AppNav.iOS` | UIKit presentation of one window: a root page, a page pushed over it, and declared modals, with entry leases |
 
 `AdamE.AppNav` targets plain `net10.0`. The MAUI package supports Android 28+,
-iOS 15+, and Mac Catalyst 17+ in this preview.
+iOS 15+, and Mac Catalyst 17+ in this preview. The UIKit package supports iOS 15+
+and does not use MAUI.
 
 The preview does not support Windows MAUI, `Microsoft.Maui.Controls.Shell`,
 Shell routing, Prism navigation, mixed ownership of one navigation surface,

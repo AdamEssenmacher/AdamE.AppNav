@@ -57,6 +57,7 @@ path is ready; this preview does not publish to NuGet.org.
 | --- | --- |
 | `AdamE.AppNav` | Routes, matching, policy, planning, state, history, diagnostics, orchestration |
 | `AdamE.AppNav.Maui` | MAUI pages, native presentation, lifecycle ingress, startup, file persistence |
+| `AdamE.AppNav.iOS` | UIKit presentation for .NET iOS apps without MAUI: see [UIKit integration](docs/guides/08-uikit-integration.md) |
 
 Referencing `AdamE.AppNav.Maui` brings both source generators transitively: the
 core route generator and the MAUI page generator.

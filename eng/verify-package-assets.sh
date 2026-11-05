@@ -15,6 +15,8 @@ core_candidates=("${package_directory}"/AdamE.AppNav.[0-9]*.nupkg)
 maui_candidates=("${package_directory}"/AdamE.AppNav.Maui.[0-9]*.nupkg)
 core_symbol_candidates=("${package_directory}"/AdamE.AppNav.[0-9]*.snupkg)
 maui_symbol_candidates=("${package_directory}"/AdamE.AppNav.Maui.[0-9]*.snupkg)
+ios_candidates=("${package_directory}"/AdamE.AppNav.iOS.[0-9]*.nupkg)
+ios_symbol_candidates=("${package_directory}"/AdamE.AppNav.iOS.[0-9]*.snupkg)
 
 if [[ ${#core_candidates[@]} -ne 1 ]]; then
   echo "Expected exactly one AdamE.AppNav package in ${package_directory}." >&2
@@ -36,7 +38,15 @@ if [[ ${#maui_symbol_candidates[@]} -ne 1 ]]; then
   exit 1
 fi
 
+if [[ ${#ios_candidates[@]} -ne 1 || ${#ios_symbol_candidates[@]} -ne 1 ]]; then
+  echo "Expected exactly one AdamE.AppNav.iOS package and symbol package in ${package_directory}." >&2
+  exit 1
+fi
+
 core_entries="$(unzip -Z1 "${core_candidates[0]}")"
+ios_entries="$(unzip -Z1 "${ios_candidates[0]}")"
+ios_symbol_entries="$(unzip -Z1 "${ios_symbol_candidates[0]}")"
+ios_nuspec="$(unzip -p "${ios_candidates[0]}" AdamE.AppNav.iOS.nuspec)"
 maui_entries="$(unzip -Z1 "${maui_candidates[0]}")"
 core_symbol_entries="$(unzip -Z1 "${core_symbol_candidates[0]}")"
 maui_symbol_entries="$(unzip -Z1 "${maui_symbol_candidates[0]}")"
@@ -126,6 +136,16 @@ require_asset "${maui_symbol_entries}" '^lib/net10\.0-ios[^/]*/AdamE\.AppNav\.Ma
 require_asset "${maui_symbol_entries}" '^lib/net10\.0-maccatalyst[^/]*/AdamE\.AppNav\.Maui\.pdb$' 'the MAUI Mac Catalyst portable PDB'
 require_asset "${maui_nuspec}" '<group targetFramework="net10\.0">' 'the MAUI net10.0 dependency group'
 require_asset "${maui_nuspec}" '<dependency id="Microsoft\.Maui\.Controls" version="10\.0\.90"' 'the MAUI SR9 dependency for net10.0 assets'
+require_asset "${ios_entries}" '^lib/net10\.0-ios[^/]*/AdamE\.AppNav\.iOS\.dll$' 'the UIKit adapter iOS assembly'
+reject_asset "${ios_entries}" '^lib/net10\.0/' 'a platform-neutral UIKit adapter assembly'
+reject_asset "${ios_entries}" '^analyzers/' 'a source generator in the UIKit adapter'
+require_asset "${ios_symbol_entries}" '^lib/net10\.0-ios[^/]*/AdamE\.AppNav\.iOS\.pdb$' 'the UIKit adapter portable PDB'
+ios_core_dependency="<dependency id=\"AdamE\.AppNav\" version=\"${expected_package_version//./\\.}\""
+require_asset "${ios_nuspec}" "${ios_core_dependency}" 'the UIKit adapter dependency on the same AppNav core version'
+if grep -Eq '<dependency id="Microsoft\.Maui' <<<"${ios_nuspec}"; then
+  echo 'The UIKit adapter package unexpectedly depends on MAUI.' >&2
+  exit 1
+fi
 require_asset "${core_nuspec}" '<repository type="git" url="https://github\.com/AdamEssenmacher/AdamE\.AppNav\.git"' 'the AppNav repository metadata'
 if [[ "${AppNavStableRelease:-false}" == "true" ]]; then
   require_asset "${core_nuspec}" '<version>[0-9]+\.[0-9]+\.[0-9]+</version>' 'a semantic package version'
@@ -150,5 +170,11 @@ verify_symbol_archive \
   '^lib/net10\.0(-android[^/]*|-ios[^/]*|-maccatalyst[^/]*)?/AdamE\.AppNav\.Maui\.pdb$' \
   'MauiNavigationPresenter.cs' \
   'MAUI'
+verify_symbol_archive \
+  "${ios_symbol_candidates[0]}" \
+  "${ios_symbol_entries}" \
+  '^lib/net10\.0-ios[^/]*/AdamE\.AppNav\.iOS\.pdb$' \
+  'UIKitNavigationPresenter.cs' \
+  'UIKit adapter'
 
 echo 'Package assets match the supported .NET 10 public-preview contract.'

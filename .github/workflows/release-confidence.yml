@@ -173,6 +173,36 @@ jobs:
           name: ios-device-runners-artifacts
           path: artifacts/device-runners
 
+  ios-uikit-native-checks:
+    name: iOS UIKit adapter native checks
+    runs-on: xcode-27
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' &&
+       (inputs.run-ios-platform-tests || inputs.release_tag != ''))
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - run: dotnet workload install ios
+      # A simulator of this run's own, so the checks never install over one another run or person is using.
+      - name: Create this run's simulator
+        id: simulator
+        run: |
+          udid="$(xcrun simctl create "AppNav UIKit checks ${{ github.run_id }}" "iPhone 16 Pro")"
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$udid"
+          xcrun simctl bootstatus "$udid" -b
+      - run: eng/run-ios-native-checks.sh
+        env:
+          IOS_DEVICE: ${{ steps.simulator.outputs.udid }}
+      - name: Delete this run's simulator
+        if: always() && steps.simulator.outputs.udid != ''
+        run: xcrun simctl delete "${{ steps.simulator.outputs.udid }}"
+
   android-platform-tests:
     name: Android API 36 compatibility (API 37 intervention required)
     runs-on: macos-26-intel
