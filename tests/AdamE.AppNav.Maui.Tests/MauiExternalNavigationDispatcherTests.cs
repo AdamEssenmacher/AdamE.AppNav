@@ -451,7 +451,8 @@ public sealed class MauiExternalNavigationDispatcherTests
         await Task.Delay(100);
 
         Assert.Empty(navigator.Calls);
-        Assert.False(dispatcher.HasPendingRequests);
+        // The last call is recorded before the dispatcher clears its in-flight request, on the drain's thread.
+        await WaitUntilAsync(() => !dispatcher.HasPendingRequests);
         NavigationDiagnosticEvent rejected = Assert.Single(events, diagnosticEvent =>
             diagnosticEvent.Kind == NavigationDiagnosticEventKind.ExternalNavigationRejected);
         Assert.Equal("OriginNotAllowed", rejected.Data[NavigationDiagnosticDataKeys.ExternalNavigationReason]);
@@ -514,7 +515,8 @@ public sealed class MauiExternalNavigationDispatcherTests
         await WaitUntilAsync(() => navigator.Calls.Count == 2);
 
         Assert.Equal([poison, healthy], navigator.Calls);
-        Assert.False(dispatcher.HasPendingRequests);
+        // The last call is recorded before the dispatcher clears its in-flight request, on the drain's thread.
+        await WaitUntilAsync(() => !dispatcher.HasPendingRequests);
     }
 
     [Fact]
@@ -575,7 +577,8 @@ public sealed class MauiExternalNavigationDispatcherTests
         await WaitUntilAsync(() => navigator.Calls.Count == 2);
 
         Assert.Equal(2, attempts);
-        Assert.False(dispatcher.HasPendingRequests);
+        // The last call is recorded before the dispatcher clears its in-flight request, on the drain's thread.
+        await WaitUntilAsync(() => !dispatcher.HasPendingRequests);
     }
 
     [Fact]
@@ -615,7 +618,8 @@ public sealed class MauiExternalNavigationDispatcherTests
         await WaitUntilAsync(() => navigator.Calls.Count == 3);
 
         Assert.Equal([first, first, third], navigator.Calls);
-        Assert.False(dispatcher.HasPendingRequests);
+        // The last call is recorded before the dispatcher clears its in-flight request, on the drain's thread.
+        await WaitUntilAsync(() => !dispatcher.HasPendingRequests);
         // The dispatcher writes the overflow after releasing its lock, on the thread that saw the cancellation, so the
         // requeued requests can already have been dispatched on another thread when it lands.
         await WaitUntilAsync(() => events.Any(diagnosticEvent =>
@@ -999,7 +1003,18 @@ public sealed class MauiExternalNavigationDispatcherTests
                 NavigationState.Empty,
                 Presented: true)));
 
-        public List<RouterNavigationRequest> Calls { get; } = [];
+        private readonly Lock _gate = new();
+        private readonly List<RouterNavigationRequest> _calls = [];
+
+        // Calls are recorded on the dispatcher's drain threads and read from the test's: a locked list, read as a copy.
+        public IReadOnlyList<RouterNavigationRequest> Calls
+        {
+            get
+            {
+                lock (_gate)
+                    return [.. _calls];
+            }
+        }
 
         public NavigationState CurrentState => NavigationState.Empty;
 
@@ -1009,7 +1024,8 @@ public sealed class MauiExternalNavigationDispatcherTests
             RouterNavigationRequest request,
             CancellationToken cancellationToken = default)
         {
-            Calls.Add(request);
+            lock (_gate)
+                _calls.Add(request);
             return _navigate(request, cancellationToken);
         }
 
