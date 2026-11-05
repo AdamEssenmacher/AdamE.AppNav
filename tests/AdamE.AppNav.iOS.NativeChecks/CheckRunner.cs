@@ -2,7 +2,7 @@ namespace AdamE.AppNav.iOS.NativeChecks;
 
 internal static class CheckRunner
 {
-    private static readonly TimeSpan Deadline = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan Deadline = TimeSpan.FromMinutes(4);
 
     public static async Task RunAsync(UIWindow window)
     {
@@ -22,6 +22,7 @@ internal static class CheckRunner
         {
             foreach ((string name, Func<UIWindow, CancellationToken, Task> check) in TopologyChecks.All
                          .Concat(PresenterChecks.All)
+                         .Concat(PageChecks.All)
                          .Concat(LeaseChecks.All))
             {
                 current = name;

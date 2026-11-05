@@ -5,7 +5,9 @@ namespace AdamE.AppNav.iOS;
 /// <summary>
 /// The navigation shape one <see cref="UIKitNavigationPresenter"/> presents, declared by the structural IDs the
 /// application's planner uses. The presenter checks every plan against it before it builds or changes anything, and
-/// rejects a plan of any other shape with <see cref="NotSupportedException"/>.
+/// rejects a plan of any other shape with <see cref="NotSupportedException"/>. A pushed entry also needs a root page
+/// that is a navigation stack, which only its page says: a push over a root page that is not one fails with
+/// <see cref="InvalidOperationException"/> once that page is built, before native changes.
 /// </summary>
 /// <remarks>
 /// <para>

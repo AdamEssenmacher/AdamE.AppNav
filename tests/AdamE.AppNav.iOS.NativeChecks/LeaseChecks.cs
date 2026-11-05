@@ -20,7 +20,8 @@ internal static class LeaseChecks
     [
         ("lease-release-order", ReleaseOrderAsync),
         ("lease-retired-during-build", RetiredDuringBuildAsync),
-        ("router-host", RouterHostAsync)
+        ("router-host", RouterHostAsync),
+        ("lease-custom-placeholder", CustomPlaceholderAsync)
     ];
 
     private static async Task ReleaseOrderAsync(UIWindow window, CancellationToken token)
@@ -192,6 +193,8 @@ internal static class LeaseChecks
             pushed ? new PushedPlanner(rootId) : new OneRootPlanner(static _ => { }),
             presenter,
             new RouterNavigatorFactoryOptions { EntryLeases = leases });
+        // The root entry is leased too, as every entry is under a registry; nothing borrows from it here.
+        RouteEntryLease? rootLease = pushed ? leases.Open(rootId) : null;
         try
         {
             try
@@ -204,6 +207,7 @@ internal static class LeaseChecks
             finally
             {
                 lease.Close();
+                rootLease?.Close();
             }
 
             UIViewController shown = Shown() ?? throw new InvalidOperationException("The leased page was not shown.");
@@ -271,8 +275,10 @@ internal static class LeaseChecks
         }
     }
 
-    // The router-backed host: a modal's swipe-down is the router's Back, and a pop UIKit commits is recorded as a
-    // reconciliation that shortens the stack, which retires the popped entry's lease.
+    // The router-backed host: a pop UIKit commits is recorded as a reconciliation that shortens the stack, which retires
+    // the popped entry's lease. Once on its own, and once crossing a refresh the app started on the main thread: the
+    // presenter then reports the pop as that refresh ends, and the record must not run inside the refresh's router
+    // operation, which AppNav refuses as reentrant.
     private static async Task RouterHostAsync(UIWindow window, CancellationToken token)
     {
         var host = new MainThreadLeaseHost();
@@ -284,11 +290,13 @@ internal static class LeaseChecks
             Topology,
             survived.Add);
         var rootContent = new UIViewController();
-        var pushed = new UIViewController();
+        var pushedPages = new Dictionary<string, UIViewController>(StringComparer.Ordinal);
         var presenter = new UIKitNavigationPresenter(
             window,
             Topology,
-            new EntryPages(entry => entry.Id == "host-root" ? UIKitPage.InNavigationStack(rootContent) : new UIKitPage(pushed)),
+            new EntryPages(entry => entry.Id == "host-root"
+                ? UIKitPage.InNavigationStack(rootContent)
+                : new UIKitPage(pushedPages[entry.Id] = new UIViewController())),
             navigationHost,
             new UIKitNavigationPresenterOptions { EntryLeases = leases });
         router = RouterNavigatorFactory.Create(
@@ -296,34 +304,61 @@ internal static class LeaseChecks
             new PushedPlanner("host-root"),
             presenter,
             new RouterNavigatorFactoryOptions { EntryLeases = leases });
+        // The root entry is leased too, as every entry is under a registry; nothing borrows from it here.
+        RouteEntryLease rootLease = leases.Open("host-root");
         try
         {
-            RouteEntryLease lease = leases.Open("host-pushed");
-            try
+            foreach (bool crossing in new[] { false, true })
             {
-                _ = await router.NavigateAsync(
-                    RouterNavigationRequest.FromRoute(new LeaseRoute("host-pushed"), NavigationRequestSource.Test),
-                    lease,
-                    token);
-            }
-            finally
-            {
-                lease.Close();
-            }
+                string id = crossing ? "host-crossed" : "host-pushed";
+                RouteEntryLease lease = leases.Open(id);
+                try
+                {
+                    _ = await router.NavigateAsync(
+                        RouterNavigationRequest.FromRoute(new LeaseRoute(id), NavigationRequestSource.Test),
+                        lease,
+                        token);
+                }
+                finally
+                {
+                    lease.Close();
+                    rootLease.Close();
+                }
 
-            var navigation = window.RootViewController as UINavigationController
-                             ?? throw new InvalidOperationException("The root page has no navigation stack.");
-            Require(
-                navigation.ViewControllers is { Length: 2 } && ReferenceEquals(pushed.View?.Window, window),
-                "The router did not push the page over the root page.");
-            _ = navigation.PopViewController(true);
-            await lease.Released.WaitAsync(Soon, token);
-            Require(
-                lease.Retirement == RouteEntryLeaseRetirement.Dropped
-                && router.CurrentState.ActiveWindow?.Root is StackNode { Entries: [{ Id: "host-root" }] }
-                && navigation.ViewControllers is { Length: 1 }
-                && pushed.Handle == NativeHandle.Zero,
-                "A pop UIKit committed was not recorded as the router's state without the popped entry.");
+                var navigation = window.RootViewController as UINavigationController
+                                 ?? throw new InvalidOperationException("The root page has no navigation stack.");
+                UIViewController pushed = pushedPages[id];
+                Require(
+                    navigation.ViewControllers is { Length: 2 } && ReferenceEquals(pushed.View?.Window, window),
+                    "The router did not push the page over the root page.");
+                _ = navigation.PopViewController(true);
+                Task refresh = Task.CompletedTask;
+                if (crossing)
+                {
+                    // The pop is still animating: the refresh waits for it, stands aside for it, and reports it.
+                    Require(
+                        navigation.GetTransitionCoordinator() is not null,
+                        "An animated pop had no transition in flight.");
+                    refresh = router.RefreshPresentationAsync(token).AsTask();
+                }
+
+                try
+                {
+                    await refresh.WaitAsync(Soon, token);
+                }
+                // The record retires the refreshed entry; the refresh then reads as obsolete.
+                catch (OperationCanceledException) when (lease.IsRetired) { }
+
+                await lease.Released.WaitAsync(Soon, token);
+                Require(
+                    lease.Retirement == RouteEntryLeaseRetirement.Dropped
+                    && router.CurrentState.ActiveWindow?.Root is StackNode { Entries: [{ Id: "host-root" }] }
+                    && navigation.ViewControllers is { Length: 1 }
+                    && pushed.Handle == NativeHandle.Zero
+                    && survived.Count == 0,
+                    $"A pop UIKit committed{(crossing ? " across a refresh" : "")} was not recorded as the router's "
+                    + $"state without the popped entry ({string.Join("; ", survived.Select(static f => f.Message))}).");
+            }
         }
         finally
         {
@@ -333,6 +368,66 @@ internal static class LeaseChecks
         }
 
         Require(host.Failures.Count == 0 && survived.Count == 0, "The router host reported a failure.");
+    }
+
+    // A custom placeholder replaces a retired root the router still shows: here a navigation controller of its own,
+    // which the presenter shows as the root's stack as it is.
+    private static async Task CustomPlaceholderAsync(UIWindow window, CancellationToken token)
+    {
+        var host = new MainThreadLeaseHost();
+        var leases = new RouteEntryLeaseRegistry(host);
+        var placeholderStack = new UINavigationController(new UIViewController());
+        var placements = new List<UIKitPagePlacement>();
+        UIKitNavigationPresenter presenter = Presenter(
+            window,
+            (_, _) => ValueTask.FromResult(Page(new UIViewController())),
+            options: new UIKitNavigationPresenterOptions
+            {
+                EntryLeases = leases,
+                CreatePlaceholder = (_, placement) =>
+                {
+                    placements.Add(placement);
+                    return placeholderStack;
+                }
+            });
+        IRouterNavigator router = RouterNavigatorFactory.Create(
+            new RouteTableBuilder().Build(),
+            new OneRootPlanner(static _ => { }),
+            presenter,
+            new RouterNavigatorFactoryOptions { EntryLeases = leases });
+        try
+        {
+            RouteEntryLease lease = leases.Open("custom-placeholder");
+            try
+            {
+                _ = await router.NavigateAsync(
+                    RouterNavigationRequest.FromRoute(new LeaseRoute("custom-placeholder"), NavigationRequestSource.Test),
+                    lease,
+                    token);
+            }
+            finally
+            {
+                lease.Close();
+            }
+
+            lease.Retire();
+            await router.RefreshPresentationAsync(token);
+            await lease.Released.WaitAsync(Soon, token);
+            Require(
+                placements is [UIKitPagePlacement.Root]
+                && ReferenceEquals(window.RootViewController, placeholderStack),
+                "The custom placeholder was not shown, as its own stack, for the retired root.");
+        }
+        finally
+        {
+            Task disposal = router.DisposeAsync().AsTask();
+            await presenter.DisposeAsync();
+            await disposal.WaitAsync(Soon, token);
+        }
+
+        Require(
+            placeholderStack.Handle == NativeHandle.Zero && host.Failures.Count == 0,
+            "The presenter did not dispose its custom placeholder, or a lease failure was reported.");
     }
 
     private sealed class EntryPages(Func<RouteEntry, UIKitPage> pages) : IUIKitPageFactory

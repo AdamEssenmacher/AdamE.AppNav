@@ -15,7 +15,8 @@ internal static class TopologyChecks
         ("topology-declaration", DeclarationAsync),
         ("topology-refused-before-building", RefusedBeforeBuildingAsync),
         ("topology-owned-modal", OwnedModalAsync),
-        ("topology-misplaced-stack", MisplacedStackAsync)
+        ("topology-misplaced-stack", MisplacedStackAsync),
+        ("topology-modal-over-any-entry", OverAnyEntryAsync)
     ];
 
     private static UIKitNavigationTopology OwningTopology { get; } = Topology.WithOwnedModal(
@@ -80,7 +81,15 @@ internal static class TopologyChecks
                 new ModalNode(Sheet, Entry("refuse-sheet"), new StackNode("nested", [Entry("refuse-nested")]))),
             // Another stack, and another window.
             new NavigationState([new WindowNode(Window, new StackNode("other", [Entry("refuse-root")]))], Window),
-            new NavigationState([new WindowNode("other", new StackNode(Stack, [Entry("refuse-root")]))], "other")
+            new NavigationState([new WindowNode("other", new StackNode(Stack, [Entry("refuse-root")]))], "other"),
+            // Two windows, and an empty stack.
+            new NavigationState(
+                [
+                    new WindowNode(Window, new StackNode(Stack, [Entry("refuse-root")])),
+                    new WindowNode("second", new StackNode("second-stack", [Entry("refuse-a")]))
+                ],
+                Window),
+            Plan([])
         ];
         foreach (NavigationState state in refused)
             try
@@ -175,6 +184,38 @@ internal static class TopologyChecks
         Require(
             misplacedContent.Retired && !root.Retired && root.View?.Window is not null,
             "A refused navigation-stack page was not retired, or the accepted root page changed.");
+    }
+
+    // A modal declared over any entry stands over a pushed page too.
+    private static async Task OverAnyEntryAsync(UIWindow window, CancellationToken token)
+    {
+        const string anywhere = "anywhere";
+        UIKitNavigationTopology topology = Topology.WithModal(anywhere, UIKitModalPlacement.OverAnyEntry);
+        var root = new ProbeController();
+        var pushed = new ProbeController();
+        var modal = new ProbeController();
+        await using UIKitNavigationPresenter presenter = Presenter(
+            window,
+            (entry, _) => ValueTask.FromResult(
+                entry.Id switch
+                {
+                    "any-root" => UIKitPage.InNavigationStack(root),
+                    "any-pushed" => Page(pushed),
+                    _ => Page(modal)
+                }),
+            topology: topology);
+        NavigationState pushedState = Plan([Entry("any-root"), Entry("any-pushed")]);
+        await ApplyAsync(presenter, Shows("any-root"), NavigationState.Empty, token);
+        await ApplyAsync(presenter, pushedState, Shows("any-root"), token);
+        await ApplyAsync(
+            presenter,
+            Plan([Entry("any-root"), Entry("any-pushed")], new ModalNode(anywhere, Entry("any-modal"))),
+            pushedState,
+            token);
+        Require(
+            ReferenceEquals(window.RootViewController?.PresentedViewController, modal)
+            && ReferenceEquals(modal.View?.Window, window),
+            "A modal declared over any entry was not presented over a pushed page.");
     }
 
     private static RouteEntry Entry(string id, string? owner = null) =>

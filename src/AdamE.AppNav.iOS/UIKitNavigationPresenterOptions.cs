@@ -7,23 +7,27 @@ namespace AdamE.AppNav.iOS;
 public sealed record UIKitNavigationPresenterOptions
 {
     /// <summary>
-    /// The registry the router's leases come from (<c>RouterNavigatorFactoryOptions.EntryLeases</c>). With it, the
-    /// presenter attaches every page to its entry's lease and shows a placeholder for an entry whose lease has retired
-    /// while the router still shows it. Without it, pages have no leases.
+    /// The registry the router's leases come from (<c>RouterNavigatorFactoryOptions.EntryLeases</c>). With it, every
+    /// entry the presenter shows must have a lease there, opened before navigating to it: the presenter attaches each
+    /// page to its entry's lease before the factory runs, fails the operation with
+    /// <see cref="InvalidOperationException"/> for an entry without one, and shows a placeholder for an entry whose
+    /// lease has retired while the router still shows it. Without it, pages have no leases.
     /// </summary>
     public RouteEntryLeaseRegistry? EntryLeases { get; init; }
 
     /// <summary>
-    /// Called on the main thread just before an entry is pushed over the root page, or the root page is shown again
-    /// with an entry over it: set the pushed controller's transition here, such as a zoom from the row that opened it.
-    /// Null for UIKit's default push.
+    /// Called on the main thread just before a page that is not on the stack yet is put over the root page: pushed,
+    /// or replacing the page that was there, which UIKit does without animation. Set the pushed controller's transition
+    /// here, such as a zoom from the row that opened it. Null for UIKit's default push.
     /// </summary>
     public Action<UIKitPushContext>? ConfiguringPush { get; init; }
 
     /// <summary>
     /// The placeholder's controller for an entry whose lease retired while the router still shows it: a page that
     /// borrows nothing, shown until the router drops the entry. Null for a blank view in the system background colour,
-    /// presented as a page sheet when it is a modal.
+    /// presented as a page sheet when it is a modal. A root placeholder is shown in a navigation stack, the returned
+    /// <c>UINavigationController</c> when it holds exactly one controller, otherwise a new one around it; a pushed
+    /// placeholder must not be a navigation controller. The presenter owns and disposes what this returns.
     /// </summary>
     public Func<RouteEntry, UIKitPagePlacement, UIViewController>? CreatePlaceholder { get; init; }
 }

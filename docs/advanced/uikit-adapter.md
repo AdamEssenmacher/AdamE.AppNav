@@ -45,10 +45,14 @@ alone.
 `ApplyAsync` serializes operations. Each one:
 
 1. **Checks the plan** against the topology. A plan of any other shape fails
-   with `NotSupportedException` before anything is built.
+   with `NotSupportedException` before anything is built. A push over a root
+   page that is not a navigation stack fails once that page is built, with
+   `InvalidOperationException`, since only the page says what it is.
 2. **Resolves pages.** A page still current for the same entry and route is
    reused; any other is built, attached to its entry's lease first, or replaced
-   by a placeholder if that lease retired while the router still shows it.
+   by a placeholder if that lease retired while the router still shows it. A
+   page UIKit would refuse, or one with its own navigation or presentation
+   delegate, is retired and rejected before native changes.
 3. **Stands aside for a committed pop.** If the person popped the stack while
    the operation prepared, an operation that would present the same pages again
    lets that pop's record win. Any other fails with
@@ -75,14 +79,17 @@ gets its placeholder.
 
 A controller whose disposal throws, a loan whose release throws, or a factory
 that reports `UIKitCleanupFailureException` leaves native objects that may still
-use what their entry borrows. The presenter then keeps every lease and loan it
-holds and fails each later operation, and its disposal, with that same failure.
+use what their entry borrows. The presenter keeps that page's loan and lease
+attachment, and fails each later operation, and its own disposal, with that same
+failure. Pages it retired successfully still release.
 The host decides what to do with an app in that state; Scavos ends the process.
 
 ## Native events
 
 The presenter raises no `ReconciliationRequested` events. Instead it reports
-through `IUIKitNavigationHost`:
+through `IUIKitNavigationHost`, on the thread pool and with no execution context
+from the operation that noticed the event, so a host can call the router without
+AppNav refusing it as reentrant:
 
 - a pop UIKit committed, once, when its transition has ended and never while an
   operation is applying;
@@ -92,7 +99,8 @@ through `IUIKitNavigationHost`:
 - failures it recovered from.
 
 `UIKitRouterNavigationHost` records a pop as a `HostBack` reconciliation from
-the router's current state, retrying when another operation committed first.
+the router's current state, retrying when another operation committed first. A
+modal owned by a popped entry goes with it.
 
 ## How it is checked
 

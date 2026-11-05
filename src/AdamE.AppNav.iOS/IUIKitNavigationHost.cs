@@ -8,8 +8,12 @@ namespace AdamE.AppNav.iOS;
 /// What the presenter tells the application about native events. <see cref="UIKitRouterNavigationHost"/> sends each
 /// to the router; an application that coordinates its own navigation state implements it to route them through that.
 /// </summary>
-/// <remarks>The presenter calls these on the main thread, never while it is applying a plan, and never awaits them
-/// inside an operation. A failure is reported through <see cref="ReportRecoveredFailure"/>.</remarks>
+/// <remarks>
+/// The presenter calls the asynchronous members on a thread-pool thread, with no execution context from the operation
+/// that reported them, so a host may call the router from them; it never awaits them inside an operation. An operation
+/// may still be applying when one is called: the router serializes the host's own call behind it. A failure they throw
+/// is reported through <see cref="ReportRecoveredFailure"/>, which the presenter may call from any thread.
+/// </remarks>
 public interface IUIKitNavigationHost
 {
     /// <summary>
@@ -35,16 +39,29 @@ public interface IUIKitNavigationHost
 }
 
 /// <summary>Sends the presenter's native events to an <see cref="IRouterNavigator"/>.</summary>
-/// <param name="router">The router, read when an event arrives, so the host can be built before the router that
-/// presents through the same presenter.</param>
-/// <param name="topology">The presenter's topology, whose stack a native pop shortens.</param>
-/// <param name="reportRecoveredFailure">Receives recovered failures. It must not throw.</param>
-public sealed class UIKitRouterNavigationHost(
-    Func<IRouterNavigator> router,
-    UIKitNavigationTopology topology,
-    Action<Exception> reportRecoveredFailure) : IUIKitNavigationHost
+/// <remarks>Constructor arguments: the router, read when an event arrives, so the host can be built before the router
+/// that presents through the same presenter; the presenter's topology, whose stack a native pop shortens; and the
+/// receiver of recovered failures, which must not throw.</remarks>
+public sealed class UIKitRouterNavigationHost : IUIKitNavigationHost
 {
     private const int StaleAttempts = 10;
+    private readonly Func<IRouterNavigator> router;
+    private readonly UIKitNavigationTopology topology;
+    private readonly Action<Exception> reportRecoveredFailure;
+
+    /// <summary>A host for the router <paramref name="router"/> returns.</summary>
+    public UIKitRouterNavigationHost(
+        Func<IRouterNavigator> router,
+        UIKitNavigationTopology topology,
+        Action<Exception> reportRecoveredFailure)
+    {
+        ArgumentNullException.ThrowIfNull(router);
+        ArgumentNullException.ThrowIfNull(topology);
+        ArgumentNullException.ThrowIfNull(reportRecoveredFailure);
+        this.router = router;
+        this.topology = topology;
+        this.reportRecoveredFailure = reportRecoveredFailure;
+    }
 
     /// <inheritdoc />
     public async Task RequestBackAsync(CancellationToken cancellationToken) =>
@@ -87,14 +104,26 @@ public sealed class UIKitRouterNavigationHost(
     /// <inheritdoc />
     public void ReportRecoveredFailure(Exception failure) => reportRecoveredFailure(failure);
 
+    private bool OwnedByPopped(ModalNode modal, HashSet<string> popped) =>
+        topology.Modals.TryGetValue(modal.Id, out UIKitModalDeclaration? declaration)
+        && declaration.OwnerEntryId?.Invoke(modal.RouteEntry) is { } owner
+        && popped.Contains(owner);
+
     private NavigationState? WithoutPopped(NavigationState state, string entryId)
     {
         if (state.FindWindow(topology.WindowId) is not { Root: StackNode stack } window || stack.Id != topology.StackId)
             return null;
         int index = stack.Entries.TakeWhile(entry => entry.Id != entryId).Count();
         // The root entry is never popped, and an entry the router no longer shows has already been recorded.
-        return index is 0 || index == stack.Entries.Count
-            ? null
-            : state.ReplaceWindow(window with { Root = stack with { Entries = [.. stack.Entries.Take(index)] } });
+        if (index is 0 || index == stack.Entries.Count)
+            return null;
+        // A modal owned by a popped entry goes with it.
+        HashSet<string> popped = [.. stack.Entries.Skip(index).Select(static entry => entry.Id)];
+        return state.ReplaceWindow(
+            window with
+            {
+                Root = stack with { Entries = [.. stack.Entries.Take(index)] },
+                Modals = [.. window.Modals.Where(modal => !OwnedByPopped(modal, popped))]
+            });
     }
 }

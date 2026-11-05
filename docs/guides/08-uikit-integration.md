@@ -88,6 +88,11 @@ sealed class Pages : IUIKitPageFactory
   `UIKitPage.InNavigationStack(content)`, or your own `UINavigationController`
   (a subclass with its own bar appearance, say) holding just that page, with
   `IsNavigationStack = true`.
+- **A pushed page is a plain controller**, never a navigation controller,
+  which UIKit cannot push.
+- **The presenter is the delegate** of the root page's navigation controller
+  and of each modal's presentation controller; a page that already has one is
+  rejected. Observe detent changes inside the modal's own controllers instead.
 - **How a modal looks is the controller's own business.** Set its
   `ModalPresentationStyle`, detents and navigation items before returning it.
   A full-screen modal may cover the stack; the presenter accepts that the pages
@@ -112,7 +117,8 @@ renderer kit's cleanup exception, in one.
 ## Connect native events
 
 The presenter tells an `IUIKitNavigationHost` about Back requests, committed
-pops, refresh requests and failures it recovered from. `UIKitRouterNavigationHost`
+pops, refresh requests and failures it recovered from. It calls them on the
+thread pool, outside any router operation, so the host may call the router. `UIKitRouterNavigationHost`
 sends each to the router:
 
 ```csharp
@@ -152,9 +158,11 @@ main thread and receives release defects and fatal failures. See
 
 ### Leases
 
-With `EntryLeases`, each page is attached to its entry's lease before the
-factory runs, and detached only after the page has left the window and been
-disposed. Whatever the lease owns, a view model or a database scope, therefore
+With `EntryLeases`, every entry the presenter shows must have a lease, opened
+before you navigate to it (`RouteEntryLeaseNavigation.NavigateAsync` sends it
+with the request); the presenter fails an entry without one. Each page is
+attached to its entry's lease before the factory runs, and detached only after
+the page has left the window and been disposed. Whatever the lease owns, a view model or a database scope, therefore
 outlives every native object that uses it. The factory receives the lease in
 `UIKitPageRequest.Lease`.
 
@@ -165,7 +173,8 @@ default is a blank view in the system background colour;
 
 ## Push transitions
 
-`ConfiguringPush` runs just before an entry is pushed over the root page. Set
+`ConfiguringPush` runs just before a page that is not on the stack yet is put
+over the root page, whether pushed or replacing the page there. Set
 the pushed controller's transition there, for example a zoom from the cell that
 opened it on iOS 18 and later:
 
@@ -180,7 +189,8 @@ ConfiguringPush = push =>
 }
 ```
 
-A push that is not animated should clear what an earlier push set.
+A push that is not animated, such as a replacement, should clear what an earlier
+push set.
 
 ## Shut down
 

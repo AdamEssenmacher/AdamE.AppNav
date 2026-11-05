@@ -49,6 +49,11 @@ public enum UIKitPagePlacement
 /// <c>ModalPresentationStyle</c>, sheet detents and navigation items are the application's choice. The presenter
 /// presents every modal with <c>ModalInPresentation</c> set, so a swipe-down becomes a Back request through the
 /// router's Back policy instead of a dismissal.
+/// <para>
+/// The presenter is the delegate of a root page's navigation controller and of a modal page's presentation controller,
+/// and it rejects a page that already has one. A pushed page cannot be a navigation controller, which UIKit cannot push.
+/// A rejected page is retired like any other.
+/// </para>
 /// </remarks>
 /// <param name="Controller">The page's view controller; for a page that <see cref="IsNavigationStack"/>, the
 /// navigation controller holding it.</param>
