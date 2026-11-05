@@ -81,13 +81,15 @@ A controller whose disposal throws, a loan whose release throws, or a factory
 that reports `UIKitCleanupFailureException` leaves native objects that may still
 use what their entry borrows. The presenter keeps that page's loan and lease
 attachment, and fails each later operation, and its own disposal, with that same
-failure. Pages it retired successfully still release.
+failure. Pages it had already retired release; the pages still shown are never
+retired again, so they keep theirs too.
 The host decides what to do with an app in that state; Scavos ends the process.
 
 ## Native events
 
 The presenter raises no `ReconciliationRequested` events. Instead it reports
-through `IUIKitNavigationHost`, on the thread pool and with no execution context
+through `IUIKitNavigationHost`, on the main thread in a later turn of its run
+loop, with no execution context
 from the operation that noticed the event, so a host can call the router without
 AppNav refusing it as reentrant:
 

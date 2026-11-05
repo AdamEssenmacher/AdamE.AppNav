@@ -21,7 +21,8 @@ internal static class LeaseChecks
         ("lease-release-order", ReleaseOrderAsync),
         ("lease-retired-during-build", RetiredDuringBuildAsync),
         ("router-host", RouterHostAsync),
-        ("lease-custom-placeholder", CustomPlaceholderAsync)
+        ("lease-custom-placeholder", CustomPlaceholderAsync),
+        ("lease-opened-by-presenter", OpenedByPresenterAsync)
     ];
 
     private static async Task ReleaseOrderAsync(UIWindow window, CancellationToken token)
@@ -193,8 +194,7 @@ internal static class LeaseChecks
             pushed ? new PushedPlanner(rootId) : new OneRootPlanner(static _ => { }),
             presenter,
             new RouterNavigatorFactoryOptions { EntryLeases = leases });
-        // The root entry is leased too, as every entry is under a registry; nothing borrows from it here.
-        RouteEntryLease? rootLease = pushed ? leases.Open(rootId) : null;
+        // The application leases only the entry it requests: the planner's root entry gets the lease the presenter opens.
         try
         {
             try
@@ -207,7 +207,6 @@ internal static class LeaseChecks
             finally
             {
                 lease.Close();
-                rootLease?.Close();
             }
 
             UIViewController shown = Shown() ?? throw new InvalidOperationException("The leased page was not shown.");
@@ -428,6 +427,64 @@ internal static class LeaseChecks
         Require(
             placeholderStack.Handle == NativeHandle.Zero && host.Failures.Count == 0,
             "The presenter did not dispose its custom placeholder, or a lease failure was reported.");
+    }
+
+    // An entry the application opened no lease for (here the planner's root, under a request that sends none) gets
+    // one the presenter opens while presenting. Its page is attached to it, and it releases once the router drops the
+    // entry and the page is gone.
+    private static async Task OpenedByPresenterAsync(UIWindow window, CancellationToken token)
+    {
+        var host = new MainThreadLeaseHost();
+        var leases = new RouteEntryLeaseRegistry(host);
+        var shown = new Dictionary<string, (UIViewController Controller, RouteEntryLease? Lease)>(StringComparer.Ordinal);
+        UIKitNavigationPresenter presenter = new(
+            window,
+            Topology,
+            new RequestPages(request => shown[request.Entry.Id] = (new UIViewController(), request.Lease)),
+            new UIKitRouterNavigationHost(static () => throw new InvalidOperationException("No events."), Topology, static _ => { }),
+            new UIKitNavigationPresenterOptions { EntryLeases = leases });
+        IRouterNavigator router = RouterNavigatorFactory.Create(
+            new RouteTableBuilder().Build(),
+            new OneRootPlanner(static _ => { }),
+            presenter,
+            new RouterNavigatorFactoryOptions { EntryLeases = leases });
+        try
+        {
+            _ = await router.NavigateAsync(
+                RouterNavigationRequest.FromRoute(new LeaseRoute("presenter-opened"), NavigationRequestSource.Test),
+                token);
+            Require(
+                shown.TryGetValue("presenter-opened", out var first)
+                && first.Lease is { IsCommitted: true, IsRetired: false } opened
+                && leases.TryGet("presenter-opened", out RouteEntryLease? registered)
+                && ReferenceEquals(registered, opened)
+                && ReferenceEquals(window.RootViewController, first.Controller),
+                "An entry without a lease was not shown with one the presenter opened.");
+            _ = await router.NavigateAsync(
+                RouterNavigationRequest.FromRoute(new LeaseRoute("presenter-next"), NavigationRequestSource.Test),
+                token);
+            RouteEntryLease droppedLease = first.Lease ?? throw new InvalidOperationException("No lease.");
+            await droppedLease.Released.WaitAsync(Soon, token);
+            Require(
+                droppedLease.Retirement == RouteEntryLeaseRetirement.Dropped
+                && first.Controller.Handle == NativeHandle.Zero,
+                "The presenter-opened lease did not release after its page was gone.");
+        }
+        finally
+        {
+            Task disposal = router.DisposeAsync().AsTask();
+            await presenter.DisposeAsync();
+            await disposal.WaitAsync(Soon, token);
+        }
+
+        Require(host.Failures.Count == 0, "A presenter-opened lease reported a failure.");
+    }
+
+    private sealed class RequestPages(Func<UIKitPageRequest, (UIViewController Controller, RouteEntryLease? Lease)> pages)
+        : IUIKitPageFactory
+    {
+        public ValueTask<UIKitPage> CreatePageAsync(UIKitPageRequest request, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(new UIKitPage(pages(request).Controller));
     }
 
     private sealed class EntryPages(Func<RouteEntry, UIKitPage> pages) : IUIKitPageFactory

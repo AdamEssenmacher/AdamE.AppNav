@@ -25,7 +25,8 @@ namespace AdamE.AppNav.iOS;
 /// when that presentation is no longer current, before it throws, so the router never commits a state native does not
 /// show. A page is disposed only after it has physically left the window, and what it borrows is released only after
 /// that. If a page's native retirement fails, the presenter keeps that page's loan and lease attachment and fails each
-/// later operation and its own disposal with that failure; pages whose retirement succeeded still release.
+/// later operation and its own disposal with that failure. Pages already retired release; the pages still shown are
+/// never retired again, so they keep their loans and leases too.
 /// </para>
 /// <para>Create it on the main thread. Dispose it alongside the router's disposal (the adapter contract's shutdown):
 /// disposal clears the window and retires every page.</para>
@@ -452,17 +453,16 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
         catch (Exception failure)
         {
             var failures = new List<Exception> { failure };
-            PresentedPage?[] all = [root, top, sheet, previous.Root, previous.Top, previous.Modal];
-            foreach (PresentedPage? candidate in new[] { top, sheet, root })
-                if (candidate is not null
-                    && !ReferenceEquals(candidate, previous.Root)
-                    && !ReferenceEquals(candidate, previous.Top)
-                    && !ReferenceEquals(candidate, previous.Modal))
+            // A controller the accepted surface still shows is that surface's to dispose, and one an earlier candidate
+            // here has already disposed is gone: a candidate sharing either only gives back what it borrows. The
+            // first candidate holding a controller disposes it, before the others release, so the order rule (dispose,
+            // then release) holds for every page that shares it.
+            var owners = new List<PresentedPage?> { previous.Root, previous.Top, previous.Modal };
+            foreach (PresentedPage? candidate in new[] { root, top, sheet })
+                if (candidate is not null && !owners.Any(owner => ReferenceEquals(owner, candidate)))
                     try
                     {
-                        // A controller another page also shows is that page's to dispose: this one only gives back
-                        // what it borrows.
-                        if (SharesController(candidate, all))
+                        if (SharesController(candidate, [.. owners]))
                             ReleaseOnly(candidate);
                         else
                             Retire(candidate);
@@ -470,6 +470,10 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
                     catch (Exception cleanup)
                     {
                         failures.Add(cleanup);
+                    }
+                    finally
+                    {
+                        owners.Add(candidate);
                     }
 
             if (failures.Count > 1)
@@ -522,10 +526,11 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
     {
         if (_options.EntryLeases is not { } leases)
             return await BuildAsync(entry, placement, owner, null, null, token);
-        // With a registry, every entry is leased: an entry without one would get no lifetime guarantee, silently.
-        if (!leases.TryGet(entry.Id, out RouteEntryLease? found) || found is not { } lease)
-            throw new InvalidOperationException(
-                $"Route entry '{entry.Id}' has no lease in EntryLeases: open one before navigating to it.");
+        // With a registry, every page is leased. An entry the application opened no lease for, such as an ancestor its
+        // planner added, gets one opened here, during presentation, which core closes when the operation ends.
+        RouteEntryLease lease = leases.TryGet(entry.Id, out RouteEntryLease? found) && found is not null
+            ? found
+            : leases.GetOrOpen(entry.Id, out _);
         // TryAttach is the check: the application may retire the lease at any time, so an earlier IsRetired could be
         // stale. A retired lease may already have released what the page would borrow, so build nothing from it.
         if (!lease.TryAttach(out RouteEntryLeaseAttachment? attachment))
@@ -640,18 +645,37 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
     {
         UIViewController blank = _options.CreatePlaceholder?.Invoke(entry, placement)
                                  ?? new UIViewController { View = new UIView { BackgroundColor = UIColor.SystemBackground } };
-        UIViewController controller = placement switch
+        UIViewController controller;
+        try
         {
-            // A page may be pushed over the root while the router still shows it, so the root keeps a stack: the
-            // placeholder's own, when it is one, or one around it.
-            UIKitPagePlacement.Root when blank is UINavigationController { ViewControllers.Length: 1 } own => own,
-            UIKitPagePlacement.Root => new UINavigationController(blank),
-            UIKitPagePlacement.Pushed when blank is UINavigationController => throw new InvalidOperationException(
-                $"The placeholder for pushed entry '{entry.Id}' is a navigation controller, which UIKit cannot push."),
-            UIKitPagePlacement.Modal when _options.CreatePlaceholder is null =>
-                new UINavigationController(blank) { ModalPresentationStyle = UIModalPresentationStyle.PageSheet },
-            _ => blank
-        };
+            controller = placement switch
+            {
+                // A page may be pushed over the root while the router still shows it, so the root keeps a stack: the
+                // placeholder's own, when it is one, or one around it.
+                UIKitPagePlacement.Root when blank is UINavigationController { ViewControllers.Length: 1 } own => own,
+                UIKitPagePlacement.Root when blank is UINavigationController => throw new InvalidOperationException(
+                    $"The placeholder for root entry '{entry.Id}' is a navigation controller that does not hold exactly "
+                    + "one controller."),
+                UIKitPagePlacement.Root => new UINavigationController(blank),
+                UIKitPagePlacement.Pushed when blank is UINavigationController => throw new InvalidOperationException(
+                    $"The placeholder for pushed entry '{entry.Id}' is a navigation controller, which UIKit cannot push."),
+                UIKitPagePlacement.Modal when _options.CreatePlaceholder is null =>
+                    new UINavigationController(blank) { ModalPresentationStyle = UIModalPresentationStyle.PageSheet },
+                _ => blank
+            };
+            if (controller is UINavigationController { WeakDelegate: not null }
+                || (placement is UIKitPagePlacement.Modal
+                    && controller.PresentationController is { WeakDelegate: not null }))
+                throw new InvalidOperationException(
+                    $"The placeholder for entry '{entry.Id}' has its own delegate: the presenter is that delegate.");
+        }
+        catch (InvalidOperationException misuse)
+        {
+            // The presenter owns what the placeholder factory returned.
+            RetireRejected(new PresentedPage(blank, null, null, null, null, default, null, false), misuse);
+            throw;
+        }
+
         return new PresentedPage(
             controller,
             null,
@@ -961,11 +985,11 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
             throw new InvalidOperationException("The native stack differs from AppNav's accepted target.");
     }
 
-    // A modal presented by the root may take the pages under it out of the window: a full-screen one, or one presented
-    // over the entry that owns it.
+    // A modal presented by the root may take the pages under it out of the window: one whose presentation, as UIKit
+    // adapted it, removes the presenter's view (full screen, say), or one presented over the entry that owns it.
     private bool ModalCoversStack(Surface target) =>
         target is { Modal: { } modal }
-        && (modal.Controller.ModalPresentationStyle is UIModalPresentationStyle.FullScreen
+        && (modal.Controller.PresentationController?.ShouldRemovePresentersView == true
             || (modal.OwnerEntryId is { } owner && owner == (target.TopEntry ?? target.RootEntry)?.Id))
         && ReferenceEquals(target.Root?.Controller.PresentedViewController, modal.Controller)
         && modal.Controller.IsViewLoaded
@@ -1116,13 +1140,32 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
         }
     }
 
-    // A host callback runs on the thread pool with no execution context from the operation that reported it: the
-    // router's operation context flows through every await inside ApplyAsync, and a host that calls the router from it
-    // would be refused as a reentrant operation, losing a pop or a repair.
+    // A host callback runs on the main thread, in a later turn of its run loop, with no execution context from the
+    // operation that reported it: the router's operation context flows through every await inside ApplyAsync, and a
+    // host that calls the router from it would be refused as a reentrant operation, losing a pop or a repair.
     private static Task DetachedAsync(Func<Task> callback)
     {
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using (ExecutionContext.SuppressFlow())
-            return Task.Run(callback);
+            // UIKit accepts Action; the whole awaited body reports through done, never an async-void escape.
+            // ReSharper disable once AsyncVoidLambda
+            UIApplication.SharedApplication.BeginInvokeOnMainThread(async () =>
+            {
+                try
+                {
+                    await callback();
+                    _ = done.TrySetResult();
+                }
+                catch (OperationCanceledException canceled)
+                {
+                    _ = done.TrySetCanceled(canceled.CancellationToken);
+                }
+                catch (Exception failure)
+                {
+                    _ = done.TrySetException(failure);
+                }
+            });
+        return done.Task;
     }
 
     private void ClearNative()

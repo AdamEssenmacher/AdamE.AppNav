@@ -9,10 +9,10 @@ namespace AdamE.AppNav.iOS;
 /// to the router; an application that coordinates its own navigation state implements it to route them through that.
 /// </summary>
 /// <remarks>
-/// The presenter calls the asynchronous members on a thread-pool thread, with no execution context from the operation
-/// that reported them, so a host may call the router from them; it never awaits them inside an operation. An operation
-/// may still be applying when one is called: the router serializes the host's own call behind it. A failure they throw
-/// is reported through <see cref="ReportRecoveredFailure"/>, which the presenter may call from any thread.
+/// The presenter calls these on the main thread. It calls the asynchronous members in a later turn of the main run loop,
+/// with no execution context from the operation that noticed the event, so a host may call the router from them; it
+/// never awaits them inside an operation. An operation may still be applying when one is called: the router serializes
+/// the host's own call behind it. A failure they throw is reported through <see cref="ReportRecoveredFailure"/>.
 /// </remarks>
 public interface IUIKitNavigationHost
 {

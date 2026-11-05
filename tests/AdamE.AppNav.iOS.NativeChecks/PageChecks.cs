@@ -13,7 +13,6 @@ internal static class PageChecks
     public static IEnumerable<(string Name, Func<UIWindow, CancellationToken, Task> Check)> All =>
     [
         ("page-leased-factory-failure", LeasedFactoryFailureAsync),
-        ("page-missing-lease", MissingLeaseAsync),
         ("page-refused", RefusedAsync),
         ("page-shared-controller", SharedControllerAsync),
         ("page-push-replacement", PushReplacementAsync)
@@ -73,31 +72,6 @@ internal static class PageChecks
         }
     }
 
-    // With a registry, every entry needs a lease: one without fails before its factory runs.
-    private static async Task MissingLeaseAsync(UIWindow window, CancellationToken token)
-    {
-        var leases = new RouteEntryLeaseRegistry(new ImmediateLeaseHost());
-        int built = 0;
-        await using UIKitNavigationPresenter presenter = Presenter(
-            window,
-            (_, _) =>
-            {
-                built++;
-                return ValueTask.FromResult(Page(new ProbeController()));
-            },
-            options: new UIKitNavigationPresenterOptions { EntryLeases = leases });
-        try
-        {
-            await ApplyAsync(presenter, Shows("unleased"), NavigationState.Empty, token);
-            throw new InvalidOperationException("An entry without a lease was presented.");
-        }
-        catch (InvalidOperationException failure) when (failure.Message.Contains("has no lease", StringComparison.Ordinal))
-        {
-        }
-
-        Require(built == 0 && window.RootViewController is null, "An entry without a lease was built or shown.");
-    }
-
     // Pages UIKit cannot present, and pages whose delegates the presenter needs, are retired and refused before native
     // changes.
     private static async Task RefusedAsync(UIWindow window, CancellationToken token)
@@ -107,6 +81,7 @@ internal static class PageChecks
         var delegatedContent = new ProbeController();
         var delegatedModal = new ProbeController { ModalPresentationStyle = UIModalPresentationStyle.PageSheet };
         using var foreignDelegate = new ForeignPresentationDelegate();
+        using var foreignNavigationDelegate = new ForeignNavigationDelegate();
         await using UIKitNavigationPresenter presenter = Presenter(
             window,
             (entry, _) => ValueTask.FromResult(
@@ -115,7 +90,7 @@ internal static class PageChecks
                     "refused-root" => UIKitPage.InNavigationStack(root),
                     "pushed-navigation" => Page(new UINavigationController(pushedContent)),
                     "delegated-root" => StackPage(
-                        new UINavigationController(delegatedContent) { Delegate = new ForeignNavigationDelegate() }),
+                        new UINavigationController(delegatedContent) { Delegate = foreignNavigationDelegate }),
                     _ => Page(WithPresentationDelegate(delegatedModal, foreignDelegate))
                 }));
         NavigationState rootState = Shows("refused-root");
@@ -151,9 +126,53 @@ internal static class PageChecks
         }
     }
 
-    // A factory that hands a pushed entry the root page's own controller: the plan fails, the root page's controller
-    // stays shown and undisposed, and the pushed entry's lease is still given back.
+    // A factory that hands a pushed entry the root page's own controller. When the root page is already shown, the plan
+    // fails, that controller stays shown and undisposed, and the pushed entry's lease is still given back. When both
+    // pages are new, the controller is disposed once, and both leases are given back only after that.
     private static async Task SharedControllerAsync(UIWindow window, CancellationToken token)
+    {
+        await SharedWithShownAsync(window, token);
+        await SharedBetweenNewPagesAsync(window, token);
+    }
+
+    private static async Task SharedBetweenNewPagesAsync(UIWindow window, CancellationToken token)
+    {
+        var host = new ImmediateLeaseHost();
+        var leases = new RouteEntryLeaseRegistry(host);
+        RouteEntryLease rootLease = leases.Open("both-root");
+        RouteEntryLease pushedLease = leases.Open("both-pushed");
+        var shared = new ProbeController();
+        var releasedAfterDisposal = new List<bool>();
+        rootLease.Own(() => releasedAfterDisposal.Add(shared.Retired));
+        pushedLease.Own(() => releasedAfterDisposal.Add(shared.Retired));
+        await using UIKitNavigationPresenter presenter = Presenter(
+            window,
+            (entry, _) => ValueTask.FromResult(
+                entry.Id == "both-root" ? UIKitPage.InNavigationStack(shared) : Page(shared)),
+            options: new UIKitNavigationPresenterOptions { EntryLeases = leases });
+        try
+        {
+            await ApplyAsync(presenter, Pushed("both-root", "both-pushed"), NavigationState.Empty, token);
+            throw new InvalidOperationException("Two new pages sharing a controller were presented.");
+        }
+        catch (InvalidOperationException failure) when (failure.Message.Contains(
+                                                            "different controllers",
+                                                            StringComparison.Ordinal))
+        { }
+
+        foreach (RouteEntryLease lease in new[] { rootLease, pushedLease })
+        {
+            lease.Retire();
+            lease.Close();
+            await lease.Released.WaitAsync(Soon, token);
+        }
+
+        Require(
+            shared.Retired && releasedAfterDisposal is [true, true] && host.Failures.Count == 0,
+            "A controller two new pages shared was not disposed before both leases released.");
+    }
+
+    private static async Task SharedWithShownAsync(UIWindow window, CancellationToken token)
     {
         var leases = new RouteEntryLeaseRegistry(new ImmediateLeaseHost());
         RouteEntryLease rootLease = leases.Open("shared-root");
@@ -231,12 +250,14 @@ internal static class PageChecks
     // Runs lease work inline on the calling thread: these checks drive the registry directly, without a router.
     private sealed class ImmediateLeaseHost : IRouteEntryLeaseHost
     {
+        private readonly List<Exception> _failures = [];
+
+        public IReadOnlyList<Exception> Failures => _failures;
+
         public async Task InvokeAsync(Func<ValueTask> work) => await work();
 
-        public void ReportDefect(RouteEntryLeaseReleaseException defect) =>
-            throw new InvalidOperationException("A lease release defect was reported.", defect);
+        public void ReportDefect(RouteEntryLeaseReleaseException defect) => _failures.Add(defect);
 
-        public void ReportFatal(RouteEntryLeaseReleaseException failure) =>
-            throw new InvalidOperationException("A fatal lease release failure was reported.", failure);
+        public void ReportFatal(RouteEntryLeaseReleaseException failure) => _failures.Add(failure);
     }
 }

@@ -101,6 +101,7 @@ internal static class PresenterChecks
     private static async Task HealthyPresentationAsync(UIWindow window, CancellationToken token)
     {
         int back = 0;
+        var backRequested = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var failures = new List<Exception>();
         var root = new ProbeController();
         using var retired = new CancellationTokenSource();
@@ -127,6 +128,8 @@ internal static class PresenterChecks
             _ =>
             {
                 back++;
+                Require(NSThread.IsMain, "The host's Back request did not run on the main thread.");
+                backRequested.TrySetResult();
                 return Task.CompletedTask;
             },
             report: failures.Add);
@@ -185,7 +188,9 @@ internal static class PresenterChecks
                                                 ?? throw new InvalidOperationException("Missing native presentation.");
         // Exercise the installed UIKit delegate body. This is not a physical drag/gesture claim.
         presentation.Delegate.DidAttemptToDismiss(presentation);
-        Require(back == 1, "A native dismissal intent did not reach the host's Back request.");
+        // The request reaches the host in a later turn of the main run loop, outside any router operation.
+        await backRequested.Task.WaitAsync(TimeSpan.FromSeconds(10), token);
+        Require(back == 1, "A native dismissal intent did not reach the host's Back request once.");
         Require(
             ReferenceEquals(root.PresentedViewController, sheet),
             "A Back intent changed native state without an accepted plan.");

@@ -7,11 +7,12 @@ namespace AdamE.AppNav.iOS;
 public sealed record UIKitNavigationPresenterOptions
 {
     /// <summary>
-    /// The registry the router's leases come from (<c>RouterNavigatorFactoryOptions.EntryLeases</c>). With it, every
-    /// entry the presenter shows must have a lease there, opened before navigating to it: the presenter attaches each
-    /// page to its entry's lease before the factory runs, fails the operation with
-    /// <see cref="InvalidOperationException"/> for an entry without one, and shows a placeholder for an entry whose
-    /// lease has retired while the router still shows it. Without it, pages have no leases.
+    /// The registry the router's leases come from (<c>RouterNavigatorFactoryOptions.EntryLeases</c>). With it, the
+    /// presenter attaches every page to its entry's lease before the factory runs, and shows a placeholder for an entry
+    /// whose lease has retired while the router still shows it. An entry the application opened no lease for, such as
+    /// an ancestor its planner added, gets one the presenter opens during presentation
+    /// (<see cref="RouteEntryLeaseRegistry.GetOrOpen"/>), which core closes when the operation ends. Without a registry,
+    /// pages have no leases.
     /// </summary>
     public RouteEntryLeaseRegistry? EntryLeases { get; init; }
 
@@ -27,7 +28,8 @@ public sealed record UIKitNavigationPresenterOptions
     /// borrows nothing, shown until the router drops the entry. Null for a blank view in the system background colour,
     /// presented as a page sheet when it is a modal. A root placeholder is shown in a navigation stack, the returned
     /// <c>UINavigationController</c> when it holds exactly one controller, otherwise a new one around it; a pushed
-    /// placeholder must not be a navigation controller. The presenter owns and disposes what this returns.
+    /// placeholder must not be a navigation controller, and no placeholder may have its own navigation or presentation
+    /// delegate. The presenter owns and disposes what this returns, including one it rejects.
     /// </summary>
     public Func<RouteEntry, UIKitPagePlacement, UIViewController>? CreatePlaceholder { get; init; }
 }

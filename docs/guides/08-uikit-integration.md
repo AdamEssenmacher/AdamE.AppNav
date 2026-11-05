@@ -118,7 +118,8 @@ renderer kit's cleanup exception, in one.
 
 The presenter tells an `IUIKitNavigationHost` about Back requests, committed
 pops, refresh requests and failures it recovered from. It calls them on the
-thread pool, outside any router operation, so the host may call the router. `UIKitRouterNavigationHost`
+main thread, in a later turn of its run loop and outside any router operation, so the host may
+call the router and touch UIKit. `UIKitRouterNavigationHost`
 sends each to the router:
 
 ```csharp
@@ -158,9 +159,11 @@ main thread and receives release defects and fatal failures. See
 
 ### Leases
 
-With `EntryLeases`, every entry the presenter shows must have a lease, opened
-before you navigate to it (`RouteEntryLeaseNavigation.NavigateAsync` sends it
-with the request); the presenter fails an entry without one. Each page is
+With `EntryLeases`, open the lease of the entry a request presents before you
+send it (`RouteEntryLeaseNavigation.NavigateAsync` sends it with the request),
+and own what that entry borrows on it. An entry you opened no lease for, such as
+an ancestor your planner added for a deep link, gets one the presenter opens
+during presentation, which core closes when the operation ends. Each page is
 attached to its entry's lease before the factory runs, and detached only after
 the page has left the window and been disposed. Whatever the lease owns, a view model or a database scope, therefore
 outlives every native object that uses it. The factory receives the lease in
