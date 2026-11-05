@@ -146,14 +146,14 @@ internal static class TopologyChecks
             && navigation.ViewControllers is { Length: 2 },
             "The owned modal was not presented over its owner on the stack.");
         await ApplyAsync(presenter, ownedState, ownedState, token, AdamE.AppNav.Plans.NavigationPlanKind.Refresh);
-        await ApplyAsync(presenter, pushedState, ownedState, token);
+        await ApplyAsync(presenter, rootState, ownedState, token);
         Require(
             navigation.PresentedViewController is null
             && owned is { Retired: true, DetachedAtRetirement: true }
-            && ReferenceEquals(pushed.View?.Window, window)
-            && !pushed.Retired
+            && pushed is { Retired: true, DetachedAtRetirement: true }
+            && navigation.ViewControllers is [var remaining] && ReferenceEquals(remaining, root)
             && failures.Count == 0,
-            "Leaving the owned modal did not retire it and show its owner again.");
+            "Leaving the owned modal and its pushed page did not retire both and show the root.");
     }
 
     // Only a root page can be a navigation stack: a pushed one is refused, and the presenter retires it, since it owns

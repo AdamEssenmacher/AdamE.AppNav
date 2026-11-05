@@ -3,6 +3,7 @@ AdamE.AppNav.iOS.IUIKitNavigationHost
 AdamE.AppNav.iOS.IUIKitNavigationHost.RecordNativePopAsync(string! entryId, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
 AdamE.AppNav.iOS.IUIKitNavigationHost.ReportRecoveredFailure(System.Exception! failure) -> void
 AdamE.AppNav.iOS.IUIKitNavigationHost.RequestBackAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
+AdamE.AppNav.iOS.IUIKitNavigationHost.RequestModalBackAsync(string! entryId, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
 AdamE.AppNav.iOS.IUIKitNavigationHost.RequestRefreshAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
 AdamE.AppNav.iOS.IUIKitPageFactory
 AdamE.AppNav.iOS.IUIKitPageFactory.CreatePageAsync(AdamE.AppNav.iOS.UIKitPageRequest! request, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<AdamE.AppNav.iOS.UIKitPage!>
@@ -93,6 +94,7 @@ AdamE.AppNav.iOS.UIKitRouterNavigationHost
 AdamE.AppNav.iOS.UIKitRouterNavigationHost.RecordNativePopAsync(string! entryId, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
 AdamE.AppNav.iOS.UIKitRouterNavigationHost.ReportRecoveredFailure(System.Exception! failure) -> void
 AdamE.AppNav.iOS.UIKitRouterNavigationHost.RequestBackAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
+AdamE.AppNav.iOS.UIKitRouterNavigationHost.RequestModalBackAsync(string! entryId, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
 AdamE.AppNav.iOS.UIKitRouterNavigationHost.RequestRefreshAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
 AdamE.AppNav.iOS.UIKitRouterNavigationHost.UIKitRouterNavigationHost(System.Func<AdamE.AppNav.Navigation.IRouterNavigator!>! router, AdamE.AppNav.iOS.UIKitNavigationTopology! topology, System.Action<System.Exception!>! reportRecoveredFailure) -> void
 override AdamE.AppNav.iOS.UIKitModalDeclaration.Equals(object? obj) -> bool

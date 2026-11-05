@@ -11,6 +11,9 @@ internal static class PresenterChecks
 {
     public static IEnumerable<(string Name, Func<UIWindow, CancellationToken, Task> Check)> All =>
     [
+        ("empty-startup-refresh", EmptyStartupRefreshAsync),
+        ("modal-host-events", ModalHostEventsAsync),
+        ("failed-pop-record-refresh", FailedPopRecordRefreshAsync),
         ("modal-loan-retirement", ModalLoanRetirementAsync),
         ("healthy-presentation", HealthyPresentationAsync),
         ("presentation-retirement-failure", PresentationRetirementFailureAsync),
@@ -22,6 +25,94 @@ internal static class PresenterChecks
         ("completion-retirement", CompletionRetirementAsync),
         ("foreign-hierarchy-retirement", ForeignHierarchyRetirementAsync)
     ];
+
+    private static async Task EmptyStartupRefreshAsync(UIWindow window, CancellationToken token)
+    {
+        using var hidden = new UIWindow(window.WindowScene!);
+        await using var presenter = Presenter(hidden, _ => throw new InvalidOperationException("Empty state built a page."));
+        await ApplyAsync(presenter, NavigationState.Empty, NavigationState.Empty, token, NavigationPlanKind.Refresh)
+            .WaitAsync(TimeSpan.FromSeconds(5), token);
+        Require(hidden.Hidden && hidden.RootViewController is null, "Empty refresh revealed or populated the window.");
+    }
+
+    private static async Task ModalHostEventsAsync(UIWindow window, CancellationToken token)
+    {
+        var root = new UIViewController();
+        var modal = new UIViewController { ModalPresentationStyle = UIModalPresentationStyle.FullScreen };
+        using var foreign = UIAlertController.Create("Sign in", null, UIAlertControllerStyle.Alert);
+        foreign.AddAction(UIAlertAction.Create("Cancel", UIAlertActionStyle.Cancel, null));
+        var backStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var allowBack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var refreshed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int backCount = 0;
+        await using var presenter = Presenter(
+            window,
+            (entry, _) => ValueTask.FromResult(Page(entry.Id == "modal-event-root" ? root : modal)),
+            back: async _ =>
+            {
+                backCount++;
+                backStarted.TrySetResult();
+                await allowBack.Task.WaitAsync(token);
+            },
+            refresh: _ =>
+            {
+                refreshed.TrySetResult();
+                return Task.CompletedTask;
+            });
+        NavigationState rootState = Shows("modal-event-root");
+        NavigationState modalState = Shows("modal-event-root", "event-modal");
+        await ApplyAsync(presenter, rootState, NavigationState.Empty, token);
+        await ApplyAsync(presenter, modalState, rootState, token);
+        UIPresentationController presentation = modal.PresentationController!;
+        presentation.Delegate.DidAttemptToDismiss(presentation);
+        await backStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), token);
+        presentation.Delegate.DidAttemptToDismiss(presentation);
+
+        await PresentForeignAsync(modal, foreign, token);
+        await ApplyAsync(presenter, modalState, modalState, token, NavigationPlanKind.Refresh);
+        Require(ReferenceEquals(modal.PresentedViewController, foreign), "Refresh removed the modal's alert.");
+        try
+        {
+            await ApplyAsync(presenter, rootState, modalState, token);
+            throw new InvalidOperationException("Navigation dismissed a still-current modal's foreign alert.");
+        }
+        catch (InvalidOperationException failure) when (failure.Message.Contains("owned by its SDK", StringComparison.Ordinal))
+        {
+        }
+
+        Require(ReferenceEquals(modal.PresentedViewController, foreign), "The rejected navigation changed native UI.");
+        allowBack.TrySetResult();
+        var dismissed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        root.DismissViewController(false, () => dismissed.TrySetResult());
+        await dismissed.Task.WaitAsync(TimeSpan.FromSeconds(5), token);
+        await refreshed.Task.WaitAsync(TimeSpan.FromSeconds(5), token);
+        Require(backCount == 1, "Two attempts on the same modal queued two Back requests.");
+    }
+
+    private static async Task FailedPopRecordRefreshAsync(UIWindow window, CancellationToken token)
+    {
+        var root = new UIViewController();
+        var pushed = new UIViewController();
+        var reported = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var failure = new InvalidOperationException("Controlled failed pop record.");
+        await using var presenter = Presenter(
+            window,
+            (entry, _) => ValueTask.FromResult(entry.Id == "failed-pop-root"
+                ? UIKitPage.InNavigationStack(root)
+                : Page(pushed)),
+            popped: (_, _) => Task.FromException(failure),
+            report: error => reported.TrySetResult(error));
+        NavigationState rootState = Shows("failed-pop-root");
+        NavigationState pushedState = Pushed("failed-pop-root", "failed-pop-page");
+        await ApplyAsync(presenter, rootState, NavigationState.Empty, token);
+        await ApplyAsync(presenter, pushedState, rootState, token);
+        var stack = (UINavigationController)window.RootViewController!;
+        _ = stack.PopViewController(true);
+        Require(ReferenceEquals(await reported.Task.WaitAsync(TimeSpan.FromSeconds(5), token), failure),
+            "The failed pop record was not reported.");
+        await ApplyAsync(presenter, pushedState, pushedState, token, NavigationPlanKind.Refresh);
+        Require(ReferenceEquals(stack.TopViewController, pushed), "Refresh did not restore the router's accepted stack.");
+    }
 
     private static async Task ModalLoanRetirementAsync(UIWindow window, CancellationToken token)
     {

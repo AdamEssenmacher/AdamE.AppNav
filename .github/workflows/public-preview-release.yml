@@ -84,6 +84,8 @@ jobs:
             "AdamE.AppNav.$version.snupkg"
             "AdamE.AppNav.Maui.$version.nupkg"
             "AdamE.AppNav.Maui.$version.snupkg"
+            "AdamE.AppNav.iOS.$version.nupkg"
+            "AdamE.AppNav.iOS.$version.snupkg"
           )
           for asset in "${expected[@]}"; do
             if [[ ! -f "artifacts/validated/$asset" ]]; then
@@ -91,7 +93,7 @@ jobs:
               exit 1
             fi
           done
-          if [[ "$(find artifacts/validated -maxdepth 1 -type f \( -name '*.nupkg' -o -name '*.snupkg' \) | wc -l | tr -d ' ')" != "4" ]]; then
+          if [[ "$(find artifacts/validated -maxdepth 1 -type f \( -name '*.nupkg' -o -name '*.snupkg' \) | wc -l | tr -d ' ')" != "${#expected[@]}" ]]; then
             echo "Validated artifact contains an unexpected package count." >&2
             exit 1
           fi

@@ -132,7 +132,32 @@ internal static class PageChecks
     private static async Task SharedControllerAsync(UIWindow window, CancellationToken token)
     {
         await SharedWithShownAsync(window, token);
+        await SharedWithOutgoingAsync(window, token);
         await SharedBetweenNewPagesAsync(window, token);
+    }
+
+    private static async Task SharedWithOutgoingAsync(UIWindow window, CancellationToken token)
+    {
+        var shared = new ProbeController();
+        var replacement = new ProbeController();
+        await using var presenter = Presenter(window, entry => Page(entry.Id == "unique-root" ? replacement : shared));
+        NavigationState original = Shows("shared-original");
+        await ApplyAsync(presenter, original, NavigationState.Empty, token);
+        try
+        {
+            await ApplyAsync(presenter, Shows("shared-replacement"), original, token);
+            throw new InvalidOperationException("An outgoing controller was reused for another entry.");
+        }
+        catch (InvalidOperationException failure) when (failure.Message.Contains("different controllers", StringComparison.Ordinal))
+        {
+        }
+
+        Require(ReferenceEquals(window.RootViewController, shared) && !shared.Retired,
+            "The duplicate controller was retired or removed from its accepted surface.");
+        await ApplyAsync(presenter, Shows("unique-root"), original, token);
+        Require(shared is { Retired: true, DetachedAtRetirement: true }
+                && ReferenceEquals(window.RootViewController, replacement),
+            "Rejecting a duplicate prevented a later valid replacement.");
     }
 
     private static async Task SharedBetweenNewPagesAsync(UIWindow window, CancellationToken token)

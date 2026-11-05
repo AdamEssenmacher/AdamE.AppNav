@@ -22,4 +22,10 @@ public sealed class BackNavigationRequest
     /// Gets the source that initiated the back request.
     /// </summary>
     public BackNavigationSource Source { get; }
+
+    /// <summary>
+    /// When set, Back is canceled unless this entry is still the top modal in the target window when the router admits
+    /// the request. Use this for a native dismissal attempt that can queue behind another operation.
+    /// </summary>
+    public string? ExpectedModalEntryId { get; init; }
 }
