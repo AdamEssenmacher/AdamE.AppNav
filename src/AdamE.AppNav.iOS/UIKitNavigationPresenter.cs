@@ -10,7 +10,7 @@ namespace AdamE.AppNav.iOS;
 /// <summary>
 /// An <see cref="INavigationPresenter"/> for one <see cref="UIWindow"/>: the window's root page, a page pushed over it on
 /// a <see cref="UINavigationController"/> the presenter owns, and a declared modal over them, in the shape its
-/// <see cref="UIKitNavigationTopology"/> declares.
+/// <see cref="NavigationTopology"/> declares and <see cref="Support"/> allows.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -34,7 +34,13 @@ namespace AdamE.AppNav.iOS;
 public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDisposable
 {
     private readonly UIWindow _window;
-    private readonly UIKitNavigationTopology _topology;
+    /// <summary>
+    /// What this version presents of a <see cref="NavigationTopology"/>: a stack of the root page and one page pushed
+    /// over it, and one modal with no topology nested in it. Later versions widen it without changing the topology.
+    /// </summary>
+    public static NavigationTopologySupport Support { get; } = new(MaxStackEntries: 2);
+
+    private readonly NavigationTopology _topology;
     private readonly IUIKitPageFactory _pages;
     private readonly IUIKitNavigationHost _host;
     private readonly UIKitNavigationPresenterOptions _options;
@@ -49,7 +55,7 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
     /// <param name="options">Leases, push transitions and placeholders.</param>
     public UIKitNavigationPresenter(
         UIWindow window,
-        UIKitNavigationTopology topology,
+        NavigationTopology topology,
         IUIKitPageFactory pages,
         IUIKitNavigationHost host,
         UIKitNavigationPresenterOptions? options = null)
@@ -402,8 +408,11 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
     private async ValueTask<Surface> ResolveAsync(NavigationState state, Surface previous, CancellationToken token)
     {
         // The declared shape is checked before anything is built.
-        if (_topology.Validate(state) is not var (stack, modal, owner))
+        if (_topology.Match(state, Support) is not { } match)
             return new Surface(null, null, null, null);
+        StackNode stack = match.Stack;
+        ModalNode? modal = match.Modals.SingleOrDefault()?.Node;
+        string? owner = match.Modals.SingleOrDefault()?.OwnerEntryId;
         PresentedPage? root = null;
         PresentedPage? sheet = null;
         PresentedPage? top = null;

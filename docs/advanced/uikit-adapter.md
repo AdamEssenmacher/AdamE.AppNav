@@ -13,7 +13,7 @@ Extraction made its app-specific parts generic:
 
 | In the original app | Here |
 | --- | --- |
-| The app's own window, stack and modal IDs, and one modal owned by a pushed screen | `UIKitNavigationTopology`, declared by the app and checked before each plan is presented |
+| The app's own window, stack and modal IDs, and one modal owned by a pushed screen | Core's `NavigationTopology`, declared by the app and checked against `UIKitNavigationPresenter.Support` before each plan is presented |
 | The app's screen types mapped to native pages | `IUIKitPageFactory` and `UIKitPage` |
 | The home screen's own navigation controller | A root page that `IsNavigationStack`, the app's or `UIKitPage.InNavigationStack`'s |
 | A zoom from a list row into the screen it opens | `UIKitNavigationPresenterOptions.ConfiguringPush` |

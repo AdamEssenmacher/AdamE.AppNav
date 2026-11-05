@@ -1,3 +1,4 @@
+using AdamE.AppNav.Presentation;
 using AdamE.AppNav.State;
 using static AdamE.AppNav.iOS.NativeChecks.Checks;
 
@@ -20,20 +21,20 @@ internal static class TopologyChecks
         ("topology-adapted-popover", AdaptedPopoverAsync)
     ];
 
-    private static UIKitNavigationTopology OwningTopology { get; } = Topology.WithOwnedModal(
+    private static NavigationTopology OwningTopology { get; } = Topology.WithOwnedModal(
         Owned,
         static entry => entry.Metadata?.TryGetValue(OwnerKey, out object? owner) == true ? owner as string : null);
 
     private static Task DeclarationAsync(UIWindow window, CancellationToken token)
     {
         Throws<ArgumentException>(
-            () => Topology.WithModal("other", UIKitModalPlacement.OverOwnerEntry),
+            () => Topology.WithModal("other", NavigationModalPlacement.OverOwnerEntry),
             "An owned modal was declared without its owner.");
         Throws<ArgumentException>(
-            () => Topology.WithModal(Sheet, UIKitModalPlacement.OverAnyEntry),
+            () => Topology.WithModal(Sheet, NavigationModalPlacement.OverAnyEntry),
             "A modal was declared twice.");
-        Throws<ArgumentException>(() => new UIKitNavigationTopology(" ", Stack), "A blank window ID was accepted.");
-        UIKitNavigationTopology wider = Topology.WithModal("other", UIKitModalPlacement.OverAnyEntry);
+        Throws<ArgumentException>(() => new NavigationTopology(" ", Stack), "A blank window ID was accepted.");
+        NavigationTopology wider = Topology.WithModal("other", NavigationModalPlacement.OverAnyEntry);
         Require(
             !Topology.Modals.ContainsKey("other") && wider.Modals.Count == 2 && wider.Modals.ContainsKey(Sheet),
             "Declaring a modal changed the topology it was declared on, or lost its modals.");
@@ -200,7 +201,7 @@ internal static class TopologyChecks
     private static async Task OverAnyEntryAsync(UIWindow window, CancellationToken token)
     {
         const string anywhere = "anywhere";
-        UIKitNavigationTopology topology = Topology.WithModal(anywhere, UIKitModalPlacement.OverAnyEntry);
+        NavigationTopology topology = Topology.WithModal(anywhere, NavigationModalPlacement.OverAnyEntry);
         var root = new ProbeController();
         var pushed = new ProbeController();
         // Full screen, so UIKit takes the pushed page out of the window under it, which the stack's verification accepts.

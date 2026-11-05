@@ -13,7 +13,7 @@ core's public API, so an app whose navigation does not fit it can write its own
 
 ## What it presents
 
-One `UIWindow`, in the shape a `UIKitNavigationTopology` declares:
+One `UIWindow`, in the shape a `NavigationTopology` from AppNav core declares:
 
 ```text
 WindowNode "main"
@@ -44,13 +44,19 @@ UIKit keeps what is UIKit's:
 
 ## Declare the topology
 
-Use the structural IDs your planner already gives its window, stack and modals:
+Use the structural IDs your planner already gives its window, stack and modals.
+`NavigationTopology` is host-neutral (`AdamE.AppNav.Presentation`): an app with a
+UIKit and an Android presenter declares it once and gives both the same one.
 
 ```csharp
-var topology = new UIKitNavigationTopology("main", "main-stack")
-    .WithModal("sheet", UIKitModalPlacement.OverRoot)
+var topology = new NavigationTopology("main", "main-stack")
+    .WithModal("sheet", NavigationModalPlacement.OverRoot)
     .WithOwnedModal("answer", entry => entry.Metadata?["question-entry"] as string);
 ```
+
+What this presenter can show of it is `UIKitNavigationPresenter.Support`: today a
+stack of two entries and one modal with nothing nested in it. A plan beyond that
+fails with a `NotSupportedException` that says which limit refused it.
 
 - `OverRoot`: only while the stack holds the root page alone.
 - `OverAnyEntry`: over any stack the topology supports.

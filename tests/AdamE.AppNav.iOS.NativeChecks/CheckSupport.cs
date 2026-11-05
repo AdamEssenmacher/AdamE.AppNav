@@ -12,8 +12,8 @@ internal static class Checks
     public const string Stack = "stack";
     public const string Sheet = "sheet";
 
-    public static UIKitNavigationTopology Topology { get; } =
-        new UIKitNavigationTopology(Window, Stack).WithModal(Sheet, UIKitModalPlacement.OverRoot);
+    public static NavigationTopology Topology { get; } =
+        new NavigationTopology(Window, Stack).WithModal(Sheet, NavigationModalPlacement.OverRoot);
 
     public static UIKitNavigationPresenter Presenter(
         UIWindow window,
@@ -23,7 +23,7 @@ internal static class Checks
         Func<CancellationToken, Task>? refresh = null,
         Action<Exception>? report = null,
         UIKitNavigationPresenterOptions? options = null,
-        UIKitNavigationTopology? topology = null) =>
+        NavigationTopology? topology = null) =>
         new(
             window,
             topology ?? Topology,
