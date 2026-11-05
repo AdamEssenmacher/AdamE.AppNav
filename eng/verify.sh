@@ -15,9 +15,10 @@ Usage: eng/verify.sh [contracts|packages|native|native-android|native-ios|native
   contracts            Unit, API, generator, adapter-contract, and allocation gates.
   packages             Supported target/analyzer builds, packing, package inspection,
                        and an isolated MAUI package-consumer build.
-  native               Android full-trim, iOS linked, and Mac Catalyst NativeAOT publishes.
+  native               Android full-trim, iOS linked, UIKit adapter NativeAOT, and Mac Catalyst
+                       NativeAOT publishes.
   native-android       Android arm64 full-trim publish only.
-  native-ios           iOS arm64 linked publish only.
+  native-ios           iOS arm64 linked publish and the UIKit adapter's NativeAOT publish.
   native-maccatalyst   Mac Catalyst arm64 NativeAOT publish only.
   release              The complete deterministic, non-device public-preview gate.
 
@@ -179,6 +180,15 @@ build_supported_targets() {
       -warnaserror
   done
 
+  dotnet build "$ROOT/src/AdamE.AppNav.iOS/AdamE.AppNav.iOS.csproj" \
+    -c "$CONFIGURATION" \
+    "${package_properties[@]}" \
+    -warnaserror
+  dotnet build "$ROOT/tests/AdamE.AppNav.iOS.NativeChecks/AdamE.AppNav.iOS.NativeChecks.csproj" \
+    -c "$CONFIGURATION" \
+    -t:Compile \
+    -warnaserror
+
   dotnet build "$ROOT/src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj" \
     -c "$CONFIGURATION" \
     -f net10.0 \
@@ -266,6 +276,13 @@ pack_and_verify() {
     -warnaserror \
     -o "$PACKAGE_DIRECTORY"
 
+  dotnet pack "$ROOT/src/AdamE.AppNav.iOS/AdamE.AppNav.iOS.csproj" \
+    -c "$CONFIGURATION" \
+    --no-build \
+    "${package_properties[@]}" \
+    -warnaserror \
+    -o "$PACKAGE_DIRECTORY"
+
   "$ROOT/eng/verify-package-assets.sh" "$PACKAGE_DIRECTORY" "$package_version"
   "$ROOT/eng/verify-package-consumer.sh" "$PACKAGE_DIRECTORY"
 }
@@ -323,6 +340,21 @@ publish_ios() {
     -o "$output"
 }
 
+# The UIKit adapter through NativeAOT, which links every assembly, as an iOS app ships it: its checks app, for a device.
+publish_ios_uikit() {
+  local output="$ARTIFACT_ROOT/native/ios-uikit-arm64"
+  prepare_output "$output"
+  dotnet publish "$ROOT/tests/AdamE.AppNav.iOS.NativeChecks/AdamE.AppNav.iOS.NativeChecks.csproj" \
+    -c "$CONFIGURATION" \
+    -r ios-arm64 \
+    -p:PublishAot=true \
+    -p:EnableCodeSigning=false \
+    -p:CodesignKey=- \
+    -p:CodesignProvision= \
+    -warnaserror \
+    -o "$output"
+}
+
 # IL2037 comes from MAUI's Apple assemblies under the 27.x SDK packs (dotnet/macios#26969, fixed upstream
 # but not yet in a .NET 10 servicing release). Remove it from both allowances once that release is pinned.
 publish_maccatalyst() {
@@ -344,6 +376,7 @@ publish_maccatalyst() {
 run_native() {
   publish_android
   publish_ios
+  publish_ios_uikit
   publish_maccatalyst
 }
 
@@ -363,6 +396,7 @@ case "$mode" in
     ;;
   native-ios)
     publish_ios
+    publish_ios_uikit
     ;;
   native-maccatalyst)
     publish_maccatalyst

@@ -283,6 +283,39 @@ public sealed class BackNavigationPolicyTests
         Assert.Equal(expectedSource, navigator.History.Current!.Request.Source);
     }
 
+    [Fact]
+    public async Task QueuedModalBackDoesNotPopTheStackAfterItsModalIsGone()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var policy = new DelegatePolicy(async (context, token) =>
+        {
+            Assert.Equal(BackNavigationSource.Host, context.Request.Source);
+            entered.SetResult();
+            await release.Task.WaitAsync(token);
+            return BackNavigationPolicyDecision.Continue;
+        });
+        NavigationState state = DefaultState();
+        WindowNode window = Assert.IsType<WindowNode>(state.ActiveWindow);
+        state = state.ReplaceWindow(window with { Modals = [new ModalNode("sheet", Entry("modal-entry"))] });
+        var presenter = new RecordingNavigationPresenter();
+        await using var navigator = CreateNavigator(presenter, state, policy);
+        var request = new BackNavigationRequest("main", BackNavigationSource.Host) { ExpectedModalEntryId = "modal-entry" };
+
+        Task<BackNavigationResult> first = navigator.BackAsync(request).AsTask();
+        await entered.Task;
+        Task<BackNavigationResult> queued = navigator.BackAsync(request).AsTask();
+        release.SetResult();
+
+        Assert.Equal(BackNavigationStatus.Completed, (await first).Status);
+        Assert.Equal(BackNavigationStatus.Canceled, (await queued).Status);
+        WindowNode after = Assert.IsType<WindowNode>(navigator.CurrentState.ActiveWindow);
+        Assert.Empty(after.Modals);
+        Assert.Equal(2, Assert.IsType<StackNode>(after.Root).Entries.Count);
+        Assert.Equal(1, policy.CallCount);
+        Assert.Equal(1, presenter.ApplyCount);
+    }
+
     private static RouterNavigator CreateNavigator(
         RecordingNavigationPresenter presenter,
         params IBackNavigationPolicy[] policies) =>

@@ -9,6 +9,7 @@
     <File Path="docs/advanced/adapter-contract.md" />
     <File Path="docs/advanced/entry-leases.md" />
     <File Path="docs/advanced/route-owned-presentation-pages.md" />
+    <File Path="docs/advanced/uikit-adapter.md" />
   </Folder>
   <Folder Name="/docs/concepts/">
     <File Path="docs/concepts/00-why-appnav.md" />
@@ -19,6 +20,7 @@
   <Folder Name="/docs/guides/">
     <File Path="docs/guides/01-getting-started.md" />
     <File Path="docs/guides/02-maui-integration.md" />
+    <File Path="docs/guides/08-uikit-integration.md" />
     <File Path="docs/guides/03-application-architecture-and-testing.md" />
     <File Path="docs/guides/04-navigation-outcomes-and-failure-handling.md" />
     <File Path="docs/guides/05-external-navigation.md" />
@@ -50,6 +52,7 @@
     <Project Path="src/AdamE.AppNav.Generators/AdamE.AppNav.Generators.csproj" />
     <Project Path="src/AdamE.AppNav.Maui.Generators/AdamE.AppNav.Maui.Generators.csproj" />
     <Project Path="src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj" />
+    <Project Path="src/AdamE.AppNav.iOS/AdamE.AppNav.iOS.csproj" />
     <Project Path="src/AdamE.AppNav/AdamE.AppNav.csproj" />
   </Folder>
   <Folder Name="/tests/">
@@ -57,6 +60,7 @@
     <Project Path="tests/AdamE.AppNav.Generators.Tests/AdamE.AppNav.Generators.Tests.csproj" />
     <Project Path="tests/AdamE.AppNav.Maui.Generators.Tests/AdamE.AppNav.Maui.Generators.Tests.csproj" />
     <Project Path="tests/AdamE.AppNav.Maui.Tests/AdamE.AppNav.Maui.Tests.csproj" />
+    <Project Path="tests/AdamE.AppNav.iOS.NativeChecks/AdamE.AppNav.iOS.NativeChecks.csproj" />
     <Project Path="tests/AdamE.AppNav.Tests/AdamE.AppNav.Tests.csproj" />
   </Folder>
 </Solution>

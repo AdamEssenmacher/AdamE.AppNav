@@ -440,6 +440,15 @@ internal sealed class RouterNavigator : IRouterNavigator
 
         try
         {
+            if (backRequest.ExpectedModalEntryId is { } expectedModal
+                && backContext.Window?.Modals.LastOrDefault()?.RouteEntry.Id != expectedModal)
+            {
+                _diagnostics.Write(NavigationDiagnosticEventKind.BackCanceled, operationId,
+                    "The modal that requested Back is no longer current.");
+                activity.SetStatus(ActivityStatusCode.Ok);
+                return BackNavigationResult.Canceled;
+            }
+
             NavigationPlan? plan = _backNavigator.CreateBackPlan(backContext);
             if (plan is null)
             {

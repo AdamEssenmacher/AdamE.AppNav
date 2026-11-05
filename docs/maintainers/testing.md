@@ -51,11 +51,18 @@ A lane fails on zero tests, unexpected skips, missing results, DeviceRunners fai
 exceptions, presentation consistency faults, or retained scopes. PRs compile every target and execute Mac Catalyst
 tests. Nightly runs latest Android/iOS/Mac Catalyst; weekly and release runs also exercise Android API 28.
 
+## UIKit adapter checks
+
+`eng/run-ios-native-checks.sh` runs the UIKit presenter's native checks in a plain UIKit app on one booted
+simulator, named by `IOS_DEVICE`: simulators are shared, so the script never picks one. It fails unless the app
+reports every check group passed. `eng/verify.sh native-ios` also publishes that app with NativeAOT for a device,
+and `packages` packs and inspects `AdamE.AppNav.iOS`.
+
 ## Scenario coverage
 
 Cover cold/warm ingress, startup buffering, burst overflow, tab changes, Back/swipe, modal dismissal, deferred restore,
-retry bypass, cancellation, injected presentation failure, rollback/rebuild, and disposal. Scavos provides the advanced
-five-branch dogfood matrix; the in-memory lab is preferred for deterministic native automation.
+retry bypass, cancellation, injected presentation failure, rollback/rebuild, and disposal. A production dogfood application provides
+the advanced five-branch matrix; the in-memory lab is preferred for deterministic native automation.
 
 ## Next steps
 
