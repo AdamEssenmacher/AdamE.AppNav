@@ -25,10 +25,10 @@ Extraction made its app-specific parts generic:
 
 This version presents one window whose root is one stack of one or two entries,
 and at most one declared modal with no nested topology. That is exactly what has
-been proven on devices. The topology's API already describes the larger shape a
-real app needs: a deeper stack, modals over any entry, modals with their own
-stacks. Each is added in its own change, with its own native checks, and none
-changes the public API:
+been proven on devices. A real app needs more: a deeper stack, and modals with their
+own stacks. Each is added in its own change, with its own native checks. A deeper
+stack only widens `UIKitNavigationPresenter.Support`; a modal with its own stack
+also needs core's `NavigationTopology` to declare that stack:
 
 1. A stack of any depth: multi-entry pushes, pops of several entries, and
    rollback across them.
@@ -43,7 +43,7 @@ alone.
 
 `ApplyAsync` serializes operations. Each one:
 
-1. **Checks the plan** against the topology. A plan of any other shape fails
+1. **Checks the plan** against the topology and `UIKitNavigationPresenter.Support`. A plan of any other shape fails
    with `NotSupportedException` before anything is built. A push over a root
    page that is not a navigation stack fails once that page is built, with
    `InvalidOperationException`, since only the page says what it is.

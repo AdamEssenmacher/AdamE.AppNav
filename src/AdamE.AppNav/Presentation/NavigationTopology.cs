@@ -78,6 +78,8 @@ public sealed class NavigationTopology
     /// The plan's shape, checked against this declaration and against what <paramref name="support"/> says a presenter
     /// can show, or null for a plan with no window. Nothing is built or changed by this.
     /// </summary>
+    /// <remarks>This version matches at most one modal, with no topology nested in it: what a placement means over
+    /// another modal, or inside one, is not defined yet, so such plans are refused rather than passed unchecked.</remarks>
     /// <exception cref="NotSupportedException">The plan has another shape, or one the presenter cannot show; the
     /// message names which.</exception>
     public NavigationTopologyMatch? Match(NavigationState state, NavigationTopologySupport support)
@@ -97,36 +99,43 @@ public sealed class NavigationTopology
             throw new NotSupportedException(
                 $"This presenter shows a stack of 1 to {support.MaxStackEntries} entries; the plan has "
                 + $"{stack.Entries.Count}.");
-        if (window.Modals.Count > support.MaxModals)
+        if (window.Modals.Count > 1)
             throw new NotSupportedException(
-                $"This presenter shows at most {support.MaxModals} modal(s) at a time; the plan has "
-                + $"{window.Modals.Count}.");
-        var modals = new List<NavigationTopologyModal>(window.Modals.Count);
-        foreach (ModalNode modal in window.Modals)
+                $"A topology matches one modal at a time; the plan has {window.Modals.Count}.");
+        if (window.Modals.SingleOrDefault() is not { } modal)
+            return new NavigationTopologyMatch(window, stack, []);
+        if (modal.Content is not null)
+            throw new NotSupportedException($"A topology matches no topology nested in a modal; modal '{modal.Id}' has some.");
+        if (!_modals.TryGetValue(modal.Id, out NavigationModalDeclaration? declaration))
+            throw new NotSupportedException($"Modal '{modal.Id}' is not declared in the topology.");
+        string? owner = null;
+        switch (declaration.Placement)
         {
-            if (!_modals.TryGetValue(modal.Id, out NavigationModalDeclaration? declaration))
-                throw new NotSupportedException($"Modal '{modal.Id}' is not declared in the topology.");
-            if (modal.Content is not null && !support.ModalContent)
+            case NavigationModalPlacement.OverRoot when stack.Entries.Count != 1:
                 throw new NotSupportedException(
-                    $"This presenter shows no topology nested in a modal; modal '{modal.Id}' has some.");
-            string? owner = null;
-            switch (declaration.Placement)
-            {
-                case NavigationModalPlacement.OverRoot when stack.Entries.Count != 1:
+                    $"Modal '{modal.Id}' is declared over the root entry only, but the stack has a pushed entry.");
+            case NavigationModalPlacement.OverOwnerEntry:
+                owner = declaration.OwnerEntryId?.Invoke(modal.RouteEntry);
+                if (owner is null || owner != stack.Top?.Id)
                     throw new NotSupportedException(
-                        $"Modal '{modal.Id}' is declared over the root entry only, but the stack has a pushed entry.");
-                case NavigationModalPlacement.OverOwnerEntry:
-                    owner = declaration.OwnerEntryId?.Invoke(modal.RouteEntry);
-                    if (owner is null || owner != stack.Top?.Id)
-                        throw new NotSupportedException(
-                            $"Modal '{modal.Id}' belongs to entry '{owner ?? "(none)"}', which is not the top of the stack.");
-                    break;
-            }
-
-            modals.Add(new NavigationTopologyModal(modal, owner));
+                        $"Modal '{modal.Id}' belongs to entry '{owner ?? "(none)"}', which is not the top of the stack.");
+                break;
         }
 
-        return new NavigationTopologyMatch(window, stack, modals);
+        return new NavigationTopologyMatch(window, stack, [new NavigationTopologyModal(modal, owner)]);
+    }
+
+    /// <summary>
+    /// The ID of the stack entry a modal belongs to, for a modal declared with <see cref="WithOwnedModal"/>; null for
+    /// any other modal, or when its entry names no owner. A presenter's host uses it to drop the modals of entries it
+    /// removes, such as a pop the platform committed.
+    /// </summary>
+    public string? OwnerEntryIdOf(ModalNode modal)
+    {
+        ArgumentNullException.ThrowIfNull(modal);
+        return _modals.TryGetValue(modal.Id, out NavigationModalDeclaration? declaration)
+            ? declaration.OwnerEntryId?.Invoke(modal.RouteEntry)
+            : null;
     }
 
     private NavigationTopology With(string modalId, NavigationModalDeclaration declaration)
@@ -149,13 +158,23 @@ public sealed class NavigationTopology
     }
 }
 
-/// <summary>How a declared modal may be placed over the stack.</summary>
-/// <param name="Placement">Where the modal may stand.</param>
-/// <param name="OwnerEntryId">For <see cref="NavigationModalPlacement.OverOwnerEntry"/>, the owner stack entry's ID of
-/// a modal entry; otherwise null.</param>
-public sealed record NavigationModalDeclaration(
-    NavigationModalPlacement Placement,
-    Func<RouteEntry, string?>? OwnerEntryId);
+/// <summary>How a declared modal may be placed over the stack; made by <see cref="NavigationTopology.WithModal"/> and
+/// <see cref="NavigationTopology.WithOwnedModal"/>.</summary>
+public sealed class NavigationModalDeclaration
+{
+    internal NavigationModalDeclaration(NavigationModalPlacement placement, Func<RouteEntry, string?>? ownerEntryId)
+    {
+        Placement = placement;
+        OwnerEntryId = ownerEntryId;
+    }
+
+    /// <summary>Where the modal may stand.</summary>
+    public NavigationModalPlacement Placement { get; }
+
+    /// <summary>For <see cref="NavigationModalPlacement.OverOwnerEntry"/>, the owner stack entry's ID of a modal entry;
+    /// otherwise null.</summary>
+    public Func<RouteEntry, string?>? OwnerEntryId { get; }
+}
 
 /// <summary>Where a declared modal may stand over the stack.</summary>
 public enum NavigationModalPlacement
@@ -173,30 +192,42 @@ public enum NavigationModalPlacement
 
 /// <summary>What one presenter can show of a <see cref="NavigationTopology"/>: limits that grow as the presenter does,
 /// without changing the declaration.</summary>
-/// <param name="MaxStackEntries">The deepest stack it shows, the root entry included; at least 1.</param>
-/// <param name="MaxModals">The most modals it shows at once.</param>
-/// <param name="ModalContent">Whether it shows topology nested in a modal (<see cref="ModalNode.Content"/>).</param>
-public sealed record NavigationTopologySupport(int MaxStackEntries, int MaxModals = 1, bool ModalContent = false)
+public sealed record NavigationTopologySupport
 {
-    /// <summary>The deepest stack it shows, the root entry included; at least 1.</summary>
-    public int MaxStackEntries { get; init; } = MaxStackEntries >= 1
-        ? MaxStackEntries
-        : throw new ArgumentOutOfRangeException(nameof(MaxStackEntries), MaxStackEntries, "A stack holds its root.");
+    /// <summary>Limits a presenter of a stack up to <paramref name="maxStackEntries"/> entries deep.</summary>
+    /// <param name="maxStackEntries">The deepest stack it shows, the root entry included; at least 1.</param>
+    public NavigationTopologySupport(int maxStackEntries) => MaxStackEntries = maxStackEntries;
 
-    /// <summary>The most modals it shows at once.</summary>
-    public int MaxModals { get; init; } = MaxModals >= 0
-        ? MaxModals
-        : throw new ArgumentOutOfRangeException(nameof(MaxModals), MaxModals, "A count of modals is not negative.");
+    /// <summary>The deepest stack it shows, the root entry included; at least 1. Checked however the value is set,
+    /// a <c>with</c> expression included.</summary>
+    public int MaxStackEntries
+    {
+        get;
+        init => field = value >= 1
+            ? value
+            : throw new ArgumentOutOfRangeException(nameof(MaxStackEntries), value, "A stack holds its root.");
+    }
 }
 
 /// <summary>A plan's shape, matched against a <see cref="NavigationTopology"/>.</summary>
-/// <param name="Window">The presented window.</param>
-/// <param name="Stack">Its root stack.</param>
-/// <param name="Modals">Its modals, in order, each with its owner entry.</param>
-public sealed record NavigationTopologyMatch(
-    WindowNode Window,
-    StackNode Stack,
-    IReadOnlyList<NavigationTopologyModal> Modals);
+public sealed class NavigationTopologyMatch
+{
+    internal NavigationTopologyMatch(WindowNode window, StackNode stack, NavigationTopologyModal[] modals)
+    {
+        Window = window;
+        Stack = stack;
+        Modals = Array.AsReadOnly(modals);
+    }
+
+    /// <summary>The presented window.</summary>
+    public WindowNode Window { get; }
+
+    /// <summary>Its root stack.</summary>
+    public StackNode Stack { get; }
+
+    /// <summary>Its modals, in order, each with its owner entry; at most one in this version.</summary>
+    public IReadOnlyList<NavigationTopologyModal> Modals { get; }
+}
 
 /// <summary>One modal of a matched plan.</summary>
 /// <param name="Node">The modal.</param>

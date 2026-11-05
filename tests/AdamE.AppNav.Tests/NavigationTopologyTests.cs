@@ -9,7 +9,7 @@ public sealed class NavigationTopologyTests
     private const string Stack = "stack";
     private const string Owner = "owner";
 
-    private static readonly NavigationTopologySupport TwoDeep = new(MaxStackEntries: 2);
+    private static readonly NavigationTopologySupport TwoDeep = new(maxStackEntries: 2);
 
     private static readonly NavigationTopology Topology = new NavigationTopology(Window, Stack)
         .WithModal("sheet", NavigationModalPlacement.OverRoot)
@@ -33,10 +33,28 @@ public sealed class NavigationTopologyTests
     }
 
     [Fact]
-    public void SupportRejectsImpossibleLimits()
+    public void SupportRejectsImpossibleLimitsHoweverItIsMade()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => new NavigationTopologySupport(0));
-        Assert.Throws<ArgumentOutOfRangeException>(() => new NavigationTopologySupport(2, MaxModals: -1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => TwoDeep with { MaxStackEntries = 0 });
+        Assert.Equal(3, (TwoDeep with { MaxStackEntries = 3 }).MaxStackEntries);
+    }
+
+    [Fact]
+    public void MatchRequiresAStateAndASupport()
+    {
+        // Nulls on purpose: the null checks are what is tested.
+        Assert.Throws<ArgumentNullException>(() => Topology.Match(null!, TwoDeep));
+        Assert.Throws<ArgumentNullException>(() => Topology.Match(NavigationState.Empty, null!));
+    }
+
+    [Fact]
+    public void AnOwnedModalNamesItsOwnerAndNoOtherModalDoes()
+    {
+        Assert.Equal("pushed", Topology.OwnerEntryIdOf(new ModalNode("owned", Entry("answer", "pushed"))));
+        Assert.Null(Topology.OwnerEntryIdOf(new ModalNode("owned", Entry("answer"))));
+        Assert.Null(Topology.OwnerEntryIdOf(new ModalNode("sheet", Entry("sheet", "pushed"))));
+        Assert.Null(Topology.OwnerEntryIdOf(new ModalNode("undeclared", Entry("other", "pushed"))));
     }
 
     [Fact]
@@ -61,25 +79,26 @@ public sealed class NavigationTopologyTests
         Assert.Equal("pushed", Assert.Single(owned.Modals).OwnerEntryId);
     }
 
-    public static TheoryData<string> RefusedShapes =>
-    [
-        "two-windows",
-        "other-window",
-        "root-not-a-stack",
-        "other-stack",
-        "empty-stack",
-        "too-deep",
-        "too-many-modals",
-        "undeclared-modal",
-        "nested-content",
-        "over-root-over-pushed",
-        "owned-not-top",
-        "owned-without-owner"
-    ];
+    public static TheoryData<string, string> RefusedShapes => new()
+    {
+        { "two-windows", "the plan has 2 window(s)" },
+        { "other-window", "the one window 'main'" },
+        { "root-not-a-stack", "must be the stack 'stack'" },
+        { "other-stack", "must be the stack 'stack'" },
+        { "empty-stack", "has no entry" },
+        { "too-deep", "1 to 2 entries" },
+        { "too-many-modals", "one modal at a time" },
+        { "undeclared-modal", "not declared" },
+        { "nested-content", "nested in a modal" },
+        { "undeclared-with-content", "nested in a modal" },
+        { "over-root-over-pushed", "over the root entry only" },
+        { "owned-not-top", "belongs to entry 'root'" },
+        { "owned-without-owner", "belongs to entry '(none)'" }
+    };
 
     [Theory]
     [MemberData(nameof(RefusedShapes))]
-    public void OtherShapesAreRefusedAsUnsupported(string shape)
+    public void OtherShapesAreRefusedAsUnsupportedNamingWhy(string shape, string reason)
     {
         NavigationState state = shape switch
         {
@@ -108,6 +127,9 @@ public sealed class NavigationTopologyTests
                 new ModalNode("sheet", Entry("one")),
                 new ModalNode("anywhere", Entry("two"))),
             "undeclared-modal" => Plan(["root"], new ModalNode("undeclared", Entry("one"))),
+            "undeclared-with-content" => Plan(
+                ["root"],
+                new ModalNode("undeclared", Entry("one"), new StackNode("nested", [Entry("inner")]))),
             "nested-content" => Plan(
                 ["root"],
                 new ModalNode("sheet", Entry("one"), new StackNode("nested", [Entry("inner")]))),
@@ -117,24 +139,25 @@ public sealed class NavigationTopologyTests
             _ => throw new ArgumentOutOfRangeException(nameof(shape), shape, null)
         };
 
-        Assert.Throws<NotSupportedException>(() => Topology.Match(state, TwoDeep));
+        NotSupportedException refused = Assert.Throws<NotSupportedException>(() => Topology.Match(state, TwoDeep));
+        Assert.Contains(reason, refused.Message, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void LimitsAreThePresentersAndGrowWithoutChangingTheDeclaration()
+    public void DepthIsThePresentersAndGrowsWithoutChangingTheDeclaration()
     {
         NavigationState deep = Plan(["root", "a", "b"]);
-        NavigationState two = Plan(
-            ["root"],
-            new ModalNode("sheet", Entry("one")),
-            new ModalNode("anywhere", Entry("two")));
-        NavigationState nested = Plan(["root"], new ModalNode("sheet", Entry("one"), new StackNode("nested", [Entry("inner")])));
-
         Assert.Equal(3, Topology.Match(deep, new NavigationTopologySupport(3))?.Stack.Entries.Count);
-        Assert.Equal(2, Topology.Match(two, new NavigationTopologySupport(2, MaxModals: 2))?.Modals.Count);
-        Assert.NotNull(Topology.Match(nested, new NavigationTopologySupport(2, ModalContent: true)));
-        NotSupportedException refused = Assert.Throws<NotSupportedException>(() => Topology.Match(deep, TwoDeep));
-        Assert.Contains("1 to 2 entries", refused.Message, StringComparison.Ordinal);
+        Assert.Throws<NotSupportedException>(() => Topology.Match(deep, TwoDeep));
+    }
+
+    [Fact]
+    public void AMatchCannotBeChangedThroughItsModals()
+    {
+        NavigationTopologyMatch match = Assert.IsType<NavigationTopologyMatch>(
+            Topology.Match(Plan(["root"], new ModalNode("sheet", Entry("one"))), TwoDeep));
+        Assert.False(match.Modals is IList<NavigationTopologyModal> { IsReadOnly: false });
+        Assert.Empty(Assert.IsType<NavigationTopologyMatch>(Topology.Match(Plan(["root"]), TwoDeep)).Modals);
     }
 
     private static RouteEntry Entry(string id, string? owner = null) =>

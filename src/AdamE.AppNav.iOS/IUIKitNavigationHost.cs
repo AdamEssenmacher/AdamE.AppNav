@@ -121,9 +121,7 @@ public sealed class UIKitRouterNavigationHost : IUIKitNavigationHost
     public void ReportRecoveredFailure(Exception failure) => reportRecoveredFailure(failure);
 
     private bool OwnedByPopped(ModalNode modal, HashSet<string> popped) =>
-        topology.Modals.TryGetValue(modal.Id, out NavigationModalDeclaration? declaration)
-        && declaration.OwnerEntryId?.Invoke(modal.RouteEntry) is { } owner
-        && popped.Contains(owner);
+        topology.OwnerEntryIdOf(modal) is { } owner && popped.Contains(owner);
 
     private NavigationState? WithoutPopped(NavigationState state, string entryId)
     {

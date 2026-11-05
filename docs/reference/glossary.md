@@ -220,6 +220,16 @@ The immutable logical tree described by `NavigationState`: windows, root
 nodes, independent branches, stacks, route entries, and modals. It is the
 router's model of navigation structure, not the complete rendered UI tree.
 
+### Navigation topology
+
+The navigation shape one native presenter shows, declared by the application:
+one window, its root stack, and the modals it may show over that stack, each
+with its placement. It is a narrower thing than the logical
+[topology](#topology), which can hold several windows and branch hosts: an
+adapter such as `AdamE.AppNav.iOS` checks every plan against it with
+`NavigationTopology.Match`, and against its own `NavigationTopologySupport`,
+before it builds anything.
+
 ### Operation ID
 
 An identifier AppNav creates for one router or startup operation so its

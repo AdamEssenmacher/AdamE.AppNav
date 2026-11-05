@@ -24,9 +24,10 @@ WindowNode "main"
 ```
 
 This version presents a stack of one or two entries and one modal at a time,
-with no topology nested inside the modal. The topology API is already shaped
-for deeper stacks and for modals with their own stacks; later versions add them
-without changing it. The presenter checks every plan against the topology
+with no topology nested inside the modal. A deeper stack is a wider
+`UIKitNavigationPresenter.Support` and changes nothing you declare; modals with
+their own stacks need a way to declare those stacks, which comes with them. The
+presenter checks every plan against the topology
 before it builds anything, and refuses any other shape with
 `NotSupportedException`, so an unsupported plan never half-presents.
 
@@ -51,7 +52,10 @@ UIKit and an Android presenter declares it once and gives both the same one.
 ```csharp
 var topology = new NavigationTopology("main", "main-stack")
     .WithModal("sheet", NavigationModalPlacement.OverRoot)
-    .WithOwnedModal("answer", entry => entry.Metadata?["question-entry"] as string);
+    // The owner lookup must not throw: an entry without the key has no owner, which refuses the plan.
+    .WithOwnedModal("answer", entry => entry.Metadata?.TryGetValue("question-entry", out object? id) == true
+        ? id as string
+        : null);
 ```
 
 What this presenter can show of it is `UIKitNavigationPresenter.Support`: today a
@@ -59,7 +63,7 @@ stack of two entries and one modal with nothing nested in it. A plan beyond that
 fails with a `NotSupportedException` that says which limit refused it.
 
 - `OverRoot`: only while the stack holds the root page alone.
-- `OverAnyEntry`: over any stack the topology supports.
+- `OverAnyEntry`: over any stack the presenter supports.
 - `WithOwnedModal`: the modal belongs to one stack entry, read from the
   modal's own entry, and is presented only while that entry is the top of the
   stack. An answer sheet over the question it answers is one.
