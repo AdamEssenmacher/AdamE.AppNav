@@ -95,14 +95,17 @@ AppNav refusing it as reentrant:
 
 - a pop UIKit committed, once, when its transition has ended and never while an
   operation is applying;
-- a modal swipe-down, as a Back request;
+- a modal swipe-down, as a host Back request tied to the modal entry. Repeated
+  attempts while its request is pending are coalesced;
 - a modal dismissed by something other than the presenter, as a refresh
   request;
 - failures it recovered from.
 
 `UIKitRouterNavigationHost` records a pop as a `HostBack` reconciliation from
 the router's current state, retrying when another operation committed first. A
-modal owned by a popped entry goes with it.
+modal owned by a popped entry goes with it. If the host cannot record a pop,
+an accepted-state refresh can restore the router's stack. The router checks
+queued modal Back requests against the top modal when it admits them.
 
 ## How it is checked
 

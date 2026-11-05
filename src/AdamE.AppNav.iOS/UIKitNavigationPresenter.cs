@@ -75,6 +75,9 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
     // The stack the presenter last set; anything else UIKit shows is a pop the person committed.
     private (UINavigationController Navigation, UIViewController[] Stack)? _lastSet;
     private PresentedPage? _reportedPop;
+    // After a failed record, the accepted router state can drive native presentation again.
+    private bool _popReportFailed;
+    private PresentedPage? _pendingModalBack;
     private UIViewController? _nativeRoot;
 
     // The navigation stack of the root page the presenter last installed: the only navigation controller it ever
@@ -175,7 +178,7 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
                     owned = CancellationTokenSource.CreateLinkedTokenSource(
                         [admissionToken, .. Retirements(target)]);
                     RequireCurrent(target);
-                    if (await PersonPoppedAsync(owned.Token) && !StackMatches(target))
+                    if (await PersonPoppedAsync(owned.Token) && !StackMatches(target) && !_popReportFailed)
                     {
                         // A pop the person committed while this operation prepared wins. It is reported when this
                         // operation ends and AppNav records it then. An operation that would present the same pages
@@ -213,7 +216,8 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
                     Preflight(target);
                     mutated = true;
                     await MutateAsync(target, owned.Token);
-                    await DisplayedFrameAsync(owned.Token);
+                    if (target.Root is not null)
+                        await DisplayedFrameAsync(owned.Token);
                     await SettleStackAsync(owned.Token);
                     owned.Token.ThrowIfCancellationRequested();
                     RequireCurrent(target);
@@ -400,17 +404,20 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
         // The declared shape is checked before anything is built.
         if (_topology.Validate(state) is not var (stack, modal, owner))
             return new Surface(null, null, null, null);
-        PresentedPage root = await ReuseAsync(
-            previous.RootEntry,
-            previous.Root,
-            stack.Entries[0],
-            UIKitPagePlacement.Root,
-            null,
-            token);
+        PresentedPage? root = null;
         PresentedPage? sheet = null;
         PresentedPage? top = null;
+        var owners = new List<PresentedPage?> { previous.Root, previous.Top, previous.Modal };
         try
         {
+            root = await ReuseAsync(
+                previous.RootEntry,
+                previous.Root,
+                stack.Entries[0],
+                UIKitPagePlacement.Root,
+                null,
+                token);
+            ValidateCandidate(root, owners);
             if (stack.Entries.Count == 2)
             {
                 if (root.Stack is null)
@@ -423,25 +430,21 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
                     UIKitPagePlacement.Pushed,
                     null,
                     token);
-                if (ReferenceEquals(root.Controller, top.Controller)
-                    || ReferenceEquals(root.OriginalContent, top.Controller))
-                    throw new InvalidOperationException("The root page and a pushed page must own different controllers.");
+                ValidateCandidate(top, [.. owners, root]);
             }
 
-            sheet = modal is null
-                ? null
-                : await ReuseAsync(
+            if (modal is not null)
+            {
+                sheet = await ReuseAsync(
                     previous.ModalEntry,
                     previous.Modal,
                     modal.RouteEntry,
                     UIKitPagePlacement.Modal,
                     owner,
                     token);
-            if (top is not null && ReferenceEquals(top.Controller, sheet?.Controller))
-                throw new InvalidOperationException("A pushed page and a modal must own different controllers.");
-            if (ReferenceEquals(root.Controller, sheet?.Controller)
-                || (sheet is not null && ReferenceEquals(root.OriginalContent, sheet.Controller)))
-                throw new InvalidOperationException("The root page and a modal must own different controllers.");
+                ValidateCandidate(sheet, [.. owners, root, top]);
+            }
+
             return new Surface(
                 stack.Entries[0],
                 root,
@@ -457,12 +460,14 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
             // here has already disposed is gone: a candidate sharing either only gives back what it borrows. The
             // first candidate holding a controller disposes it, before the others release, so the order rule (dispose,
             // then release) holds for every page that shares it.
-            var owners = new List<PresentedPage?> { previous.Root, previous.Top, previous.Modal };
+            var unsafeOwners = new List<PresentedPage?>();
             foreach (PresentedPage? candidate in new[] { root, top, sheet })
                 if (candidate is not null && !owners.Any(owner => ReferenceEquals(owner, candidate)))
                     try
                     {
-                        if (SharesController(candidate, [.. owners]))
+                        if (SharesController(candidate, unsafeOwners))
+                            continue;
+                        if (SharesController(candidate, owners))
                             ReleaseOnly(candidate);
                         else
                             Retire(candidate);
@@ -470,6 +475,7 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
                     catch (Exception cleanup)
                     {
                         failures.Add(cleanup);
+                        unsafeOwners.Add(candidate);
                     }
                     finally
                     {
@@ -482,7 +488,15 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
         }
     }
 
-    private static bool SharesController(PresentedPage page, PresentedPage?[] pages) =>
+    private static void ValidateCandidate(PresentedPage page, List<PresentedPage?> owners)
+    {
+        if (SharesController(page, owners))
+            throw new InvalidOperationException("Different route pages must own different controllers.");
+        if (page.ValidationFailure is { } failure)
+            throw failure;
+    }
+
+    private static bool SharesController(PresentedPage page, List<PresentedPage?> pages) =>
         pages.Any(other => other is not null
                            && !ReferenceEquals(other, page)
                            && (ReferenceEquals(other.Controller, page.Controller)
@@ -577,17 +591,10 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
                          ?? throw new InvalidOperationException($"The page factory returned no page for '{entry.Id}'.");
         if (page.Controller is null)
             throw new InvalidOperationException($"The page factory returned no controller for '{entry.Id}'.");
-        if (Misuse(page, entry, placement) is { } misuse)
-        {
-            // The presenter owns the returned page, so it retires it before rejecting it.
-            RetireRejected(new PresentedPage(page.Controller, page.Loan, null, null, null, default, null, false), misuse);
-            throw misuse;
-        }
-
-        PresentedPage presented;
+        InvalidOperationException? misuse = Misuse(page, entry, placement);
         try
         {
-            presented = new PresentedPage(
+            return new PresentedPage(
                 page.Controller,
                 page.Loan,
                 lease,
@@ -595,17 +602,18 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
                 page.IsCurrent,
                 page.Retirement,
                 owner,
-                page.IsNavigationStack);
+                page.IsNavigationStack && misuse is null)
+            {
+                ValidationFailure = misuse
+            };
         }
         catch (InvalidOperationException malformed)
         {
-            RetireRejected(
-                new PresentedPage(page.Controller, page.Loan, null, null, null, default, null, false),
-                malformed);
-            throw;
+            return new PresentedPage(page.Controller, page.Loan, lease, attachment, null, default, owner, false)
+            {
+                ValidationFailure = malformed
+            };
         }
-
-        return presented;
     }
 
     // A page UIKit would refuse, or one whose delegates the presenter needs and the application already set, is
@@ -626,19 +634,6 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
             return new InvalidOperationException(
                 $"Modal page '{entry.Id}' has a presentation controller delegate: the presenter is that delegate.");
         return null;
-    }
-
-    // A page the presenter rejected before showing it: retired as any other, and a failed retirement stays sticky.
-    private void RetireRejected(PresentedPage rejected, Exception misuse)
-    {
-        try
-        {
-            Retire(rejected);
-        }
-        catch (Exception cleanup)
-        {
-            throw new UIKitCleanupFailureException("A rejected page could not be retired.", misuse, cleanup);
-        }
     }
 
     private PresentedPage Placeholder(RouteEntry entry, UIKitPagePlacement placement, string? owner)
@@ -671,9 +666,10 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
         }
         catch (InvalidOperationException misuse)
         {
-            // The presenter owns what the placeholder factory returned.
-            RetireRejected(new PresentedPage(blank, null, null, null, null, default, null, false), misuse);
-            throw;
+            return new PresentedPage(blank, null, null, null, null, default, owner, false, placeholder: true)
+            {
+                ValidationFailure = misuse
+            };
         }
 
         return new PresentedPage(
@@ -695,12 +691,13 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
         Surface target) =>
         plan.Kind == NavigationPlanKind.Refresh
         && ReferenceEquals(plan.TargetState, context.CurrentState)
-        && previous.Modal is null
-        && target.Modal is null
+        && ReferenceEquals(previous.Modal, target.Modal)
+        && ReferenceEquals(_shownModal, target.Modal?.Controller)
+        && (target.Modal is null
+            || ReferenceEquals(target.Root?.Controller.PresentedViewController, _shownModal))
         && ReferenceEquals(previous.Top, target.Top)
         && previous.TopEntry?.Id == target.TopEntry?.Id
         && Equals(previous.TopEntry?.Route, target.TopEntry?.Route)
-        && _shownModal is null
         && previous.Root is { IsCurrent: true } original
         && ReferenceEquals(target.Root, original)
         && previous.RootEntry?.Id == target.RootEntry?.Id
@@ -719,8 +716,10 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
     {
         MainOnly();
         if (target.Root is not { IsCurrent: true } original
-            || target.Modal is not null
-            || _shownModal is not null
+            || !ReferenceEquals(_shownModal, target.Modal?.Controller)
+            || (target.Modal is { } modal
+                && (!ReferenceEquals(original.Controller.PresentedViewController, modal.Controller)
+                    || !RootHierarchyMounted(modal.Controller)))
             || !ReferenceEquals(_window.RootViewController, original.Controller)
             || !ReferenceEquals(_nativeRoot, original.Controller)
             || !RootHierarchyMounted(original.Controller))
@@ -741,12 +740,17 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
             throw new InvalidOperationException("The window was reassigned outside its native presenter.");
         if (_surface.Top is { } previousTop && !ReferenceEquals(previousTop, target.Top))
         {
-            UIViewController[] children = PresentedChildren(previousTop.Controller);
+            UIViewController[] children = ForeignChildren(previousTop.Controller);
             RequireOwnWindow(children);
             if (children.Length != 0 && previousTop.IsCurrent && Volatile.Read(ref _disposed) == 0)
                 throw new InvalidOperationException(
                     "A still-current foreign presentation over a pushed page owns this surface.");
         }
+
+        if (_surface.Modal is { IsCurrent: true } currentModal
+            && !ReferenceEquals(currentModal, target.Modal)
+            && PresentedChildren(currentModal.Controller).Length != 0)
+            throw new InvalidOperationException("A still-current route modal's presentation remains owned by its SDK.");
 
         if (actualRoot?.PresentedViewController is { } foreign && !ReferenceEquals(foreign, _shownModal))
         {
@@ -779,7 +783,7 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
 
         if (_surface.Top is { } previousTop && !ReferenceEquals(previousTop, target.Top))
         {
-            UIViewController[] topChildren = PresentedChildren(previousTop.Controller);
+            UIViewController[] topChildren = ForeignChildren(previousTop.Controller);
             if (topChildren.Length != 0)
             {
                 if (previousTop.IsCurrent && Volatile.Read(ref _disposed) == 0)
@@ -836,6 +840,7 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
                 target.Modal
                 ?? throw new InvalidOperationException("Missing modal page ownership."));
             presentation.Delegate = _modalDelegate;
+            _modalDelegate.WatchForDismissal();
         }
     }
 
@@ -865,6 +870,7 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
             navigation.SetViewControllers(desired, animated);
         _lastSet = (navigation, desired);
         _reportedPop = null;
+        _popReportFailed = false;
         // A pushed page sits on the root page's stack, and its own navigation item carries its chrome under that bar.
         navigation.SetNavigationBarHidden(target.Root.OriginalNavigationBarHidden, false);
         _stackDelegate ??= new StackDelegate(new WeakReference<UIKitNavigationPresenter>(this));
@@ -938,10 +944,12 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
         {
             await DetachedAsync(() => _host.RecordNativePopAsync(entryId, _shutdown.Token));
         }
-        catch (OperationCanceledException) when (_shutdown.IsCancellationRequested || !top.IsCurrent) { }
         catch (Exception failure)
         {
-            _host.ReportRecoveredFailure(failure);
+            if (ReferenceEquals(_reportedPop, top))
+                _popReportFailed = true;
+            if (failure is not OperationCanceledException || (!_shutdown.IsCancellationRequested && top.IsCurrent))
+                _host.ReportRecoveredFailure(failure);
         }
     }
 
@@ -992,8 +1000,7 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
         && (modal.Controller.PresentationController?.ShouldRemovePresentersView == true
             || (modal.OwnerEntryId is { } owner && owner == (target.TopEntry ?? target.RootEntry)?.Id))
         && ReferenceEquals(target.Root?.Controller.PresentedViewController, modal.Controller)
-        && modal.Controller.IsViewLoaded
-        && ReferenceEquals(modal.Controller.View?.Window, _window);
+        && RootHierarchyMounted(modal.Controller);
 
     private static Task DismissAsync(UIViewController controller, CancellationToken token) =>
         NativeCompletionAsync(completion => controller.DismissViewController(false, completion), token);
@@ -1082,31 +1089,52 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
     {
         if (!_applying
             && Volatile.Read(ref _disposed) == 0
-            && (ReferenceEquals(_surface.Modal, original) || ReferenceEquals(_surface.Top, original))
+            && !ReferenceEquals(_pendingModalBack, original)
+            && ReferenceEquals(_surface.Modal, original)
+            && _surface.ModalEntry is { } entry
             && original.IsCurrent)
-            _ = BackAsync(original);
+        {
+            _pendingModalBack = original;
+            _ = BackAsync(original, entry.Id);
+        }
     }
 
-    private async Task BackAsync(PresentedPage original)
+    private async Task BackAsync(PresentedPage original, string entryId)
     {
         try
         {
-            await DetachedAsync(() => _host.RequestBackAsync(_shutdown.Token));
+            await DetachedAsync(() =>
+                ReferenceEquals(_surface.Modal, original) && original.IsCurrent && !_shutdown.IsCancellationRequested
+                    ? _host.RequestModalBackAsync(entryId, _shutdown.Token)
+                    : Task.CompletedTask);
         }
         catch (OperationCanceledException) when (_shutdown.IsCancellationRequested || !original.IsCurrent) { }
         catch (Exception failure)
         {
             _host.ReportRecoveredFailure(failure);
         }
+        finally
+        {
+            if (ReferenceEquals(_pendingModalBack, original))
+                _pendingModalBack = null;
+        }
     }
 
-    private void UnexpectedDismissal(PresentedPage original)
+    private bool ObserveUnexpectedDismissal(PresentedPage original)
     {
-        if (!_applying
-            && Volatile.Read(ref _disposed) == 0
-            && ReferenceEquals(_surface.Modal, original)
-            && original.IsCurrent)
-            _ = RefreshAsync(original, "Unexpected native dismissal requires accepted-state refresh.");
+        if (Volatile.Read(ref _disposed) != 0 || Volatile.Read(ref _retirementFailure) is not null)
+            return true;
+        if (_applying)
+            return false;
+        if (!ReferenceEquals(_surface.Modal, original))
+            return true;
+        if (original.Controller.IsBeingDismissed
+            || original.Controller.PresentingViewController is not null
+            || ReferenceEquals(_nativeRoot?.PresentedViewController, original.Controller))
+            return false;
+
+        _ = RefreshAsync(original, "Unexpected native dismissal requires accepted-state refresh.");
+        return true;
     }
 
     private async Task RefreshAsync(PresentedPage original, string reason)
@@ -1193,7 +1221,7 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
         if (ReferenceEquals(_window.RootViewController, _nativeRoot) && _nativeRoot is { } original)
         {
             UIViewController[] topChildren = _surface.Top is { } top
-                ? PresentedChildren(top.Controller)
+                ? ForeignChildren(top.Controller)
                 : [];
             RequireOwnWindow(topChildren);
             if (topChildren.Length != 0 && _surface.Top?.IsCurrent == true && Volatile.Read(ref _disposed) == 0)
@@ -1226,6 +1254,9 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
         _nativeStack = null;
         _shownModal = null;
     }
+
+    private UIViewController[] ForeignChildren(UIViewController original) =>
+        [.. PresentedChildren(original).Where(child => !ReferenceEquals(child, _shownModal))];
 
     private static UIViewController[] PresentedChildren(UIViewController original)
     {
@@ -1548,26 +1579,40 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
     private sealed class ModalDelegate(UIKitNavigationPresenter owner, PresentedPage original)
         : UIAdaptivePresentationControllerDelegate
     {
-        private UIKitNavigationPresenter? _owner = owner;
+        private readonly WeakReference<UIKitNavigationPresenter> _owner = new(owner);
         private PresentedPage? _original = original;
+        private NSTimer? _dismissalWatch;
         public override bool ShouldDismiss(UIPresentationController presentationController) => false;
 
         public override void DidAttemptToDismiss(UIPresentationController presentationController)
         {
-            if (_original is { } captured)
-                _owner?.BackIntent(captured);
+            if (_original is { } captured && _owner.TryGetTarget(out UIKitNavigationPresenter? presenter))
+                presenter.BackIntent(captured);
         }
 
-        public override void DidDismiss(UIPresentationController presentationController)
+        public override void DidDismiss(UIPresentationController presentationController) => ObserveDismissal();
+
+        // UIKit skips DidDismiss for programmatic dismissals. Watch the presentation relationship while this modal
+        // owns it, including when the factory supplied an arbitrary controller subclass.
+        public void WatchForDismissal()
         {
-            if (_original is { } captured)
-                _owner?.UnexpectedDismissal(captured);
+            _dismissalWatch = NSTimer.CreateRepeatingTimer(TimeSpan.FromMilliseconds(100), _ => ObserveDismissal());
+            NSRunLoop.Main.AddTimer(_dismissalWatch, NSRunLoopMode.Common);
+        }
+
+        private void ObserveDismissal()
+        {
+            if (_original is not { } captured || !_owner.TryGetTarget(out UIKitNavigationPresenter? presenter)
+                || presenter.ObserveUnexpectedDismissal(captured))
+                Stop();
         }
 
         public void Stop()
         {
-            _owner = null;
             _original = null;
-        } // A queued UIKit callback may still hold the native peer.
+            _dismissalWatch?.Invalidate();
+            _dismissalWatch?.Dispose();
+            _dismissalWatch = null;
+        }
     }
 }

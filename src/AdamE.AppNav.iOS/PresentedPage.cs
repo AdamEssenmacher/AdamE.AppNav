@@ -63,6 +63,8 @@ internal sealed class PresentedPage
 
     public bool IsPlaceholder { get; }
 
+    public InvalidOperationException? ValidationFailure { get; init; }
+
     /// <summary>The page's own retirement, besides its lease's.</summary>
     public CancellationToken PageRetirement { get; }
 

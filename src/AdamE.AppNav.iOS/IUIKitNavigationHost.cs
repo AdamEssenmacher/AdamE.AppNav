@@ -1,3 +1,4 @@
+using AdamE.AppNav.Back;
 using AdamE.AppNav.Navigation;
 using AdamE.AppNav.Presentation;
 using AdamE.AppNav.State;
@@ -21,6 +22,11 @@ public interface IUIKitNavigationHost
     /// request, which the router's Back policy may refuse too.
     /// </summary>
     Task RequestBackAsync(CancellationToken cancellationToken);
+
+    /// <summary>Requests Back for the modal entry that raised the dismissal attempt.</summary>
+    /// <remarks>A host that queues this request should check the entry when it admits the request. The default
+    /// implementation forwards to <see cref="RequestBackAsync"/> for hosts that handle their own admission.</remarks>
+    Task RequestModalBackAsync(string entryId, CancellationToken cancellationToken) => RequestBackAsync(cancellationToken);
 
     /// <summary>
     /// UIKit has already popped the pushed entry <paramref name="entryId"/>: its back button or back-swipe completed.
@@ -65,7 +71,14 @@ public sealed class UIKitRouterNavigationHost : IUIKitNavigationHost
 
     /// <inheritdoc />
     public async Task RequestBackAsync(CancellationToken cancellationToken) =>
-        _ = await router().BackAsync(topology.WindowId, cancellationToken).ConfigureAwait(false);
+        _ = await router().BackAsync(new BackNavigationRequest(topology.WindowId, BackNavigationSource.Host),
+            cancellationToken).ConfigureAwait(false);
+
+    /// <inheritdoc />
+    public async Task RequestModalBackAsync(string entryId, CancellationToken cancellationToken) =>
+        _ = await router().BackAsync(
+            new BackNavigationRequest(topology.WindowId, BackNavigationSource.Host) { ExpectedModalEntryId = entryId },
+            cancellationToken).ConfigureAwait(false);
 
     /// <inheritdoc />
     /// <remarks>A reconciliation names the state it changes from; if another operation commits first, the router

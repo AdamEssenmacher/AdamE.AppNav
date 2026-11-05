@@ -16,6 +16,8 @@ AdamE.AppNav.Back.BackNavigationPolicyDecision.Cancel = 1 -> AdamE.AppNav.Back.B
 AdamE.AppNav.Back.BackNavigationPolicyDecision.Continue = 0 -> AdamE.AppNav.Back.BackNavigationPolicyDecision
 AdamE.AppNav.Back.BackNavigationRequest
 AdamE.AppNav.Back.BackNavigationRequest.BackNavigationRequest(string? windowId = null, AdamE.AppNav.Back.BackNavigationSource source = AdamE.AppNav.Back.BackNavigationSource.ApplicationCommand) -> void
+AdamE.AppNav.Back.BackNavigationRequest.ExpectedModalEntryId.get -> string?
+AdamE.AppNav.Back.BackNavigationRequest.ExpectedModalEntryId.init -> void
 AdamE.AppNav.Back.BackNavigationRequest.Source.get -> AdamE.AppNav.Back.BackNavigationSource
 AdamE.AppNav.Back.BackNavigationRequest.WindowId.get -> string?
 AdamE.AppNav.Back.BackNavigationSource
