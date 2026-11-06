@@ -420,6 +420,11 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
         ThrowIfRetirementFailed();
         operation.ThrowIfCancellationRequested();
         RequireEpoch(epoch); // Nothing is built for a finishing activity.
+        // Nothing is changed in a stopped activity either: Android neither lays out nor draws one, and a dialog shown
+        // into one is not reliably drawn once it starts again (API 28). The operation waits for the activity to start,
+        // as it waits for a detached one to be replaced; canceling it meanwhile ends it with nothing touched.
+        await StartedAsync(epoch, operation);
+        RequireEpoch(epoch);
         Surface previous = epoch.Surface;
         // The pages this operation may reuse: those shown, or those a rollback took out of the frame but kept, still
         // current, when it could not restore them.
@@ -948,6 +953,29 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
         }
     }
 
+    private static async Task StartedAsync(Epoch epoch, CancellationToken operation)
+    {
+        MainOnly();
+        AndroidX.Lifecycle.Lifecycle lifecycle = epoch.Activity.Lifecycle;
+        AndroidX.Lifecycle.Lifecycle.State started = AndroidX.Lifecycle.Lifecycle.State.Started
+                                                     ?? throw new InvalidOperationException("No STARTED state.");
+        if (lifecycle.CurrentState.IsAtLeast(started))
+            return;
+        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var observer = new StartObserver(started, () => start.TrySetResult());
+        lifecycle.AddObserver(observer);
+        try
+        {
+            using var stopped = CancellationTokenSource.CreateLinkedTokenSource(operation, epoch.Stopped.Token);
+            await start.Task.WaitAsync(stopped.Token);
+        }
+        finally
+        {
+            observer.Stop();
+            lifecycle.RemoveObserver(observer);
+        }
+    }
+
     private bool IsAttached(Epoch epoch)
     {
         lock (_attachmentGate)
@@ -1283,23 +1311,11 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
             observer.AddOnPreDrawListener(listener);
             view.RequestLayout();
             view.Invalidate();
-            // The pre-draw callback is the usual signal. The view's own state is checked too, every 100 ms: on API 28
-            // a dialog shown again while its activity was stopped can be laid out once the activity returns without
-            // a pre-draw that finds it ready.
-            while (surface.Modal?.ClosedByOthersOrNotShowing != true
-                   && !done.Task.IsCompleted
-                   && surface.Modal?.ClosedByOthers.Task.IsCompleted != true)
-            {
-                token.ThrowIfCancellationRequested();
-                if (LayoutAcknowledgement.Ready(view))
-                    break;
-                _ = await Task.WhenAny(
-                    done.Task,
-                    surface.Modal?.ClosedByOthers.Task ?? done.Task,
-                    Task.Delay(TimeSpan.FromMilliseconds(100), token));
-            }
-
-            token.ThrowIfCancellationRequested();
+            if (surface.Modal?.ClosedByOthersOrNotShowing != true)
+                await (surface.Modal is { } modal
+                        ? Task.WhenAny(done.Task, modal.ClosedByOthers.Task)
+                        : done.Task)
+                    .WaitAsync(token);
         }
         catch (Exception failure)
         {
@@ -1611,6 +1627,21 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
         }
     }
 
+    // Completes once the activity's lifecycle reaches STARTED. Stop clears the capture; interop GC owns the peer.
+    private sealed class StartObserver(AndroidX.Lifecycle.Lifecycle.State started, Action reached)
+        : Java.Lang.Object, AndroidX.Lifecycle.ILifecycleEventObserver
+    {
+        private Action? _reached = reached;
+
+        public void OnStateChanged(AndroidX.Lifecycle.ILifecycleOwner source, AndroidX.Lifecycle.Lifecycle.Event e)
+        {
+            if (source.Lifecycle.CurrentState.IsAtLeast(started))
+                _reached?.Invoke();
+        }
+
+        public void Stop() => _reached = null;
+    }
+
     // JNI may already have queued one callback. Stop clears captures; normal interop GC owns the peer.
     private sealed class LayoutAcknowledgement(View view, TaskCompletionSource done)
         : Java.Lang.Object, ViewTreeObserver.IOnPreDrawListener
@@ -1621,15 +1652,10 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
 
         public bool OnPreDraw()
         {
-            if (_view is { } view && Ready(view))
+            if (_view is { IsAttachedToWindow: true, IsLaidOut: true, IsShown: true, Width: > 0, Height: > 0 })
                 _ = _done?.TrySetResult();
             return true;
         }
-
-        // Laid out since the presenter asked for layout, in a shown window, with a size.
-        public static bool Ready(View view) =>
-            view is { IsAttachedToWindow: true, IsLaidOut: true, IsLayoutRequested: false, IsShown: true }
-                and { Width: > 0, Height: > 0 };
 
         public void Stop(ViewTreeObserver observer, View view)
         {

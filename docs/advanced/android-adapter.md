@@ -64,10 +64,12 @@ operation in it ends whatever its outcome, so a recreated activity never shows
 an empty frame between its creation and the refresh that fills it, and a failed
 or empty presentation still draws.
 
-An operation on a stopped activity waits for a drawn layout like any other, and
-Android may not draw a hidden window until it is shown again: the operation
-finishes, at the latest, when the activity is started again. A rollback never
-waits for layout, so an operation canceled or failing there ends at once.
+An operation changes nothing in a stopped activity: it waits for the activity
+to be started again, as it waits for a detached one to be replaced. Android
+neither lays out nor draws a stopped activity, and on API 28 a dialog shown into
+one was not reliably drawn once it started again. Canceling the operation
+meanwhile ends it with nothing touched. A rollback never waits for layout, so an
+operation canceled or failing after it changed native ends at once.
 
 ## One operation
 

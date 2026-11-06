@@ -143,8 +143,8 @@ internal static class ActivityChecks
         }
     }
 
-    // An operation on an activity another one covers (stopped, its window hidden) finishes, at the latest once that
-    // activity is started again, and shows what it presented.
+    // An operation on an activity another one covers (stopped) changes nothing until that activity is started again,
+    // then shows what it presented.
     private static async Task StoppedActivityAsync(ComponentActivity activity, CancellationToken token)
     {
         var views = new Dictionary<string, ProbeView>(StringComparer.Ordinal);
@@ -162,6 +162,9 @@ internal static class ActivityChecks
                 token);
             Task push = ApplyAsync(presenter, Pushed("root", "pushed"), Shows("root"), token);
             await Task.WhenAny(push, Task.Delay(TimeSpan.FromSeconds(1), token));
+            Require(
+                !push.IsCompleted && ReferenceEquals(Visible(activity), views["root"]) && !views.ContainsKey("pushed"),
+                "An operation built or changed native in a stopped activity.");
             cover.Finish();
             await cover.Destroyed.Task.WaitAsync(Soon, token);
             cover = null;
@@ -177,8 +180,8 @@ internal static class ActivityChecks
         }
     }
 
-    // An operation canceled in a stopped activity, after it closed the modal, rolls back without waiting for a layout
-    // Android may not run until the activity is started again: it ends at once, and the next operation runs.
+    // An operation canceled while it waits for a stopped activity ends at once with nothing touched, and the next
+    // operation runs once the activity is back.
     private static async Task CanceledWhileStoppedAsync(ComponentActivity activity, CancellationToken token)
     {
         var dialogs = new Dictionary<string, ProbeDialog>(StringComparer.Ordinal);
@@ -205,15 +208,12 @@ internal static class ActivityChecks
                 Task closing = ApplyAsync(presenter, Shows("root"), shown, cancel.Token);
                 bool closedModal = !original.IsShowing;
                 await TurnsAsync(token);
+                Require(!closedModal && original.IsShowing, "An operation changed native in a stopped activity.");
                 cancel.Cancel();
-                Exception failure;
-                try
-                {
-                    failure = await FailsAsync(
-                        () => closing.WaitAsync(Soon, token),
-                        "A canceled operation in a stopped activity completed.");
-                }
-                catch (TimeoutException)
+                Exception failure = await FailsAsync(
+                    () => closing.WaitAsync(Soon, token),
+                    "A canceled operation in a stopped activity completed.");
+                if (failure is TimeoutException)
                 {
                     throw new TimeoutException(
                         $"Cancel {attempt} in a stopped activity did not end within {Soon.TotalSeconds}s: operation "
