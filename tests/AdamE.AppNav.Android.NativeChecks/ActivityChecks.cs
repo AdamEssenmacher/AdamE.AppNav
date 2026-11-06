@@ -203,11 +203,24 @@ internal static class ActivityChecks
             {
                 using var cancel = CancellationTokenSource.CreateLinkedTokenSource(token);
                 Task closing = ApplyAsync(presenter, Shows("root"), shown, cancel.Token);
+                bool closedModal = !original.IsShowing;
                 await TurnsAsync(token);
                 cancel.Cancel();
-                Exception failure = await FailsAsync(
-                    () => closing.WaitAsync(Soon, token),
-                    "A canceled operation in a stopped activity completed.");
+                Exception failure;
+                try
+                {
+                    failure = await FailsAsync(
+                        () => closing.WaitAsync(Soon, token),
+                        "A canceled operation in a stopped activity completed.");
+                }
+                catch (TimeoutException)
+                {
+                    throw new TimeoutException(
+                        $"Cancel {attempt} in a stopped activity did not end within {Soon.TotalSeconds}s: operation "
+                        + $"{closing.Status}, presenter settled {presenter.IsSettled}, modal closed before the cancel "
+                        + $"{closedModal}, modal showing {original.IsShowing}, activity "
+                        + $"{activity.Lifecycle.CurrentState}.");
+                }
                 Require(
                     failure is OperationCanceledException
                     && original is { IsShowing: true, Retired: false }
