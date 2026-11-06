@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using AdamE.AppNav.Diagnostics;
 using AdamE.AppNav.Maui.AppLinks;
 using AdamE.AppNav.Navigation;
@@ -147,8 +148,8 @@ public sealed class MauiExternalNavigationOptionsTests
         {
             DataMode = NavigationDiagnosticDataMode.Full
         });
-        var events = new List<NavigationDiagnosticEvent>();
-        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+        var events = new ConcurrentQueue<NavigationDiagnosticEvent>();
+        diagnostics.EventWritten += (_, diagnosticEvent) => events.Enqueue(diagnosticEvent);
         using ServiceProvider provider = CreateProvider(options, diagnostics);
         IMauiExternalNavigationDispatcher dispatcher =
             provider.GetRequiredService<IMauiExternalNavigationDispatcher>();
