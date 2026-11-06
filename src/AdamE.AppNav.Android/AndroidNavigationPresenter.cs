@@ -514,10 +514,12 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
             {
                 if (Current(previous))
                 {
-                    NativePage? shown = Mutate(epoch, previous);
+                    _ = Mutate(epoch, previous);
                     RequireEpoch(epoch);
                     RequireCurrent(previous);
-                    Verify(epoch, previous, shown);
+                    // Its dialog is verified as showing, whether this rollback showed it or an earlier one did without
+                    // seeing its window attach.
+                    Verify(epoch, previous, previous.Modal);
                     restored = true;
                 }
             }
@@ -907,8 +909,8 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
         return null;
     }
 
-    // justShown: a modal whose dialog the caller has just shown without waiting for layout, which attaches its window
-    // on Android's next traversal: showing is all it can be verified for yet.
+    // justShown: a modal whose dialog may have been shown without waiting for layout, which attaches its window on
+    // Android's next traversal: showing is all it can be verified for yet.
     private void Verify(Epoch epoch, Surface target, NativePage? justShown = null)
     {
         MainOnly();

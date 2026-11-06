@@ -191,30 +191,38 @@ internal static class ActivityChecks
         try
         {
             await ApplyAsync(presenter, shown, NavigationState.Empty, token);
+            ProbeDialog original = dialogs["sheet-entry"];
             cover = await ProbeActivity.StartAsync(activity, token);
             await UntilAsync(
                 () => !activity.Lifecycle.CurrentState.IsAtLeast(
                     AndroidX.Lifecycle.Lifecycle.State.Started ?? throw new InvalidOperationException("No STARTED.")),
                 "The covered activity was never stopped.",
                 token);
-            using var cancel = CancellationTokenSource.CreateLinkedTokenSource(token);
-            Task closing = ApplyAsync(presenter, Shows("root"), shown, cancel.Token);
-            await TurnsAsync(token);
-            cancel.Cancel();
-            Exception failure = await FailsAsync(
-                () => closing.WaitAsync(TimeSpan.FromSeconds(3), token),
-                "A canceled operation in a stopped activity completed.");
-            Require(
-                failure is OperationCanceledException,
-                $"A canceled operation in a stopped activity did not end promptly ({failure.GetType().Name}).");
+            // Twice: the second rollback restores a dialog the first showed again while the activity was stopped.
+            for (int attempt = 1; attempt <= 2; attempt++)
+            {
+                using var cancel = CancellationTokenSource.CreateLinkedTokenSource(token);
+                Task closing = ApplyAsync(presenter, Shows("root"), shown, cancel.Token);
+                await TurnsAsync(token);
+                cancel.Cancel();
+                Exception failure = await FailsAsync(
+                    () => closing.WaitAsync(TimeSpan.FromSeconds(3), token),
+                    "A canceled operation in a stopped activity completed.");
+                Require(
+                    failure is OperationCanceledException
+                    && original is { IsShowing: true, Retired: false }
+                    && presenter.ShownDialog == original,
+                    $"Cancel {attempt} in a stopped activity did not end promptly with the same modal restored "
+                    + $"({failure.GetType().Name}: {failure.Message}).");
+            }
             Task next = ApplyAsync(presenter, shown, shown, token, NavigationPlanKind.Refresh);
             cover.Finish();
             await cover.Destroyed.Task.WaitAsync(Soon, token);
             cover = null;
             await next.WaitAsync(Soon, token);
             Require(
-                presenter.ShownDialog == dialogs["sheet-entry"],
-                "The operation after a canceled one in a stopped activity did not show the modal.");
+                presenter.ShownDialog == original && dialogs["sheet-entry"] == original,
+                "The operation after a canceled one in a stopped activity did not keep the restored modal.");
         }
         finally
         {
