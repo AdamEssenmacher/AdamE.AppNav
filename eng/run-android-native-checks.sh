@@ -5,7 +5,8 @@
 # Usage: ANDROID_SERIAL=<adb serial, e.g. emulator-5554> eng/run-android-native-checks.sh
 #
 # The emulator is never chosen for you: emulators on a machine are shared, so name the one this run may use.
-# Environment: CONFIGURATION (Debug), ANDROID_CHECKS_TIMEOUT seconds (300).
+# Environment: CONFIGURATION (Debug), ANDROID_CHECKS_TIMEOUT seconds (300), ANDROID_CHECKS_DIAGNOSTICS (the directory a
+# failed run leaves its screenshot, window list and log in; artifacts/android-native-checks).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -46,8 +47,16 @@ RUN="$(date +%s)-$$"
 "${ADB[@]}" shell am start -W -n "$ACTIVITY" --es run "$RUN" >/dev/null
 
 report() { "${ADB[@]}" shell run-as "$PACKAGE" cat files/appnav-android-checks.txt 2>/dev/null || true; }
-# What has window focus, for a failure that depends on it.
-focus() { "${ADB[@]}" shell dumpsys window 2>/dev/null | grep -E 'mCurrentFocus|mFocusedApp' >&2 || true; }
+# What has window focus, for a failure that depends on it, and what the device showed, for the run's artifacts.
+DIAGNOSTICS="${ANDROID_CHECKS_DIAGNOSTICS:-$ROOT/artifacts/android-native-checks}"
+focus() {
+  "${ADB[@]}" shell dumpsys window 2>/dev/null | grep -E 'mCurrentFocus|mFocusedApp' >&2 || true
+  mkdir -p "$DIAGNOSTICS"
+  "${ADB[@]}" exec-out screencap -p > "$DIAGNOSTICS/screen.png" 2>/dev/null || true
+  "${ADB[@]}" shell dumpsys window windows > "$DIAGNOSTICS/windows.txt" 2>/dev/null || true
+  "${ADB[@]}" logcat -d -t 2000 > "$DIAGNOSTICS/logcat.txt" 2>/dev/null || true
+  echo "Diagnostics in $DIAGNOSTICS." >&2
+}
 
 deadline=$((SECONDS + TIMEOUT))
 while (( SECONDS < deadline )); do
@@ -76,6 +85,7 @@ while (( SECONDS < deadline )); do
   if [[ -z "$("${ADB[@]}" shell pidof "$PACKAGE" 2>/dev/null)" ]]; then
     REPORT="$(report)"
     if grep -q -E "^(PASS|FAIL) $RUN" <<<"$REPORT"; then continue; fi
+    focus
     echo "The check app exited without a result; its crash:" >&2
     "${ADB[@]}" logcat -d -b crash 2>/dev/null | tail -n 60 >&2 || true
     echo "$REPORT" >&2
@@ -85,5 +95,6 @@ while (( SECONDS < deadline )); do
 done
 echo "The checks did not finish within ${TIMEOUT}s." >&2
 report >&2
+focus
 "${ADB[@]}" shell am force-stop "$PACKAGE" >/dev/null 2>&1 || true
 exit 1

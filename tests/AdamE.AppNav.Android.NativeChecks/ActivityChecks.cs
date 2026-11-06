@@ -206,7 +206,7 @@ internal static class ActivityChecks
                 await TurnsAsync(token);
                 cancel.Cancel();
                 Exception failure = await FailsAsync(
-                    () => closing.WaitAsync(TimeSpan.FromSeconds(3), token),
+                    () => closing.WaitAsync(Soon, token),
                     "A canceled operation in a stopped activity completed.");
                 Require(
                     failure is OperationCanceledException

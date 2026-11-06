@@ -269,6 +269,11 @@ jobs:
           target: google_apis
           arch: x86_64
           script: ANDROID_SERIAL=emulator-5554 eng/run-android-native-checks.sh
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: android-adapter-native-checks-api${{ matrix.api-level }}
+          path: artifacts/android-native-checks
 
   android-api28-platform-tests:
     name: Android API 28 platform tests
