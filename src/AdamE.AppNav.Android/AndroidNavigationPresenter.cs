@@ -1283,11 +1283,23 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
             observer.AddOnPreDrawListener(listener);
             view.RequestLayout();
             view.Invalidate();
-            if (surface.Modal?.ClosedByOthersOrNotShowing != true)
-                await (surface.Modal is { } modal
-                        ? Task.WhenAny(done.Task, modal.ClosedByOthers.Task)
-                        : done.Task)
-                    .WaitAsync(token);
+            // The pre-draw callback is the usual signal. The view's own state is checked too, every 100 ms: on API 28
+            // a dialog shown again while its activity was stopped can be laid out once the activity returns without
+            // a pre-draw that finds it ready.
+            while (surface.Modal?.ClosedByOthersOrNotShowing != true
+                   && !done.Task.IsCompleted
+                   && surface.Modal?.ClosedByOthers.Task.IsCompleted != true)
+            {
+                token.ThrowIfCancellationRequested();
+                if (LayoutAcknowledgement.Ready(view))
+                    break;
+                _ = await Task.WhenAny(
+                    done.Task,
+                    surface.Modal?.ClosedByOthers.Task ?? done.Task,
+                    Task.Delay(TimeSpan.FromMilliseconds(100), token));
+            }
+
+            token.ThrowIfCancellationRequested();
         }
         catch (Exception failure)
         {
@@ -1609,10 +1621,15 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
 
         public bool OnPreDraw()
         {
-            if (_view is { IsAttachedToWindow: true, IsLaidOut: true, IsShown: true, Width: > 0, Height: > 0 })
+            if (_view is { } view && Ready(view))
                 _ = _done?.TrySetResult();
             return true;
         }
+
+        // Laid out since the presenter asked for layout, in a shown window, with a size.
+        public static bool Ready(View view) =>
+            view is { IsAttachedToWindow: true, IsLaidOut: true, IsLayoutRequested: false, IsShown: true }
+                and { Width: > 0, Height: > 0 };
 
         public void Stop(ViewTreeObserver observer, View view)
         {
