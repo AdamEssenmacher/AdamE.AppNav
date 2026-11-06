@@ -12,7 +12,11 @@
 		<Description>Android presenter for AdamE.AppNav: one activity's frame, a pushed page and route-owned dialogs, with route-entry leases and activity recreation.</Description>
 		<IsAotCompatible>true</IsAotCompatible>
 		<IsTrimmable>true</IsTrimmable>
-		<AndroidResourceDesignerClassModifier>internal</AndroidResourceDesignerClassModifier>
+		<!-- The package has no Android resources, so it builds no resource designer. The designer assembly is generated
+		     with a new identity on every build, and the package's own assembly records its references' identities, so
+		     with one the package could not be rebuilt byte for byte from the same source. -->
+		<AndroidUseDesignerAssembly>false</AndroidUseDesignerAssembly>
+		<AndroidGenerateResourceDesigner>false</AndroidGenerateResourceDesigner>
 		<PackageTags>android;androidx;navigation;application-navigation;router;deep-linking</PackageTags>
 	</PropertyGroup>
 
