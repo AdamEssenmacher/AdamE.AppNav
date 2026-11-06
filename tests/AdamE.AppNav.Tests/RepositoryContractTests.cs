@@ -477,7 +477,8 @@ public sealed partial class RepositoryContractTests
                 "05-external-navigation.md",
                 "06-deferred-navigation.md",
                 "07-troubleshooting.md",
-                "08-uikit-integration.md"
+                "08-uikit-integration.md",
+                "09-android-integration.md"
             },
             guides.Select(Path.GetFileName).Order(StringComparer.Ordinal));
         Assert.Equal(
