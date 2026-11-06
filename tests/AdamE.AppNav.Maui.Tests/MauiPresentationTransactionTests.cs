@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Reflection;
 using AdamE.AppNav.Diagnostics;
 using AdamE.AppNav.Navigation;
@@ -501,8 +502,8 @@ public sealed class MauiPresentationTransactionTests
     public async Task NativeMutationFailureRestoresExactPreviousStackAndReleasesOnlyNewPages()
     {
         var diagnostics = new NavigationDiagnostics();
-        var events = new List<NavigationDiagnosticEventKind>();
-        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent.Kind);
+        var events = new ConcurrentQueue<NavigationDiagnosticEventKind>();
+        diagnostics.EventWritten += (_, diagnosticEvent) => events.Enqueue(diagnosticEvent.Kind);
         var nativeOperations = new FaultingNativeOperations();
         var factory = new InstrumentedRoutePageFactory();
         var presenter = new MauiNavigationPresenter(

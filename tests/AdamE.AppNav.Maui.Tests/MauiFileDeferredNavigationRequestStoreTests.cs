@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using AdamE.AppNav.Diagnostics;
@@ -223,8 +224,8 @@ public sealed class MauiFileDeferredNavigationRequestStoreTests
             Assert.Contains("tracking-id", await File.ReadAllTextAsync(path), StringComparison.Ordinal);
 
             var diagnostics = new NavigationDiagnostics();
-            var events = new List<NavigationDiagnosticEvent>();
-            diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+            var events = new ConcurrentQueue<NavigationDiagnosticEvent>();
+            diagnostics.EventWritten += (_, diagnosticEvent) => events.Enqueue(diagnosticEvent);
             var reopened = new MauiFileDeferredNavigationRequestStore(
                 routes,
                 new MauiFileDeferredNavigationRequestStoreOptions
@@ -277,8 +278,8 @@ public sealed class MauiFileDeferredNavigationRequestStoreTests
             byte[] originalBytes = "{not-json"u8.ToArray();
             await File.WriteAllBytesAsync(path, originalBytes);
             var diagnostics = new NavigationDiagnostics();
-            var events = new List<NavigationDiagnosticEvent>();
-            diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+            var events = new ConcurrentQueue<NavigationDiagnosticEvent>();
+            diagnostics.EventWritten += (_, diagnosticEvent) => events.Enqueue(diagnosticEvent);
             var store = new MauiFileDeferredNavigationRequestStore(
                 routes,
                 new MauiFileDeferredNavigationRequestStoreOptions
@@ -559,8 +560,8 @@ public sealed class MauiFileDeferredNavigationRequestStoreTests
         {
             await File.WriteAllTextAsync(path, "{\"schemaVersion\":2,\"legacySecret\":\"do-not-replay\"}");
             var diagnostics = new NavigationDiagnostics();
-            var events = new List<NavigationDiagnosticEvent>();
-            diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+            var events = new ConcurrentQueue<NavigationDiagnosticEvent>();
+            diagnostics.EventWritten += (_, diagnosticEvent) => events.Enqueue(diagnosticEvent);
             var store = new MauiFileDeferredNavigationRequestStore(
                 routes,
                 new MauiFileDeferredNavigationRequestStoreOptions
@@ -602,8 +603,8 @@ public sealed class MauiFileDeferredNavigationRequestStoreTests
         {
             await File.WriteAllBytesAsync(path, futureBytes);
             var diagnostics = new NavigationDiagnostics();
-            var events = new List<NavigationDiagnosticEvent>();
-            diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+            var events = new ConcurrentQueue<NavigationDiagnosticEvent>();
+            diagnostics.EventWritten += (_, diagnosticEvent) => events.Enqueue(diagnosticEvent);
             var store = new MauiFileDeferredNavigationRequestStore(
                 routes,
                 new MauiFileDeferredNavigationRequestStoreOptions
@@ -645,8 +646,8 @@ public sealed class MauiFileDeferredNavigationRequestStoreTests
         try
         {
             var diagnostics = new NavigationDiagnostics();
-            var events = new List<NavigationDiagnosticEvent>();
-            diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+            var events = new ConcurrentQueue<NavigationDiagnosticEvent>();
+            diagnostics.EventWritten += (_, diagnosticEvent) => events.Enqueue(diagnosticEvent);
             var store = new MauiFileDeferredNavigationRequestStore(
                 routes,
                 new MauiFileDeferredNavigationRequestStoreOptions
@@ -697,8 +698,8 @@ public sealed class MauiFileDeferredNavigationRequestStoreTests
         try
         {
             var diagnostics = new NavigationDiagnostics();
-            var events = new List<NavigationDiagnosticEvent>();
-            diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+            var events = new ConcurrentQueue<NavigationDiagnosticEvent>();
+            diagnostics.EventWritten += (_, diagnosticEvent) => events.Enqueue(diagnosticEvent);
             var store = new MauiFileDeferredNavigationRequestStore(
                 routes,
                 options,
@@ -829,8 +830,8 @@ public sealed class MauiFileDeferredNavigationRequestStoreTests
 
             timeProvider.Advance(TimeSpan.FromMinutes(-45));
             var diagnostics = new NavigationDiagnostics();
-            var events = new List<NavigationDiagnosticEvent>();
-            diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+            var events = new ConcurrentQueue<NavigationDiagnosticEvent>();
+            diagnostics.EventWritten += (_, diagnosticEvent) => events.Enqueue(diagnosticEvent);
             var reopened = new MauiFileDeferredNavigationRequestStore(
                 routes,
                 options,
@@ -909,8 +910,8 @@ public sealed class MauiFileDeferredNavigationRequestStoreTests
                     snapshot,
                     AppNavJsonSerializerContext.Default.DeferredNavigationRequestStoreSnapshot));
             var diagnostics = new NavigationDiagnostics();
-            var events = new List<NavigationDiagnosticEvent>();
-            diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+            var events = new ConcurrentQueue<NavigationDiagnosticEvent>();
+            diagnostics.EventWritten += (_, diagnosticEvent) => events.Enqueue(diagnosticEvent);
             var store = new MauiFileDeferredNavigationRequestStore(
                 routes,
                 options,
@@ -936,9 +937,9 @@ public sealed class MauiFileDeferredNavigationRequestStoreTests
             Assert.DoesNotContain("expired-one", rewrittenJson, StringComparison.Ordinal);
             Assert.DoesNotContain("expired-two", rewrittenJson, StringComparison.Ordinal);
 
-            var reopenedEvents = new List<NavigationDiagnosticEvent>();
+            var reopenedEvents = new ConcurrentQueue<NavigationDiagnosticEvent>();
             var reopenedDiagnostics = new NavigationDiagnostics();
-            reopenedDiagnostics.EventWritten += (_, diagnosticEvent) => reopenedEvents.Add(diagnosticEvent);
+            reopenedDiagnostics.EventWritten += (_, diagnosticEvent) => reopenedEvents.Enqueue(diagnosticEvent);
             var reopened = new MauiFileDeferredNavigationRequestStore(
                 routes,
                 options,
@@ -979,8 +980,8 @@ public sealed class MauiFileDeferredNavigationRequestStoreTests
         try
         {
             var diagnostics = new NavigationDiagnostics();
-            var events = new List<NavigationDiagnosticEvent>();
-            diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+            var events = new ConcurrentQueue<NavigationDiagnosticEvent>();
+            diagnostics.EventWritten += (_, diagnosticEvent) => events.Enqueue(diagnosticEvent);
             var store = new MauiFileDeferredNavigationRequestStore(
                 routes,
                 options,
@@ -1044,8 +1045,8 @@ public sealed class MauiFileDeferredNavigationRequestStoreTests
                     snapshot,
                     new JsonSerializerOptions(JsonSerializerDefaults.Web)));
             var diagnostics = new NavigationDiagnostics();
-            var events = new List<NavigationDiagnosticEvent>();
-            diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+            var events = new ConcurrentQueue<NavigationDiagnosticEvent>();
+            diagnostics.EventWritten += (_, diagnosticEvent) => events.Enqueue(diagnosticEvent);
             var store = new MauiFileDeferredNavigationRequestStore(
                 routes,
                 new MauiFileDeferredNavigationRequestStoreOptions
@@ -1082,8 +1083,8 @@ public sealed class MauiFileDeferredNavigationRequestStoreTests
         try
         {
             var diagnostics = new NavigationDiagnostics();
-            var events = new List<NavigationDiagnosticEvent>();
-            diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+            var events = new ConcurrentQueue<NavigationDiagnosticEvent>();
+            diagnostics.EventWritten += (_, diagnosticEvent) => events.Enqueue(diagnosticEvent);
             var store = new MauiFileDeferredNavigationRequestStore(
                 routes,
                 new MauiFileDeferredNavigationRequestStoreOptions
