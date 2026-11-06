@@ -539,7 +539,8 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
             try
             {
                 if (!mutated && Current(previous))
-                    // Native never changed, so it still shows the accepted surface.
+                    // Native never changed, so it still shows the accepted surface. (One that is no longer current is
+                    // cleared below, as before: dismissing and emptying show nothing.)
                     restored = true;
                 else if (mutated && !IsStarted(epoch))
                     // Nothing is shown into a stopped activity, a dialog least of all (API 28): the surface is given up

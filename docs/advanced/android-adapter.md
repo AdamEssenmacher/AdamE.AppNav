@@ -140,6 +140,8 @@ call the router without AppNav refusing it as reentrant:
   waits for it does not fail that operation;
 - a dialog dismissed by something other than the presenter or its cancel, as a
   reported failure and a refresh;
+- after a rollback in a stopped activity gave its surface up, a refresh request
+  once the activity starts again, so the router's state is presented;
 - failures it recovered from.
 
 Each request is made in a later turn of the looper, and only if then its
@@ -157,7 +159,8 @@ real Back key, and a Back whose activity detached before delivery; cancel
 refused and accepted, dismissal from outside, a rollback that restores a closed
 modal, and a modal canceled while an operation keeps it or is showing it; a second activity
 attaching, a real `Recreate()` with a dialog showing, an operation on a stopped
-activity, one canceled there, a rollback after the activity stopped, an operation waiting for the next activity, a finishing activity and
+activity, one canceled there, an activity stopped during a page build, a rollback
+after the activity stopped, an operation waiting for the next activity, a finishing activity and
 disposal mid-operation; the first-draw gate holding and then opening; and, through a real router, lease release order,
 placeholders, presenter-opened leases and the router host. The release workflow
 runs them on API 28 and API 36 emulators. `eng/verify.sh native-android`

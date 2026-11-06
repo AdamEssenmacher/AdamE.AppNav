@@ -208,7 +208,10 @@ you will present.
 An operation that reaches a stopped activity (in the background, covered by
 another) changes nothing until the activity is started again, then presents;
 the router's later operations wait behind it, and canceling it meanwhile ends
-it with nothing touched. Android neither lays out nor draws a stopped activity.
+it with nothing touched. Android neither lays out nor draws a stopped activity. If
+an operation that had already changed native fails after its activity stopped,
+the presenter shows nothing and, once the activity starts again, asks your host
+for a refresh (`RequestRefreshAsync`).
 
 The presenter shows one activity at a time, and attaching one detaches the
 other. If your activity can have more than one instance (the default

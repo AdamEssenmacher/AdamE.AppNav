@@ -40,7 +40,7 @@ RUN="$(date +%s)-$$"
 "${ADB[@]}" shell run-as "$PACKAGE" rm -f files/appnav-android-checks.txt files/appnav-android-press >/dev/null 2>&1 || true
 # The device stays awake and unlocked for the run, with nothing of the system's over the app: the checks press Back in
 # their own focused window. A freshly booted emulator can show a system dialog that keeps focus.
-STAY_ON="$("${ADB[@]}" shell settings get global stay_on_while_plugged_in 2>/dev/null | tr -d '\r')"
+STAY_ON="$("${ADB[@]}" shell settings get global stay_on_while_plugged_in 2>/dev/null | tr -d '\r' || true)"
 "${ADB[@]}" shell svc power stayon true >/dev/null 2>&1 || true
 # Restore what the shared device had.
 trap '"${ADB[@]}" shell settings put global stay_on_while_plugged_in "${STAY_ON:-0}" >/dev/null 2>&1 || true' EXIT

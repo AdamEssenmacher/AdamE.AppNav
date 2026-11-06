@@ -16,6 +16,7 @@ internal static class ActivityChecks
         ("operation-in-a-stopped-activity", StoppedActivityAsync),
         ("canceled-operation-in-a-stopped-activity", CanceledWhileStoppedAsync),
         ("rollback-in-a-stopped-activity", RollbackWhileStoppedAsync),
+        ("stopped-during-build", StoppedDuringBuildAsync),
         ("operation-waits-for-next-activity", WaitsForNextActivityAsync),
         ("finishing-activity", FinishingActivityAsync),
         ("disposal-drains-operation", DisposalDrainsAsync)
@@ -256,6 +257,60 @@ internal static class ActivityChecks
         }
     }
 
+    // An activity that stops while an operation builds its page (here a page whose build waits on a gate) gets
+    // nothing changed: the operation checks again right before it changes native, and waits for the activity to start.
+    private static async Task StoppedDuringBuildAsync(ComponentActivity activity, CancellationToken token)
+    {
+        var building = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var views = new Dictionary<string, ProbeView>(StringComparer.Ordinal);
+        AndroidNavigationPresenter presenter = Presenter(async (request, cancellation) =>
+        {
+            var view = new ProbeView(request.Activity);
+            if (request.Entry.Id == "pushed")
+            {
+                building.TrySetResult();
+                await gate.Task.WaitAsync(cancellation);
+            }
+
+            return Page(views[request.Entry.Id] = view);
+        });
+        Mount(presenter, activity);
+        ProbeActivity? cover = null;
+        try
+        {
+            await ApplyAsync(presenter, Shows("root"), NavigationState.Empty, token);
+            Task push = ApplyAsync(presenter, Pushed("root", "pushed"), Shows("root"), token);
+            await building.Task.WaitAsync(Soon, token);
+            cover = await ProbeActivity.StartAsync(activity, token);
+            await UntilAsync(
+                () => !activity.Lifecycle.CurrentState.IsAtLeast(
+                    AndroidX.Lifecycle.Lifecycle.State.Started ?? throw new InvalidOperationException("No STARTED.")),
+                "The covered activity was never stopped.",
+                token);
+            gate.TrySetResult();
+            await Task.Delay(TimeSpan.FromSeconds(1), token);
+            Require(
+                !push.IsCompleted
+                && ReferenceEquals(Visible(activity), views["root"])
+                && views["pushed"] is { Parent: null, IsAttachedToWindow: false },
+                "A page built while its activity was stopped was put in the window before the activity started.");
+            cover.Finish();
+            await Labelled(cover.Destroyed.Task, "The covering activity was not destroyed.");
+            cover = null;
+            await Labelled(push, "The operation did not finish once the activity started.");
+            Require(
+                ReferenceEquals(Visible(activity), views["pushed"]) && views["pushed"].IsAttachedToWindow,
+                "The page built while stopped was not shown once the activity started.");
+        }
+        finally
+        {
+            gate.TrySetResult();
+            cover?.Finish();
+            await presenter.DisposeAsync();
+        }
+    }
+
     // An operation that changed native and then waits for a frame (here a dialog that never gets one) is canceled once
     // its activity has stopped: its rollback shows nothing into the stopped activity, and once the activity starts
     // again the presenter asks the router to present, which shows the original dialog.
@@ -317,6 +372,8 @@ internal static class ActivityChecks
                 "The original modal was not drawn once the activity started.",
                 token);
             Require(!original.Retired && dialogs["never-drawn"].Retired, "The rollback kept or released the wrong modal.");
+            await TurnsAsync(token);
+            Require(host.Refreshes == 1, $"The router was asked to present {host.Refreshes} times after the activity started.");
         }
         finally
         {
