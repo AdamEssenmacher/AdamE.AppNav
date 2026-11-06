@@ -226,7 +226,7 @@ The navigation shape one native presenter shows, declared by the application:
 one window, its root stack, and the modals it may show over that stack, each
 with its placement. It is a narrower thing than the logical
 [topology](#topology), which can hold several windows and branch hosts: an
-adapter such as `AdamE.AppNav.iOS` checks every plan against it with
+adapter such as `AdamE.AppNav.iOS` or `AdamE.AppNav.Android` checks every plan against it with
 `NavigationTopology.Match`, and against its own `NavigationTopologySupport`,
 before it builds anything.
 

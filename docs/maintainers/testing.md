@@ -58,6 +58,14 @@ simulator, named by `IOS_DEVICE`: simulators are shared, so the script never pic
 reports every check group passed. `eng/verify.sh native-ios` also publishes that app with NativeAOT for a device,
 and `packages` packs and inspects `AdamE.AppNav.iOS`.
 
+## Android adapter checks
+
+`eng/run-android-native-checks.sh` runs the Android presenter's native checks in a plain `ComponentActivity` app on
+one running emulator, named by `ANDROID_SERIAL`: emulators are shared, so the script never picks one. It presses the
+system Back key with adb when a check asks for it, since an app cannot inject keys. It fails unless the app reports
+every check group passed. The release workflow runs it on API 28 and API 36 emulators. `eng/verify.sh native-android`
+also publishes that app fully trimmed, and `packages` packs and inspects `AdamE.AppNav.Android`.
+
 ## Scenario coverage
 
 Cover cold/warm ingress, startup buffering, burst overflow, tab changes, Back/swipe, modal dismissal, deferred restore,

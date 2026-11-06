@@ -17,6 +17,8 @@ core_symbol_candidates=("${package_directory}"/AdamE.AppNav.[0-9]*.snupkg)
 maui_symbol_candidates=("${package_directory}"/AdamE.AppNav.Maui.[0-9]*.snupkg)
 ios_candidates=("${package_directory}"/AdamE.AppNav.iOS.[0-9]*.nupkg)
 ios_symbol_candidates=("${package_directory}"/AdamE.AppNav.iOS.[0-9]*.snupkg)
+android_candidates=("${package_directory}"/AdamE.AppNav.Android.[0-9]*.nupkg)
+android_symbol_candidates=("${package_directory}"/AdamE.AppNav.Android.[0-9]*.snupkg)
 
 if [[ ${#core_candidates[@]} -ne 1 ]]; then
   echo "Expected exactly one AdamE.AppNav package in ${package_directory}." >&2
@@ -43,7 +45,15 @@ if [[ ${#ios_candidates[@]} -ne 1 || ${#ios_symbol_candidates[@]} -ne 1 ]]; then
   exit 1
 fi
 
+if [[ ${#android_candidates[@]} -ne 1 || ${#android_symbol_candidates[@]} -ne 1 ]]; then
+  echo "Expected exactly one AdamE.AppNav.Android package and symbol package in ${package_directory}." >&2
+  exit 1
+fi
+
 core_entries="$(unzip -Z1 "${core_candidates[0]}")"
+android_entries="$(unzip -Z1 "${android_candidates[0]}")"
+android_symbol_entries="$(unzip -Z1 "${android_symbol_candidates[0]}")"
+android_nuspec="$(unzip -p "${android_candidates[0]}" AdamE.AppNav.Android.nuspec)"
 ios_entries="$(unzip -Z1 "${ios_candidates[0]}")"
 ios_symbol_entries="$(unzip -Z1 "${ios_symbol_candidates[0]}")"
 ios_nuspec="$(unzip -p "${ios_candidates[0]}" AdamE.AppNav.iOS.nuspec)"
@@ -146,6 +156,16 @@ if grep -Eq '<dependency id="Microsoft\.Maui' <<<"${ios_nuspec}"; then
   echo 'The UIKit adapter package unexpectedly depends on MAUI.' >&2
   exit 1
 fi
+require_asset "${android_entries}" '^lib/net10\.0-android[^/]*/AdamE\.AppNav\.Android\.dll$' 'the Android adapter assembly'
+reject_asset "${android_entries}" '^lib/net10\.0/' 'a platform-neutral Android adapter assembly'
+reject_asset "${android_entries}" '^analyzers/' 'a source generator in the Android adapter'
+require_asset "${android_symbol_entries}" '^lib/net10\.0-android[^/]*/AdamE\.AppNav\.Android\.pdb$' 'the Android adapter portable PDB'
+require_asset "${android_nuspec}" "${ios_core_dependency}" 'the Android adapter dependency on the same AppNav core version'
+require_asset "${android_nuspec}" '<dependency id="Xamarin\.AndroidX\.Activity"' 'the Android adapter dependency on AndroidX Activity'
+if grep -Eq '<dependency id="Microsoft\.Maui' <<<"${android_nuspec}"; then
+  echo 'The Android adapter package unexpectedly depends on MAUI.' >&2
+  exit 1
+fi
 require_asset "${core_nuspec}" '<repository type="git" url="https://github\.com/AdamEssenmacher/AdamE\.AppNav\.git"' 'the AppNav repository metadata'
 if [[ "${AppNavStableRelease:-false}" == "true" ]]; then
   require_asset "${core_nuspec}" '<version>[0-9]+\.[0-9]+\.[0-9]+</version>' 'a semantic package version'
@@ -176,5 +196,12 @@ verify_symbol_archive \
   '^lib/net10\.0-ios[^/]*/AdamE\.AppNav\.iOS\.pdb$' \
   'UIKitNavigationPresenter.cs' \
   'UIKit adapter'
+
+verify_symbol_archive \
+  "${android_symbol_candidates[0]}" \
+  "${android_symbol_entries}" \
+  '^lib/net10\.0-android[^/]*/AdamE\.AppNav\.Android\.pdb$' \
+  'AndroidNavigationPresenter.cs' \
+  'Android adapter'
 
 echo 'Package assets match the supported .NET 10 public-preview contract.'

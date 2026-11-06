@@ -1,7 +1,7 @@
 # AppNav documentation
 
 AdamE.AppNav is a route-first navigation framework with a host-independent core,
-a production .NET MAUI adapter, and a UIKit adapter for .NET iOS apps. Choose the path that matches what you are
+a production .NET MAUI adapter, a UIKit adapter for .NET iOS apps, and an Android adapter for .NET for Android apps. Choose the path that matches what you are
 trying to do.
 
 ## Evaluate AppNav
@@ -51,6 +51,8 @@ and provenance.
   model to pages, lifecycle, native presentation, and platform services.
 - Use [UIKit integration](guides/08-uikit-integration.md) for a .NET iOS app
   whose screens are plain `UIViewController`s.
+- Use [Android integration](guides/09-android-integration.md) for a .NET for
+  Android app whose screens are plain views and dialogs.
 - Treat the [adapter contract](advanced/adapter-contract.md) as advanced
   material when implementing another host.
 
@@ -79,7 +81,8 @@ and provenance.
 ## Write another adapter
 
 - Read the [adapter contract](advanced/adapter-contract.md).
-- See the [UIKit adapter design](advanced/uikit-adapter.md) for a complete native adapter.
+- See the [UIKit adapter design](advanced/uikit-adapter.md) and the
+  [Android adapter design](advanced/android-adapter.md) for complete native adapters.
 - Own what each route entry borrows with [entry leases](advanced/entry-leases.md).
 - Use the host-independent [topology model](concepts/02-topology-and-planning.md).
 
@@ -103,6 +106,7 @@ Every documentation page is indexed here:
 - [Deferred navigation](guides/06-deferred-navigation.md)
 - [Troubleshooting](guides/07-troubleshooting.md)
 - [UIKit integration](guides/08-uikit-integration.md)
+- [Android integration](guides/09-android-integration.md)
 - [Why AppNav?](concepts/00-why-appnav.md)
 - [Routing and metadata](concepts/01-routing-and-metadata.md)
 - [Topology and planning](concepts/02-topology-and-planning.md)
@@ -111,6 +115,7 @@ Every documentation page is indexed here:
 - [Adapter contract](advanced/adapter-contract.md)
 - [Entry leases](advanced/entry-leases.md)
 - [UIKit adapter design](advanced/uikit-adapter.md)
+- [Android adapter design](advanced/android-adapter.md)
 - [Logging, tracing, and diagnostics](reference/diagnostics.md)
 - [Glossary](reference/glossary.md)
 - [Source-generator diagnostics](reference/source-generator-diagnostics.md)

@@ -86,6 +86,8 @@ jobs:
             "AdamE.AppNav.Maui.$version.snupkg"
             "AdamE.AppNav.iOS.$version.nupkg"
             "AdamE.AppNav.iOS.$version.snupkg"
+            "AdamE.AppNav.Android.$version.nupkg"
+            "AdamE.AppNav.Android.$version.snupkg"
           )
           for asset in "${expected[@]}"; do
             if [[ ! -f "artifacts/validated/$asset" ]]; then
