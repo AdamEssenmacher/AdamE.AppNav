@@ -37,17 +37,23 @@ RUN="$(date +%s)-$$"
 "${ADB[@]}" shell am force-stop "$PACKAGE" >/dev/null 2>&1 || true
 "${ADB[@]}" install -r -t "$APK" >/dev/null
 "${ADB[@]}" shell run-as "$PACKAGE" rm -f files/appnav-android-checks.txt files/appnav-android-press >/dev/null 2>&1 || true
-# The device stays awake and unlocked for the run: the checks press Back in their own focused window.
+# The device stays awake and unlocked for the run, with nothing of the system's over the app: the checks press Back in
+# their own focused window. A freshly booted emulator can show a system dialog that keeps focus.
+"${ADB[@]}" shell svc power stayon true >/dev/null 2>&1 || true
 "${ADB[@]}" shell input keyevent KEYCODE_WAKEUP >/dev/null 2>&1 || true
 "${ADB[@]}" shell wm dismiss-keyguard >/dev/null 2>&1 || true
+"${ADB[@]}" shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS >/dev/null 2>&1 || true
 "${ADB[@]}" shell am start -W -n "$ACTIVITY" --es run "$RUN" >/dev/null
 
 report() { "${ADB[@]}" shell run-as "$PACKAGE" cat files/appnav-android-checks.txt 2>/dev/null || true; }
+# What has window focus, for a failure that depends on it.
+focus() { "${ADB[@]}" shell dumpsys window 2>/dev/null | grep -E 'mCurrentFocus|mFocusedApp' >&2 || true; }
 
 deadline=$((SECONDS + TIMEOUT))
 while (( SECONDS < deadline )); do
-  # A check that needs the system's own Back key asks for it with this file: an app cannot inject keys.
-  if "${ADB[@]}" shell run-as "$PACKAGE" test -f files/appnav-android-press 2>/dev/null; then
+  # A check that needs the system's own Back key asks for it with this file: an app cannot inject keys. Read with cat:
+  # run-as on older Android has no test.
+  if [[ -n "$("${ADB[@]}" shell run-as "$PACKAGE" cat files/appnav-android-press 2>/dev/null)" ]]; then
     "${ADB[@]}" shell input keyevent KEYCODE_BACK
     "${ADB[@]}" shell run-as "$PACKAGE" rm -f files/appnav-android-press
     continue
@@ -62,6 +68,7 @@ while (( SECONDS < deadline )); do
     fi
     if grep -q "^FAIL $RUN" <<<"$REPORT"; then
       echo "$REPORT" >&2
+      focus
       "${ADB[@]}" shell am force-stop "$PACKAGE" >/dev/null 2>&1 || true
       exit 1
     fi
