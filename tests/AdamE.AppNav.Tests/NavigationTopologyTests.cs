@@ -93,7 +93,10 @@ public sealed class NavigationTopologyTests
         { "undeclared-with-content", "nested in a modal" },
         { "over-root-over-pushed", "over the root entry only" },
         { "owned-not-top", "belongs to entry 'root'" },
-        { "owned-without-owner", "belongs to entry '(none)'" }
+        { "owned-without-owner", "belongs to entry '(none)'" },
+        // The order of checks: depth before the modal count, and the modal count before nested content.
+        { "too-deep-with-two-modals", "1 to 2 entries" },
+        { "two-modals-one-with-content", "one modal at a time" }
     };
 
     [Theory]
@@ -136,6 +139,14 @@ public sealed class NavigationTopologyTests
             "over-root-over-pushed" => Plan(["root", "pushed"], new ModalNode("sheet", Entry("one"))),
             "owned-not-top" => Plan(["root", "pushed"], new ModalNode("owned", Entry("answer", "root"))),
             "owned-without-owner" => Plan(["root", "pushed"], new ModalNode("owned", Entry("answer"))),
+            "too-deep-with-two-modals" => Plan(
+                ["root", "a", "b"],
+                new ModalNode("sheet", Entry("one")),
+                new ModalNode("anywhere", Entry("two"))),
+            "two-modals-one-with-content" => Plan(
+                ["root"],
+                new ModalNode("sheet", Entry("one"), new StackNode("nested", [Entry("inner")])),
+                new ModalNode("anywhere", Entry("two"))),
             _ => throw new ArgumentOutOfRangeException(nameof(shape), shape, null)
         };
 
@@ -156,7 +167,10 @@ public sealed class NavigationTopologyTests
     {
         NavigationTopologyMatch match = Assert.IsType<NavigationTopologyMatch>(
             Topology.Match(Plan(["root"], new ModalNode("sheet", Entry("one"))), TwoDeep));
-        Assert.False(match.Modals is IList<NavigationTopologyModal> { IsReadOnly: false });
+        // An array behind the interface would report read-only and still take an index assignment.
+        var modals = Assert.IsAssignableFrom<IList<NavigationTopologyModal>>(match.Modals);
+        Assert.Throws<NotSupportedException>(() => modals[0] = modals[0]);
+        Assert.IsNotType<NavigationTopologyModal[]>(match.Modals);
         Assert.Empty(Assert.IsType<NavigationTopologyMatch>(Topology.Match(Plan(["root"]), TwoDeep)).Modals);
     }
 

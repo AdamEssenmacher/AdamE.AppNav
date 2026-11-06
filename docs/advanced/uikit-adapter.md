@@ -28,7 +28,8 @@ and at most one declared modal with no nested topology. That is exactly what has
 been proven on devices. A real app needs more: a deeper stack, and modals with their
 own stacks. Each is added in its own change, with its own native checks. A deeper
 stack only widens `UIKitNavigationPresenter.Support`; a modal with its own stack
-also needs core's `NavigationTopology` to declare that stack:
+also needs core's `NavigationTopology` to declare that stack, and its `Match` to
+accept nested modal content, which it refuses today:
 
 1. A stack of any depth: multi-entry pushes, pops of several entries, and
    rollback across them.

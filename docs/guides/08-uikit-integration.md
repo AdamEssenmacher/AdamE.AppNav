@@ -59,8 +59,9 @@ var topology = new NavigationTopology("main", "main-stack")
 ```
 
 What this presenter can show of it is `UIKitNavigationPresenter.Support`: today a
-stack of two entries and one modal with nothing nested in it. A plan beyond that
-fails with a `NotSupportedException` that says which limit refused it.
+stack of two entries. Core's `NavigationTopology.Match` itself matches one modal
+at a time with nothing nested in it, whatever a presenter supports. A plan beyond
+either fails with a `NotSupportedException` that says which limit refused it.
 
 - `OverRoot`: only while the stack holds the root page alone.
 - `OverAnyEntry`: over any stack the presenter supports.
