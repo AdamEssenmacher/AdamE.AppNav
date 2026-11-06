@@ -64,12 +64,16 @@ operation in it ends whatever its outcome, so a recreated activity never shows
 an empty frame between its creation and the refresh that fills it, and a failed
 or empty presentation still draws.
 
-An operation changes nothing in a stopped activity: it waits for the activity
-to be started again, as it waits for a detached one to be replaced. Android
-neither lays out nor draws a stopped activity, and on API 28 a dialog shown into
-one was not reliably drawn once it started again. Canceling the operation
-meanwhile ends it with nothing touched. A rollback never waits for layout, so an
-operation canceled or failing after it changed native ends at once.
+Native changes only in a started activity. An operation waits for its activity
+to be started before it builds pages, and checks again in the same main-thread
+turn as it changes native, as it waits for a detached activity to be replaced.
+Android neither lays out nor draws a stopped activity, and on API 28 a dialog
+shown into one was not reliably drawn once it started again. Canceling an
+operation while it waits ends it with nothing touched. An operation that changed
+native and then fails after its activity stopped (it was waiting for a frame)
+shows nothing in its rollback: it gives the surface up, keeping its current
+pages, and once the activity starts the presenter asks for a refresh, which
+presents the router's state again. A rollback never waits for layout.
 
 ## One operation
 
@@ -153,7 +157,7 @@ real Back key, and a Back whose activity detached before delivery; cancel
 refused and accepted, dismissal from outside, a rollback that restores a closed
 modal, and a modal canceled while an operation keeps it or is showing it; a second activity
 attaching, a real `Recreate()` with a dialog showing, an operation on a stopped
-activity and one canceled there, an operation waiting for the next activity, a finishing activity and
+activity, one canceled there, a rollback after the activity stopped, an operation waiting for the next activity, a finishing activity and
 disposal mid-operation; the first-draw gate holding and then opening; and, through a real router, lease release order,
 placeholders, presenter-opened leases and the router host. The release workflow
 runs them on API 28 and API 36 emulators. `eng/verify.sh native-android`

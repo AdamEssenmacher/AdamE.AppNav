@@ -15,6 +15,7 @@ internal static class ActivityChecks
         ("activity-recreate", RecreatedAsync),
         ("operation-in-a-stopped-activity", StoppedActivityAsync),
         ("canceled-operation-in-a-stopped-activity", CanceledWhileStoppedAsync),
+        ("rollback-in-a-stopped-activity", RollbackWhileStoppedAsync),
         ("operation-waits-for-next-activity", WaitsForNextActivityAsync),
         ("finishing-activity", FinishingActivityAsync),
         ("disposal-drains-operation", DisposalDrainsAsync)
@@ -201,7 +202,7 @@ internal static class ActivityChecks
                     AndroidX.Lifecycle.Lifecycle.State.Started ?? throw new InvalidOperationException("No STARTED.")),
                 "The covered activity was never stopped.",
                 token);
-            // Twice: the second rollback restores a dialog the first showed again while the activity was stopped.
+            // Twice: neither changes anything while the activity is stopped.
             for (int attempt = 1; attempt <= 2; attempt++)
             {
                 using var cancel = CancellationTokenSource.CreateLinkedTokenSource(token);
@@ -225,7 +226,7 @@ internal static class ActivityChecks
                     failure is OperationCanceledException
                     && original is { IsShowing: true, Retired: false }
                     && presenter.ShownDialog == original,
-                    $"Cancel {attempt} in a stopped activity did not end promptly with the same modal restored "
+                    $"Cancel {attempt} in a stopped activity did not end promptly with the modal untouched "
                     + $"({failure.GetType().Name}: {failure.Message}).");
             }
             Task next = ApplyAsync(presenter, shown, shown, token, NavigationPlanKind.Refresh);
@@ -246,7 +247,76 @@ internal static class ActivityChecks
             }
             Require(
                 presenter.ShownDialog == original && dialogs["sheet-entry"] == original,
-                "The operation after a canceled one in a stopped activity did not keep the restored modal.");
+                "The operation after a canceled one in a stopped activity did not keep the original modal.");
+        }
+        finally
+        {
+            cover?.Finish();
+            await presenter.DisposeAsync();
+        }
+    }
+
+    // An operation that changed native and then waits for a frame (here a dialog that never gets one) is canceled once
+    // its activity has stopped: its rollback shows nothing into the stopped activity, and once the activity starts
+    // again the presenter asks the router to present, which shows the original dialog.
+    private static async Task RollbackWhileStoppedAsync(ComponentActivity activity, CancellationToken token)
+    {
+        var dialogs = new Dictionary<string, ProbeDialog>(StringComparer.Ordinal);
+        var host = new RecordingHost();
+        AndroidNavigationPresenter presenter = Presenter(
+            request =>
+            {
+                if (request.Placement is not AndroidPagePlacement.Modal)
+                    return Page(new ProbeView(request.Activity));
+                var dialog = new ProbeDialog(request.Activity);
+                if (request.Entry.Id == "never-drawn")
+                    dialog.Window?.SetLayout(0, 0);
+                return ModalPage(dialogs[request.Entry.Id] = dialog);
+            },
+            host);
+        Mount(presenter, activity);
+        ProbeActivity? cover = null;
+        NavigationState shown = Shows("root", "sheet-entry");
+        try
+        {
+            await ApplyAsync(presenter, shown, NavigationState.Empty, token);
+            ProbeDialog original = dialogs["sheet-entry"];
+            host.OnRefresh = cancellation => ApplyAsync(presenter, shown, shown, cancellation, NavigationPlanKind.Refresh);
+            using var cancel = CancellationTokenSource.CreateLinkedTokenSource(token);
+            Task replacing = ApplyAsync(presenter, Shows("root", "never-drawn"), shown, cancel.Token);
+            Require(
+                !replacing.IsCompleted && !original.IsShowing && dialogs["never-drawn"].IsShowing,
+                "The operation had not replaced the modal yet.");
+            cover = await ProbeActivity.StartAsync(activity, token);
+            await UntilAsync(
+                () => !activity.Lifecycle.CurrentState.IsAtLeast(
+                    AndroidX.Lifecycle.Lifecycle.State.Started ?? throw new InvalidOperationException("No STARTED.")),
+                "The covered activity was never stopped.",
+                token);
+            cancel.Cancel();
+            Exception failure = await FailsAsync(
+                () => replacing.WaitAsync(Soon, token),
+                "A canceled operation completed.");
+            await TurnsAsync(token);
+            Require(
+                failure is OperationCanceledException
+                && !original.IsShowing
+                && !dialogs["never-drawn"].IsShowing
+                && host.Refreshes == 0,
+                "A rollback in a stopped activity showed a dialog, or asked for a refresh before the activity started "
+                + $"({failure.GetType().Name}, original showing {original.IsShowing}, refreshes {host.Refreshes}).");
+            cover.Finish();
+            await Labelled(cover.Destroyed.Task, "The covering activity was not destroyed.");
+            cover = null;
+            await UntilAsync(
+                () => host.Refreshes == 1 && presenter.ShownDialog == original,
+                "Once the activity started, the router was not asked to present the original modal again.",
+                token);
+            await UntilAsync(
+                () => original.Window?.DecorView is { IsAttachedToWindow: true, IsLaidOut: true },
+                "The original modal was not drawn once the activity started.",
+                token);
+            Require(!original.Retired && dialogs["never-drawn"].Retired, "The rollback kept or released the wrong modal.");
         }
         finally
         {

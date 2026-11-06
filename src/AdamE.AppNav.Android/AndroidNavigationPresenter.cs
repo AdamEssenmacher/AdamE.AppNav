@@ -118,6 +118,8 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
             next.FirstDraw.Start();
             next.Back = new ActivityBack(this, next);
             activity.OnBackPressedDispatcher.AddCallback(activity, next.Back);
+            next.Starts = new StartObserver(Started, () => RefreshOnStart(next));
+            activity.Lifecycle.AddObserver(next.Starts);
             lock (_attachmentGate)
             {
                 _epoch = next;
@@ -131,6 +133,9 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
             catch (Exception cleanup) { failures.Add(cleanup); }
 
             try { next.Back?.Stop(); }
+            catch (Exception cleanup) { failures.Add(cleanup); }
+
+            try { StopStarts(next); }
             catch (Exception cleanup) { failures.Add(cleanup); }
 
             try { next.Frame.Dispose(); }
@@ -195,6 +200,15 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
         try
         {
             retired.Back?.Stop();
+        }
+        catch (Exception failure)
+        {
+            failures.Add(failure);
+        }
+
+        try
+        {
+            StopStarts(retired);
         }
         catch (Exception failure)
         {
@@ -431,6 +445,7 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
         Surface kept = previous.With(epoch.Spare);
         Surface? staged = null;
         bool accepted = false;
+        bool mutated = false;
         CancellationTokenSource? owned = null;
         epoch.Applying = true;
         UpdateBack(epoch);
@@ -444,7 +459,13 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
             RequireEpoch(epoch);
             RequireCurrent(staged);
             epoch.Staged = staged;
+            // The activity may have stopped while the pages were built. Native changes only in a started activity, in
+            // the same main-thread turn as that check.
+            await StartedAsync(epoch, owned.Token);
+            RequireEpoch(epoch);
+            RequireCurrent(staged);
             owned.Token.ThrowIfCancellationRequested();
+            mutated = true;
             _ = Mutate(epoch, staged);
             owned.Token.ThrowIfCancellationRequested();
             if (staged.Root is not null)
@@ -517,7 +538,14 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
             bool restoreFailed = false;
             try
             {
-                if (Current(previous))
+                if (!mutated && Current(previous))
+                    // Native never changed, so it still shows the accepted surface.
+                    restored = true;
+                else if (mutated && !IsStarted(epoch))
+                    // Nothing is shown into a stopped activity, a dialog least of all (API 28): the surface is given up
+                    // below, its current pages kept, and the router is asked to present again once the activity starts.
+                    epoch.RefreshOnStart = true;
+                else if (Current(previous))
                 {
                     _ = Mutate(epoch, previous);
                     RequireEpoch(epoch);
@@ -953,27 +981,72 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
         }
     }
 
+    private static AndroidX.Lifecycle.Lifecycle.State Started { get; } =
+        AndroidX.Lifecycle.Lifecycle.State.Started ?? throw new InvalidOperationException("No STARTED state.");
+
+    private static AndroidX.Lifecycle.Lifecycle.State Initialized { get; } =
+        AndroidX.Lifecycle.Lifecycle.State.Initialized ?? throw new InvalidOperationException("No INITIALIZED state.");
+
+    private static bool IsStarted(Epoch epoch) => epoch.Activity.Lifecycle.CurrentState.IsAtLeast(Started);
+
+    // Returns on the main thread once the activity is started, or destroyed (the caller's RequireEpoch then detaches
+    // it). The state is read again after each wait: the activity can stop again before the continuation runs.
     private static async Task StartedAsync(Epoch epoch, CancellationToken operation)
     {
-        MainOnly();
-        AndroidX.Lifecycle.Lifecycle lifecycle = epoch.Activity.Lifecycle;
-        AndroidX.Lifecycle.Lifecycle.State started = AndroidX.Lifecycle.Lifecycle.State.Started
-                                                     ?? throw new InvalidOperationException("No STARTED state.");
-        if (lifecycle.CurrentState.IsAtLeast(started))
+        while (true)
+        {
+            MainOnly();
+            AndroidX.Lifecycle.Lifecycle lifecycle = epoch.Activity.Lifecycle;
+            if (IsStarted(epoch) || !lifecycle.CurrentState.IsAtLeast(Initialized))
+                return;
+            var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var observer = new StartObserver(Started, () => start.TrySetResult());
+            lifecycle.AddObserver(observer);
+            try
+            {
+                using var stopped = CancellationTokenSource.CreateLinkedTokenSource(operation, epoch.Stopped.Token);
+                await start.Task.WaitAsync(stopped.Token);
+            }
+            finally
+            {
+                observer.Stop();
+                lifecycle.RemoveObserver(observer);
+            }
+        }
+    }
+
+    // A rollback in a stopped activity gave its surface up: once the activity starts, the router presents again.
+    private void RefreshOnStart(Epoch epoch)
+    {
+        if (!epoch.RefreshOnStart || !IsAttached(epoch) || Volatile.Read(ref _disposed) != 0)
             return;
-        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var observer = new StartObserver(started, () => start.TrySetResult());
-        lifecycle.AddObserver(observer);
+        epoch.RefreshOnStart = false;
+        _ = RefreshAfterStartAsync(epoch);
+    }
+
+    private async Task RefreshAfterStartAsync(Epoch epoch)
+    {
         try
         {
-            using var stopped = CancellationTokenSource.CreateLinkedTokenSource(operation, epoch.Stopped.Token);
-            await start.Task.WaitAsync(stopped.Token);
+            await DetachedAsync(() => IsAttached(epoch), () => _host.RequestRefreshAsync(_shutdown.Token));
         }
-        finally
+        catch (OperationCanceledException) when (_shutdown.IsCancellationRequested
+                                                 || epoch.Stopped.IsCancellationRequested)
         {
-            observer.Stop();
-            lifecycle.RemoveObserver(observer);
         }
+        catch (Exception failure)
+        {
+            _host.ReportRecoveredFailure(failure);
+        }
+    }
+
+    private static void StopStarts(Epoch epoch)
+    {
+        if (epoch.Starts is not { } starts)
+            return;
+        epoch.Starts = null;
+        starts.Stop();
+        epoch.Activity.Lifecycle.RemoveObserver(starts);
     }
 
     private bool IsAttached(Epoch epoch)
@@ -1468,6 +1541,12 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
         public NativePage? ShownModal { get; set; }
         public bool Applying { get; set; }
 
+        /// <summary>A rollback in the stopped activity gave its surface up; the router presents again once it starts.
+        /// Main thread.</summary>
+        public bool RefreshOnStart { get; set; }
+
+        public StartObserver? Starts { get; set; }
+
         public Action? StopLayout { get; set; }
         public FirstDrawGate? FirstDraw { get; set; }
     }
@@ -1627,7 +1706,8 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
         }
     }
 
-    // Completes once the activity's lifecycle reaches STARTED. Stop clears the capture; interop GC owns the peer.
+    // Reports when the activity's lifecycle reaches STARTED, or DESTROYED. Stop clears the capture; interop GC owns the
+    // peer.
     private sealed class StartObserver(AndroidX.Lifecycle.Lifecycle.State started, Action reached)
         : Java.Lang.Object, AndroidX.Lifecycle.ILifecycleEventObserver
     {
@@ -1635,7 +1715,8 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
 
         public void OnStateChanged(AndroidX.Lifecycle.ILifecycleOwner source, AndroidX.Lifecycle.Lifecycle.Event e)
         {
-            if (source.Lifecycle.CurrentState.IsAtLeast(started))
+            AndroidX.Lifecycle.Lifecycle.State state = source.Lifecycle.CurrentState;
+            if (state.IsAtLeast(started) || !state.IsAtLeast(Initialized))
                 _reached?.Invoke();
         }
 
