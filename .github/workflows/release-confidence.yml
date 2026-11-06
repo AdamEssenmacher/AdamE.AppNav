@@ -239,6 +239,37 @@ jobs:
           name: android-device-runners-artifacts
           path: artifacts/device-runners
 
+  android-adapter-native-checks:
+    name: Android adapter native checks (API ${{ matrix.api-level }})
+    runs-on: macos-26-intel
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        # The package's minimum, and the newest the reviewed emulator action provides.
+        api-level: [28, 36]
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' &&
+       (inputs.run-android-platform-tests || inputs.release_tag != ''))
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-java@v5
+        with:
+          distribution: microsoft
+          java-version: "21"
+      - run: dotnet workload install android
+      # The action starts this run's own emulator, the only device on the runner.
+      - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: ${{ matrix.api-level }}
+          target: google_apis
+          arch: x86_64
+          script: ANDROID_SERIAL=emulator-5554 eng/run-android-native-checks.sh
+
   android-api28-platform-tests:
     name: Android API 28 platform tests
     runs-on: macos-26-intel

@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Native checks of the Android presenter, in a plain ComponentActivity app on an emulator:
+       eng/run-android-native-checks.sh. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-android</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <SupportedOSPlatformVersion>28</SupportedOSPlatformVersion>
+    <ApplicationTitle>AppNav Android checks</ApplicationTitle>
+    <ApplicationId>com.adame.appnav.android.nativechecks</ApplicationId>
+    <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+    <ApplicationVersion>1</ApplicationVersion>
+    <AndroidPackageFormat>apk</AndroidPackageFormat>
+    <!-- Installed with adb by the script, so the assemblies go in the APK. -->
+    <EmbedAssembliesIntoApk>true</EmbedAssembliesIntoApk>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AdamE.AppNav.Android\AdamE.AppNav.Android.csproj" />
+  </ItemGroup>
+
+</Project>

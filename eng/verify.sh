@@ -15,9 +15,9 @@ Usage: eng/verify.sh [contracts|packages|native|native-android|native-ios|native
   contracts            Unit, API, generator, adapter-contract, and allocation gates.
   packages             Supported target/analyzer builds, packing, package inspection,
                        and an isolated MAUI package-consumer build.
-  native               Android full-trim, iOS linked, UIKit adapter NativeAOT, and Mac Catalyst
-                       NativeAOT publishes.
-  native-android       Android arm64 full-trim publish only.
+  native               Android full-trim (MAUI and the Android adapter), iOS linked, UIKit adapter
+                       NativeAOT, and Mac Catalyst NativeAOT publishes.
+  native-android       Android arm64 full-trim publishes: MAUI and the Android adapter.
   native-ios           iOS arm64 linked publish and the UIKit adapter's NativeAOT publish.
   native-maccatalyst   Mac Catalyst arm64 NativeAOT publish only.
   release              The complete deterministic, non-device public-preview gate.
@@ -189,6 +189,17 @@ build_supported_targets() {
     -t:Compile \
     -warnaserror
 
+  dotnet build "$ROOT/src/AdamE.AppNav.Android/AdamE.AppNav.Android.csproj" \
+    -c "$CONFIGURATION" \
+    -p:EnableTrimAnalyzer=true \
+    -p:EnableAotAnalyzer=true \
+    "${package_properties[@]}" \
+    -warnaserror
+  dotnet build "$ROOT/tests/AdamE.AppNav.Android.NativeChecks/AdamE.AppNav.Android.NativeChecks.csproj" \
+    -c "$CONFIGURATION" \
+    -t:Compile \
+    -warnaserror
+
   dotnet build "$ROOT/src/AdamE.AppNav.Maui/AdamE.AppNav.Maui.csproj" \
     -c "$CONFIGURATION" \
     -f net10.0 \
@@ -283,6 +294,13 @@ pack_and_verify() {
     -warnaserror \
     -o "$PACKAGE_DIRECTORY"
 
+  dotnet pack "$ROOT/src/AdamE.AppNav.Android/AdamE.AppNav.Android.csproj" \
+    -c "$CONFIGURATION" \
+    --no-build \
+    "${package_properties[@]}" \
+    -warnaserror \
+    -o "$PACKAGE_DIRECTORY"
+
   "$ROOT/eng/verify-package-assets.sh" "$PACKAGE_DIRECTORY" "$package_version"
   "$ROOT/eng/verify-package-consumer.sh" "$PACKAGE_DIRECTORY"
 }
@@ -320,6 +338,22 @@ publish_android() {
     -p:PublishTrimmed=true \
     -p:TrimMode=full \
     -p:AndroidLinkMode=Full \
+    -warnaserror \
+    -o "$output"
+}
+
+# The Android adapter fully trimmed, as an app ships it: its checks app.
+publish_android_adapter() {
+  require_jdk_21
+  local output="$ARTIFACT_ROOT/native/android-adapter-arm64"
+  prepare_output "$output"
+  dotnet publish "$ROOT/tests/AdamE.AppNav.Android.NativeChecks/AdamE.AppNav.Android.NativeChecks.csproj" \
+    -c "$CONFIGURATION" \
+    -r android-arm64 \
+    -p:PublishTrimmed=true \
+    -p:TrimMode=full \
+    -p:AndroidLinkMode=Full \
+    -p:SuppressTrimAnalysisWarnings=false \
     -warnaserror \
     -o "$output"
 }
@@ -375,6 +409,7 @@ publish_maccatalyst() {
 
 run_native() {
   publish_android
+  publish_android_adapter
   publish_ios
   publish_ios_uikit
   publish_maccatalyst
@@ -393,6 +428,7 @@ case "$mode" in
     ;;
   native-android)
     publish_android
+    publish_android_adapter
     ;;
   native-ios)
     publish_ios

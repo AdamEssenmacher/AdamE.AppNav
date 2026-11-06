@@ -1,0 +1,82 @@
+#nullable enable
+AdamE.AppNav.Android.AndroidCleanupFailureException
+AdamE.AppNav.Android.AndroidCleanupFailureException.AndroidCleanupFailureException(string! message, System.Exception! cleanupFailure) -> void
+AdamE.AppNav.Android.AndroidCleanupFailureException.AndroidCleanupFailureException(string! message, System.Exception! operation, System.Exception! cleanup) -> void
+AdamE.AppNav.Android.AndroidNavigationPresenter
+AdamE.AppNav.Android.AndroidNavigationPresenter.AndroidNavigationPresenter(AdamE.AppNav.Presentation.NavigationTopology! topology, AdamE.AppNav.Android.IAndroidPageFactory! pages, AdamE.AppNav.Android.IAndroidNavigationHost! host, AdamE.AppNav.Android.AndroidNavigationPresenterOptions? options = null) -> void
+AdamE.AppNav.Android.AndroidNavigationPresenter.ApplyAsync(AdamE.AppNav.Plans.NavigationPlan! plan, AdamE.AppNav.Presentation.NavigationPresentationContext! context, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+AdamE.AppNav.Android.AndroidNavigationPresenter.Attach(AndroidX.Activity.ComponentActivity! activity) -> Android.Widget.FrameLayout!
+AdamE.AppNav.Android.AndroidNavigationPresenter.Detach(AndroidX.Activity.ComponentActivity! activity) -> void
+AdamE.AppNav.Android.AndroidNavigationPresenter.DisposeAsync() -> System.Threading.Tasks.ValueTask
+AdamE.AppNav.Android.AndroidNavigationPresenter.ReconciliationRequested -> System.EventHandler<AdamE.AppNav.Presentation.NavigationReconciliationRequestedEventArgs!>?
+AdamE.AppNav.Android.AndroidNavigationPresenterOptions
+AdamE.AppNav.Android.AndroidNavigationPresenterOptions.<Clone>$() -> AdamE.AppNav.Android.AndroidNavigationPresenterOptions!
+AdamE.AppNav.Android.AndroidNavigationPresenterOptions.AndroidNavigationPresenterOptions() -> void
+AdamE.AppNav.Android.AndroidNavigationPresenterOptions.CreatePlaceholderDialog.get -> System.Func<AdamE.AppNav.State.RouteEntry!, AndroidX.Activity.ComponentActivity!, AndroidX.Activity.ComponentDialog!>?
+AdamE.AppNav.Android.AndroidNavigationPresenterOptions.CreatePlaceholderDialog.init -> void
+AdamE.AppNav.Android.AndroidNavigationPresenterOptions.CreatePlaceholderView.get -> System.Func<AdamE.AppNav.State.RouteEntry!, AdamE.AppNav.Android.AndroidPagePlacement, AndroidX.Activity.ComponentActivity!, Android.Views.View!>?
+AdamE.AppNav.Android.AndroidNavigationPresenterOptions.CreatePlaceholderView.init -> void
+AdamE.AppNav.Android.AndroidNavigationPresenterOptions.EntryLeases.get -> AdamE.AppNav.Leases.RouteEntryLeaseRegistry?
+AdamE.AppNav.Android.AndroidNavigationPresenterOptions.EntryLeases.init -> void
+AdamE.AppNav.Android.AndroidNavigationPresenterOptions.Equals(AdamE.AppNav.Android.AndroidNavigationPresenterOptions? other) -> bool
+AdamE.AppNav.Android.AndroidPage
+AdamE.AppNav.Android.AndroidPage.<Clone>$() -> AdamE.AppNav.Android.AndroidPage!
+AdamE.AppNav.Android.AndroidPage.Binding.get -> System.IDisposable?
+AdamE.AppNav.Android.AndroidPage.Binding.init -> void
+AdamE.AppNav.Android.AndroidPage.Dialog.get -> AndroidX.Activity.ComponentDialog?
+AdamE.AppNav.Android.AndroidPage.Equals(AdamE.AppNav.Android.AndroidPage? other) -> bool
+AdamE.AppNav.Android.AndroidPage.IsCurrent.get -> System.Func<bool>?
+AdamE.AppNav.Android.AndroidPage.IsCurrent.init -> void
+AdamE.AppNav.Android.AndroidPage.Loan.get -> System.IDisposable?
+AdamE.AppNav.Android.AndroidPage.Loan.init -> void
+AdamE.AppNav.Android.AndroidPage.Retirement.get -> System.Threading.CancellationToken
+AdamE.AppNav.Android.AndroidPage.Retirement.init -> void
+AdamE.AppNav.Android.AndroidPage.View.get -> Android.Views.View?
+AdamE.AppNav.Android.AndroidPagePlacement
+AdamE.AppNav.Android.AndroidPagePlacement.Modal = 2 -> AdamE.AppNav.Android.AndroidPagePlacement
+AdamE.AppNav.Android.AndroidPagePlacement.Pushed = 1 -> AdamE.AppNav.Android.AndroidPagePlacement
+AdamE.AppNav.Android.AndroidPagePlacement.Root = 0 -> AdamE.AppNav.Android.AndroidPagePlacement
+AdamE.AppNav.Android.AndroidPageRequest
+AdamE.AppNav.Android.AndroidPageRequest.<Clone>$() -> AdamE.AppNav.Android.AndroidPageRequest!
+AdamE.AppNav.Android.AndroidPageRequest.Activity.get -> AndroidX.Activity.ComponentActivity!
+AdamE.AppNav.Android.AndroidPageRequest.Activity.init -> void
+AdamE.AppNav.Android.AndroidPageRequest.AndroidPageRequest(AdamE.AppNav.State.RouteEntry! Entry, AdamE.AppNav.Android.AndroidPagePlacement Placement, AdamE.AppNav.Leases.RouteEntryLease? Lease, AndroidX.Activity.ComponentActivity! Activity) -> void
+AdamE.AppNav.Android.AndroidPageRequest.Deconstruct(out AdamE.AppNav.State.RouteEntry! Entry, out AdamE.AppNav.Android.AndroidPagePlacement Placement, out AdamE.AppNav.Leases.RouteEntryLease? Lease, out AndroidX.Activity.ComponentActivity! Activity) -> void
+AdamE.AppNav.Android.AndroidPageRequest.Entry.get -> AdamE.AppNav.State.RouteEntry!
+AdamE.AppNav.Android.AndroidPageRequest.Entry.init -> void
+AdamE.AppNav.Android.AndroidPageRequest.Equals(AdamE.AppNav.Android.AndroidPageRequest? other) -> bool
+AdamE.AppNav.Android.AndroidPageRequest.Lease.get -> AdamE.AppNav.Leases.RouteEntryLease?
+AdamE.AppNav.Android.AndroidPageRequest.Lease.init -> void
+AdamE.AppNav.Android.AndroidPageRequest.Placement.get -> AdamE.AppNav.Android.AndroidPagePlacement
+AdamE.AppNav.Android.AndroidPageRequest.Placement.init -> void
+AdamE.AppNav.Android.AndroidRouterNavigationHost
+AdamE.AppNav.Android.AndroidRouterNavigationHost.AndroidRouterNavigationHost(System.Func<AdamE.AppNav.Navigation.IRouterNavigator!>! router, AdamE.AppNav.Presentation.NavigationTopology! topology, System.Action<System.Exception!>! reportRecoveredFailure) -> void
+AdamE.AppNav.Android.AndroidRouterNavigationHost.ReportRecoveredFailure(System.Exception! failure) -> void
+AdamE.AppNav.Android.AndroidRouterNavigationHost.RequestBackAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
+AdamE.AppNav.Android.AndroidRouterNavigationHost.RequestModalBackAsync(string! entryId, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
+AdamE.AppNav.Android.AndroidRouterNavigationHost.RequestRefreshAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
+AdamE.AppNav.Android.IAndroidNavigationHost
+AdamE.AppNav.Android.IAndroidNavigationHost.ReportRecoveredFailure(System.Exception! failure) -> void
+AdamE.AppNav.Android.IAndroidNavigationHost.RequestBackAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
+AdamE.AppNav.Android.IAndroidNavigationHost.RequestModalBackAsync(string! entryId, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
+AdamE.AppNav.Android.IAndroidNavigationHost.RequestRefreshAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
+AdamE.AppNav.Android.IAndroidPageFactory
+AdamE.AppNav.Android.IAndroidPageFactory.CreatePageAsync(AdamE.AppNav.Android.AndroidPageRequest! request, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<AdamE.AppNav.Android.AndroidPage!>
+override AdamE.AppNav.Android.AndroidNavigationPresenterOptions.Equals(object? obj) -> bool
+override AdamE.AppNav.Android.AndroidNavigationPresenterOptions.GetHashCode() -> int
+override AdamE.AppNav.Android.AndroidNavigationPresenterOptions.ToString() -> string!
+override AdamE.AppNav.Android.AndroidPage.Equals(object? obj) -> bool
+override AdamE.AppNav.Android.AndroidPage.GetHashCode() -> int
+override AdamE.AppNav.Android.AndroidPage.ToString() -> string!
+override AdamE.AppNav.Android.AndroidPageRequest.Equals(object? obj) -> bool
+override AdamE.AppNav.Android.AndroidPageRequest.GetHashCode() -> int
+override AdamE.AppNav.Android.AndroidPageRequest.ToString() -> string!
+static AdamE.AppNav.Android.AndroidNavigationPresenter.Support.get -> AdamE.AppNav.Presentation.NavigationTopologySupport!
+static AdamE.AppNav.Android.AndroidNavigationPresenterOptions.operator !=(AdamE.AppNav.Android.AndroidNavigationPresenterOptions? left, AdamE.AppNav.Android.AndroidNavigationPresenterOptions? right) -> bool
+static AdamE.AppNav.Android.AndroidNavigationPresenterOptions.operator ==(AdamE.AppNav.Android.AndroidNavigationPresenterOptions? left, AdamE.AppNav.Android.AndroidNavigationPresenterOptions? right) -> bool
+static AdamE.AppNav.Android.AndroidPage.ForDialog(AndroidX.Activity.ComponentDialog! dialog) -> AdamE.AppNav.Android.AndroidPage!
+static AdamE.AppNav.Android.AndroidPage.ForView(Android.Views.View! view) -> AdamE.AppNav.Android.AndroidPage!
+static AdamE.AppNav.Android.AndroidPage.operator !=(AdamE.AppNav.Android.AndroidPage? left, AdamE.AppNav.Android.AndroidPage? right) -> bool
+static AdamE.AppNav.Android.AndroidPage.operator ==(AdamE.AppNav.Android.AndroidPage? left, AdamE.AppNav.Android.AndroidPage? right) -> bool
+static AdamE.AppNav.Android.AndroidPageRequest.operator !=(AdamE.AppNav.Android.AndroidPageRequest? left, AdamE.AppNav.Android.AndroidPageRequest? right) -> bool
+static AdamE.AppNav.Android.AndroidPageRequest.operator ==(AdamE.AppNav.Android.AndroidPageRequest? left, AdamE.AppNav.Android.AndroidPageRequest? right) -> bool
