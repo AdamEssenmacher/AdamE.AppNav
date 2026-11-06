@@ -19,7 +19,8 @@ internal static class ModalChecks
         ("modal-cancel-accepted", CancelAcceptedAsync),
         ("modal-unexpected-dismissal", UnexpectedDismissalAsync),
         ("rollback-restores-closed-modal", RollbackRestoresModalAsync),
-        ("modal-closed-during-operation", ClosedDuringOperationAsync)
+        ("modal-closed-during-operation", ClosedDuringOperationAsync),
+        ("new-modal-canceled-during-operation", NewModalCanceledAsync)
     ];
 
     private static async Task<(AndroidNavigationPresenter Presenter, RecordingHost Host, ProbeDialog Dialog)> ShownAsync(
@@ -190,10 +191,13 @@ internal static class ModalChecks
                 failure is OperationCanceledException
                 && dialog.IsShowing
                 && presenter.ShownDialog == dialog
-                && dialog.Window?.DecorView.IsAttachedToWindow == true
                 && ReferenceEquals(Visible(activity), root)
                 && !dialog.Retired,
                 $"A rollback did not restore the closed modal ({failure.GetType().Name}: {failure.Message}).");
+            await UntilAsync(
+                () => dialog.Window?.DecorView.IsAttachedToWindow == true,
+                "The restored modal's window never attached.",
+                token);
             await ApplyAsync(presenter, Shows("root"), Shows("root", SheetEntry), token);
             Require(dialog.Retired && host.Reports.Count == 0, "The restored modal did not close normally afterwards.");
         }
@@ -221,6 +225,37 @@ internal static class ModalChecks
             Require(
                 host.ModalBacks is [SheetEntry] && host.Reports.Count == 0 && !dialog.Retired,
                 "A cancel during an operation was not a modal Back request, or was reported as a failure.");
+        }
+        finally
+        {
+            await presenter.DisposeAsync();
+        }
+    }
+
+    // A modal the operation is showing, canceled before the operation has accepted it, is a Back request for that
+    // modal like any other cancel; when the router keeps it, the presenter asks for a refresh.
+    private static async Task NewModalCanceledAsync(ComponentActivity activity, CancellationToken token)
+    {
+        var dialogs = new Dictionary<string, ProbeDialog>(StringComparer.Ordinal);
+        var host = new RecordingHost();
+        AndroidNavigationPresenter presenter = Presenter(
+            request => request.Placement is AndroidPagePlacement.Modal
+                ? ModalPage(dialogs[request.Entry.Id] = new ProbeDialog(request.Activity))
+                : Page(new ProbeView(request.Activity)),
+            host);
+        Mount(presenter, activity);
+        try
+        {
+            await ApplyAsync(presenter, Shows("root"), NavigationState.Empty, token);
+            Task opening = ApplyAsync(presenter, Shows("root", SheetEntry), Shows("root"), token);
+            ProbeDialog dialog = dialogs[SheetEntry];
+            Require(dialog.IsShowing && !opening.IsCompleted, "The operation had not shown the modal yet.");
+            dialog.Cancel();
+            await opening.WaitAsync(Soon, token);
+            await UntilAsync(() => host.Refreshes == 1, "A new modal canceled mid-operation was not refreshed.", token);
+            Require(
+                host.ModalBacks is [SheetEntry] && host.Reports.Count == 0,
+                "A cancel of a modal being shown was dropped, or reported as a failure.");
         }
         finally
         {

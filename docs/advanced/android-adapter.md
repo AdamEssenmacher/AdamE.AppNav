@@ -64,9 +64,10 @@ operation in it ends whatever its outcome, so a recreated activity never shows
 an empty frame between its creation and the refresh that fills it, and a failed
 or empty presentation still draws.
 
-An operation on a stopped activity waits for layout like any other, and Android
-lays out a hidden window only once it is shown again: the operation finishes,
-at the latest, when the activity is started again.
+An operation on a stopped activity waits for a drawn layout like any other, and
+Android may not draw a hidden window until it is shown again: the operation
+finishes, at the latest, when the activity is started again. A rollback never
+waits for layout, so an operation canceled or failing there ends at once.
 
 ## One operation
 
@@ -90,7 +91,8 @@ at the latest, when the activity is started again.
    lease attachment, in that order.
 
 A failure or cancellation before acceptance rolls native back to the accepted
-surface, waiting for its layout and verifying it as an operation does, and
+surface and verifies it (a dialog shown again attaches its window on Android's
+next traversal, so it is verified as showing), and
 retires every page the operation built, all before `ApplyAsync` throws. When
 that surface is no longer current, or cannot be restored, the presenter clears
 the frame and presents nothing: pages that are still current are kept out of
@@ -147,9 +149,9 @@ and shared pages; sticky unsafe retirement and factory cleanup failures; system
 Back on the activity and on a dialog, both through the dispatcher and as the
 real Back key, and a Back whose activity detached before delivery; cancel
 refused and accepted, dismissal from outside, a rollback that restores a closed
-modal, and a modal canceled while an operation waits for it; a second activity
+modal, and a modal canceled while an operation keeps it or is showing it; a second activity
 attaching, a real `Recreate()` with a dialog showing, an operation on a stopped
-activity, an operation waiting for the next activity, a finishing activity and
+activity and one canceled there, an operation waiting for the next activity, a finishing activity and
 disposal mid-operation; the first-draw gate holding and then opening; and, through a real router, lease release order,
 placeholders, presenter-opened leases and the router host. The release workflow
 runs them on API 28 and API 36 emulators. `eng/verify.sh native-android`

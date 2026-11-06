@@ -46,7 +46,6 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
     private readonly IAndroidPageFactory _pages;
     private readonly IAndroidNavigationHost _host;
     private readonly AndroidNavigationPresenterOptions _options;
-    private static readonly Task Never = new TaskCompletionSource().Task;
     private readonly Lock _attachmentGate = new();
     private readonly SemaphoreSlim _serial = new(1, 1);
     private readonly CancellationTokenSource _shutdown = new();
@@ -232,6 +231,14 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
         try
         {
             ReleaseDifference(retired.Surface, Surface.Empty);
+        }
+        catch (Exception failure)
+        {
+            failures.Add(failure);
+        }
+
+        try
+        {
             ReleaseDifference(retired.Spare, Surface.Empty);
         }
         catch (Exception failure)
@@ -305,6 +312,7 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
         using var operation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _shutdown.Token);
         CancellationToken operationToken = operation.Token;
         await _serial.WaitAsync(operationToken).ConfigureAwait(false);
+        Epoch? last = null;
         try
         {
             while (true)
@@ -312,6 +320,7 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
                 ThrowIfRetirementFailed();
                 operationToken.ThrowIfCancellationRequested();
                 Epoch epoch = await AttachedAsync(operationToken).ConfigureAwait(false);
+                last = epoch;
                 bool nativeCompleted = false;
                 Surface? attempted = null;
                 try
@@ -393,6 +402,10 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
         }
         finally
         {
+            // Whatever the operation's outcome, the activity now shows what it will show: the gate that kept a fresh
+            // frame from drawing empty opens. Not after an attempt the operation retries, which would flash it.
+            if (last is { } ended)
+                _main.Post(() => ended.FirstDraw?.Open());
             _ = _serial.Release();
         }
     }
@@ -427,7 +440,7 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
             RequireCurrent(staged);
             epoch.Staged = staged;
             owned.Token.ThrowIfCancellationRequested();
-            Mutate(epoch, staged);
+            _ = Mutate(epoch, staged);
             owned.Token.ThrowIfCancellationRequested();
             if (staged.Root is not null)
                 await NativeLayoutAsync(epoch, staged, owned.Token);
@@ -490,34 +503,32 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
                 throw;
             }
 
-            // Restore the accepted surface as the operation found it, laid out and verified like any other; if that is
-            // not current any more, or cannot be restored, clear the frame and give the accepted pages up too, so the
-            // presenter never claims a surface native does not show.
+            // Restore the accepted surface as the operation found it. The rollback does not wait for layout: a view
+            // put back in the attached frame is attached at once, and a dialog shown again attaches its window on
+            // Android's next traversal, which a hidden activity may not run until it is started again; waiting would
+            // hold every later operation. If the surface is not current any more, or cannot be restored, clear the
+            // frame and give the accepted surface up, so the presenter never claims what native does not show.
             bool restored = false;
+            bool restoreFailed = false;
             try
             {
                 if (Current(previous))
                 {
-                    using var rollback = CancellationTokenSource.CreateLinkedTokenSource(
-                        [_shutdown.Token, epoch.Stopped.Token, .. Retirements(previous)]);
-                    Mutate(epoch, previous);
-                    if (previous.Root is not null)
-                        await NativeLayoutAsync(epoch, previous, rollback.Token);
+                    NativePage? shown = Mutate(epoch, previous);
                     RequireEpoch(epoch);
                     RequireCurrent(previous);
-                    Verify(epoch, previous);
+                    Verify(epoch, previous, shown);
                     restored = true;
                 }
             }
-            catch (OperationCanceledException) when (epoch.Stopped.IsCancellationRequested
-                                                     || _shutdown.IsCancellationRequested
-                                                     || !Current(previous))
+            catch (OperationCanceledException) when (epoch.Stopped.IsCancellationRequested || !Current(previous))
             {
                 // The accepted surface stopped mattering while it was being restored.
             }
             catch (Exception rollback)
             {
                 failures.Add(rollback);
+                restoreFailed = true;
             }
 
             if (epoch.Stopped.IsCancellationRequested)
@@ -526,6 +537,7 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
             {
                 // Nothing is shown now. Pages that are still current are kept, out of the window, for the next
                 // operation to reuse (a root page keeps its state across a retired pushed page); the others go now.
+                // Pages that just failed to be restored are not kept: reusing them would fail the same way.
                 try
                 {
                     Clear(epoch);
@@ -535,7 +547,7 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
                     failures.Add(cleanup);
                 }
 
-                Surface spare = kept.Current();
+                Surface spare = restoreFailed ? Surface.Empty : kept.Current();
                 try
                 {
                     ReleaseDifference(kept, spare);
@@ -569,9 +581,6 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
             epoch.Staged = null;
             epoch.Applying = false;
             UpdateBack(epoch);
-            // Whatever the operation's outcome, the activity now shows what it will show: the gate that kept a fresh
-            // frame from drawing empty while it ran opens.
-            epoch.FirstDraw?.Open();
         }
     }
 
@@ -856,7 +865,8 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
     private static bool Same(RouteEntry left, RouteEntry right) =>
         left.Id == right.Id && Equals(left.Route, right.Route);
 
-    private void Mutate(Epoch epoch, Surface target)
+    // Returns the modal page whose dialog it showed, if it showed one.
+    private NativePage? Mutate(Epoch epoch, Surface target)
     {
         MainOnly();
         RequireEpoch(epoch);
@@ -890,11 +900,16 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
                 modal.PresenterDismissing = false;
                 modal.ClosedByOthers = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 dialog.Show();
+                return modal;
             }
         }
+
+        return null;
     }
 
-    private void Verify(Epoch epoch, Surface target)
+    // justShown: a modal whose dialog the caller has just shown without waiting for layout, which attaches its window
+    // on Android's next traversal: showing is all it can be verified for yet.
+    private void Verify(Epoch epoch, Surface target, NativePage? justShown = null)
     {
         MainOnly();
         RequireEpoch(epoch);
@@ -907,7 +922,8 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
             // handler asks the router about it. Any other must be showing, in the window.
             || (target.Modal is { Dialog: { } dialog } modal
                 && !modal.ClosedByOthersOrNotShowing
-                && !(dialog.IsShowing && dialog.Window?.DecorView.IsAttachedToWindow == true)))
+                && !(dialog.IsShowing
+                     && (ReferenceEquals(modal, justShown) || dialog.Window?.DecorView.IsAttachedToWindow == true))))
             throw new InvalidOperationException("Native hierarchy does not match the accepted AppNav target.");
     }
 
@@ -1047,11 +1063,11 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
         await RequestAsync(
             epoch,
             modal,
-            () => ReferenceEquals(epoch.Surface.Modal, modal),
+            () => ReferenceEquals((epoch.Staged ?? epoch.Surface).Modal, modal),
             () => _host.RequestModalBackAsync(modal.Entry.Id, _shutdown.Token));
         if (IsAttached(epoch)
             && Volatile.Read(ref _disposed) == 0
-            && ReferenceEquals(epoch.Surface.Modal, modal)
+            && ReferenceEquals((epoch.Staged ?? epoch.Surface).Modal, modal)
             && modal is { IsCurrent: true, Dialog.IsShowing: false })
             await RefreshAsync(epoch, modal, null);
     }
@@ -1088,8 +1104,7 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
 
     // A host callback runs on the main thread, in a later turn of its looper, with no execution context from the
     // operation that reported it: a host that calls the router from inside an operation's context would be refused as
-    // a reentrant operation. It calls nothing once valid no longer holds. It completes where the host's task does; its
-    // callers resume on the main thread through the main looper's synchronization context.
+    // a reentrant operation. It calls nothing once valid no longer holds, and completes on the main thread.
     private Task DetachedAsync(Func<bool> valid, Func<Task> callback)
     {
         var done = new TaskCompletionSource();
@@ -1252,7 +1267,6 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
     {
         MainOnly();
         View view = surface.Modal?.Dialog?.Window?.DecorView ?? epoch.Frame;
-        Task closed = surface.Modal?.ClosedByOthers.Task ?? Never;
         ViewTreeObserver observer =
             view.ViewTreeObserver ?? throw new InvalidOperationException("No native layout observer.");
         var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1268,7 +1282,10 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
             view.RequestLayout();
             view.Invalidate();
             if (surface.Modal?.ClosedByOthersOrNotShowing != true)
-                await Task.WhenAny(done.Task, closed).WaitAsync(token);
+                await (surface.Modal is { } modal
+                        ? Task.WhenAny(done.Task, modal.ClosedByOthers.Task)
+                        : done.Task)
+                    .WaitAsync(token);
         }
         catch (Exception failure)
         {

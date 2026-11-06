@@ -12,8 +12,9 @@ internal static class ActivityChecks
     public static IEnumerable<(string Name, Func<ComponentActivity, CancellationToken, Task> Check)> All =>
     [
         ("activity-recreation", RecreationAsync),
-        ("activity-recreated-by-the-system", RecreatedAsync),
+        ("activity-recreate", RecreatedAsync),
         ("operation-in-a-stopped-activity", StoppedActivityAsync),
+        ("canceled-operation-in-a-stopped-activity", CanceledWhileStoppedAsync),
         ("operation-waits-for-next-activity", WaitsForNextActivityAsync),
         ("finishing-activity", FinishingActivityAsync),
         ("disposal-drains-operation", DisposalDrainsAsync)
@@ -168,6 +169,52 @@ internal static class ActivityChecks
             Require(
                 ReferenceEquals(Visible(activity), views["pushed"]) && views["pushed"].IsAttachedToWindow,
                 "An operation on a stopped activity did not show its page once the activity was back.");
+        }
+        finally
+        {
+            cover?.Finish();
+            await presenter.DisposeAsync();
+        }
+    }
+
+    // An operation canceled in a stopped activity, after it closed the modal, rolls back without waiting for a layout
+    // Android may not run until the activity is started again: it ends at once, and the next operation runs.
+    private static async Task CanceledWhileStoppedAsync(ComponentActivity activity, CancellationToken token)
+    {
+        var dialogs = new Dictionary<string, ProbeDialog>(StringComparer.Ordinal);
+        AndroidNavigationPresenter presenter = Presenter(request => request.Placement is AndroidPagePlacement.Modal
+            ? ModalPage(dialogs[request.Entry.Id] = new ProbeDialog(request.Activity))
+            : Page(new ProbeView(request.Activity)));
+        Mount(presenter, activity);
+        ProbeActivity? cover = null;
+        NavigationState shown = Shows("root", "sheet-entry");
+        try
+        {
+            await ApplyAsync(presenter, shown, NavigationState.Empty, token);
+            cover = await ProbeActivity.StartAsync(activity, token);
+            await UntilAsync(
+                () => !activity.Lifecycle.CurrentState.IsAtLeast(
+                    AndroidX.Lifecycle.Lifecycle.State.Started ?? throw new InvalidOperationException("No STARTED.")),
+                "The covered activity was never stopped.",
+                token);
+            using var cancel = CancellationTokenSource.CreateLinkedTokenSource(token);
+            Task closing = ApplyAsync(presenter, Shows("root"), shown, cancel.Token);
+            await TurnsAsync(token);
+            cancel.Cancel();
+            Exception failure = await FailsAsync(
+                () => closing.WaitAsync(TimeSpan.FromSeconds(3), token),
+                "A canceled operation in a stopped activity completed.");
+            Require(
+                failure is OperationCanceledException,
+                $"A canceled operation in a stopped activity did not end promptly ({failure.GetType().Name}).");
+            Task next = ApplyAsync(presenter, shown, shown, token, NavigationPlanKind.Refresh);
+            cover.Finish();
+            await cover.Destroyed.Task.WaitAsync(Soon, token);
+            cover = null;
+            await next.WaitAsync(Soon, token);
+            Require(
+                presenter.ShownDialog == dialogs["sheet-entry"],
+                "The operation after a canceled one in a stopped activity did not show the modal.");
         }
         finally
         {
