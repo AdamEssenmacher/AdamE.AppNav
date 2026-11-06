@@ -13,7 +13,7 @@ core's public API, so an app whose navigation does not fit it can write its own
 
 ## What it presents
 
-One `UIWindow`, in the shape a `UIKitNavigationTopology` declares:
+One `UIWindow`, in the shape a `NavigationTopology` from AppNav core declares:
 
 ```text
 WindowNode "main"
@@ -24,9 +24,10 @@ WindowNode "main"
 ```
 
 This version presents a stack of one or two entries and one modal at a time,
-with no topology nested inside the modal. The topology API is already shaped
-for deeper stacks and for modals with their own stacks; later versions add them
-without changing it. The presenter checks every plan against the topology
+with no topology nested inside the modal. A deeper stack is a wider
+`UIKitNavigationPresenter.Support` and changes nothing you declare; modals with
+their own stacks need a way to declare those stacks, which comes with them. The
+presenter checks every plan against the topology
 before it builds anything, and refuses any other shape with
 `NotSupportedException`, so an unsupported plan never half-presents.
 
@@ -44,16 +45,26 @@ UIKit keeps what is UIKit's:
 
 ## Declare the topology
 
-Use the structural IDs your planner already gives its window, stack and modals:
+Use the structural IDs your planner already gives its window, stack and modals.
+`NavigationTopology` is host-neutral (`AdamE.AppNav.Presentation`): an app with a
+UIKit and an Android presenter declares it once and gives both the same one.
 
 ```csharp
-var topology = new UIKitNavigationTopology("main", "main-stack")
-    .WithModal("sheet", UIKitModalPlacement.OverRoot)
-    .WithOwnedModal("answer", entry => entry.Metadata?["question-entry"] as string);
+var topology = new NavigationTopology("main", "main-stack")
+    .WithModal("sheet", NavigationModalPlacement.OverRoot)
+    // The owner lookup must not throw: an entry without the key has no owner, which refuses the plan.
+    .WithOwnedModal("answer", entry => entry.Metadata?.TryGetValue("question-entry", out object? id) == true
+        ? id as string
+        : null);
 ```
 
+What this presenter can show of it is `UIKitNavigationPresenter.Support`: today a
+stack of two entries. Core's `NavigationTopology.Match` itself matches one modal
+at a time with nothing nested in it, whatever a presenter supports. A plan beyond
+either fails with a `NotSupportedException` that says which limit refused it.
+
 - `OverRoot`: only while the stack holds the root page alone.
-- `OverAnyEntry`: over any stack the topology supports.
+- `OverAnyEntry`: over any stack the presenter supports.
 - `WithOwnedModal`: the modal belongs to one stack entry, read from the
   modal's own entry, and is presented only while that entry is the top of the
   stack. An answer sheet over the question it answers is one.

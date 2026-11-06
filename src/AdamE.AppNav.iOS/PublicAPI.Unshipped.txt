@@ -10,26 +10,12 @@ AdamE.AppNav.iOS.IUIKitPageFactory.CreatePageAsync(AdamE.AppNav.iOS.UIKitPageReq
 AdamE.AppNav.iOS.UIKitCleanupFailureException
 AdamE.AppNav.iOS.UIKitCleanupFailureException.UIKitCleanupFailureException(string! message, System.Exception! cleanupFailure) -> void
 AdamE.AppNav.iOS.UIKitCleanupFailureException.UIKitCleanupFailureException(string! message, System.Exception! operation, System.Exception! cleanup) -> void
-AdamE.AppNav.iOS.UIKitModalDeclaration
-AdamE.AppNav.iOS.UIKitModalDeclaration.<Clone>$() -> AdamE.AppNav.iOS.UIKitModalDeclaration!
-AdamE.AppNav.iOS.UIKitModalDeclaration.Deconstruct(out AdamE.AppNav.iOS.UIKitModalPlacement Placement, out System.Func<AdamE.AppNav.State.RouteEntry!, string?>? OwnerEntryId) -> void
-AdamE.AppNav.iOS.UIKitModalDeclaration.Equals(AdamE.AppNav.iOS.UIKitModalDeclaration? other) -> bool
-AdamE.AppNav.iOS.UIKitModalDeclaration.OwnerEntryId.get -> System.Func<AdamE.AppNav.State.RouteEntry!, string?>?
-AdamE.AppNav.iOS.UIKitModalDeclaration.OwnerEntryId.init -> void
-AdamE.AppNav.iOS.UIKitModalDeclaration.Placement.get -> AdamE.AppNav.iOS.UIKitModalPlacement
-AdamE.AppNav.iOS.UIKitModalDeclaration.Placement.init -> void
-AdamE.AppNav.iOS.UIKitModalDeclaration.UIKitModalDeclaration(AdamE.AppNav.iOS.UIKitModalPlacement Placement, System.Func<AdamE.AppNav.State.RouteEntry!, string?>? OwnerEntryId) -> void
-AdamE.AppNav.iOS.UIKitModalPlacement
-AdamE.AppNav.iOS.UIKitModalPlacement.OverAnyEntry = 1 -> AdamE.AppNav.iOS.UIKitModalPlacement
-AdamE.AppNav.iOS.UIKitModalPlacement.OverOwnerEntry = 2 -> AdamE.AppNav.iOS.UIKitModalPlacement
-AdamE.AppNav.iOS.UIKitModalPlacement.OverRoot = 0 -> AdamE.AppNav.iOS.UIKitModalPlacement
 AdamE.AppNav.iOS.UIKitNativePopWonException
 AdamE.AppNav.iOS.UIKitNativePopWonException.UIKitNativePopWonException() -> void
 AdamE.AppNav.iOS.UIKitNavigationPresenter
 AdamE.AppNav.iOS.UIKitNavigationPresenter.ApplyAsync(AdamE.AppNav.Plans.NavigationPlan! plan, AdamE.AppNav.Presentation.NavigationPresentationContext! context, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
 AdamE.AppNav.iOS.UIKitNavigationPresenter.DisposeAsync() -> System.Threading.Tasks.ValueTask
 AdamE.AppNav.iOS.UIKitNavigationPresenter.ReconciliationRequested -> System.EventHandler<AdamE.AppNav.Presentation.NavigationReconciliationRequestedEventArgs!>?
-AdamE.AppNav.iOS.UIKitNavigationPresenter.UIKitNavigationPresenter(UIKit.UIWindow! window, AdamE.AppNav.iOS.UIKitNavigationTopology! topology, AdamE.AppNav.iOS.IUIKitPageFactory! pages, AdamE.AppNav.iOS.IUIKitNavigationHost! host, AdamE.AppNav.iOS.UIKitNavigationPresenterOptions? options = null) -> void
 AdamE.AppNav.iOS.UIKitNavigationPresenterOptions
 AdamE.AppNav.iOS.UIKitNavigationPresenterOptions.<Clone>$() -> AdamE.AppNav.iOS.UIKitNavigationPresenterOptions!
 AdamE.AppNav.iOS.UIKitNavigationPresenterOptions.ConfiguringPush.get -> System.Action<AdamE.AppNav.iOS.UIKitPushContext!>?
@@ -40,13 +26,6 @@ AdamE.AppNav.iOS.UIKitNavigationPresenterOptions.EntryLeases.get -> AdamE.AppNav
 AdamE.AppNav.iOS.UIKitNavigationPresenterOptions.EntryLeases.init -> void
 AdamE.AppNav.iOS.UIKitNavigationPresenterOptions.Equals(AdamE.AppNav.iOS.UIKitNavigationPresenterOptions? other) -> bool
 AdamE.AppNav.iOS.UIKitNavigationPresenterOptions.UIKitNavigationPresenterOptions() -> void
-AdamE.AppNav.iOS.UIKitNavigationTopology
-AdamE.AppNav.iOS.UIKitNavigationTopology.Modals.get -> System.Collections.Generic.IReadOnlyDictionary<string!, AdamE.AppNav.iOS.UIKitModalDeclaration!>!
-AdamE.AppNav.iOS.UIKitNavigationTopology.StackId.get -> string!
-AdamE.AppNav.iOS.UIKitNavigationTopology.UIKitNavigationTopology(string! windowId, string! stackId) -> void
-AdamE.AppNav.iOS.UIKitNavigationTopology.WindowId.get -> string!
-AdamE.AppNav.iOS.UIKitNavigationTopology.WithModal(string! modalId, AdamE.AppNav.iOS.UIKitModalPlacement placement) -> AdamE.AppNav.iOS.UIKitNavigationTopology!
-AdamE.AppNav.iOS.UIKitNavigationTopology.WithOwnedModal(string! modalId, System.Func<AdamE.AppNav.State.RouteEntry!, string?>! ownerEntryId) -> AdamE.AppNav.iOS.UIKitNavigationTopology!
 AdamE.AppNav.iOS.UIKitPage
 AdamE.AppNav.iOS.UIKitPage.<Clone>$() -> AdamE.AppNav.iOS.UIKitPage!
 AdamE.AppNav.iOS.UIKitPage.Controller.get -> UIKit.UIViewController!
@@ -96,10 +75,6 @@ AdamE.AppNav.iOS.UIKitRouterNavigationHost.ReportRecoveredFailure(System.Excepti
 AdamE.AppNav.iOS.UIKitRouterNavigationHost.RequestBackAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
 AdamE.AppNav.iOS.UIKitRouterNavigationHost.RequestModalBackAsync(string! entryId, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
 AdamE.AppNav.iOS.UIKitRouterNavigationHost.RequestRefreshAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
-AdamE.AppNav.iOS.UIKitRouterNavigationHost.UIKitRouterNavigationHost(System.Func<AdamE.AppNav.Navigation.IRouterNavigator!>! router, AdamE.AppNav.iOS.UIKitNavigationTopology! topology, System.Action<System.Exception!>! reportRecoveredFailure) -> void
-override AdamE.AppNav.iOS.UIKitModalDeclaration.Equals(object? obj) -> bool
-override AdamE.AppNav.iOS.UIKitModalDeclaration.GetHashCode() -> int
-override AdamE.AppNav.iOS.UIKitModalDeclaration.ToString() -> string!
 override AdamE.AppNav.iOS.UIKitNavigationPresenterOptions.Equals(object? obj) -> bool
 override AdamE.AppNav.iOS.UIKitNavigationPresenterOptions.GetHashCode() -> int
 override AdamE.AppNav.iOS.UIKitNavigationPresenterOptions.ToString() -> string!
@@ -112,11 +87,8 @@ override AdamE.AppNav.iOS.UIKitPageRequest.ToString() -> string!
 override AdamE.AppNav.iOS.UIKitPushContext.Equals(object? obj) -> bool
 override AdamE.AppNav.iOS.UIKitPushContext.GetHashCode() -> int
 override AdamE.AppNav.iOS.UIKitPushContext.ToString() -> string!
-static AdamE.AppNav.iOS.UIKitModalDeclaration.operator !=(AdamE.AppNav.iOS.UIKitModalDeclaration? left, AdamE.AppNav.iOS.UIKitModalDeclaration? right) -> bool
-static AdamE.AppNav.iOS.UIKitModalDeclaration.operator ==(AdamE.AppNav.iOS.UIKitModalDeclaration? left, AdamE.AppNav.iOS.UIKitModalDeclaration? right) -> bool
 static AdamE.AppNav.iOS.UIKitNavigationPresenterOptions.operator !=(AdamE.AppNav.iOS.UIKitNavigationPresenterOptions? left, AdamE.AppNav.iOS.UIKitNavigationPresenterOptions? right) -> bool
 static AdamE.AppNav.iOS.UIKitNavigationPresenterOptions.operator ==(AdamE.AppNav.iOS.UIKitNavigationPresenterOptions? left, AdamE.AppNav.iOS.UIKitNavigationPresenterOptions? right) -> bool
-static AdamE.AppNav.iOS.UIKitNavigationTopology.MaxStackEntries.get -> int
 static AdamE.AppNav.iOS.UIKitPage.InNavigationStack(UIKit.UIViewController! content, bool navigationBarHidden = false) -> AdamE.AppNav.iOS.UIKitPage!
 static AdamE.AppNav.iOS.UIKitPage.operator !=(AdamE.AppNav.iOS.UIKitPage? left, AdamE.AppNav.iOS.UIKitPage? right) -> bool
 static AdamE.AppNav.iOS.UIKitPage.operator ==(AdamE.AppNav.iOS.UIKitPage? left, AdamE.AppNav.iOS.UIKitPage? right) -> bool
@@ -124,3 +96,6 @@ static AdamE.AppNav.iOS.UIKitPageRequest.operator !=(AdamE.AppNav.iOS.UIKitPageR
 static AdamE.AppNav.iOS.UIKitPageRequest.operator ==(AdamE.AppNav.iOS.UIKitPageRequest? left, AdamE.AppNav.iOS.UIKitPageRequest? right) -> bool
 static AdamE.AppNav.iOS.UIKitPushContext.operator !=(AdamE.AppNav.iOS.UIKitPushContext? left, AdamE.AppNav.iOS.UIKitPushContext? right) -> bool
 static AdamE.AppNav.iOS.UIKitPushContext.operator ==(AdamE.AppNav.iOS.UIKitPushContext? left, AdamE.AppNav.iOS.UIKitPushContext? right) -> bool
+AdamE.AppNav.iOS.UIKitNavigationPresenter.UIKitNavigationPresenter(UIKit.UIWindow! window, AdamE.AppNav.Presentation.NavigationTopology! topology, AdamE.AppNav.iOS.IUIKitPageFactory! pages, AdamE.AppNav.iOS.IUIKitNavigationHost! host, AdamE.AppNav.iOS.UIKitNavigationPresenterOptions? options = null) -> void
+AdamE.AppNav.iOS.UIKitRouterNavigationHost.UIKitRouterNavigationHost(System.Func<AdamE.AppNav.Navigation.IRouterNavigator!>! router, AdamE.AppNav.Presentation.NavigationTopology! topology, System.Action<System.Exception!>! reportRecoveredFailure) -> void
+static AdamE.AppNav.iOS.UIKitNavigationPresenter.Support.get -> AdamE.AppNav.Presentation.NavigationTopologySupport!

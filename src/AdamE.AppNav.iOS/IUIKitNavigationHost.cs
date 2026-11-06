@@ -55,13 +55,13 @@ public sealed class UIKitRouterNavigationHost : IUIKitNavigationHost
 {
     private const int StaleAttempts = 10;
     private readonly Func<IRouterNavigator> router;
-    private readonly UIKitNavigationTopology topology;
+    private readonly NavigationTopology topology;
     private readonly Action<Exception> reportRecoveredFailure;
 
     /// <summary>A host for the router <paramref name="router"/> returns.</summary>
     public UIKitRouterNavigationHost(
         Func<IRouterNavigator> router,
-        UIKitNavigationTopology topology,
+        NavigationTopology topology,
         Action<Exception> reportRecoveredFailure)
     {
         ArgumentNullException.ThrowIfNull(router);
@@ -121,9 +121,7 @@ public sealed class UIKitRouterNavigationHost : IUIKitNavigationHost
     public void ReportRecoveredFailure(Exception failure) => reportRecoveredFailure(failure);
 
     private bool OwnedByPopped(ModalNode modal, HashSet<string> popped) =>
-        topology.Modals.TryGetValue(modal.Id, out UIKitModalDeclaration? declaration)
-        && declaration.OwnerEntryId?.Invoke(modal.RouteEntry) is { } owner
-        && popped.Contains(owner);
+        topology.OwnerEntryIdOf(modal) is { } owner && popped.Contains(owner);
 
     private NavigationState? WithoutPopped(NavigationState state, string entryId)
     {

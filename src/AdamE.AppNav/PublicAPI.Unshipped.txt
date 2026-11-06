@@ -116,3 +116,48 @@ AdamE.AppNav.Leases.RouteEntryLease.Own(System.IAsyncDisposable! resource, AdamE
 AdamE.AppNav.Leases.RouteEntryLeaseDisposalFailure
 AdamE.AppNav.Leases.RouteEntryLeaseDisposalFailure.Defect = 0 -> AdamE.AppNav.Leases.RouteEntryLeaseDisposalFailure
 AdamE.AppNav.Leases.RouteEntryLeaseDisposalFailure.Fatal = 1 -> AdamE.AppNav.Leases.RouteEntryLeaseDisposalFailure
+AdamE.AppNav.Presentation.NavigationModalDeclaration
+AdamE.AppNav.Presentation.NavigationModalDeclaration.OwnerEntryId.get -> System.Func<AdamE.AppNav.State.RouteEntry!, string?>?
+AdamE.AppNav.Presentation.NavigationModalDeclaration.Placement.get -> AdamE.AppNav.Presentation.NavigationModalPlacement
+AdamE.AppNav.Presentation.NavigationModalPlacement
+AdamE.AppNav.Presentation.NavigationModalPlacement.OverAnyEntry = 1 -> AdamE.AppNav.Presentation.NavigationModalPlacement
+AdamE.AppNav.Presentation.NavigationModalPlacement.OverOwnerEntry = 2 -> AdamE.AppNav.Presentation.NavigationModalPlacement
+AdamE.AppNav.Presentation.NavigationModalPlacement.OverRoot = 0 -> AdamE.AppNav.Presentation.NavigationModalPlacement
+AdamE.AppNav.Presentation.NavigationTopology
+AdamE.AppNav.Presentation.NavigationTopology.Match(AdamE.AppNav.State.NavigationState! state, AdamE.AppNav.Presentation.NavigationTopologySupport! support) -> AdamE.AppNav.Presentation.NavigationTopologyMatch?
+AdamE.AppNav.Presentation.NavigationTopology.Modals.get -> System.Collections.Generic.IReadOnlyDictionary<string!, AdamE.AppNav.Presentation.NavigationModalDeclaration!>!
+AdamE.AppNav.Presentation.NavigationTopology.NavigationTopology(string! windowId, string! stackId) -> void
+AdamE.AppNav.Presentation.NavigationTopology.StackId.get -> string!
+AdamE.AppNav.Presentation.NavigationTopology.WindowId.get -> string!
+AdamE.AppNav.Presentation.NavigationTopology.WithModal(string! modalId, AdamE.AppNav.Presentation.NavigationModalPlacement placement) -> AdamE.AppNav.Presentation.NavigationTopology!
+AdamE.AppNav.Presentation.NavigationTopology.WithOwnedModal(string! modalId, System.Func<AdamE.AppNav.State.RouteEntry!, string?>! ownerEntryId) -> AdamE.AppNav.Presentation.NavigationTopology!
+AdamE.AppNav.Presentation.NavigationTopologyMatch
+AdamE.AppNav.Presentation.NavigationTopologyMatch.Modals.get -> System.Collections.Generic.IReadOnlyList<AdamE.AppNav.Presentation.NavigationTopologyModal!>!
+AdamE.AppNav.Presentation.NavigationTopologyMatch.Stack.get -> AdamE.AppNav.State.StackNode!
+AdamE.AppNav.Presentation.NavigationTopologyMatch.Window.get -> AdamE.AppNav.State.WindowNode!
+AdamE.AppNav.Presentation.NavigationTopologyModal
+AdamE.AppNav.Presentation.NavigationTopologyModal.<Clone>$() -> AdamE.AppNav.Presentation.NavigationTopologyModal!
+AdamE.AppNav.Presentation.NavigationTopologyModal.Deconstruct(out AdamE.AppNav.State.ModalNode! Node, out string? OwnerEntryId) -> void
+AdamE.AppNav.Presentation.NavigationTopologyModal.Equals(AdamE.AppNav.Presentation.NavigationTopologyModal? other) -> bool
+AdamE.AppNav.Presentation.NavigationTopologyModal.NavigationTopologyModal(AdamE.AppNav.State.ModalNode! Node, string? OwnerEntryId) -> void
+AdamE.AppNav.Presentation.NavigationTopologyModal.Node.get -> AdamE.AppNav.State.ModalNode!
+AdamE.AppNav.Presentation.NavigationTopologyModal.Node.init -> void
+AdamE.AppNav.Presentation.NavigationTopologyModal.OwnerEntryId.get -> string?
+AdamE.AppNav.Presentation.NavigationTopologyModal.OwnerEntryId.init -> void
+AdamE.AppNav.Presentation.NavigationTopologySupport
+AdamE.AppNav.Presentation.NavigationTopologySupport.<Clone>$() -> AdamE.AppNav.Presentation.NavigationTopologySupport!
+AdamE.AppNav.Presentation.NavigationTopologySupport.Equals(AdamE.AppNav.Presentation.NavigationTopologySupport? other) -> bool
+AdamE.AppNav.Presentation.NavigationTopologySupport.MaxStackEntries.get -> int
+AdamE.AppNav.Presentation.NavigationTopologySupport.MaxStackEntries.init -> void
+override AdamE.AppNav.Presentation.NavigationTopologyModal.Equals(object? obj) -> bool
+override AdamE.AppNav.Presentation.NavigationTopologyModal.GetHashCode() -> int
+override AdamE.AppNav.Presentation.NavigationTopologyModal.ToString() -> string!
+override AdamE.AppNav.Presentation.NavigationTopologySupport.Equals(object? obj) -> bool
+override AdamE.AppNav.Presentation.NavigationTopologySupport.GetHashCode() -> int
+override AdamE.AppNav.Presentation.NavigationTopologySupport.ToString() -> string!
+static AdamE.AppNav.Presentation.NavigationTopologyModal.operator !=(AdamE.AppNav.Presentation.NavigationTopologyModal? left, AdamE.AppNav.Presentation.NavigationTopologyModal? right) -> bool
+static AdamE.AppNav.Presentation.NavigationTopologyModal.operator ==(AdamE.AppNav.Presentation.NavigationTopologyModal? left, AdamE.AppNav.Presentation.NavigationTopologyModal? right) -> bool
+static AdamE.AppNav.Presentation.NavigationTopologySupport.operator !=(AdamE.AppNav.Presentation.NavigationTopologySupport? left, AdamE.AppNav.Presentation.NavigationTopologySupport? right) -> bool
+static AdamE.AppNav.Presentation.NavigationTopologySupport.operator ==(AdamE.AppNav.Presentation.NavigationTopologySupport? left, AdamE.AppNav.Presentation.NavigationTopologySupport? right) -> bool
+AdamE.AppNav.Presentation.NavigationTopology.OwnerEntryIdOf(AdamE.AppNav.State.ModalNode! modal) -> string?
+AdamE.AppNav.Presentation.NavigationTopologySupport.NavigationTopologySupport(int maxStackEntries) -> void

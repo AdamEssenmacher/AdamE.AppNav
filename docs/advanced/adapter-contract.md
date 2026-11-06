@@ -14,7 +14,10 @@ using only public core APIs and is created with the router through
 - semantic route identity and formatting;
 - request transforms, matching, policy, and access decisions;
 - standard or app-specific logical planning;
-- supported topology validation;
+- supported topology validation: an app declares its shape once as a
+  `NavigationTopology`, and an adapter checks each plan with
+  `NavigationTopology.Match` against its own `NavigationTopologySupport` before
+  it builds anything;
 - logical state, history, diagnostics, and operation serialization;
 - commit only after successful presentation;
 - when a route entry's [lease](entry-leases.md) retires: on a commit that
