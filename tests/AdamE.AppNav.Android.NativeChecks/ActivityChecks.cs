@@ -15,6 +15,8 @@ internal static class ActivityChecks
         ("activity-recreate", RecreatedAsync),
         ("operation-in-a-stopped-activity", StoppedActivityAsync),
         ("canceled-operation-in-a-stopped-activity", CanceledWhileStoppedAsync),
+        ("rollback-in-a-stopped-activity", RollbackWhileStoppedAsync),
+        ("stopped-during-build", StoppedDuringBuildAsync),
         ("operation-waits-for-next-activity", WaitsForNextActivityAsync),
         ("finishing-activity", FinishingActivityAsync),
         ("disposal-drains-operation", DisposalDrainsAsync)
@@ -143,8 +145,8 @@ internal static class ActivityChecks
         }
     }
 
-    // An operation on an activity another one covers (stopped, its window hidden) finishes, at the latest once that
-    // activity is started again, and shows what it presented.
+    // An operation on an activity another one covers (stopped) changes nothing until that activity is started again,
+    // then shows what it presented.
     private static async Task StoppedActivityAsync(ComponentActivity activity, CancellationToken token)
     {
         var views = new Dictionary<string, ProbeView>(StringComparer.Ordinal);
@@ -162,6 +164,9 @@ internal static class ActivityChecks
                 token);
             Task push = ApplyAsync(presenter, Pushed("root", "pushed"), Shows("root"), token);
             await Task.WhenAny(push, Task.Delay(TimeSpan.FromSeconds(1), token));
+            Require(
+                !push.IsCompleted && ReferenceEquals(Visible(activity), views["root"]) && !views.ContainsKey("pushed"),
+                "An operation built or changed native in a stopped activity.");
             cover.Finish();
             await cover.Destroyed.Task.WaitAsync(Soon, token);
             cover = null;
@@ -177,8 +182,8 @@ internal static class ActivityChecks
         }
     }
 
-    // An operation canceled in a stopped activity, after it closed the modal, rolls back without waiting for a layout
-    // Android may not run until the activity is started again: it ends at once, and the next operation runs.
+    // An operation canceled while it waits for a stopped activity ends at once with nothing touched, and the next
+    // operation runs once the activity is back.
     private static async Task CanceledWhileStoppedAsync(ComponentActivity activity, CancellationToken token)
     {
         var dialogs = new Dictionary<string, ProbeDialog>(StringComparer.Ordinal);
@@ -198,36 +203,195 @@ internal static class ActivityChecks
                     AndroidX.Lifecycle.Lifecycle.State.Started ?? throw new InvalidOperationException("No STARTED.")),
                 "The covered activity was never stopped.",
                 token);
-            // Twice: the second rollback restores a dialog the first showed again while the activity was stopped.
+            // Twice: neither changes anything while the activity is stopped.
             for (int attempt = 1; attempt <= 2; attempt++)
             {
                 using var cancel = CancellationTokenSource.CreateLinkedTokenSource(token);
                 Task closing = ApplyAsync(presenter, Shows("root"), shown, cancel.Token);
+                bool closedModal = !original.IsShowing;
                 await TurnsAsync(token);
+                Require(!closedModal && original.IsShowing, "An operation changed native in a stopped activity.");
                 cancel.Cancel();
                 Exception failure = await FailsAsync(
-                    () => closing.WaitAsync(TimeSpan.FromSeconds(3), token),
+                    () => closing.WaitAsync(Soon, token),
                     "A canceled operation in a stopped activity completed.");
+                if (failure is TimeoutException)
+                {
+                    throw new TimeoutException(
+                        $"Cancel {attempt} in a stopped activity did not end within {Soon.TotalSeconds}s: operation "
+                        + $"{closing.Status}, presenter settled {presenter.IsSettled}, modal closed before the cancel "
+                        + $"{closedModal}, modal showing {original.IsShowing}, activity "
+                        + $"{activity.Lifecycle.CurrentState}.");
+                }
                 Require(
                     failure is OperationCanceledException
                     && original is { IsShowing: true, Retired: false }
                     && presenter.ShownDialog == original,
-                    $"Cancel {attempt} in a stopped activity did not end promptly with the same modal restored "
+                    $"Cancel {attempt} in a stopped activity did not end promptly with the modal untouched "
                     + $"({failure.GetType().Name}: {failure.Message}).");
             }
             Task next = ApplyAsync(presenter, shown, shown, token, NavigationPlanKind.Refresh);
             cover.Finish();
-            await cover.Destroyed.Task.WaitAsync(Soon, token);
+            await Labelled(cover.Destroyed.Task, "The covering activity was not destroyed.");
             cover = null;
-            await next.WaitAsync(Soon, token);
+            try
+            {
+                await Labelled(next, "The refresh after the activity came back did not finish.");
+            }
+            catch (TimeoutException late)
+            {
+                throw new TimeoutException(
+                    $"{late.Message} Modal showing {original.IsShowing}, its window attached "
+                    + $"{original.Window?.DecorView.IsAttachedToWindow}, shown {original.Window?.DecorView.IsShown}, "
+                    + $"laid out {original.Window?.DecorView.IsLaidOut}; activity {activity.Lifecycle.CurrentState}, "
+                    + $"presenter settled {presenter.IsSettled}.");
+            }
             Require(
                 presenter.ShownDialog == original && dialogs["sheet-entry"] == original,
-                "The operation after a canceled one in a stopped activity did not keep the restored modal.");
+                "The operation after a canceled one in a stopped activity did not keep the original modal.");
         }
         finally
         {
             cover?.Finish();
             await presenter.DisposeAsync();
+        }
+    }
+
+    // An activity that stops while an operation builds its page (here a page whose build waits on a gate) gets
+    // nothing changed: the operation checks again right before it changes native, and waits for the activity to start.
+    private static async Task StoppedDuringBuildAsync(ComponentActivity activity, CancellationToken token)
+    {
+        var building = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var views = new Dictionary<string, ProbeView>(StringComparer.Ordinal);
+        AndroidNavigationPresenter presenter = Presenter(async (request, cancellation) =>
+        {
+            var view = new ProbeView(request.Activity);
+            if (request.Entry.Id == "pushed")
+            {
+                building.TrySetResult();
+                await gate.Task.WaitAsync(cancellation);
+            }
+
+            return Page(views[request.Entry.Id] = view);
+        });
+        Mount(presenter, activity);
+        ProbeActivity? cover = null;
+        try
+        {
+            await ApplyAsync(presenter, Shows("root"), NavigationState.Empty, token);
+            Task push = ApplyAsync(presenter, Pushed("root", "pushed"), Shows("root"), token);
+            await building.Task.WaitAsync(Soon, token);
+            cover = await ProbeActivity.StartAsync(activity, token);
+            await UntilAsync(
+                () => !activity.Lifecycle.CurrentState.IsAtLeast(
+                    AndroidX.Lifecycle.Lifecycle.State.Started ?? throw new InvalidOperationException("No STARTED.")),
+                "The covered activity was never stopped.",
+                token);
+            gate.TrySetResult();
+            await Task.Delay(TimeSpan.FromSeconds(1), token);
+            Require(
+                !push.IsCompleted
+                && ReferenceEquals(Visible(activity), views["root"])
+                && views["pushed"] is { Parent: null, IsAttachedToWindow: false },
+                "A page built while its activity was stopped was put in the window before the activity started.");
+            cover.Finish();
+            await Labelled(cover.Destroyed.Task, "The covering activity was not destroyed.");
+            cover = null;
+            await Labelled(push, "The operation did not finish once the activity started.");
+            Require(
+                ReferenceEquals(Visible(activity), views["pushed"]) && views["pushed"].IsAttachedToWindow,
+                "The page built while stopped was not shown once the activity started.");
+        }
+        finally
+        {
+            gate.TrySetResult();
+            cover?.Finish();
+            await presenter.DisposeAsync();
+        }
+    }
+
+    // An operation that changed native and then waits for a frame (here a dialog that never gets one) is canceled once
+    // its activity has stopped: its rollback shows nothing into the stopped activity, and once the activity starts
+    // again the presenter asks the router to present, which shows the original dialog.
+    private static async Task RollbackWhileStoppedAsync(ComponentActivity activity, CancellationToken token)
+    {
+        var dialogs = new Dictionary<string, ProbeDialog>(StringComparer.Ordinal);
+        var host = new RecordingHost();
+        AndroidNavigationPresenter presenter = Presenter(
+            request =>
+            {
+                if (request.Placement is not AndroidPagePlacement.Modal)
+                    return Page(new ProbeView(request.Activity));
+                var dialog = new ProbeDialog(request.Activity);
+                if (request.Entry.Id == "never-drawn")
+                    dialog.Window?.SetLayout(0, 0);
+                return ModalPage(dialogs[request.Entry.Id] = dialog);
+            },
+            host);
+        Mount(presenter, activity);
+        ProbeActivity? cover = null;
+        NavigationState shown = Shows("root", "sheet-entry");
+        try
+        {
+            await ApplyAsync(presenter, shown, NavigationState.Empty, token);
+            ProbeDialog original = dialogs["sheet-entry"];
+            host.OnRefresh = cancellation => ApplyAsync(presenter, shown, shown, cancellation, NavigationPlanKind.Refresh);
+            using var cancel = CancellationTokenSource.CreateLinkedTokenSource(token);
+            Task replacing = ApplyAsync(presenter, Shows("root", "never-drawn"), shown, cancel.Token);
+            Require(
+                !replacing.IsCompleted && !original.IsShowing && dialogs["never-drawn"].IsShowing,
+                "The operation had not replaced the modal yet.");
+            cover = await ProbeActivity.StartAsync(activity, token);
+            await UntilAsync(
+                () => !activity.Lifecycle.CurrentState.IsAtLeast(
+                    AndroidX.Lifecycle.Lifecycle.State.Started ?? throw new InvalidOperationException("No STARTED.")),
+                "The covered activity was never stopped.",
+                token);
+            cancel.Cancel();
+            Exception failure = await FailsAsync(
+                () => replacing.WaitAsync(Soon, token),
+                "A canceled operation completed.");
+            await TurnsAsync(token);
+            Require(
+                failure is OperationCanceledException
+                && !original.IsShowing
+                && !dialogs["never-drawn"].IsShowing
+                && host.Refreshes == 0,
+                "A rollback in a stopped activity showed a dialog, or asked for a refresh before the activity started "
+                + $"({failure.GetType().Name}, original showing {original.IsShowing}, refreshes {host.Refreshes}).");
+            cover.Finish();
+            await Labelled(cover.Destroyed.Task, "The covering activity was not destroyed.");
+            cover = null;
+            await UntilAsync(
+                () => host.Refreshes == 1 && presenter.ShownDialog == original,
+                "Once the activity started, the router was not asked to present the original modal again.",
+                token);
+            await UntilAsync(
+                () => original.Window?.DecorView is { IsAttachedToWindow: true, IsLaidOut: true },
+                "The original modal was not drawn once the activity started.",
+                token);
+            Require(!original.Retired && dialogs["never-drawn"].Retired, "The rollback kept or released the wrong modal.");
+            await TurnsAsync(token);
+            Require(host.Refreshes == 1, $"The router was asked to present {host.Refreshes} times after the activity started.");
+        }
+        finally
+        {
+            cover?.Finish();
+            await presenter.DisposeAsync();
+        }
+    }
+
+    // A wait that names itself, and the presenter's and the activity's state, when it times out.
+    private static async Task Labelled(Task task, string what)
+    {
+        try
+        {
+            await task.WaitAsync(Soon);
+        }
+        catch (TimeoutException)
+        {
+            throw new TimeoutException($"{what} (within {Soon.TotalSeconds}s)");
         }
     }
 
