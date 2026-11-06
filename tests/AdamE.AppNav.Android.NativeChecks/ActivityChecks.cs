@@ -230,9 +230,20 @@ internal static class ActivityChecks
             }
             Task next = ApplyAsync(presenter, shown, shown, token, NavigationPlanKind.Refresh);
             cover.Finish();
-            await cover.Destroyed.Task.WaitAsync(Soon, token);
+            await Labelled(cover.Destroyed.Task, "The covering activity was not destroyed.");
             cover = null;
-            await next.WaitAsync(Soon, token);
+            try
+            {
+                await Labelled(next, "The refresh after the activity came back did not finish.");
+            }
+            catch (TimeoutException late)
+            {
+                throw new TimeoutException(
+                    $"{late.Message} Modal showing {original.IsShowing}, its window attached "
+                    + $"{original.Window?.DecorView.IsAttachedToWindow}, shown {original.Window?.DecorView.IsShown}, "
+                    + $"laid out {original.Window?.DecorView.IsLaidOut}; activity {activity.Lifecycle.CurrentState}, "
+                    + $"presenter settled {presenter.IsSettled}.");
+            }
             Require(
                 presenter.ShownDialog == original && dialogs["sheet-entry"] == original,
                 "The operation after a canceled one in a stopped activity did not keep the restored modal.");
@@ -241,6 +252,19 @@ internal static class ActivityChecks
         {
             cover?.Finish();
             await presenter.DisposeAsync();
+        }
+    }
+
+    // A wait that names itself, and the presenter's and the activity's state, when it times out.
+    private static async Task Labelled(Task task, string what)
+    {
+        try
+        {
+            await task.WaitAsync(Soon);
+        }
+        catch (TimeoutException)
+        {
+            throw new TimeoutException($"{what} (within {Soon.TotalSeconds}s)");
         }
     }
 
