@@ -168,7 +168,10 @@ if grep -Eq '<dependency id="Microsoft\.Maui' <<<"${android_nuspec}"; then
 fi
 # A resource designer assembly gets a new identity on every build, and the adapter records its references' identities,
 # so referencing one makes the package irreproducible from the same source. The adapter has no Android resources.
-if unzip -p "${android_candidates[0]}" 'lib/net10.0-android*/AdamE.AppNav.Android.dll' | LC_ALL=C grep -aq '_Microsoft\.Android\.Resource\.Designer'; then
+# unzip is not in a pipeline with grep: under pipefail, grep -q stopping early would kill a still-writing unzip and
+# turn a match into a pass once the assembly outgrows the pipe buffer.
+if LC_ALL=C grep -aq '_Microsoft\.Android\.Resource\.Designer' \
+  < <(unzip -p "${android_candidates[0]}" 'lib/net10.0-android*/AdamE.AppNav.Android.dll'); then
   echo 'The Android adapter references a resource designer assembly, which makes its package irreproducible.' >&2
   exit 1
 fi
