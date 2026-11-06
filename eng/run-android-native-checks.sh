@@ -47,6 +47,14 @@ RUN="$(date +%s)-$$"
 "${ADB[@]}" shell am start -W -n "$ACTIVITY" --es run "$RUN" >/dev/null
 
 report() { "${ADB[@]}" shell run-as "$PACKAGE" cat files/appnav-android-checks.txt 2>/dev/null || true; }
+# A slow emulator's System UI can raise an "isn't responding" dialog over the app, which takes window focus from the
+# checks; closing system dialogs dismisses it.
+clear_anr() {
+  if "${ADB[@]}" shell dumpsys window 2>/dev/null | grep -q 'mCurrentFocus=.*Application Not Responding'; then
+    echo "Closing a system 'not responding' dialog over the checks." >&2
+    "${ADB[@]}" shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS >/dev/null 2>&1 || true
+  fi
+}
 # What has window focus, for a failure that depends on it, and what the device showed, for the run's artifacts.
 DIAGNOSTICS="${ANDROID_CHECKS_DIAGNOSTICS:-$ROOT/artifacts/android-native-checks}"
 focus() {
@@ -59,7 +67,12 @@ focus() {
 }
 
 deadline=$((SECONDS + TIMEOUT))
+next_anr_check=0
 while (( SECONDS < deadline )); do
+  if (( SECONDS >= next_anr_check )); then
+    clear_anr
+    next_anr_check=$((SECONDS + 3))
+  fi
   # A check that needs the system's own Back key asks for it with this file: an app cannot inject keys. Read with cat:
   # run-as on older Android has no test.
   if [[ -n "$("${ADB[@]}" shell run-as "$PACKAGE" cat files/appnav-android-press 2>/dev/null)" ]]; then
