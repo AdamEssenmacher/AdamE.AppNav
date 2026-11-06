@@ -17,7 +17,9 @@ internal static class ModalChecks
         ("back-key", BackKeyAsync),
         ("modal-cancel-refused", CancelRefusedAsync),
         ("modal-cancel-accepted", CancelAcceptedAsync),
-        ("modal-unexpected-dismissal", UnexpectedDismissalAsync)
+        ("modal-unexpected-dismissal", UnexpectedDismissalAsync),
+        ("rollback-restores-closed-modal", RollbackRestoresModalAsync),
+        ("modal-closed-during-operation", ClosedDuringOperationAsync)
     ];
 
     private static async Task<(AndroidNavigationPresenter Presenter, RecordingHost Host, ProbeDialog Dialog)> ShownAsync(
@@ -161,6 +163,64 @@ internal static class ModalChecks
             Require(
                 host is { Reports.Count: 1, ModalBacks.Count: 0 },
                 "An unexpected dismissal was not reported, or was taken for a Back request.");
+        }
+        finally
+        {
+            await presenter.DisposeAsync();
+        }
+    }
+
+    // An operation that closed the modal and is then canceled, after native changed, puts the same dialog back,
+    // showing and laid out, and the presenter still presents it.
+    private static async Task RollbackRestoresModalAsync(ComponentActivity activity, CancellationToken token)
+    {
+        var dialogs = new Dictionary<string, ProbeDialog>(StringComparer.Ordinal);
+        (AndroidNavigationPresenter presenter, RecordingHost host, ProbeDialog dialog) =
+            await ShownAsync(activity, dialogs, token);
+        global::Android.Views.View? root = Visible(activity);
+        try
+        {
+            using var cancel = CancellationTokenSource.CreateLinkedTokenSource(token);
+            // From the main thread the operation runs up to its layout wait before it returns: native has changed.
+            Task closing = ApplyAsync(presenter, Shows("root"), Shows("root", SheetEntry), cancel.Token);
+            Require(!dialog.IsShowing && !closing.IsCompleted, "The operation had not dismissed the modal yet.");
+            cancel.Cancel();
+            Exception failure = await FailsAsync(() => closing, "A canceled operation completed.");
+            Require(
+                failure is OperationCanceledException
+                && dialog.IsShowing
+                && presenter.ShownDialog == dialog
+                && dialog.Window?.DecorView.IsAttachedToWindow == true
+                && ReferenceEquals(Visible(activity), root)
+                && !dialog.Retired,
+                $"A rollback did not restore the closed modal ({failure.GetType().Name}: {failure.Message}).");
+            await ApplyAsync(presenter, Shows("root"), Shows("root", SheetEntry), token);
+            Require(dialog.Retired && host.Reports.Count == 0, "The restored modal did not close normally afterwards.");
+        }
+        finally
+        {
+            await presenter.DisposeAsync();
+        }
+    }
+
+    // A person canceling a modal that an operation keeps, while that operation waits for layout, does not fail the
+    // operation: the cancel is a Back request for the modal, as at any other time.
+    private static async Task ClosedDuringOperationAsync(ComponentActivity activity, CancellationToken token)
+    {
+        var dialogs = new Dictionary<string, ProbeDialog>(StringComparer.Ordinal);
+        (AndroidNavigationPresenter presenter, RecordingHost host, ProbeDialog dialog) =
+            await ShownAsync(activity, dialogs, token);
+        NavigationState shown = Shows("root", SheetEntry);
+        try
+        {
+            Task refresh = ApplyAsync(presenter, shown, shown, token, NavigationPlanKind.Refresh);
+            Require(!refresh.IsCompleted, "The refresh did not wait for layout.");
+            dialog.Cancel();
+            await refresh.WaitAsync(Soon, token);
+            await UntilAsync(() => host.Refreshes == 1, "A kept modal canceled mid-operation was not refreshed.", token);
+            Require(
+                host.ModalBacks is [SheetEntry] && host.Reports.Count == 0 && !dialog.Retired,
+                "A cancel during an operation was not a modal Back request, or was reported as a failure.");
         }
         finally
         {

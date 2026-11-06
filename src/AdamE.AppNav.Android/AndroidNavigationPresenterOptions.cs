@@ -21,14 +21,15 @@ public sealed record AndroidNavigationPresenterOptions
     /// <summary>
     /// The placeholder's view for a root or pushed entry whose lease retired while the router still shows it: a page
     /// that borrows nothing, shown until the router drops the entry. Null for an empty view. It must have no parent. The
-    /// presenter owns and disposes what this returns.
+    /// presenter owns what this returns, and disposes it once it has left the window.
     /// </summary>
     public Func<RouteEntry, AndroidPagePlacement, ComponentActivity, View>? CreatePlaceholderView { get; init; }
 
     /// <summary>
     /// The placeholder's dialog for a modal entry whose lease retired while the router still shows it. Null for a
     /// dialog with an empty view. It must not be showing. Back and cancel on it are Back requests, as on any modal. The
-    /// presenter owns and disposes what this returns.
+    /// presenter owns what this returns and dismisses it when the entry goes; like every dialog it shows, it is not
+    /// disposed (<see cref="AndroidPage"/>).
     /// </summary>
     public Func<RouteEntry, ComponentActivity, ComponentDialog>? CreatePlaceholderDialog { get; init; }
 }

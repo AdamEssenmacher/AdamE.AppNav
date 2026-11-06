@@ -106,9 +106,9 @@ sealed class Pages : IAndroidPageFactory
   native objects do not own. It does not dispose dialogs, because Android may
   still deliver the dismiss messages it queued; the garbage collector frees them.
 - **A page is current** while its entry's lease is not retired, its optional
-  `Retirement` token is not canceled, and its optional `IsCurrent` says so. An
-  operation presenting a page that stops being current is canceled and rolled
-  back.
+  `Retirement` token is not canceled, and its optional `IsCurrent` says so. The
+  presenter calls `IsCurrent` on the main thread. An operation presenting a page
+  that stops being current is canceled and rolled back.
 
 ### When building fails
 
@@ -123,8 +123,11 @@ in one.
 
 The presenter tells an `IAndroidNavigationHost` about Back requests, refresh
 requests and failures it recovered from. It calls them on the main thread, in a
-later turn of the looper and outside any router operation, so the host may call
-the router and touch views. `AndroidRouterNavigationHost` sends each to the
+later turn of the looper, with no execution context from the operation that
+noticed the event, so the host may call the router and touch views. An operation
+may still be applying when one is called: the router queues the host's call
+behind it. A request is dropped, never sent, if by then the activity it came
+from has detached or its page has gone. `AndroidRouterNavigationHost` sends each to the
 router:
 
 ```csharp
@@ -197,9 +200,22 @@ the background) gets new pages for the same entries: the factory is called
 again, with the new activity, while each entry's lease keeps what it owns. Build
 pages over your existing state, never a new copy. An operation that is building
 or presenting when its activity goes waits for the next one; an activity that is
-already finishing when an operation reaches it is detached for you. The frame
-draws nothing until the accepted pages are in it, so a fresh activity never
-flashes empty.
+already finishing when an operation reaches it is detached for you. A fresh
+activity's window draws nothing until the first operation in it ends, so it
+never flashes an empty frame before the refresh that fills it; attach only when
+you will present.
+
+An operation while the activity is in the background (stopped, its window
+hidden) finishes once Android lays the window out again, at the latest when the
+activity is started again; the router's later operations wait behind it.
+
+The presenter shows one activity at a time, and attaching one detaches the
+other. If your activity can have more than one instance (the default
+`standard` launch mode, where a deep link or a notification can start a second
+one), going back to the first finds its frame empty. Give the activity
+`LaunchMode.SingleTask` or `LaunchMode.SingleTop` and handle new intents in
+`OnNewIntent`, or attach again in `OnResume` when another instance was the last
+to attach.
 
 The presenter keeps no state in the activity's saved instance state: if the
 system ends the process, AppNav starts again from your startup request.
@@ -237,7 +253,8 @@ await routerDisposal;
 
 `eng/run-android-native-checks.sh` runs the presenter's native checks in a plain
 Android app on an emulator you name: real presentation, Back and cancel,
-activity recreation, rollback, leases and placeholders. See the
+activity recreation, rollback after native has changed, leases and
+placeholders. See the
 [Android adapter design](../advanced/android-adapter.md) for what the presenter
 guarantees and how it is checked.
 

@@ -134,6 +134,33 @@ internal static class Checks
         }
     }
 
+    /// <summary>Whether <paramref name="activity"/>'s window draws within <paramref name="within"/> of being
+    /// invalidated.</summary>
+    public static async Task<bool> DrawsAsync(ComponentActivity activity, TimeSpan within, CancellationToken token)
+    {
+        View decor = activity.Window?.DecorView ?? throw new InvalidOperationException("The activity has no window.");
+        ViewTreeObserver observer = decor.ViewTreeObserver ?? throw new InvalidOperationException("No observer.");
+        var drawn = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var listener = new DrawListener(() => drawn.TrySetResult());
+        observer.AddOnDrawListener(listener);
+        try
+        {
+            decor.Invalidate();
+            Task first = await Task.WhenAny(drawn.Task, Task.Delay(within, token));
+            token.ThrowIfCancellationRequested();
+            return ReferenceEquals(first, drawn.Task);
+        }
+        finally
+        {
+            if (observer.IsAlive)
+                observer.RemoveOnDrawListener(listener);
+            else if (decor.ViewTreeObserver is { IsAlive: true } current)
+                current.RemoveOnDrawListener(listener);
+        }
+    }
+
+    public static bool OnMain => ReferenceEquals(Looper.MyLooper(), Looper.MainLooper);
+
     /// <summary>Lets the main looper run what is already queued, such as a dialog's dismiss message.</summary>
     public static Task TurnsAsync(CancellationToken token) => Task.Delay(100, token);
 
@@ -171,6 +198,11 @@ internal static class Checks
 }
 
 internal sealed record CheckRoute(string Name) : AppRoute;
+
+internal sealed class DrawListener(Action drawn) : Java.Lang.Object, ViewTreeObserver.IOnDrawListener
+{
+    public void OnDraw() => drawn();
+}
 
 /// <summary>Records every native event the presenter sends; each request can be answered by the check.</summary>
 internal sealed class RecordingHost : IAndroidNavigationHost

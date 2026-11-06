@@ -248,7 +248,7 @@ internal static class LeaseChecks
     }
 
     // The application's placeholders replace retired entries the router still shows: a view for a root, a dialog for
-    // a modal. The presenter owns and disposes both.
+    // a modal. The presenter owns both, and retires both once the router drops their entries.
     private static async Task CustomPlaceholdersAsync(ComponentActivity activity, CancellationToken token)
     {
         var host = new MainThreadLeaseHost();

@@ -52,10 +52,17 @@ public sealed class ProbeActivity : ComponentActivity
     /// <summary>Starts a probe activity from <paramref name="from"/> and returns it once it is created.</summary>
     public static async Task<ProbeActivity> StartAsync(Activity from, CancellationToken token)
     {
+        Task<ProbeActivity> created = NextCreated();
+        from.StartActivity(new Intent(from, typeof(ProbeActivity)));
+        return await created.WaitAsync(Checks.Soon, token);
+    }
+
+    /// <summary>The next probe activity to be created, such as the one a <c>Recreate()</c> makes.</summary>
+    public static Task<ProbeActivity> NextCreated()
+    {
         var created = new TaskCompletionSource<ProbeActivity>(TaskCreationOptions.RunContinuationsAsynchronously);
         _created = created;
-        from.StartActivity(new Intent(from, typeof(ProbeActivity)));
-        return await created.Task.WaitAsync(Checks.Soon, token);
+        return created.Task;
     }
 
     protected override void OnCreate(Bundle? savedInstanceState)

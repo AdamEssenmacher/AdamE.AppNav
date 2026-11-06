@@ -129,8 +129,8 @@ public sealed record AndroidPage
 
     /// <summary>
     /// Whether the page still belongs to the application's current state, besides its lease and
-    /// <see cref="Retirement"/>, which the presenter always checks. Null when those alone decide. It must be cheap and
-    /// must not throw.
+    /// <see cref="Retirement"/>, which the presenter always checks. Null when those alone decide. The presenter calls it
+    /// on the main thread; it must be cheap and must not throw.
     /// </summary>
     public Func<bool>? IsCurrent { get; init; }
 }

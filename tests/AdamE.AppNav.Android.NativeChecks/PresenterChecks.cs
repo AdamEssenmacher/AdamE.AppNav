@@ -18,7 +18,8 @@ internal static class PresenterChecks
         ("activity-back", ActivityBackAsync)
     ];
 
-    // A plan with no window presents nothing, and the frame is still the activity's content.
+    // A fresh frame does not draw before its first operation; a plan with no window presents nothing, and once it has
+    // been presented the window draws.
     private static async Task EmptyStartupAsync(ComponentActivity activity, CancellationToken token)
     {
         int built = 0;
@@ -30,8 +31,12 @@ internal static class PresenterChecks
         Mount(presenter, activity);
         try
         {
+            Require(
+                !await DrawsAsync(activity, TimeSpan.FromMilliseconds(500), token),
+                "A fresh frame drew before its first operation.");
             await ApplyAsync(presenter, NavigationState.Empty, NavigationState.Empty, token);
             Require(built == 0 && Visible(activity) is null, "An empty plan built or showed a page.");
+            Require(await DrawsAsync(activity, Soon, token), "The window never drew after an empty plan was presented.");
             await ApplyAsync(presenter, Shows("root"), NavigationState.Empty, token);
             Require(built == 1 && Visible(activity) is ProbeView { IsAttachedToWindow: true }, "The root was not shown.");
         }
@@ -48,12 +53,13 @@ internal static class PresenterChecks
         var views = new Dictionary<string, ProbeView>(StringComparer.Ordinal);
         var dialogs = new Dictionary<string, ProbeDialog>(StringComparer.Ordinal);
         var requests = new List<AndroidPageRequest>();
+        bool currencyOffMain = false;
         AndroidNavigationPresenter presenter = Presenter(request =>
         {
             requests.Add(request);
             return request.Placement is AndroidPagePlacement.Modal
-                ? ModalPage(dialogs[request.Entry.Id] = new ProbeDialog(request.Activity))
-                : Page(views[request.Entry.Id] = new ProbeView(request.Activity));
+                ? ModalPage(dialogs[request.Entry.Id] = new ProbeDialog(request.Activity), Current)
+                : Page(views[request.Entry.Id] = new ProbeView(request.Activity), Current);
         });
         Mount(presenter, activity);
         try
@@ -63,7 +69,8 @@ internal static class PresenterChecks
             Require(ReferenceEquals(Visible(activity), views["root"]), "The root page was not shown.");
 
             NavigationState pushed = Pushed("root", "pushed");
-            await ApplyAsync(presenter, pushed, root, token);
+            // Applied from the thread pool, as a router does after its own awaits.
+            await Task.Run(() => ApplyAsync(presenter, pushed, root, token), token);
             Require(
                 ReferenceEquals(Visible(activity), views["pushed"])
                 && views["root"] is { Disposed: false, Parent: null },
@@ -102,6 +109,14 @@ internal static class PresenterChecks
         Require(
             views["root"] is { Disposed: true, DetachedAtDisposal: true },
             "Disposal did not retire the shown root page out of the window.");
+        Require(!currencyOffMain, "A page's IsCurrent was called off the main thread.");
+        return;
+
+        bool Current()
+        {
+            currencyOffMain |= !OnMain;
+            return true;
+        }
     }
 
     // The binding first, before anything is disposed; then out of the window and disposed; then the loan.

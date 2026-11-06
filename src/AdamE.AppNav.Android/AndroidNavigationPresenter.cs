@@ -27,7 +27,7 @@ namespace AdamE.AppNav.Android;
 /// The presenter outlives activities. Each activity attaches (<see cref="Attach"/>) and puts the frame it is given in
 /// its content, and detaches (<see cref="Detach"/>) when it is destroyed; a recreated activity attaches again and gets
 /// new pages for the same entries. An operation waits for an attached activity, and one whose activity detaches under
-/// it waits for the next. A fresh frame draws nothing until the accepted pages are in it.
+/// it waits for the next. A fresh activity's window draws nothing until the first operation in it ends.
 /// </para>
 /// <para>
 /// Each operation builds the plan's pages, changes native state, waits for a laid-out frame and verifies the result
@@ -46,6 +46,7 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
     private readonly IAndroidPageFactory _pages;
     private readonly IAndroidNavigationHost _host;
     private readonly AndroidNavigationPresenterOptions _options;
+    private static readonly Task Never = new TaskCompletionSource().Task;
     private readonly Lock _attachmentGate = new();
     private readonly SemaphoreSlim _serial = new(1, 1);
     private readonly CancellationTokenSource _shutdown = new();
@@ -231,6 +232,7 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
         try
         {
             ReleaseDifference(retired.Surface, Surface.Empty);
+            ReleaseDifference(retired.Spare, Surface.Empty);
         }
         catch (Exception failure)
         {
@@ -239,6 +241,7 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
 
         retired.Staged = null;
         retired.Surface = Surface.Empty;
+        retired.Spare = Surface.Empty;
         try
         {
             if (retired.Frame.Parent is ViewGroup parent)
@@ -320,9 +323,9 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
                             resolved => attempted = resolved))
                         .ConfigureAwait(false);
                     nativeCompleted = true;
+                    // The pages' own currency was last checked on the main thread, as the operation ended there: an
+                    // application's IsCurrent is never called from here.
                     operationToken.ThrowIfCancellationRequested();
-                    if (attempted is { } shown)
-                        RequireCurrent(shown);
                     if (!IsAttached(epoch))
                         throw new OperationCanceledException(epoch.Stopped.Token);
                     return;
@@ -405,6 +408,9 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
         operation.ThrowIfCancellationRequested();
         RequireEpoch(epoch); // Nothing is built for a finishing activity.
         Surface previous = epoch.Surface;
+        // The pages this operation may reuse: those shown, or those a rollback took out of the frame but kept, still
+        // current, when it could not restore them.
+        Surface kept = previous.With(epoch.Spare);
         Surface? staged = null;
         bool accepted = false;
         CancellationTokenSource? owned = null;
@@ -413,7 +419,7 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
         try
         {
             using (var building = CancellationTokenSource.CreateLinkedTokenSource(operation, epoch.Stopped.Token))
-                staged = await MaterializeAsync(epoch, state, previous, building.Token);
+                staged = await MaterializeAsync(epoch, state, kept, building.Token);
             resolved(staged);
             owned = CancellationTokenSource.CreateLinkedTokenSource(
                 [operation, epoch.Stopped.Token, .. Retirements(staged)]);
@@ -424,7 +430,7 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
             Mutate(epoch, staged);
             owned.Token.ThrowIfCancellationRequested();
             if (staged.Root is not null)
-                await NativeLayoutAsync(epoch, staged.Modal?.Dialog?.Window?.DecorView ?? epoch.Frame, owned.Token);
+                await NativeLayoutAsync(epoch, staged, owned.Token);
             owned.Token.ThrowIfCancellationRequested();
             RequireEpoch(epoch);
             RequireCurrent(staged);
@@ -434,7 +440,8 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
             epoch.Surface = staged;
             accepted = true;
             // No rollback may resurrect these pages once their disposal begins.
-            ReleaseDifference(previous, staged);
+            epoch.Spare = Surface.Empty;
+            ReleaseDifference(kept, staged);
             owned.Token.ThrowIfCancellationRequested();
             RequireEpoch(epoch);
             RequireCurrent(staged);
@@ -454,34 +461,7 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
             }
 
             if (epoch.Stopped.IsCancellationRequested)
-            {
-                // This can run inline inside Detach's Stopped.Cancel(), before Detach clears the activity's pages, or
-                // after Detach returned and disposed the frame. So it does not clear the frame or dispose it: it lets go
-                // of the shown dialog and takes the staged pages out of the frame and retires them, and Detach does the
-                // rest. A staged dialog's retirement dismisses it before disposing it; it must no longer be the shown
-                // dialog, or Detach's clear dismisses a disposed dialog. A staged view still in the frame leaves it
-                // before it is disposed. If that retirement fails, the presenter keeps the failure as unsafe and stops.
-                if (staged?.Modal is { } stagedModal && ReferenceEquals(epoch.ShownModal, stagedModal))
-                    epoch.ShownModal = null;
-                if (staged is not null)
-                    try
-                    {
-                        ReleaseDifference(staged, Surface.Empty);
-                    }
-                    catch (Exception cleanup)
-                    {
-                        failures.Add(cleanup);
-                    }
-
-                if (failures.Count > 1)
-                    throw new AggregateException("Detached native presentation could not retire safely.", failures);
-                if (Volatile.Read(ref _retirementFailure) is not null)
-                    throw RetainUnsafeFailure(failure);
-                throw new OperationCanceledException(
-                    "The attached activity detached.",
-                    failure,
-                    epoch.Stopped.Token);
-            }
+                throw DetachedFailure(epoch, staged, failure, failures);
 
             if (accepted)
             {
@@ -510,19 +490,42 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
                 throw;
             }
 
+            // Restore the accepted surface as the operation found it, laid out and verified like any other; if that is
+            // not current any more, or cannot be restored, clear the frame and give the accepted pages up too, so the
+            // presenter never claims a surface native does not show.
+            bool restored = false;
             try
             {
                 if (Current(previous))
                 {
+                    using var rollback = CancellationTokenSource.CreateLinkedTokenSource(
+                        [_shutdown.Token, epoch.Stopped.Token, .. Retirements(previous)]);
                     Mutate(epoch, previous);
+                    if (previous.Root is not null)
+                        await NativeLayoutAsync(epoch, previous, rollback.Token);
+                    RequireEpoch(epoch);
+                    RequireCurrent(previous);
                     Verify(epoch, previous);
+                    restored = true;
                 }
-                else
-                    Clear(epoch);
+            }
+            catch (OperationCanceledException) when (epoch.Stopped.IsCancellationRequested
+                                                     || _shutdown.IsCancellationRequested
+                                                     || !Current(previous))
+            {
+                // The accepted surface stopped mattering while it was being restored.
             }
             catch (Exception rollback)
             {
                 failures.Add(rollback);
+            }
+
+            if (epoch.Stopped.IsCancellationRequested)
+                throw DetachedFailure(epoch, staged, failure, failures);
+            if (!restored)
+            {
+                // Nothing is shown now. Pages that are still current are kept, out of the window, for the next
+                // operation to reuse (a root page keeps its state across a retired pushed page); the others go now.
                 try
                 {
                     Clear(epoch);
@@ -531,12 +534,25 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
                 {
                     failures.Add(cleanup);
                 }
+
+                Surface spare = kept.Current();
+                try
+                {
+                    ReleaseDifference(kept, spare);
+                }
+                catch (Exception cleanup)
+                {
+                    failures.Add(cleanup);
+                }
+
+                epoch.Surface = Surface.Empty;
+                epoch.Spare = spare;
             }
 
             if (staged is not null)
                 try
                 {
-                    ReleaseDifference(staged, previous);
+                    ReleaseDifference(staged, kept.With(epoch.Spare));
                 }
                 catch (Exception cleanup)
                 {
@@ -553,7 +569,36 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
             epoch.Staged = null;
             epoch.Applying = false;
             UpdateBack(epoch);
+            // Whatever the operation's outcome, the activity now shows what it will show: the gate that kept a fresh
+            // frame from drawing empty while it ran opens.
+            epoch.FirstDraw?.Open();
         }
+    }
+
+    // An operation whose activity detached under it. This can run inline inside Detach's Stopped.Cancel(), before
+    // Detach clears the activity's pages, or after Detach returned and disposed the frame. So it does not clear the
+    // frame or dispose it: it lets go of the shown dialog and takes the staged pages out of the frame and retires them,
+    // and Detach does the rest. A staged dialog must no longer be the shown dialog, or Detach's clear dismisses it again.
+    // If that retirement fails, the presenter keeps the failure as unsafe and stops.
+    private Exception DetachedFailure(Epoch epoch, Surface? staged, Exception failure, List<Exception> failures)
+    {
+        if (staged?.Modal is { } stagedModal && ReferenceEquals(epoch.ShownModal, stagedModal))
+            epoch.ShownModal = null;
+        if (staged is not null)
+            try
+            {
+                ReleaseDifference(staged, Surface.Empty);
+            }
+            catch (Exception cleanup)
+            {
+                failures.Add(cleanup);
+            }
+
+        if (failures.Count > 1)
+            return new AggregateException("Detached native presentation could not retire safely.", failures);
+        if (Volatile.Read(ref _retirementFailure) is not null)
+            return RetainUnsafeFailure(failure);
+        return new OperationCanceledException("The attached activity detached.", failure, epoch.Stopped.Token);
     }
 
     private static CancellationToken[] Retirements(Surface surface) =>
@@ -800,7 +845,8 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
         // would drop the callback before the presenter shows the dialog again. Its dispatcher outlives that.
         var back = new ModalBack(() => ModalBackIntent(epoch, page));
         page.Back = back;
-        page.Canceled = (_, _) => page.CancelSeen = true;
+        // A late cancel message for a dialog the presenter has shown again since is not this showing's cancel.
+        page.Canceled = (_, _) => page.CancelSeen = !dialog.IsShowing;
         page.Dismissed = (_, _) => Dismissed(epoch, page);
         dialog.OnBackPressedDispatcher.AddCallback(back);
         dialog.CancelEvent += page.Canceled;
@@ -842,6 +888,7 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
             {
                 modal.CancelSeen = false;
                 modal.PresenterDismissing = false;
+                modal.ClosedByOthers = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 dialog.Show();
             }
         }
@@ -855,9 +902,12 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
         if (epoch.Frame.ChildCount != (visible is null ? 0 : 1)
             || !ReferenceEquals(epoch.Frame.GetChildAt(0), visible)
             || !ReferenceEquals(epoch.ShownModal, target.Modal)
-            || target.Modal is { Dialog.IsShowing: false }
             || visible is { IsAttachedToWindow: false }
-            || (target.Modal is { Dialog: { } dialog } && dialog.Window?.DecorView.IsAttachedToWindow != true))
+            // A dialog the person or the application closed while the operation ran is accepted: its own dismissal
+            // handler asks the router about it. Any other must be showing, in the window.
+            || (target.Modal is { Dialog: { } dialog } modal
+                && !modal.ClosedByOthersOrNotShowing
+                && !(dialog.IsShowing && dialog.Window?.DecorView.IsAttachedToWindow == true)))
             throw new InvalidOperationException("Native hierarchy does not match the accepted AppNav target.");
     }
 
@@ -974,12 +1024,15 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
         // The presenter's own dismissal, or a late event for a dialog it has shown again since.
         if (modal.PresenterDismissing || modal.Dialog is not { IsShowing: false })
             return;
+        // An operation waiting for this dialog's layout stops waiting: it accepts a dialog the person or the
+        // application closed, and this handler asks the router what that means.
+        modal.ClosedByOthers.TrySetResult();
         if (!IsAttached(epoch) || Volatile.Read(ref _disposed) != 0 || !modal.IsCurrent)
             return;
         if (modal.CancelSeen)
             // The dialog's own cancel (a tap outside it, a sheet dragged away) is a Back request for it.
             _ = RequestModalBackAsync(epoch, modal);
-        else if (!epoch.Applying && ReferenceEquals(epoch.ShownModal, modal))
+        else if (ReferenceEquals(epoch.ShownModal, modal))
             _ = RefreshAsync(
                 epoch,
                 modal,
@@ -987,7 +1040,8 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
                     $"The dialog for modal entry '{modal.Entry.Id}' was dismissed by something other than the presenter."));
     }
 
-    // A modal Back request; if the router keeps the modal, its dialog is shown again by a refresh.
+    // A modal Back request; if the router keeps the modal, its dialog is shown again by a refresh. An operation still
+    // applying may yet remove the modal; the refresh then only presents what the router accepted.
     private async Task RequestModalBackAsync(Epoch epoch, NativePage modal)
     {
         await RequestAsync(
@@ -996,7 +1050,6 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
             () => ReferenceEquals(epoch.Surface.Modal, modal),
             () => _host.RequestModalBackAsync(modal.Entry.Id, _shutdown.Token));
         if (IsAttached(epoch)
-            && !epoch.Applying
             && Volatile.Read(ref _disposed) == 0
             && ReferenceEquals(epoch.Surface.Modal, modal)
             && modal is { IsCurrent: true, Dialog.IsShowing: false })
@@ -1035,7 +1088,8 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
 
     // A host callback runs on the main thread, in a later turn of its looper, with no execution context from the
     // operation that reported it: a host that calls the router from inside an operation's context would be refused as
-    // a reentrant operation. It completes on the main thread, and calls nothing once valid no longer holds.
+    // a reentrant operation. It calls nothing once valid no longer holds. It completes where the host's task does; its
+    // callers resume on the main thread through the main looper's synchronization context.
     private Task DetachedAsync(Func<bool> valid, Func<Task> callback)
     {
         var done = new TaskCompletionSource();
@@ -1192,14 +1246,20 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
             throw new InvalidOperationException("Native presentation requires the main thread.");
     }
 
-    private async Task NativeLayoutAsync(Epoch epoch, View view, CancellationToken token)
+    // Waits for the surface to be laid out and drawn: its dialog's window when it has a modal, otherwise the frame. A
+    // dialog closed by the person or the application while this waits ends the wait, since it will not be drawn.
+    private async Task NativeLayoutAsync(Epoch epoch, Surface surface, CancellationToken token)
     {
         MainOnly();
+        View view = surface.Modal?.Dialog?.Window?.DecorView ?? epoch.Frame;
+        Task closed = surface.Modal?.ClosedByOthers.Task ?? Never;
         ViewTreeObserver observer =
             view.ViewTreeObserver ?? throw new InvalidOperationException("No native layout observer.");
         var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var listener = new LayoutAcknowledgement(view, done);
-        Action stop = () => listener.Stop(observer);
+        // A view not yet in a window has a floating observer, merged into the window's once it attaches: stopping
+        // then removes the listener from the observer the view has by then.
+        Action stop = () => listener.Stop(observer, view);
         epoch.StopLayout = stop;
         Exception? pendingFailure = null;
         try
@@ -1207,7 +1267,8 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
             observer.AddOnPreDrawListener(listener);
             view.RequestLayout();
             view.Invalidate();
-            await done.Task.WaitAsync(token);
+            if (surface.Modal?.ClosedByOthersOrNotShowing != true)
+                await Task.WhenAny(done.Task, closed).WaitAsync(token);
         }
         catch (Exception failure)
         {
@@ -1282,6 +1343,15 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
     {
         public NativePage? VisibleRoot => Top ?? Root;
         public static Surface Empty { get; } = new(null, null, null);
+
+        /// <summary>This surface's pages, and <paramref name="other"/>'s where this one has none.</summary>
+        public Surface With(Surface other) => new(Root ?? other.Root, Top ?? other.Top, Modal ?? other.Modal);
+
+        /// <summary>The pages that are still current.</summary>
+        public Surface Current() => new(
+            Root is { IsCurrent: true } ? Root : null,
+            Top is { IsCurrent: true } ? Top : null,
+            Modal is { IsCurrent: true } ? Modal : null);
     }
 
     // A fresh frame must not draw empty while the operation that fills it is queued. Stop revokes captures before
@@ -1312,6 +1382,16 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
             return true;
         }
 
+        /// <summary>Lets the window draw from now on, whatever the frame holds.</summary>
+        public void Open()
+        {
+            if (_ready is null)
+                return;
+            _ready = null;
+            _released = true;
+            _frame?.Invalidate();
+        }
+
         public void Stop()
         {
             FrameLayout? original = _frame;
@@ -1335,8 +1415,12 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
         public ActivityBack? Back { get; set; }
         public Surface Surface { get; set; } = Surface.Empty;
         public Surface? Staged { get; set; }
+
+        /// <summary>Pages out of the window that are still current, kept for the next operation to reuse.</summary>
+        public Surface Spare { get; set; } = Surface.Empty;
         public NativePage? ShownModal { get; set; }
         public bool Applying { get; set; }
+
         public Action? StopLayout { get; set; }
         public FirstDrawGate? FirstDraw { get; set; }
     }
@@ -1375,6 +1459,13 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
         public EventHandler? Dismissed { get; set; }
         public bool CancelSeen { get; set; }
         public bool PresenterDismissing { get; set; }
+
+        /// <summary>Completed when something other than the presenter closes the dialog it last showed.</summary>
+        public TaskCompletionSource ClosedByOthers { get; set; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>Whether the dialog the presenter last showed has been closed by something else.</summary>
+        public bool ClosedByOthersOrNotShowing => Dialog is { IsShowing: false } && !PresenterDismissing;
 
         public void DismissByPresenter()
         {
@@ -1504,7 +1595,7 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
             return true;
         }
 
-        public void Stop(ViewTreeObserver observer)
+        public void Stop(ViewTreeObserver observer, View view)
         {
             if (Interlocked.Exchange(ref _stopped, 1) != 0)
                 return;
@@ -1512,6 +1603,8 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
             _done = null;
             if (observer.IsAlive)
                 observer.RemoveOnPreDrawListener(this);
+            else if (view.ViewTreeObserver is { IsAlive: true } current)
+                current.RemoveOnPreDrawListener(this);
         }
     }
 }

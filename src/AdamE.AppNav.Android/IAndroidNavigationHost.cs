@@ -12,7 +12,9 @@ namespace AdamE.AppNav.Android;
 /// The presenter calls these on the main thread. It calls the asynchronous members in a later turn of the main looper,
 /// with no execution context from the operation that noticed the event, so a host may call the router from them; it
 /// never awaits them inside an operation. An operation may still be applying when one is called: the router serializes
-/// the host's own call behind it. A failure they throw is reported through <see cref="ReportRecoveredFailure"/>.
+/// the host's own call behind it. A request is dropped, never made, if by the time it would be the activity it came
+/// from has detached or the page it is about has gone. A failure they throw is reported through
+/// <see cref="ReportRecoveredFailure"/>.
 /// <para>
 /// On Android every Back is a request: the presenter never removes a page by itself, and the router's Back policy
 /// decides what Back does.

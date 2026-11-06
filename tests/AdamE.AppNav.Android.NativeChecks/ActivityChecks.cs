@@ -12,6 +12,8 @@ internal static class ActivityChecks
     public static IEnumerable<(string Name, Func<ComponentActivity, CancellationToken, Task> Check)> All =>
     [
         ("activity-recreation", RecreationAsync),
+        ("activity-recreated-by-the-system", RecreatedAsync),
+        ("operation-in-a-stopped-activity", StoppedActivityAsync),
         ("operation-waits-for-next-activity", WaitsForNextActivityAsync),
         ("finishing-activity", FinishingActivityAsync),
         ("disposal-drains-operation", DisposalDrainsAsync)
@@ -76,6 +78,100 @@ internal static class ActivityChecks
         }
         finally
         {
+            await presenter.DisposeAsync();
+        }
+    }
+
+    // A real recreation, with a dialog showing: the old instance's OnDestroy detaches it and the new one's OnCreate
+    // attaches, and a refresh shows the same entries in the new instance.
+    private static async Task RecreatedAsync(ComponentActivity activity, CancellationToken token)
+    {
+        var views = new List<ProbeView>();
+        var dialogs = new List<ProbeDialog>();
+        AndroidNavigationPresenter presenter = Presenter(request =>
+        {
+            if (request.Placement is not AndroidPagePlacement.Modal)
+            {
+                views.Add(new ProbeView(request.Activity));
+                return Page(views[^1]);
+            }
+
+            dialogs.Add(new ProbeDialog(request.Activity));
+            return ModalPage(dialogs[^1]);
+        });
+        ProbeActivity.Creating = probe =>
+        {
+            Mount(presenter, probe);
+            probe.Destroying = presenter.Detach;
+        };
+        ProbeActivity? current = null;
+        NavigationState shown = Shows("root", "sheet-entry");
+        try
+        {
+            current = await ProbeActivity.StartAsync(activity, token);
+            await ApplyAsync(presenter, shown, NavigationState.Empty, token);
+            ProbeActivity first = current;
+            Task<ProbeActivity> next = ProbeActivity.NextCreated();
+            first.Recreate();
+            current = await next.WaitAsync(Soon, token);
+            await first.Destroyed.Task.WaitAsync(Soon, token);
+            Require(
+                !ReferenceEquals(current, first)
+                && views[0] is { Disposed: true, DetachedAtDisposal: true }
+                && dialogs[0] is { Retired: true, GoneAtRetirement: true },
+                "The recreated activity's old pages were not retired out of its window.");
+            await ApplyAsync(presenter, shown, shown, token, NavigationPlanKind.Refresh);
+            Require(
+                views.Count == 2
+                && dialogs.Count == 2
+                && ReferenceEquals(views[1].Context, current)
+                && presenter.ShownDialog == dialogs[1]
+                && ReferenceEquals(Visible(current), views[1]),
+                "A refresh did not show the same entries in the recreated activity.");
+        }
+        finally
+        {
+            ProbeActivity.Creating = null;
+            if (current is not null)
+            {
+                current.Finish();
+                await current.Destroyed.Task.WaitAsync(Soon, token);
+            }
+
+            await presenter.DisposeAsync();
+        }
+    }
+
+    // An operation on an activity another one covers (stopped, its window hidden) finishes, at the latest once that
+    // activity is started again, and shows what it presented.
+    private static async Task StoppedActivityAsync(ComponentActivity activity, CancellationToken token)
+    {
+        var views = new Dictionary<string, ProbeView>(StringComparer.Ordinal);
+        AndroidNavigationPresenter presenter = Presenter(request =>
+            Page(views[request.Entry.Id] = new ProbeView(request.Activity)));
+        Mount(presenter, activity);
+        ProbeActivity? cover = null;
+        try
+        {
+            await ApplyAsync(presenter, Shows("root"), NavigationState.Empty, token);
+            cover = await ProbeActivity.StartAsync(activity, token);
+            await UntilAsync(
+                () => !activity.Lifecycle.CurrentState.IsAtLeast(AndroidX.Lifecycle.Lifecycle.State.Started ?? throw new InvalidOperationException("No STARTED state.")),
+                "The covered activity was never stopped.",
+                token);
+            Task push = ApplyAsync(presenter, Pushed("root", "pushed"), Shows("root"), token);
+            await Task.WhenAny(push, Task.Delay(TimeSpan.FromSeconds(1), token));
+            cover.Finish();
+            await cover.Destroyed.Task.WaitAsync(Soon, token);
+            cover = null;
+            await push.WaitAsync(Soon, token);
+            Require(
+                ReferenceEquals(Visible(activity), views["pushed"]) && views["pushed"].IsAttachedToWindow,
+                "An operation on a stopped activity did not show its page once the activity was back.");
+        }
+        finally
+        {
+            cover?.Finish();
             await presenter.DisposeAsync();
         }
     }

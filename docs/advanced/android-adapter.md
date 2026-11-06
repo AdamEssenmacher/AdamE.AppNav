@@ -58,9 +58,15 @@ it waits for the next, and builds its pages again there. An activity found
 finishing or destroyed during an operation is detached by the presenter, as its
 `OnDestroy` would: Android can finish an activity before its `OnCreate` returns.
 
-A fresh frame's first-draw gate holds drawing until the accepted pages are in it
-and laid out, so a recreated activity never shows an empty frame between its
-creation and the refresh that fills it.
+A fresh frame's first-draw gate holds the activity's whole window from drawing
+until the accepted pages are in the frame and laid out, or until the first
+operation in it ends whatever its outcome, so a recreated activity never shows
+an empty frame between its creation and the refresh that fills it, and a failed
+or empty presentation still draws.
+
+An operation on a stopped activity waits for layout like any other, and Android
+lays out a hidden window only once it is shown again: the operation finishes,
+at the latest, when the activity is started again.
 
 ## One operation
 
@@ -84,8 +90,12 @@ creation and the refresh that fills it.
    lease attachment, in that order.
 
 A failure or cancellation before acceptance rolls native back to the accepted
-surface, or clears the frame when that surface is no longer current, and retires
-every page the operation built, all before `ApplyAsync` throws. The router then
+surface, waiting for its layout and verifying it as an operation does, and
+retires every page the operation built, all before `ApplyAsync` throws. When
+that surface is no longer current, or cannot be restored, the presenter clears
+the frame and presents nothing: pages that are still current are kept out of
+the window for the next operation to reuse, so a root page keeps its state, and
+the others are retired at once. The router then
 commits nothing. If a page's lease retires after it was built while the router
 still shows its entry, the operation applies the same plan again, and the retired
 lease then gets its placeholder.
@@ -117,10 +127,16 @@ call the router without AppNav refusing it as reentrant:
 - Back on a modal's dialog, through its `OnBackPressedDispatcher` on every API
   level, as `RequestModalBackAsync` for its entry;
 - the dialog's own cancel, as `RequestModalBackAsync`; when that request leaves
-  the modal in the router's state, a refresh shows the dialog again;
+  the modal in the router's state, a refresh shows the dialog again, once any
+  operation applying has ended. A dialog closed this way while an operation
+  waits for it does not fail that operation;
 - a dialog dismissed by something other than the presenter or its cancel, as a
   reported failure and a refresh;
 - failures it recovered from.
+
+Each request is made in a later turn of the looper, and only if then its
+activity is still attached and the page it came from still current; a window
+Back also needs that page still shown, with no modal or operation over it.
 
 ## How it is checked
 
@@ -129,9 +145,12 @@ runs every check on an emulator: `eng/run-android-native-checks.sh`. The checks
 cover topology refusal and owned modals; presentation, retirement order, refused
 and shared pages; sticky unsafe retirement and factory cleanup failures; system
 Back on the activity and on a dialog, both through the dispatcher and as the
-real Back key; cancel refused and accepted, and dismissal from outside; activity
-recreation, an operation waiting for the next activity, a finishing activity and
-disposal mid-operation; and, through a real router, lease release order,
+real Back key, and a Back whose activity detached before delivery; cancel
+refused and accepted, dismissal from outside, a rollback that restores a closed
+modal, and a modal canceled while an operation waits for it; a second activity
+attaching, a real `Recreate()` with a dialog showing, an operation on a stopped
+activity, an operation waiting for the next activity, a finishing activity and
+disposal mid-operation; the first-draw gate holding and then opening; and, through a real router, lease release order,
 placeholders, presenter-opened leases and the router host. The release workflow
 runs them on API 28 and API 36 emulators. `eng/verify.sh native-android`
 publishes the same app fully trimmed, so the package stays trim-clean.
