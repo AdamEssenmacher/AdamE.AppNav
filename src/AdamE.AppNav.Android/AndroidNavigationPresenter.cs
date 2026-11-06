@@ -949,7 +949,14 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
                 _ = RequestModalBackAsync(epoch, modal);
         }
         else if ((epoch.Surface.Top ?? epoch.Surface.Root) is { IsCurrent: true } original)
-            _ = RequestAsync(epoch, original, () => _host.RequestBackAsync(_shutdown.Token));
+            _ = RequestAsync(
+                epoch,
+                original,
+                // Still the page this Back was pressed on, with no modal over it and no operation changing it.
+                () => !epoch.Applying
+                      && epoch.Surface.Modal is null
+                      && ReferenceEquals(epoch.Surface.Top ?? epoch.Surface.Root, original),
+                () => _host.RequestBackAsync(_shutdown.Token));
     }
 
     private void ModalBackIntent(Epoch epoch, NativePage modal)
@@ -983,7 +990,11 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
     // A modal Back request; if the router keeps the modal, its dialog is shown again by a refresh.
     private async Task RequestModalBackAsync(Epoch epoch, NativePage modal)
     {
-        await RequestAsync(epoch, modal, () => _host.RequestModalBackAsync(modal.Entry.Id, _shutdown.Token));
+        await RequestAsync(
+            epoch,
+            modal,
+            () => ReferenceEquals(epoch.Surface.Modal, modal),
+            () => _host.RequestModalBackAsync(modal.Entry.Id, _shutdown.Token));
         if (IsAttached(epoch)
             && !epoch.Applying
             && Volatile.Read(ref _disposed) == 0
@@ -996,17 +1007,20 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
     {
         if (cause is not null)
             _host.ReportRecoveredFailure(cause);
-        await RequestAsync(epoch, original, () => _host.RequestRefreshAsync(_shutdown.Token));
+        await RequestAsync(epoch, original, static () => true, () => _host.RequestRefreshAsync(_shutdown.Token));
     }
 
     // A host request that cannot fail the presenter: its failure is reported, and a cancellation by shutdown, by the
-    // activity's end or by the page's retirement is expected.
-    private async Task RequestAsync(Epoch epoch, NativePage original, Func<Task> request)
+    // activity's end or by the page's retirement is expected. The request is made in a later turn of the looper, and
+    // only if then the activity is still attached, the page it came from still current, and stillValid still holds:
+    // an event from an activity that detached, or about a page that has gone, never reaches the host. A request
+    // already made is not canceled by the activity's end: an operation it starts waits for the next activity.
+    private async Task RequestAsync(Epoch epoch, NativePage original, Func<bool> stillValid, Func<Task> request)
     {
         try
         {
             if (IsAttached(epoch))
-                await DetachedAsync(request);
+                await DetachedAsync(() => IsAttached(epoch) && original.IsCurrent && stillValid(), request);
         }
         catch (OperationCanceledException) when (_shutdown.IsCancellationRequested
                                                  || epoch.Stopped.IsCancellationRequested
@@ -1021,8 +1035,8 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
 
     // A host callback runs on the main thread, in a later turn of its looper, with no execution context from the
     // operation that reported it: a host that calls the router from inside an operation's context would be refused as
-    // a reentrant operation. It completes on the main thread.
-    private Task DetachedAsync(Func<Task> callback)
+    // a reentrant operation. It completes on the main thread, and calls nothing once valid no longer holds.
+    private Task DetachedAsync(Func<bool> valid, Func<Task> callback)
     {
         var done = new TaskCompletionSource();
         using (ExecutionContext.SuppressFlow())
@@ -1039,7 +1053,8 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
                         return;
                     }
 
-                    await callback();
+                    if (valid())
+                        await callback();
                     _ = done.TrySetResult();
                 }
                 catch (OperationCanceledException canceled)

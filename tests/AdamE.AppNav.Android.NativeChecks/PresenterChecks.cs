@@ -285,7 +285,7 @@ internal static class PresenterChecks
     }
 
     // System Back is the router's while a page is pushed, and the activity's own over the root page alone. The host is
-    // called on the main thread, in a later turn.
+    // called on the main thread, in a later turn, and only if the activity is still attached by then.
     private static async Task ActivityBackAsync(ComponentActivity activity, CancellationToken token)
     {
         var host = new RecordingHost();
@@ -303,6 +303,13 @@ internal static class PresenterChecks
             Require(host.Backs.Count == 0, "The host was called inside the Back event, not in a later turn.");
             await UntilAsync(() => host.Backs.Count == 1, "Back while pushed was not a Back request.", token);
             Require(!host.OffMain && host.ModalBacks.Count == 0, "Back was sent off the main thread or as a modal Back.");
+
+            // A Back whose activity detaches before its request is delivered never reaches the host.
+            activity.OnBackPressedDispatcher.OnBackPressed();
+            presenter.Detach(activity);
+            await TurnsAsync(token);
+            Require(host.Backs.Count == 1, "A Back from an activity that detached reached the host.");
+            Mount(presenter, activity);
         }
         finally
         {
