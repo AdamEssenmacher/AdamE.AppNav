@@ -1,0 +1,34 @@
+<Project>
+  <!-- Navigation 3 has no .NET binding. The native AARs are loaded unbound while their dependencies
+       arrive through the Compose, Material3, and Oahu.Android NuGet references. JavaArtifact
+       coordinates allow the Gradle dependency validation to recognize these AARs. -->
+  <ItemGroup>
+    <!-- Pinned by SHA-256: a truncated or changed download fails the build instead of shipping. -->
+    <_AppNavMavenAar Include="navigation3-ui-android" Sha256="F35E2A6B3D9B29137A3F45F7BB75C7885F4F2A5D7A0523A5088AFA77FF3F5BDE" />
+    <_AppNavMavenAar Include="navigation3-runtime-android" Sha256="56E2E45A43E89216CEB9EE2C49132FC0E4C08F0EA68EF39C2E8793E6A9DC2F0F" />
+  </ItemGroup>
+  <PropertyGroup>
+    <_AppNavNavigation3Version>1.2.1</_AppNavNavigation3Version>
+    <AppNavNavigation3AarDirectory Condition="'$(AppNavNavigation3AarDirectory)' == ''">$(BaseIntermediateOutputPath)navigation3</AppNavNavigation3AarDirectory>
+    <_AppNavAarDir>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', '$(AppNavNavigation3AarDirectory)'))</_AppNavAarDir>
+  </PropertyGroup>
+  <Target Name="_AppNavDownloadNavigation3" BeforeTargets="_VerifyJavaDependencies;_CategorizeAndroidLibraries;_ResolveAndroidLibraries;PrepareForBuild"
+          Condition="'$(TargetPlatformIdentifier)' == 'android' and '$(AndroidApplication)' == 'true' and '$(DesignTimeBuild)' != 'true'">
+    <DownloadFile SourceUrl="https://dl.google.com/android/maven2/androidx/navigation3/%(_AppNavMavenAar.Identity)/$(_AppNavNavigation3Version)/%(_AppNavMavenAar.Identity)-$(_AppNavNavigation3Version).aar"
+                  DestinationFolder="$(_AppNavAarDir)"
+                  Retries="3" RetryDelayMilliseconds="1000"
+                  Condition="!Exists('$(_AppNavAarDir)%(_AppNavMavenAar.Identity)-$(_AppNavNavigation3Version).aar')" />
+    <ItemGroup>
+      <_AppNavAarFile Include="$(_AppNavAarDir)%(_AppNavMavenAar.Identity)-$(_AppNavNavigation3Version).aar" Sha256="%(_AppNavMavenAar.Sha256)"
+                   JavaArtifact="androidx.navigation3:%(_AppNavMavenAar.Identity):$(_AppNavNavigation3Version)" />
+    </ItemGroup>
+    <GetFileHash Files="@(_AppNavAarFile)" Algorithm="SHA256">
+      <Output TaskParameter="Items" ItemName="_AppNavAarHashed" />
+    </GetFileHash>
+    <Error Condition="'%(_AppNavAarHashed.FileHash)' != '%(_AppNavAarHashed.Sha256)'"
+           Text="%(_AppNavAarHashed.Filename) downloaded with SHA-256 %(_AppNavAarHashed.FileHash), not %(_AppNavAarHashed.Sha256); Replace or remove the file before rebuilding." />
+    <ItemGroup>
+      <AndroidLibrary Include="@(_AppNavAarFile)" Bind="false" JavaArtifact="%(_AppNavAarFile.JavaArtifact)" />
+    </ItemGroup>
+  </Target>
+</Project>

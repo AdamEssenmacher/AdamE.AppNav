@@ -1,0 +1,55 @@
+Android API 36, OAHU Pixel emulator, gesture navigation and 1× animator duration
+Release APK SHA-256 a6b4d142eb73709f929e979e4c9949eafb55b408ff852bc8040f1c7384bf5203
+
+Nav3 ran the app’s 1.2-second resize from 1080×1212 to 1080×1645 pixels.
+Outgoing Home scene disposal followed the first resize sample by 1.223 seconds.
+AppNav committed the Game push 0.052 seconds after that disposal.
+
+Predictive Back reversed to the edge, then completed with a second gesture
+11-18 13:08:09.029 attached epoch=1
+11-18 13:08:09.244 surface epoch=1 rev=0  [] modal= []
+11-18 13:08:09.945 surface epoch=1 rev=1 home [home,home-detail] modal= []
+11-18 13:08:10.014 home[home,home-detail] history=1 [InAppCommand@home[home,home-detail]]
+11-18 13:08:12.579 display size transform from=1080x1212 to=1080x1645
+11-18 13:08:12.590 game shared active operation=push revision=2
+11-18 13:08:13.802 game origin scene disposed
+11-18 13:08:13.824 game surface epoch=1 rev=2 operation=push sourceKey='game-cover'
+11-18 13:08:13.824 surface epoch=1 rev=2 home [home,home-detail,game] modal= []
+11-18 13:08:13.854 home[home,home-detail,game] history=2 [InAppCommand@home[home,home-detail];InAppCommand@home[home,home-detail,game]]
+11-18 13:08:16.281 game predictive transform from=game to=home-detail key=game-cover edge=left
+11-18 13:08:16.292 display size transform from=1080x1606 to=1080x1183
+11-18 13:08:16.320 game shared predictive preview revision=2 progress=0.0020960541
+11-18 13:08:17.608 game origin scene disposed
+11-18 13:08:17.609 game shared predictive settled revision=2
+11-18 13:08:19.822 game shared predictive preview revision=2 progress=5.350116E-4
+11-18 13:08:21.281 surface epoch=1 rev=2 home [home,home-detail] modal= []
+11-18 13:08:21.285 home[home,home-detail] history=3 [InAppCommand@home[home,home-detail];InAppCommand@home[home,home-detail,game];HostReconciliation@home[home,home-detail]]
+
+Activity recreated during Game push, then refreshed on the replacement
+11-18 13:08:23.688 attached epoch=1
+11-18 13:08:23.932 surface epoch=1 rev=1 home [home,home-detail] modal= []
+11-18 13:08:23.937 home[home,home-detail] history=1 [InAppCommand@home[home,home-detail]]
+11-18 13:08:26.105 display size transform from=1080x1212 to=1080x1645
+11-18 13:08:26.108 game shared active operation=push revision=2
+11-18 13:08:26.117 game push interrupted epoch=1 history=1
+11-18 13:08:26.138 game origin scene disposed
+11-18 13:08:26.140 detached epoch=1
+11-18 13:08:26.143 attached epoch=2
+11-18 13:08:26.148 surface epoch=2 rev=0  [] modal= []
+11-18 13:08:26.184 game surface epoch=2 rev=2 operation=reattach sourceKey=''
+11-18 13:08:26.184 surface epoch=2 rev=2 home [home,home-detail,game] modal= []
+11-18 13:08:26.188 home[home,home-detail,game] history=2 [InAppCommand@home[home,home-detail];InAppCommand@home[home,home-detail,game]]
+11-18 13:08:26.216 game surface epoch=2 rev=3 operation=refresh sourceKey=''
+11-18 13:08:26.216 surface epoch=2 rev=3 home [home,home-detail,game] modal= []
+11-18 13:08:28.570 display size transform from=1080x1606 to=1080x1183
+11-18 13:08:29.992 surface epoch=2 rev=3 home [home,home-detail] modal= []
+11-18 13:08:29.998 home[home,home-detail] history=3 [InAppCommand@home[home,home-detail];InAppCommand@home[home,home-detail,game];HostReconciliation@home[home,home-detail]]
+
+Android UI suite
+PASS Nav3 resized the scene before disposing outgoing content and committing the AppNav push
+PASS real predictive Back preview, cancellation without commit, and one completed Game return
+PASS Activity recreation interrupts the shared Game push and the replacement commits exactly once
+PASS branch-switch deep link, native Back, and retained branches
+PASS Activity recreation during a pending deep link and stale observation fencing
+PASS modal stack Back and dismissal reveal the unchanged underlying branch
+PASS managed Back policy can deny a pop, then accept and present it
