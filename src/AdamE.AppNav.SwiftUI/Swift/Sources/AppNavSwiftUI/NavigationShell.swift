@@ -51,15 +51,33 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
             }
             footer(surface.diagnostics)
         }
-        .sheet(item: surface.modal) { selection in
-            if let modal = surface.target?.modal, modal.id == selection.id {
-                sheet(modal)
-            }
-        }
+        .sheet(item: selection(for: .sheet), content: modalContent)
+        .fullScreenCover(item: selection(for: .fullScreenCover), content: modalContent)
         .background(FrameObserver(surface: surface))
         .onChange(of: projection, initial: true) { _, next in
             surface.stage(next, animatesSinglePushes: animatesSinglePushes,
                           transactionAnimation: customization?.transactionAnimation, report: report, trace: trace)
+        }
+    }
+
+    private func selection(for style: NavigationModalPresentation) -> Binding<ModalSelection?> {
+        let modal = surface.target?.modal
+        guard let modal, (customization?.modalPresentation(modal) ?? .sheet) == style else {
+            return .constant(nil)
+        }
+        // A dismissed presenter must not clear the selection of a replacement modal.
+        return Binding(get: {
+            guard let current = surface.modal.wrappedValue, current.id == modal.id else { return nil }
+            return current
+        }, set: { next in
+            if surface.modal.wrappedValue?.id == modal.id { surface.modal.wrappedValue = next }
+        })
+    }
+
+    @ViewBuilder
+    private func modalContent(_ selection: ModalSelection) -> some View {
+        if let modal = surface.target?.modal, modal.id == selection.id {
+            sheet(modal)
         }
     }
 
