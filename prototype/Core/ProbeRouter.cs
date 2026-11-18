@@ -29,8 +29,7 @@ public sealed class ProbeRouter : IAsyncDisposable
         public Task ShowAsync(OahuNavigationTarget target, CancellationToken token) =>
             publish(new SurfaceTarget(target.Revision, target.Branch,
                 target.Branches.ToDictionary(x => x.Key, x => x.Value.Select(e => e.Id).ToArray())), token);
-        public Task AcceptAsync(OahuNavigationTarget target, OahuNavigationTarget committedTarget,
-            Func<Action, bool> applyIfCurrent, CancellationToken token) =>
+        public Task AcceptAsync(OahuNavigationTarget target, Func<Action, bool> applyIfCurrent, CancellationToken token) =>
             Task.CompletedTask;
     }
 

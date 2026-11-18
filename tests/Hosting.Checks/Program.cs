@@ -19,6 +19,8 @@ loop.Run(async () =>
         return done.Task;
     }
 
+    await AcceptanceChecks.RunAsync(loop, Dispatch);
+
     var leases = new RouteEntryLeaseRegistry(new LeaseHost(Dispatch));
     using var presenter = new OahuNavigationPresenter();
     await using var router = new ProbeRouter(presenter, leases);
@@ -138,6 +140,8 @@ loop.Run(async () =>
         lease.Own(() => unsafeResourceReleased = true);
         return new(mount, () =>
         {
+            Check(unsafeRouter.HistoryCount == 2 && unsafeRouter.CurrentEntryIds.SequenceEqual(["home"]),
+                "Cleanup started before the router committed its state and history");
             cleanupAttempts++;
             if (cleanupAttempts <= 2) throw cleanupFailure;
         });
@@ -167,8 +171,6 @@ loop.Run(async () =>
         "Rollback must restore the original mounted screen");
 
     await unsafeRouter.Navigator.BackAsync();
-    Check(unsafeRouter.HistoryCount == 2 && cleanupAttempts == 0, "Cleanup preceded the router's commit");
-    await unsafeRouter.Navigator.RefreshPresentationAsync();
     Check(unsafeRouter.HistoryCount == 2 && unsafeRouter.CurrentEntryIds.SequenceEqual(["home"]) &&
           original.IsDisposed && reports.Count == 1 && reports[0] is AggregateException reportedFailure &&
           reportedFailure.InnerExceptions.Contains(cleanupFailure) && !unsafeResourceReleased,
@@ -203,12 +205,14 @@ sealed class Witness(NavigationShellViewModel shell, Func<ShellTarget, Task> rep
         await report(shell.Target.Current);
     }
 
-    public async Task AcceptAsync(OahuNavigationTarget target, OahuNavigationTarget committedTarget,
-        Func<Action, bool> applyIfCurrent, CancellationToken token)
+    public async Task AcceptAsync(OahuNavigationTarget target, Func<Action, bool> applyIfCurrent, CancellationToken token)
     {
-        await shell.AcceptAsync(target, committedTarget, applyIfCurrent, token);
+        await shell.AcceptAsync(target, applyIfCurrent, token);
         afterAccept?.Invoke(target);
     }
+
+    public Task SettleAsync(OahuNavigationTarget target, CancellationToken token) =>
+        shell.SettleAsync(target, token);
 }
 
 sealed class LeaseHost(Func<Action, Task> dispatch) : IRouteEntryLeaseHost

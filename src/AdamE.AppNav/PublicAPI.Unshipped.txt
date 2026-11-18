@@ -161,3 +161,6 @@ static AdamE.AppNav.Presentation.NavigationTopologySupport.operator !=(AdamE.App
 static AdamE.AppNav.Presentation.NavigationTopologySupport.operator ==(AdamE.AppNav.Presentation.NavigationTopologySupport? left, AdamE.AppNav.Presentation.NavigationTopologySupport? right) -> bool
 AdamE.AppNav.Presentation.NavigationTopology.OwnerEntryIdOf(AdamE.AppNav.State.ModalNode! modal) -> string?
 AdamE.AppNav.Presentation.NavigationTopologySupport.NavigationTopologySupport(int maxStackEntries) -> void
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.PresentationSettlementFailed = 84 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Presentation.INavigationPresentationSettlement
+AdamE.AppNav.Presentation.INavigationPresentationSettlement.OnPresentationSettledAsync(AdamE.AppNav.State.NavigationState! state) -> System.Threading.Tasks.ValueTask
