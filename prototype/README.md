@@ -13,3 +13,5 @@ dotnet run --project ../tests/Hosting.Checks -c Release --no-build
 ```
 
 The transaction checks drive the presenter through its public APIs, including deep links, native reconciliation, cancellation, stale observations, rollback and reattachment. The hosting checks exercise mount lifetime and release through OAHU's test host. Retained-router recreation preserves navigation history within the process. Apps own persistence across process death.
+
+The host treats a throwing native close or app-provided mount cleanup as a failed teardown. It reports the error and retains that mount's lease attachment because a borrower may still be active. Router shutdown can remain pending in that case.
