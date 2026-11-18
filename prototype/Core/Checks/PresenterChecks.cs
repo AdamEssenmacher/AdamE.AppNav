@@ -14,16 +14,25 @@ internal static class PresenterChecks
     {
         private readonly Channel<OahuNavigationTarget> frames = Channel.CreateUnbounded<OahuNavigationTarget>();
         public bool FailAccept { get; set; }
+        public Func<Task>? BeforeAccept { get; set; }
+        public List<OahuNavigationTarget> Accepted { get; } = [];
         public Task ShowAsync(OahuNavigationTarget target, CancellationToken token) =>
             frames.Writer.WriteAsync(target, token).AsTask();
-        public Task AcceptAsync(OahuNavigationTarget target, CancellationToken token)
+        public async Task AcceptAsync(OahuNavigationTarget target, OahuNavigationTarget committedTarget,
+            Func<Action, bool> applyIfCurrent,
+            CancellationToken token)
         {
-            if (FailAccept)
+            if (BeforeAccept is { } beforeAccept)
+                await beforeAccept().WaitAsync(token);
+            applyIfCurrent(() =>
             {
-                FailAccept = false;
-                throw new InvalidOperationException("injected mount release failure");
-            }
-            return Task.CompletedTask;
+                if (FailAccept)
+                {
+                    FailAccept = false;
+                    throw new InvalidOperationException("injected mount release failure");
+                }
+                Accepted.Add(target);
+            });
         }
         public Task NextFailsIfPublished() => frames.Reader.TryPeek(out _) ? Task.FromException(new Exception("Unexpected projection")) : Task.CompletedTask;
         public async Task<OahuNavigationTarget> Next() => await frames.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
@@ -109,9 +118,53 @@ internal static class PresenterChecks
         await presenter.ObserveAsync(e2, rollback.Revision, "home", ["home"]);
         Assert(router.HistoryCount == 7, "Router failed to recover after rollback");
 
+        await CheckRapidNativePops();
         await CheckTransitionContext();
         await CheckTopologies();
-        Console.WriteLine("PASS: attachment epochs, recreation, tab selection, modal stack, rollback, shape preflight");
+        Console.WriteLine("PASS: attachment epochs, recreation, tab selection, modal stack, rapid native pops, rollback, shape preflight");
+    }
+
+    private static async Task CheckRapidNativePops()
+    {
+        var presenter = new OahuNavigationPresenter();
+        await using var router = new ProbeRouter(presenter);
+        var surface = new Surface();
+        var epoch = presenter.Attach(surface);
+        var start = router.StartAsync();
+        await Ack(presenter, epoch, await surface.Next());
+        await start;
+        var link = router.DeepLinkAsync();
+        var catalog = await surface.Next();
+        await Ack(presenter, epoch, catalog);
+        await link;
+        surface.Accepted.Clear();
+
+        var firstAcceptance = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var resumeAcceptance = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        surface.BeforeAccept = () =>
+        {
+            firstAcceptance.TrySetResult();
+            return resumeAcceptance.Task;
+        };
+        var initial = catalog.Branches[catalog.Branch].Select(entry => entry.Id).ToArray();
+        var firstPop = initial[..^1];
+        var secondPop = initial[..^2];
+        var first = presenter.ObserveAsync(epoch, catalog.Revision, catalog.Branch, firstPop);
+        await firstAcceptance.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var second = presenter.ObserveAsync(epoch, catalog.Revision, catalog.Branch, secondPop);
+        resumeAcceptance.SetResult();
+        await Task.WhenAll(first, second).WaitAsync(TimeSpan.FromSeconds(5));
+
+        var accepted = surface.Accepted.Single();
+        Assert(accepted.Branches[catalog.Branch].Select(entry => entry.Id).SequenceEqual(secondPop),
+            "An earlier native pop republished an entry the user had already removed");
+        Assert(router.HistoryCount == 4 && router.CurrentEntryIds.SequenceEqual(secondPop),
+            "Rapid native pops did not commit both history entries in order");
+        var previous = router.Navigator.History.Entries[^2].State.ActiveWindow!.Root as BranchHostNode;
+        var previousStack = (StackNode)previous!.SelectedBranch!.Content;
+        Assert(previousStack.Entries.Select(entry => entry.Id).SequenceEqual(firstPop),
+            "The first native pop did not retain its intermediate history state");
+        await surface.NextFailsIfPublished();
     }
 
     private static async Task CheckTransitionContext()

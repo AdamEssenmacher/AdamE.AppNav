@@ -67,6 +67,7 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, IDisposable
     event EventHandler<NavigationReconciliationRequestedEventArgs>? INavigationPresenter.ReconciliationRequested
     { add { } remove { } }
 
+    /// <summary>Raised after a native reconciliation commits. UI subscribers must dispatch to their UI thread.</summary>
     public event Action? Reconciled;
 
     public void Bind(IRouterNavigator navigator)
@@ -164,6 +165,7 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, IDisposable
             return;
         }
         var target = new OahuNavigationTarget(plan.TargetState, Interlocked.Increment(ref nextRevision));
+        var committedTarget = new OahuNavigationTarget(context.CurrentState, target.Revision);
         var replay = false;
         while (true)
         {
@@ -172,7 +174,8 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, IDisposable
             var transition = DescribeTransition(current, plan, context, target, replay);
             try
             {
-                await PresentAsync(current, plan.TargetState, target with { Transition = transition }, cancellationToken).ConfigureAwait(false);
+                await PresentAsync(current, plan.TargetState, target with { Transition = transition },
+                    committedTarget, cancellationToken).ConfigureAwait(false);
                 return;
             }
             catch (Exception) when (current.Detached.IsCancellationRequested || !IsCurrent(current))
@@ -223,7 +226,7 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, IDisposable
             lock (gate) previous = observed?.Target;
             // Recovery must be able to restore the committed stack even when an app callback fails.
             rollback = rollback with { Transition = OahuPresentationTransition.Describe(previous, rollback, "rollback", "", screenName: null) };
-            await PresentAsync(current, state, rollback, CancellationToken.None).ConfigureAwait(false);
+            await PresentAsync(current, state, rollback, rollback, CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception recovery) when (IsCurrent(current))
         {
@@ -239,7 +242,7 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, IDisposable
     }
 
     private async Task PresentAsync(Attachment current, NavigationState state, OahuNavigationTarget target,
-        CancellationToken cancellationToken)
+        OahuNavigationTarget committedTarget, CancellationToken cancellationToken)
     {
         var stage = new Presentation(current, state, target);
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, current.Detached.Token);
@@ -254,7 +257,7 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, IDisposable
             await current.Surface.ShowAsync(target, lifetime.Token).WaitAsync(lifetime.Token).ConfigureAwait(false);
             await stage.Observed.Task.WaitAsync(lifetime.Token).ConfigureAwait(false);
             lifetime.Token.ThrowIfCancellationRequested();
-            await current.Surface.AcceptAsync(target, lifetime.Token).WaitAsync(lifetime.Token).ConfigureAwait(false);
+            await AcceptIfCurrentAsync(stage, committedTarget, lifetime.Token).WaitAsync(lifetime.Token).ConfigureAwait(false);
             lifetime.Token.ThrowIfCancellationRequested();
             lock (gate)
                 if (host != current) throw new OperationCanceledException("Host detached before acceptance.");
@@ -336,12 +339,13 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, IDisposable
             if (host != stage.Host || observed?.Target.Revision != stage.Target.Revision)
                 throw new SupersededObservationException();
         }
-        // No new projection: the user has already completed this gesture.
+        // Commit every witnessed gesture in order, but only the latest can synchronize the UI.
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(token, stage.Host.Detached.Token);
         lifetime.CancelAfter(timeout);
         try
         {
-            await stage.Host.Surface.AcceptAsync(stage.Target, lifetime.Token).WaitAsync(lifetime.Token).ConfigureAwait(false);
+            var committedTarget = new OahuNavigationTarget(baseState, stage.Target.Revision);
+            await AcceptIfCurrentAsync(stage, committedTarget, lifetime.Token).WaitAsync(lifetime.Token).ConfigureAwait(false);
             lifetime.Token.ThrowIfCancellationRequested();
             if (!IsCurrent(stage.Host)) throw new SupersededObservationException();
         }
@@ -350,6 +354,23 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, IDisposable
         {
             await RollbackAsync(stage.Host, baseState, failure).ConfigureAwait(false);
             throw;
+        }
+    }
+
+    private Task AcceptIfCurrentAsync(Presentation stage, OahuNavigationTarget committedTarget, CancellationToken token)
+    {
+        return stage.Host.Surface.AcceptAsync(stage.Target, committedTarget, ApplyIfCurrent, token);
+
+        bool ApplyIfCurrent(Action apply)
+        {
+            lock (gate)
+            {
+                token.ThrowIfCancellationRequested();
+                if (!ReferenceEquals(host, stage.Host) || !ReferenceEquals(observed, stage))
+                    return false;
+                apply();
+                return true;
+            }
         }
     }
 

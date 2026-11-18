@@ -10,7 +10,8 @@ namespace AdamE.AppNav.Oahu.Hosting;
 /// </summary>
 public delegate OahuMountedScreen OahuScreenFactory(RouteEntry entry, RouteEntryLease lease, bool opened);
 
-/// <summary>An OAHU mount and optional cleanup for resources owned by this native attachment.</summary>
+/// <summary>An OAHU mount and optional cleanup for resources owned by this native attachment.
+/// If cleanup throws, a later release can call it again. It must be safe to resume after a partial failure.</summary>
 public sealed record OahuMountedScreen(OahuMount Mount, Action? AfterTeardown = null);
 
 /// <summary>
@@ -29,7 +30,7 @@ public sealed class NavigationShellViewModel(
     Func<NativeObservation, Task> observe,
     Action<Exception> reportFailure) : INavigationShellViewModel, IOahuNavigationSurface, IDisposable, IAsyncDisposable
 {
-    private readonly MountedNavigationSurface surface = new(leases, mount);
+    private readonly MountedNavigationSurface surface = new(leases, mount, reportFailure);
     private bool disposed;
     private Task? teardown;
     private Action? detach;
@@ -37,10 +38,13 @@ public sealed class NavigationShellViewModel(
     /// <summary>The callback epoch assigned by Attach, or zero for manually wired instances.</summary>
     public long Epoch { get; private set; }
 
+    private static OahuScreenFactory Adapt(Func<RouteEntry, RouteEntryLease, OahuMount> factory) =>
+        (entry, lease, _) => new OahuMountedScreen(factory(entry, lease));
+
     public NavigationShellViewModel(RouteEntryLeaseRegistry leases,
         Func<RouteEntry, RouteEntryLease, OahuMount> mount, Func<Action, Task> dispatch,
         Func<NativeObservation, Task> observe, Action<Exception> reportFailure)
-        : this(leases, (entry, lease, _) => new OahuMountedScreen(mount(entry, lease)),
+        : this(leases, Adapt(mount),
             dispatch, observe, reportFailure)
     {
     }
@@ -49,7 +53,7 @@ public sealed class NavigationShellViewModel(
         OahuNavigationPresenter presenter, RouteEntryLeaseRegistry leases,
         Func<RouteEntry, RouteEntryLease, OahuMount> mount, Func<Action, Task> dispatch,
         Action<Exception> reportFailure) =>
-        Attach(presenter, leases, (entry, lease, _) => new OahuMountedScreen(mount(entry, lease)),
+        Attach(presenter, leases, Adapt(mount),
             dispatch, reportFailure);
 
     /// <summary>Creates a shell, attaches it to the presenter, and fences observations to its epoch.</summary>
@@ -80,11 +84,12 @@ public sealed class NavigationShellViewModel(
         surface.Stage(next, cancellationToken);
     });
 
-    public Task AcceptAsync(OahuNavigationTarget accepted, CancellationToken cancellationToken) => dispatch(() =>
+    public Task AcceptAsync(OahuNavigationTarget accepted, OahuNavigationTarget committedTarget,
+        Func<Action, bool> applyIfCurrent, CancellationToken cancellationToken) => dispatch(() =>
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (disposed) return;
-        surface.Accept(accepted);
+        surface.Accept(accepted, committedTarget, applyIfCurrent);
     });
 
     public async void Report(NativeObservation observation)
@@ -124,9 +129,11 @@ public sealed class NavigationShellViewModel(
         if (!disposed)
         {
             disposed = true;
-            Detach();
-            teardown = dispatch(surface.ReleaseAll);
+            try { Detach(); }
+            finally { teardown = dispatch(surface.ReleaseAll); }
         }
+        else if (teardown is { IsFaulted: true })
+            teardown = dispatch(surface.ReleaseAll);
         return new ValueTask(teardown ?? Task.CompletedTask);
     }
 }
