@@ -20,11 +20,6 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, IDisposable
         public TaskCompletionSource Observed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
-    private readonly object gate = new();
-    private readonly TimeSpan timeout;
-    private readonly Func<RouteEntry, string>? screenName;
-    private readonly AsyncLocal<Interaction?> interaction = new();
-
     private sealed class Interaction(Presentation origin, RouterNavigationRequest request, string key)
     {
         private readonly WeakReference<Presentation> source = new(origin);
@@ -32,18 +27,30 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, IDisposable
         private readonly AppRoute? route = request.Route;
         private readonly Uri? uri = request.Uri;
         private int available = 1;
-        public string Consume(Presentation? current, RouterNavigationRequest resolved) =>
-            resolved.Timestamp == requestedAt && Equals(resolved.Route, route) && Equals(resolved.Uri, uri) &&
-            source.TryGetTarget(out var captured) && ReferenceEquals(captured, current) &&
-            Interlocked.Exchange(ref available, 0) == 1 ? key : "";
+        public string Consume(Presentation? current, RouterNavigationRequest resolved)
+        {
+            if (resolved.Timestamp != requestedAt || !Equals(resolved.Route, route) || !Equals(resolved.Uri, uri))
+                return "";
+            if (!source.TryGetTarget(out var captured) || !ReferenceEquals(captured, current))
+                return "";
+            return Interlocked.Exchange(ref available, 0) == 1 ? key : "";
+        }
+
         public void End() => Interlocked.Exchange(ref available, 0);
     }
+
+    private readonly object gate = new();
+    private readonly TimeSpan timeout;
+    private readonly Func<RouteEntry, string>? screenName;
+    private readonly AsyncLocal<Interaction?> interaction = new();
     private IRouterNavigator? router;
     private Attachment? host;
     private TaskCompletionSource attached = NewSignal();
+    // Waiting for the first exact native observation of a staged plan.
     private Presentation? pending;
+    // Latest witnessed native state. Consecutive gestures may move this ahead of router history.
     private Presentation? observed;
-    private readonly Dictionary<NavigationState, Presentation> completions = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<NavigationState, Presentation> witnessedReconciliations = new(ReferenceEqualityComparer.Instance);
     private Task reconciliationTail = Task.CompletedTask;
     private long nextEpoch;
     private long nextRevision;
@@ -162,16 +169,7 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, IDisposable
         {
             cancellationToken.ThrowIfCancellationRequested();
             Attachment current = await WaitForHostAsync(cancellationToken).ConfigureAwait(false);
-            lock (gate)
-                if (current.Failure != null)
-                    throw new InvalidOperationException("Replace the native host after failed rollback.", current.Failure);
-            Presentation? before;
-            lock (gate) before = observed;
-            var operation = replay || (before is null && context.CurrentState.Windows.Count > 0) ? "reattach"
-                : plan.Kind == NavigationPlanKind.Refresh ? "refresh" : null;
-            var key = operation is null && plan.Kind == NavigationPlanKind.Navigate && !plan.ContextualFallback
-                && ReferenceEquals(before?.State, context.CurrentState) ? interaction.Value?.Consume(before, context.Request) ?? "" : "";
-            var transition = OahuPresentationTransition.Describe(before?.Target, target, operation, key, screenName);
+            var transition = DescribeTransition(current, plan, context, target, replay);
             try
             {
                 await PresentAsync(current, plan.TargetState, target with { Transition = transition }, cancellationToken).ConfigureAwait(false);
@@ -189,6 +187,31 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, IDisposable
                 throw;
             }
         }
+    }
+
+    private OahuPresentationTransition DescribeTransition(Attachment current, NavigationPlan plan,
+        NavigationPresentationContext context, OahuNavigationTarget target, bool replay)
+    {
+        Presentation? before;
+        lock (gate)
+        {
+            if (current.Failure is { } failure)
+                throw new InvalidOperationException("Replace the native host after failed rollback.", failure);
+            before = observed;
+        }
+
+        string? operation = null;
+        if (replay || (before is null && context.CurrentState.Windows.Count > 0))
+            operation = "reattach";
+        else if (plan.Kind == NavigationPlanKind.Refresh)
+            operation = "refresh";
+
+        var sourceKey = "";
+        if (operation is null && plan.Kind == NavigationPlanKind.Navigate && !plan.ContextualFallback &&
+            ReferenceEquals(before?.State, context.CurrentState) && interaction.Value is { } hint)
+            sourceKey = hint.Consume(before, context.Request);
+
+        return OahuPresentationTransition.Describe(before?.Target, target, operation, sourceKey, screenName);
     }
 
     private async Task RollbackAsync(Attachment current, NavigationState state, Exception failure)
@@ -269,18 +292,34 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, IDisposable
             if (observed is not { } last || last.Target.Revision != revision ||
                 actual.Reconcile(last.State, last.Target) is not { } change)
                 return Task.CompletedTask;
-            var navigator = router ?? throw new InvalidOperationException("Bind the presenter before reporting native navigation.");
-            var next = new Presentation(host, change.TargetState, new OahuNavigationTarget(change.TargetState, revision) { Transition = last.Target.Transition });
-            observed = next;
-            completions.Add(next.State, next);
-            var previous = reconciliationTail;
-            // Native reports may originate in a presentation's ExecutionContext. Reconciliation
-            // enters the router as a new operation, ordered behind earlier native completions.
-            Task Queue() => previous.ContinueWith(_ => ReconcileAsync(navigator, change), CancellationToken.None,
-                TaskContinuationOptions.None, TaskScheduler.Default).Unwrap();
-            if (ExecutionContext.IsFlowSuppressed()) return reconciliationTail = Queue();
-            using (ExecutionContext.SuppressFlow()) return reconciliationTail = Queue();
+            return EnqueueReconciliation(host, last.Target, change);
         }
+    }
+
+    // Called under gate. Advance the observed state immediately so a second native pop is
+    // interpreted against the first, even if the router has not accepted the first one yet.
+    private Task EnqueueReconciliation(Attachment current, OahuNavigationTarget previousTarget,
+        NavigationReconciliation change)
+    {
+        var navigator = router ?? throw new InvalidOperationException("Bind the presenter before reporting native navigation.");
+        var target = new OahuNavigationTarget(change.TargetState, previousTarget.Revision)
+        {
+            Transition = previousTarget.Transition
+        };
+        var next = new Presentation(current, change.TargetState, target);
+        observed = next;
+        witnessedReconciliations.Add(next.State, next);
+
+        // A native callback can arrive in the router's execution context. Start a new router
+        // operation after the preceding report finishes, including when that report faulted.
+        Task Schedule() => reconciliationTail.ContinueWith(_ => ReconcileAsync(navigator, change),
+            CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default).Unwrap();
+
+        if (ExecutionContext.IsFlowSuppressed())
+            return reconciliationTail = Schedule();
+
+        using (ExecutionContext.SuppressFlow())
+            return reconciliationTail = Schedule();
     }
 
     private sealed class SupersededObservationException : Exception;
@@ -291,7 +330,7 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, IDisposable
         Presentation stage;
         lock (gate)
         {
-            if (!completions.TryGetValue(state, out var completion))
+            if (!witnessedReconciliations.TryGetValue(state, out var completion))
                 throw new InvalidOperationException("The host did not witness this reconciliation.");
             stage = completion;
             if (host != stage.Host || observed?.Target.Revision != stage.Target.Revision)
@@ -323,7 +362,7 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, IDisposable
         }
         catch (SupersededObservationException) { }
         catch (StaleNavigationReconciliationException) { }
-        finally { lock (gate) completions.Remove(change.TargetState); }
+        finally { lock (gate) witnessedReconciliations.Remove(change.TargetState); }
     }
 
     public void Dispose()
