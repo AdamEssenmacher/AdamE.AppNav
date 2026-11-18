@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Description>OAHU shell contracts and lease-backed route screen mounting for AppNav.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../AdamE.AppNav.Oahu/AdamE.AppNav.Oahu.csproj" />
+    <PackageReference Include="Oahu" Version="0.1.0-preview.g7a56b3ba" />
+  </ItemGroup>
+</Project>

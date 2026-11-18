@@ -344,5 +344,10 @@ public enum NavigationDiagnosticEventKind
     /// The router's disposal is still waiting for route-entry leases after its warning delay; the message names each
     /// lease and what holds it.
     /// </summary>
-    EntryLeaseShutdownWaiting
+    EntryLeaseShutdownWaiting,
+
+    /// <summary>
+    /// Presentation cleanup failed after the router settled the accepted state.
+    /// </summary>
+    PresentationSettlementFailed
 }
