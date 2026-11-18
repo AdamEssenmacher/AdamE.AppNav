@@ -5,28 +5,49 @@ using global::Oahu;
 namespace AdamE.AppNav.Oahu.Hosting;
 
 /// <summary>Owns the route screen mounts and their lease attachments for one shell. Access on the host UI thread.</summary>
-internal sealed class MountedNavigationSurface(RouteEntryLeaseRegistry leases, OahuScreenFactory mount)
+internal sealed class MountedNavigationSurface(RouteEntryLeaseRegistry leases, OahuScreenFactory mount, Action<Exception> reportFailure)
 {
-    private readonly record struct MountKey(string Id, AppRoute Route);
+    private readonly record struct MountKey(RouteEntryLease Lease, AppRoute Route);
 
     private sealed record ScreenMount(OahuMountedScreen Screen, RouteEntryLeaseAttachment Attachment)
     {
         public long Id => Screen.Mount.Id;
 
+        private bool closed;
+        private Exception? closeFailure;
+
         public void Release()
         {
-            // OAHU invokes its callback even when native close fails. Only a successful return
-            // on a later UI turn certifies that close succeeded and the borrower is gone.
-            var closeRan = false;
-            Screen.Mount.Dispose(() => closeRan = true);
-            if (!closeRan)
-                throw new InvalidOperationException("Mount teardown must run outside an OAHU callback.");
+            if (closeFailure is not null)
+                throw new InvalidOperationException("OAHU could not certify native mount teardown.", closeFailure);
+
+            if (!closed)
+            {
+                try
+                {
+                    // OAHU invokes the callback even on failure. Only a synchronous successful
+                    // return certifies native close; disposing an already disposed mount cannot retry it.
+                    var completed = false;
+                    Screen.Mount.Dispose(() => completed = true);
+                    if (!completed)
+                        throw new InvalidOperationException("Mount teardown must run outside an OAHU callback.");
+                    closed = true;
+                }
+                catch (Exception error)
+                {
+                    closeFailure = error;
+                    throw;
+                }
+            }
+
             Screen.AfterTeardown?.Invoke();
             Attachment.Detach();
         }
     }
 
     private readonly Dictionary<MountKey, ScreenMount> mounts = new();
+
+    private readonly HashSet<ScreenMount> failedReleases = new(ReferenceEqualityComparer.Instance);
 
     private readonly StateSource<ShellTarget> target = new(new(0, "", false, [], "", [], new("initial", "", "", "", "", "")));
 
@@ -50,30 +71,43 @@ internal sealed class MountedNavigationSurface(RouteEntryLeaseRegistry leases, O
         target.Set(staged);
     }
 
-    public void Accept(OahuNavigationTarget accepted)
+    public void Accept(OahuNavigationTarget accepted, OahuNavigationTarget committed, Func<Action, bool> applyIfCurrent)
     {
         var current = target.Current;
         var currentMounts = ScreenEntries(current).ToDictionary(e => e.EntryId, e => e.Mount, StringComparer.Ordinal);
         ValidateAcceptedLeases(accepted, currentMounts);
-        if (current.Revision == accepted.Revision)
+        if (!applyIfCurrent(() =>
         {
-            // A same-revision change confirms a native Back or tab selection. Keep the exact mounts
-            // already shown, including any placeholders used for retired entries.
-            target.Set(ToWire(accepted, entry => currentMounts[entry.Id]));
-            ReleaseExcept(ScreenEntries(target.Current).Select(entry => entry.Mount).ToHashSet());
-        }
-        else
-        {
-            var retained = DisplayedEntries(accepted)
-                .Select(entry => new MountKey(entry.Id, entry.Route))
-                .Where(mounts.ContainsKey).Select(key => mounts[key].Id).ToHashSet();
-            retained.UnionWith(currentMounts.Values);
-            ReleaseExcept(retained);
-        }
+            if (current.Revision == accepted.Revision)
+                target.Set(ToWire(accepted, entry => currentMounts[entry.Id]));
+        }))
+            return;
+
         ValidateAcceptedLeases(accepted, currentMounts);
+
+        // Apply has not committed. Keep the exact mounts needed to roll back, even after
+        // native acceptance. A later acceptance can collect them once the router base moves.
+        var retained = ScreenEntries(target.Current).Select(entry => entry.Mount).ToHashSet();
+        foreach (var entry in DisplayedEntries(committed).Concat(DisplayedEntries(accepted)))
+        {
+            if (leases.TryGet(entry.Id, out var lease) && !lease.IsRetired &&
+                mounts.TryGetValue(new MountKey(lease, entry.Route), out var screen))
+                retained.Add(screen.Id);
+        }
+
+        if (ReleaseExcept(retained) is { } failure)
+        {
+            // The old transaction is over. A teardown reporter must not unwind this navigation.
+            try { reportFailure(failure); }
+            catch (Exception reportingFailure) { System.Diagnostics.Trace.TraceError("{0}", reportingFailure); }
+        }
     }
 
-    public void ReleaseAll() => ReleaseExcept([]);
+    public void ReleaseAll()
+    {
+        if (ReleaseExcept([]) is { } failure)
+            throw failure;
+    }
 
     private RouteEntryLease GetLease(RouteEntry entry, out bool opened)
     {
@@ -115,7 +149,7 @@ internal sealed class MountedNavigationSurface(RouteEntryLeaseRegistry leases, O
         var lease = GetLease(entry, out var opened);
         // A retired committed entry can still belong to the graph, but cannot acquire another attachment.
         if (lease.IsRetired) return 0;
-        var key = new MountKey(entry.Id, entry.Route);
+        var key = new MountKey(lease, entry.Route);
         if (mounts.TryGetValue(key, out var existing)) return existing.Id;
         if (!lease.TryAttach(out var attachment))
         {
@@ -137,18 +171,30 @@ internal sealed class MountedNavigationSurface(RouteEntryLeaseRegistry leases, O
         }
     }
 
-    private void ReleaseExcept(HashSet<long> retained)
+    private AggregateException? ReleaseExcept(HashSet<long> retained)
     {
-        List<Exception> failures = [];
-        foreach (var id in mounts.Where(pair => !retained.Contains(pair.Value.Id)).Select(pair => pair.Key).ToArray())
+        foreach (var (key, screen) in mounts.ToArray())
         {
-            var screen = mounts[id];
-            mounts.Remove(id);
-            try { screen.Release(); }
-            catch (Exception failure) { failures.Add(failure); }
+            if (retained.Contains(screen.Id)) continue;
+            mounts.Remove(key);
+            failedReleases.Add(screen);
         }
-        if (failures.Count > 0)
-            throw new AggregateException("Navigation mount teardown failed. Affected lease attachments remain held.", failures);
+
+        List<Exception> failures = [];
+        foreach (var screen in failedReleases.ToArray())
+        {
+            try
+            {
+                screen.Release();
+                failedReleases.Remove(screen);
+            }
+            catch (Exception failure)
+            {
+                failures.Add(failure);
+            }
+        }
+        return failures.Count == 0 ? null :
+            new AggregateException("Navigation mount teardown failed. Affected lease attachments remain held.", failures);
     }
 
     private static IEnumerable<ScreenEntry> ScreenEntries(ShellTarget value) =>

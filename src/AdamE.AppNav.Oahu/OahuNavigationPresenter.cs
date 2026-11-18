@@ -67,6 +67,7 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, IDisposable
     event EventHandler<NavigationReconciliationRequestedEventArgs>? INavigationPresenter.ReconciliationRequested
     { add { } remove { } }
 
+    /// <summary>Raised after a native reconciliation commits. UI subscribers must dispatch to their UI thread.</summary>
     public event Action? Reconciled;
 
     public void Bind(IRouterNavigator navigator)
