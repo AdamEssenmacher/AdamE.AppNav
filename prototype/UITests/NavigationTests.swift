@@ -5,6 +5,9 @@ final class NavigationTests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
+        if name.contains("testFullScreenModal") {
+            app.launchArguments.append("--probe-full-screen")
+        }
         if name.contains("testReplaceHostDuringGamePush") {
             app.launchArguments.append("--probe-replace-host")
         }
@@ -172,6 +175,20 @@ final class NavigationTests: XCTestCase {
         awaitLabel("probe-status") { $0.hasPrefix("home[home,home-detail] history=4 ") }
         awaitLabel("probe-native") { $0.hasSuffix("home [home,home-detail]") }
         XCTAssertTrue(app.staticTexts["page-home-detail"].exists)
+    }
+
+    func testFullScreenModalPreservesHistoryAndDismisses() {
+        awaitLabel("probe-status") { $0 == self.home }
+        let initialBarY = app.navigationBars.firstMatch.frame.minY
+        app.buttons["probe-open-fade-sheet"].tap()
+        let dismiss = app.buttons["probe-dismiss-fade-sheet"]
+        XCTAssertTrue(dismiss.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.tabBars.firstMatch.isHittable)
+        XCTAssertEqual(app.navigationBars["fade-sheet"].frame.minY, initialBarY, accuracy: 1)
+        dismiss.tap()
+        awaitLabel("probe-status") { $0.hasPrefix("home[home,home-detail] history=3 ") }
+        awaitLabel("probe-native") { $0.hasSuffix("home [home,home-detail]") }
+        XCTAssertTrue(app.buttons["probe-open-fade-sheet"].isHittable)
     }
 
     func testNativeFadeSheetPreservesHistory() {

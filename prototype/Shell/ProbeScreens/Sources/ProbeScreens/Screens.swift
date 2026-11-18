@@ -131,6 +131,10 @@ public struct ShellScreen: View {
 
     private var customization: NavigationCustomization {
         NavigationCustomization(
+            modalPresentation: { modal in
+                modal.id == "fade-sheet" && ProcessInfo.processInfo.arguments.contains("--probe-full-screen")
+                    ? .fullScreenCover : .sheet
+            },
             transactionAnimation: { context in
                 guard context.operation == .pop || coverKey(for: context) != nil || isCrossFadePush(context) ||
                       (context.operation == .modalPresent && context.destinationEntryID == "fade-sheet")
