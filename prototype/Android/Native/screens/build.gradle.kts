@@ -16,7 +16,12 @@ android {
         compose = true
     }
 
-    testOptions.unitTests.isIncludeAndroidResources = true
+    testOptions.unitTests {
+        isIncludeAndroidResources = true
+        all { test ->
+            test.jvmArgs("--add-exports=java.base/jdk.internal.access=ALL-UNNAMED")
+        }
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
