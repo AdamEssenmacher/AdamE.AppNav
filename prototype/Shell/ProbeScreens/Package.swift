@@ -3,9 +3,9 @@ import Foundation
 import PackageDescription
 
 let environment = ProcessInfo.processInfo.environment
-let packages = environment["NUGET_PACKAGES"].map { URL(fileURLWithPath: $0) } ??
+let packages = environment["NUGET_PACKAGES"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) } ??
     FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".nuget/packages")
-let runtime = environment["OAHU_RUNTIME_SWIFT"] ??
+let runtime = environment["OAHU_RUNTIME_SWIFT"].flatMap { $0.isEmpty ? nil : $0 } ??
     packages.appendingPathComponent("oahu.ios/0.1.0-preview.g7a56b3ba/swift/OahuRuntime").path
 
 let package = Package(
