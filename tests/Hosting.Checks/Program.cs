@@ -27,6 +27,7 @@ loop.Run(async () =>
     Dictionary<string, List<Oahu.OahuMount>> created = [];
     List<long> released = [];
     RouteEntryLease? detailLease = null;
+    RouteEntryLease? itemLease = null;
     bool failDetail = true;
     bool retireInFactory = false;
     bool retireBeforeAcknowledgement = false;
@@ -35,6 +36,7 @@ loop.Run(async () =>
     {
         if (entry.Id == "detail" && failDetail) throw new ApplicationException("screen creation failed");
         if (entry.Id == "detail") detailLease = lease;
+        if (entry.Id == "item") itemLease = lease;
         var mount = loop.Mount<INavigationShellViewModel>(shell!);
         if (!created.TryGetValue(entry.Id, out var instances)) created.Add(entry.Id, instances = []);
         instances.Add(mount);
@@ -97,10 +99,21 @@ loop.Run(async () =>
         Check(created["group"].Count == 4 && !created["group"].Last().IsDisposed, "Retry reused a disconnected mount");
         var detail = created["detail"].Last();
         detailLease!.Retire();
+        Check(!detail.IsDisposed && !detailLease.Released.IsCompleted,
+            "Retiring a visible entry released its mount");
         await router.Navigator.RefreshPresentationAsync();
         var catalog = shell.Target.Current.Branches.Single(b => b.Branch == "catalog");
         Check(catalog.Entries.Last() == new ScreenEntry("detail", 0), "Retired entry was remounted");
         Check(detail.IsDisposed && router.HistoryCount == 2, "Refresh retained the old mount or added history");
+
+        var item = created["item"].Last();
+        await presenter.ObserveAsync(epoch, shell.Target.Current.Revision, "catalog", ["catalog", "group"]);
+        Check(router.HistoryCount == 3 && router.CurrentEntryIds.SequenceEqual(["catalog", "group"]),
+            "Native multi-pop did not commit");
+        Check(item.IsDisposed && released.Count(id => id == item.Id) == 1,
+            "Native multi-pop must release its removed mount without another presentation");
+        Check(!created["group"].Last().IsDisposed, "Native multi-pop released the still visible mount");
+        await itemLease!.Released.WaitAsync(TimeSpan.FromSeconds(5));
         presenter.Detach(epoch);
         Task shutdown;
         using (loop.NativeCall())
