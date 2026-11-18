@@ -1,3 +1,4 @@
+using System.Threading.Channels;
 using AdamE.AppNav.Diagnostics;
 using AdamE.AppNav.Navigation;
 using AdamE.AppNav.Plans;
@@ -10,47 +11,96 @@ namespace AdamE.AppNav.Tests;
 public sealed class RouterNavigatorPresentationTests
 {
     [Fact]
-    public async Task SettlementRunsAfterCommitAndFailureLeavesNavigationSuccessful()
+    public async Task SettlementDoesNotBlockNavigationAndReportsFailureWithoutChangingOutcome()
     {
         var diagnostics = new NavigationDiagnostics();
-        var events = new List<NavigationDiagnosticEvent>();
-        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+        var failures = Channel.CreateUnbounded<NavigationDiagnosticEvent>();
+        diagnostics.EventWritten += (_, diagnosticEvent) =>
+        {
+            if (diagnosticEvent.Kind == NavigationDiagnosticEventKind.PresentationSettlementFailed)
+                failures.Writer.TryWrite(diagnosticEvent);
+        };
 
         var presenter = new SettlingPresenter();
-        await using var navigator = new RouterNavigator(
-            TestRoutes.CreateTable(),
-            TestNavigationPlanner.EchoStack(),
-            presenter,
-            new RouterNavigatorOptions { Diagnostics = diagnostics });
-        var snapshots = new List<(NavigationState Settled, NavigationState Current, int HistoryCount)>();
-        presenter.Settle = state =>
+        await using var navigator = new RouterNavigator(TestRoutes.CreateTable(), TestNavigationPlanner.EchoStack(),
+            presenter, new RouterNavigatorOptions { Diagnostics = diagnostics });
+        var entered = new TaskCompletionSource<(NavigationState State, string OperationId, int HistoryCount)>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        presenter.Settle = (state, operationId) =>
         {
-            snapshots.Add((state, navigator.CurrentState, navigator.History.Entries.Count));
+            if (!entered.TrySetResult((state, operationId, navigator.History.Entries.Count)))
+                return ValueTask.CompletedTask;
+
+            // Also block the synchronous part of cleanup to catch accidental inline invocation.
+            finish.Task.GetAwaiter().GetResult();
             throw new InvalidOperationException("Post-commit cleanup failed.");
         };
 
-        var result = await navigator.NavigateAsync(RouterNavigationRequest.FromRoute(
-            new TestRoutes.StoreRoute("northwind"), NavigationRequestSource.Test));
-        await navigator.RefreshPresentationAsync();
-
-        Assert.True(result.Presented);
-        Assert.Same(result.State, navigator.CurrentState);
-        Assert.Equal(2, snapshots.Count);
-        Assert.All(snapshots, snapshot =>
+        var timeout = TimeSpan.FromSeconds(5);
+        try
         {
-            Assert.Same(result.State, snapshot.Settled);
-            Assert.Same(snapshot.Settled, snapshot.Current);
-            Assert.Equal(1, snapshot.HistoryCount);
-        });
-        var failures = events.Where(entry => entry.Kind == NavigationDiagnosticEventKind.PresentationSettlementFailed).ToArray();
-        Assert.Equal(2, failures.Length);
-        Assert.All(failures, failure => Assert.Equal(NavigationDiagnosticPhase.Presentation, failure.Phase));
-        Assert.DoesNotContain(events, entry => entry.Kind == NavigationDiagnosticEventKind.PresentationFailed);
+            var result = await navigator.NavigateAsync(RouterNavigationRequest.FromRoute(
+                new TestRoutes.StoreRoute("northwind"), NavigationRequestSource.Test)).AsTask().WaitAsync(timeout);
+            var first = await entered.Task.WaitAsync(timeout);
+            await navigator.RefreshPresentationAsync().AsTask().WaitAsync(timeout);
+
+            Assert.True(result.Presented);
+            Assert.Same(result.State, first.State);
+            Assert.Same(result.State, navigator.CurrentState);
+            Assert.Equal(1, first.HistoryCount);
+            Assert.Single(navigator.History.Entries);
+            Assert.Equal(presenter.AppliedOperations[0], first.OperationId);
+        }
+        finally
+        {
+            finish.TrySetResult();
+        }
+
+        var failure = await failures.Reader.ReadAsync().AsTask().WaitAsync(timeout);
+        Assert.Equal((await entered.Task).OperationId, failure.OperationId);
+        Assert.Equal(NavigationDiagnosticPhase.Presentation, failure.Phase);
+    }
+
+    [Fact]
+    public async Task FailedPresentationSettlementReportsItsOwnFaultAndPreservesApplyFailure()
+    {
+        var diagnostics = new NavigationDiagnostics();
+        var settlementFailure = new TaskCompletionSource<NavigationDiagnosticEvent>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        diagnostics.EventWritten += (_, diagnosticEvent) =>
+        {
+            if (diagnosticEvent.Kind == NavigationDiagnosticEventKind.PresentationSettlementFailed)
+                settlementFailure.TrySetResult(diagnosticEvent);
+        };
+        var applyFailure = new InvalidOperationException("Apply failed after rollback.");
+        var presenter = new SettlingPresenter { ApplyFailure = applyFailure };
+        await using var navigator = new RouterNavigator(TestRoutes.CreateTable(), TestNavigationPlanner.EchoStack(),
+            presenter, new RouterNavigatorOptions { Diagnostics = diagnostics });
+        var original = navigator.CurrentState;
+        var settled = new TaskCompletionSource<NavigationState>(TaskCreationOptions.RunContinuationsAsynchronously);
+        presenter.Settle = (state, _) =>
+        {
+            settled.SetResult(state);
+            throw new ApplicationException("Restored surface cleanup failed.");
+        };
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => navigator.NavigateAsync(
+            RouterNavigationRequest.FromRoute(new TestRoutes.StoreRoute("northwind"), NavigationRequestSource.Test)).AsTask());
+        var diagnostic = await settlementFailure.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Same(applyFailure, error);
+        Assert.Same(original, await settled.Task);
+        Assert.Same(original, navigator.CurrentState);
+        Assert.Empty(navigator.History.Entries);
+        Assert.Equal(Assert.Single(presenter.AppliedOperations), diagnostic.OperationId);
     }
 
     private sealed class SettlingPresenter : INavigationPresenter, INavigationPresentationSettlement
     {
-        public Action<NavigationState>? Settle { get; set; }
+        public List<string> AppliedOperations { get; } = [];
+        public Exception? ApplyFailure { get; init; }
+        public Func<NavigationState, string, ValueTask>? Settle { get; set; }
 
         public event EventHandler<NavigationReconciliationRequestedEventArgs>? ReconciliationRequested
         {
@@ -59,13 +109,14 @@ public sealed class RouterNavigatorPresentationTests
         }
 
         public ValueTask ApplyAsync(NavigationPlan plan, NavigationPresentationContext context,
-            CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
-
-        public ValueTask OnPresentationSettledAsync(NavigationState state)
+            CancellationToken cancellationToken = default)
         {
-            Settle?.Invoke(state);
-            return ValueTask.CompletedTask;
+            AppliedOperations.Add(context.OperationId);
+            return ApplyFailure is { } failure ? ValueTask.FromException(failure) : ValueTask.CompletedTask;
         }
+
+        public ValueTask OnPresentationSettledAsync(NavigationState state, string operationId) =>
+            Settle?.Invoke(state, operationId) ?? ValueTask.CompletedTask;
     }
 
     [Fact]

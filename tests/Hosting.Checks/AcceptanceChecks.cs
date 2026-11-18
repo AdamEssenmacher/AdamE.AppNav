@@ -15,11 +15,14 @@ internal static class AcceptanceChecks
     private static async Task RetirementAfterPublicationAsync(OahuTestLoop loop, Func<Action, Task> dispatch)
     {
         var leases = new RouteEntryLeaseRegistry(new LeaseHost(dispatch));
-        using var presenter = new OahuNavigationPresenter();
+        var acknowledgementTimeout = TimeSpan.FromSeconds(1);
+        using var presenter = new OahuNavigationPresenter(acknowledgementTimeout);
         await using var router = new ProbeRouter(presenter, leases);
         RouteEntryLease? detail = null;
         RouteEntryLease? game = null;
         bool retireAfterPublication = false;
+        var popSettleEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releasePopSettle = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         NavigationShellViewModel? shell = null;
         shell = new NavigationShellViewModel(leases, (entry, lease) =>
         {
@@ -35,10 +38,27 @@ internal static class AcceptanceChecks
                 if (!retireAfterPublication) return;
                 retireAfterPublication = false;
                 detail!.Retire();
+            }, target =>
+            {
+                if (target.Transition.Operation != "pop")
+                    return Task.CompletedTask;
+                popSettleEntered.TrySetResult();
+                return releasePopSettle.Task;
             }));
             await router.StartAsync();
             await router.OpenGameAsync();
             await router.Navigator.BackAsync();
+            try
+            {
+                await popSettleEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                await Task.Delay(acknowledgementTimeout + TimeSpan.FromMilliseconds(250));
+                if (game!.Released.IsCompleted)
+                    throw new InvalidOperationException("The delayed settlement fixture released Game early.");
+            }
+            finally
+            {
+                releasePopSettle.TrySetResult();
+            }
             await game!.Released.WaitAsync(TimeSpan.FromSeconds(5));
             if (router.HistoryCount != 3 || !router.CurrentEntryIds.SequenceEqual(["home", "home-detail"]))
                 throw new InvalidOperationException("Back did not release the popped Game while Home remained idle.");
@@ -77,10 +97,13 @@ internal static class AcceptanceChecks
             action();
         }), _ => Task.CompletedTask, reports.Add);
         long epoch = 0;
-        epoch = presenter.Attach(new Witness(shell, target => Report(presenter, epoch, target)));
+        var surface = new Witness(shell, target => Report(presenter, epoch, target));
+        epoch = presenter.Attach(surface);
         await router.StartAsync();
+        await surface.WaitForSettlementAsync("initial");
         deferNativeClose = true;
         await router.Navigator.BackAsync();
+        await surface.WaitForSettlementAsync("pop");
         await router.Navigator.RefreshPresentationAsync();
         deferNativeClose = false;
         await router.Navigator.RefreshPresentationAsync();
@@ -96,7 +119,7 @@ internal static class AcceptanceChecks
             target.Branches.Single(b => b.Branch == target.SelectedBranch).Entries.Select(e => e.EntryId).ToArray());
 
     private sealed class PublishingWitness(NavigationShellViewModel shell, Func<ShellTarget, Task> report,
-        Action afterPublication) : IOahuNavigationSurface
+        Action afterPublication, Func<OahuNavigationTarget, Task> beforeSettle) : IOahuNavigationSurface
     {
         public async Task ShowAsync(OahuNavigationTarget target, CancellationToken token)
         {
@@ -112,6 +135,10 @@ internal static class AcceptanceChecks
                 afterPublication();
             }), token);
 
-        public Task SettleAsync(OahuNavigationTarget target, CancellationToken token) => shell.SettleAsync(target, token);
+        public async Task SettleAsync(OahuNavigationTarget target, CancellationToken token)
+        {
+            await beforeSettle(target);
+            await shell.SettleAsync(target, token);
+        }
     }
 }
