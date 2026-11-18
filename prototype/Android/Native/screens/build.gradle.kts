@@ -16,6 +16,8 @@ android {
         compose = true
     }
 
+    testOptions.unitTests.isIncludeAndroidResources = true
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -48,4 +50,11 @@ dependencies {
     implementation("androidx.navigation3:navigation3-ui:1.2.1")
     implementation("androidx.navigation3:navigation3-runtime:1.2.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
+
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.17")
+    testImplementation("androidx.compose.ui:ui-test-junit4:1.11.3")
+    testImplementation(files(oahuAndroid.map { "$it/oahu-runtime-release.aar" }))
+    testImplementation(files(oahuAndroid.map { "$it/oahu-compose-release.aar" }))
+    debugImplementation("androidx.compose.ui:ui-test-manifest:1.11.3")
 }
