@@ -35,13 +35,19 @@ public interface INavigationPresenter
         NavigationPlan plan,
         NavigationPresentationContext context,
         CancellationToken cancellationToken = default);
+}
 
-    /// <summary>Finalizes presentation resources after navigation state, history and entry leases have committed.</summary>
+/// <summary>Optional presentation cleanup implemented by an <see cref="INavigationPresenter"/>.</summary>
+public interface INavigationPresentationSettlement
+{
+    /// <summary>Completes presentation-side cleanup after the router has settled the accepted state.</summary>
     /// <remarks>
-    /// The router awaits this before admitting the next operation. Cleanup failures are reported without undoing
-    /// the committed navigation. Implementations should bound the wait for their native host.
+    /// The router awaits this callback after committing state, history, and leases, or after ending a
+    /// successful refresh. Use it to release resources that could still be needed while applying the plan.
+    /// Failures are reported through router diagnostics and do not change the operation's outcome.
     /// </remarks>
-    ValueTask OnCommittedAsync(NavigationState state) => ValueTask.CompletedTask;
+    /// <param name="state">The settled router state.</param>
+    ValueTask OnPresentationSettledAsync(NavigationState state);
 }
 
 internal sealed class NullNavigationPresenter : INavigationPresenter
