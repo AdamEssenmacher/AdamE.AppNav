@@ -139,7 +139,7 @@ loop.Run(async () =>
         return new(mount, () =>
         {
             cleanupAttempts++;
-            if (cleanupAttempts == 1) throw cleanupFailure;
+            if (cleanupAttempts <= 2) throw cleanupFailure;
         });
     }, Dispatch, _ => Task.CompletedTask, reports.Add);
     long unsafeEpoch = 0;
@@ -173,10 +173,19 @@ loop.Run(async () =>
           original.IsDisposed && reports.Count == 1 && reports[0] is AggregateException reportedFailure &&
           reportedFailure.InnerExceptions.Contains(cleanupFailure) && !unsafeResourceReleased,
         "Failed deferred cleanup rolled back Back, released its lease, or lost the error");
+    try
+    {
+        await unsafeShell.DisposeAsync();
+        throw new Exception("Expected teardown to report the repeated cleanup failure");
+    }
+    catch (AggregateException error) when (error.InnerExceptions.Contains(cleanupFailure)) { }
+
+    var unsafeShutdown = unsafeRouter.DisposeAsync().AsTask();
+    Check(!unsafeLease!.Released.IsCompleted && !unsafeResourceReleased && !unsafeShutdown.IsCompleted,
+        "Shutdown detached a borrower after owner cleanup failed");
     await unsafeShell.DisposeAsync();
-    await unsafeLease!.Released.WaitAsync(TimeSpan.FromSeconds(5));
-    await unsafeRouter.DisposeAsync();
-    Check(cleanupAttempts == 2 && unsafeResourceReleased, "Dispose did not resume failed owner cleanup");
+    await unsafeShutdown.WaitAsync(TimeSpan.FromSeconds(5));
+    Check(cleanupAttempts == 3 && unsafeResourceReleased, "Repeated disposal did not resume failed owner cleanup");
 });
 loop.Finish();
 Console.WriteLine("PASS OAHU mount ownership across staging failure, lease retirement, verified rollback, retry, detach and failed owner cleanup");
