@@ -33,7 +33,7 @@ internal static class AcceptanceChecks
         using (shell)
         {
             long epoch = 0;
-            epoch = presenter.Attach(new PublishingWitness(shell, target => Report(presenter, epoch, target), () =>
+            var surface = new PublishingWitness(shell, target => Report(presenter, epoch, target), () =>
             {
                 if (!retireAfterPublication) return;
                 retireAfterPublication = false;
@@ -44,9 +44,11 @@ internal static class AcceptanceChecks
                     return Task.CompletedTask;
                 popSettleEntered.TrySetResult();
                 return releasePopSettle.Task;
-            }));
+            });
+            epoch = presenter.Attach(surface);
             await router.StartAsync();
             await router.OpenGameAsync();
+            await surface.InitialAndPushSettled.WaitAsync(TimeSpan.FromSeconds(5));
             await router.Navigator.BackAsync();
             try
             {
@@ -121,6 +123,11 @@ internal static class AcceptanceChecks
     private sealed class PublishingWitness(NavigationShellViewModel shell, Func<ShellTarget, Task> report,
         Action afterPublication, Func<OahuNavigationTarget, Task> beforeSettle) : IOahuNavigationSurface
     {
+        private readonly TaskCompletionSource initialAndPushSettled = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int earlySettlements;
+
+        public Task InitialAndPushSettled => initialAndPushSettled.Task;
+
         public async Task ShowAsync(OahuNavigationTarget target, CancellationToken token)
         {
             await shell.ShowAsync(target, token);
@@ -139,6 +146,8 @@ internal static class AcceptanceChecks
         {
             await beforeSettle(target);
             await shell.SettleAsync(target, token);
+            if (target.Transition.Operation is "initial" or "push" && Interlocked.Increment(ref earlySettlements) == 2)
+                initialAndPushSettled.TrySetResult();
         }
     }
 }
