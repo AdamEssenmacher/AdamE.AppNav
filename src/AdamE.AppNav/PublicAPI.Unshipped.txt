@@ -163,4 +163,4 @@ AdamE.AppNav.Presentation.NavigationTopology.OwnerEntryIdOf(AdamE.AppNav.State.M
 AdamE.AppNav.Presentation.NavigationTopologySupport.NavigationTopologySupport(int maxStackEntries) -> void
 AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.PresentationSettlementFailed = 84 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
 AdamE.AppNav.Presentation.INavigationPresentationSettlement
-AdamE.AppNav.Presentation.INavigationPresentationSettlement.OnPresentationSettledAsync(AdamE.AppNav.State.NavigationState! state) -> System.Threading.Tasks.ValueTask
+AdamE.AppNav.Presentation.INavigationPresentationSettlement.OnPresentationSettledAsync(AdamE.AppNav.State.NavigationState! state, string! operationId) -> System.Threading.Tasks.ValueTask
