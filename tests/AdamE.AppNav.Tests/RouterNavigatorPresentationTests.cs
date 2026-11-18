@@ -10,6 +10,65 @@ namespace AdamE.AppNav.Tests;
 public sealed class RouterNavigatorPresentationTests
 {
     [Fact]
+    public async Task SettlementRunsAfterCommitAndFailureLeavesNavigationSuccessful()
+    {
+        var diagnostics = new NavigationDiagnostics();
+        var events = new List<NavigationDiagnosticEvent>();
+        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+
+        var presenter = new SettlingPresenter();
+        await using var navigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            TestNavigationPlanner.EchoStack(),
+            presenter,
+            new RouterNavigatorOptions { Diagnostics = diagnostics });
+        var snapshots = new List<(NavigationState Settled, NavigationState Current, int HistoryCount)>();
+        presenter.Settle = state =>
+        {
+            snapshots.Add((state, navigator.CurrentState, navigator.History.Entries.Count));
+            throw new InvalidOperationException("Post-commit cleanup failed.");
+        };
+
+        var result = await navigator.NavigateAsync(RouterNavigationRequest.FromRoute(
+            new TestRoutes.StoreRoute("northwind"), NavigationRequestSource.Test));
+        await navigator.RefreshPresentationAsync();
+
+        Assert.True(result.Presented);
+        Assert.Same(result.State, navigator.CurrentState);
+        Assert.Equal(2, snapshots.Count);
+        Assert.All(snapshots, snapshot =>
+        {
+            Assert.Same(result.State, snapshot.Settled);
+            Assert.Same(snapshot.Settled, snapshot.Current);
+            Assert.Equal(1, snapshot.HistoryCount);
+        });
+        var failures = events.Where(entry => entry.Kind == NavigationDiagnosticEventKind.PresentationSettlementFailed).ToArray();
+        Assert.Equal(2, failures.Length);
+        Assert.All(failures, failure => Assert.Equal(NavigationDiagnosticPhase.Presentation, failure.Phase));
+        Assert.DoesNotContain(events, entry => entry.Kind == NavigationDiagnosticEventKind.PresentationFailed);
+    }
+
+    private sealed class SettlingPresenter : INavigationPresenter, INavigationPresentationSettlement
+    {
+        public Action<NavigationState>? Settle { get; set; }
+
+        public event EventHandler<NavigationReconciliationRequestedEventArgs>? ReconciliationRequested
+        {
+            add { }
+            remove { }
+        }
+
+        public ValueTask ApplyAsync(NavigationPlan plan, NavigationPresentationContext context,
+            CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+
+        public ValueTask OnPresentationSettledAsync(NavigationState state)
+        {
+            Settle?.Invoke(state);
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    [Fact]
     public async Task NavigationFinalizesPresentedRouteForPresenterResultAndHistory()
     {
         var requestedRoute = new TestRoutes.StoreRoute("requested");

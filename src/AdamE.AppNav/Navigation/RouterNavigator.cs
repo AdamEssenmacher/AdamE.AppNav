@@ -245,6 +245,7 @@ internal sealed class RouterNavigator : IRouterNavigator
                 // A refresh commits nothing, so leases its presenter opened outside the state end with it.
                 _entryLeases?.EndPresentation(state);
             }
+            await NotifyPresentationSettledAsync(state, plan.Kind, operationId).ConfigureAwait(false);
             // Refresh is neither navigation nor an observed host-state replacement. State/history stay identical.
         }
         finally
@@ -401,6 +402,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             History = History.Push(
                 CreateHistoryEntry(finalizedRequest, finalRoute, CurrentState),
                 _maxHistoryEntries);
+            await NotifyPresentationSettledAsync(CurrentState, plan.Kind, operationId).ConfigureAwait(false);
             activity.SetStatus(ActivityStatusCode.Ok);
 
             return new NavigationResult(finalRoute, plan, CurrentState, true);
@@ -567,6 +569,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             _entryLeases?.Commit(CurrentState);
             History = History.Push(CreateHistoryEntry(request, route, CurrentState),
                 _maxHistoryEntries);
+            await NotifyPresentationSettledAsync(CurrentState, plan.Kind, operationId).ConfigureAwait(false);
 
             _diagnostics.Write(
                 NavigationDiagnosticEventKind.BackCompleted,
@@ -670,6 +673,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             History = History.Push(
                 CreateHistoryEntry(finalizedRequest, finalRoute, CurrentState),
                 _maxHistoryEntries);
+            await NotifyPresentationSettledAsync(CurrentState, plan.Kind, operationId).ConfigureAwait(false);
 
             _diagnostics.Write(
                 NavigationDiagnosticEventKind.ReconciliationCompleted,
@@ -686,6 +690,24 @@ internal sealed class RouterNavigator : IRouterNavigator
             _diagnostics.WriteFailure(NavigationDiagnosticEventKind.ReconciliationFailed, operationId,
                 reconciliation.Source.ToString(), ex, timer);
             throw;
+        }
+    }
+
+    private async ValueTask NotifyPresentationSettledAsync(
+        NavigationState state, NavigationPlanKind kind, string operationId)
+    {
+        if (_presenter is not INavigationPresentationSettlement settlement)
+            return;
+
+        var timer = Stopwatch.StartNew();
+        try
+        {
+            await settlement.OnPresentationSettledAsync(state).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            _diagnostics.WriteFailure(NavigationDiagnosticEventKind.PresentationSettlementFailed,
+                operationId, kind.ToString(), exception, timer);
         }
     }
 
