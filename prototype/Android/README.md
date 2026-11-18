@@ -25,7 +25,7 @@ Keep the device animator duration scale at 1× for the Game checks. The driver c
 | Modal stack | Back pops the dialog stack, then dismisses it to reveal the underlying branch |
 | Managed Back | Asynchronous Back policy denies and then accepts a request. Pending input is suppressed across projection updates, and the managed path skips Nav3's predictive animation. |
 | Managed Back recovery | Callback errors and missing completions are reported. When a live policy outlasts the native deadline, the managed session rejects a retry by ID and the original request commits one pop. |
-| Managed Back recreation | Recreating the Activity quietly cancels the old native waiter. The replacement still respects the retained managed request until it finishes. |
+| Managed Back recreation | Recreating the Activity quietly cancels the old native waiter. The retained request finishes before the replacement refreshes, then Back works through the replacement shell. |
 | Game push and Back | App-supplied resize sees different scene sizes and settles before commit. A canceled edge swipe keeps Game, and a completed swipe reconciles Back once. |
 | Game recreation | Replacement Activity witnesses the pending push without spending the original cover key |
 

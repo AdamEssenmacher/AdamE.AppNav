@@ -266,24 +266,35 @@ def verify_managed_back_recreation(probe):
     probe.wait_for_log(r"policy back evaluating", after=start)
     probe.tap("Recreate Activity")
     probe.wait_for_log(rf"policy back waiter canceled id={original[1]}\b", after=start)
-    probe.wait_for_log(r"surface epoch=2 .*catalog \[catalog,group,item,detail\]", after=start)
-    texts = probe.wait_for_texts("Page: detail")
+    probe.wait_for_log(r"attached epoch=2\b", after=start)
+    texts = probe.wait_for_texts("AppNav Compose probe")
     if "Managed Back: off" in texts:
         probe.tap("Managed Back: off")
-    probe.wait_for_texts("Managed Back: on")
-
-    probe.back()
-    rejected = probe.wait_for_log(r"policy back rejected id=(\d+)", after=start)
-    assert rejected[1] != original[1]
-    probe.wait_for_log(rf"policy back rejection observed id={rejected[1]}\b", after=start)
+    # The replacement's refresh waits behind the retained router's pending Back policy.
+    assert not re.search(r"policy back (finished|Completed)", probe.logs()[start:]), probe.logs()
     probe.tap("Step Back test")
     probe.wait_for_log(r"policy back Canceled history=2\b", after=start)
     probe.wait_for_log(rf"policy back finished id={original[1]}\b", after=start)
+    probe.wait_for_log(r"surface epoch=2 .*catalog \[catalog,group,item,detail\]", after=start)
     probe.wait_for_texts("Page: detail")
+
+    retry = len(probe.logs())
+    probe.back()
+    replacement = probe.wait_for_log(r"policy back requested id=(\d+) history=2\b", after=retry)
+    assert replacement[1] != original[1]
+    probe.wait_for_log(r"policy back evaluating", after=retry)
+    probe.run("shell", "input", "keyevent", "KEYCODE_BACK", "KEYCODE_BACK")
+    probe.tap("Step Back test")
+    probe.wait_for_log(r"policy back Completed history=3\b", after=retry)
+    probe.tap("Step Back test")
+    probe.wait_for_log(rf"policy back finished id={replacement[1]}\b", after=retry)
+    probe.wait_for_texts("Page: item")
     trace = probe.logs()[start:]
     assert "policy back failed" not in trace, trace
-    assert len(re.findall(r"policy back requested", trace)) == 1, trace
-    print("PASS Activity recreation cancels the native waiter silently and retains the running managed gate")
+    assert len(re.findall(r"policy back requested", trace)) == 2, trace
+    assert len(re.findall(r"policy back Completed", trace)) == 1, trace
+    assert not re.search(r"history=[4-9]\d*\b", trace), trace
+    print("PASS Activity recreation quietly cancels the native waiter and keeps the replacement Back gate independent")
 
 
 GAME_HISTORY = r"home\[home,home-detail,game\][^\n]*history=2\b"
