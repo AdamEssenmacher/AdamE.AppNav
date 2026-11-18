@@ -2,9 +2,11 @@
 import Foundation
 import PackageDescription
 
-let runtime = ProcessInfo.processInfo.environment["OAHU_RUNTIME_SWIFT"] ??
-    FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".nuget/packages/oahu.ios/0.1.0-preview.g7a56b3ba/swift/OahuRuntime").path
+let environment = ProcessInfo.processInfo.environment
+let packages = environment["NUGET_PACKAGES"].map { URL(fileURLWithPath: $0) } ??
+    FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".nuget/packages")
+let runtime = environment["OAHU_RUNTIME_SWIFT"] ??
+    packages.appendingPathComponent("oahu.ios/0.1.0-preview.g7a56b3ba/swift/OahuRuntime").path
 
 let package = Package(
     name: "AppNavSwiftUI",

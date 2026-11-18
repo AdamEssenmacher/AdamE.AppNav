@@ -62,7 +62,11 @@ public sealed class SwiftUINavigationHost : IDisposable
     }
 
     /// <summary>Stops pending observations and presenter work before the scene removes the hosting controller.</summary>
-    public void Detach() => navigation.Detach();
+    public void Detach()
+    {
+        EnsureMainThread();
+        navigation.Detach();
+    }
 
     /// <summary>Disposes the shell and mounted destinations after the hosting controller is removed.</summary>
     public void Dispose()
@@ -70,9 +74,12 @@ public sealed class SwiftUINavigationHost : IDisposable
         EnsureMainThread();
         if (disposed) return;
         disposed = true;
-        Detach();
-        try { screen.Dispose(); }
-        finally { navigation.Dispose(); }
+        try { navigation.Detach(); }
+        finally
+        {
+            try { screen.Dispose(); }
+            finally { navigation.Dispose(); }
+        }
     }
 
     private static void EnsureMainThread()
