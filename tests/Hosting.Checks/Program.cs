@@ -120,7 +120,10 @@ loop.Run(async () =>
     using var unsafePresenter = new OahuNavigationPresenter();
     var unsafeRouter = new ProbeRouter(unsafePresenter, unsafeLeases);
     RouteEntryLease? unsafeLease = null;
-    RouteEntryLease? cleanLease = null;
+    var cleanupAttempts = 0;
+    var reports = new List<Exception>();
+    using var cancelBack = new CancellationTokenSource();
+    var cancelAfterAccept = true;
     Oahu.OahuMount? unsafeMount = null;
     var unsafeResourceReleased = false;
     var cleanupFailure = new ApplicationException("screen owner cleanup failed");
@@ -128,33 +131,52 @@ loop.Run(async () =>
     unsafeShell = new NavigationShellViewModel(unsafeLeases, (entry, lease, _) =>
     {
         var mount = loop.Mount<INavigationShellViewModel>(unsafeShell!);
-        if (entry.Id == "home") cleanLease = lease;
+
         if (entry.Id != "home-detail") return new(mount);
         unsafeLease = lease;
         unsafeMount = mount;
         lease.Own(() => unsafeResourceReleased = true);
-        return new(mount, () => throw cleanupFailure);
-    }, Dispatch, _ => Task.CompletedTask, failure => throw failure);
+        return new(mount, () =>
+        {
+            cleanupAttempts++;
+            if (cleanupAttempts == 1) throw cleanupFailure;
+        });
+    }, Dispatch, _ => Task.CompletedTask, reports.Add);
     long unsafeEpoch = 0;
     unsafeEpoch = unsafePresenter.Attach(new Witness(unsafeShell, target =>
         unsafePresenter.ObserveAsync(unsafeEpoch, target.Revision, target.SelectedBranch,
-            target.Branches.Single(b => b.Branch == target.SelectedBranch).Entries.Select(e => e.EntryId).ToArray())));
+            target.Branches.Single(b => b.Branch == target.SelectedBranch).Entries.Select(e => e.EntryId).ToArray()),
+        accepted =>
+        {
+            if (cancelAfterAccept && accepted.Transition.Operation == "pop")
+            {
+                cancelAfterAccept = false;
+                cancelBack.Cancel();
+            }
+        }));
+    await unsafeRouter.StartAsync();
+    var original = unsafeMount!;
     try
     {
-        await unsafeRouter.StartAsync();
-        unsafePresenter.Detach(unsafeEpoch);
-        await unsafeShell.DisposeAsync();
-        throw new Exception("Expected screen owner cleanup to fail");
+        await unsafeRouter.Navigator.BackAsync(cancellationToken: cancelBack.Token);
+        throw new Exception("Expected cancellation after native acceptance");
     }
-    catch (AggregateException failure) when (failure.InnerExceptions.Contains(cleanupFailure)) { }
+    catch (OperationCanceledException) when (cancelBack.IsCancellationRequested) { }
+    Check(unsafeRouter.HistoryCount == 1 && !original.IsDisposed && ReferenceEquals(original, unsafeMount) &&
+          unsafeShell.Target.Current.Branches.Single(b => b.Branch == "home").Entries.Last().Mount == original.Id,
+        "Rollback must restore the original mounted screen");
 
-    // Shutdown must remain pending while the failed screen's borrower cannot be certified gone.
-    // Wait only for the independent clean lease so this deliberately held fixture cannot hang the harness.
-    var unsafeShutdown = unsafeRouter.DisposeAsync().AsTask();
-    await cleanLease!.Released.WaitAsync(TimeSpan.FromSeconds(5));
-    Check(unsafeMount!.IsDisposed && unsafeLease!.IsRetired && !unsafeLease.Released.IsCompleted &&
-          !unsafeResourceReleased && !unsafeShutdown.IsCompleted,
-        "Failed screen cleanup released a lease while its borrower was still unsafe");
+    await unsafeRouter.Navigator.BackAsync();
+    Check(unsafeRouter.HistoryCount == 2 && cleanupAttempts == 0, "Cleanup preceded the router's commit");
+    await unsafeRouter.Navigator.RefreshPresentationAsync();
+    Check(unsafeRouter.HistoryCount == 2 && unsafeRouter.CurrentEntryIds.SequenceEqual(["home"]) &&
+          original.IsDisposed && reports.Count == 1 && reports[0] is AggregateException reportedFailure &&
+          reportedFailure.InnerExceptions.Contains(cleanupFailure) && !unsafeResourceReleased,
+        "Failed deferred cleanup rolled back Back, released its lease, or lost the error");
+    await unsafeShell.DisposeAsync();
+    await unsafeLease!.Released.WaitAsync(TimeSpan.FromSeconds(5));
+    await unsafeRouter.DisposeAsync();
+    Check(cleanupAttempts == 2 && unsafeResourceReleased, "Dispose did not resume failed owner cleanup");
 });
 loop.Finish();
 Console.WriteLine("PASS OAHU mount ownership across staging failure, lease retirement, verified rollback, retry, detach and failed owner cleanup");
@@ -164,7 +186,7 @@ static void Check(bool condition, string message)
     if (!condition) throw new Exception(message);
 }
 
-sealed class Witness(NavigationShellViewModel shell, Func<ShellTarget, Task> report) : IOahuNavigationSurface
+sealed class Witness(NavigationShellViewModel shell, Func<ShellTarget, Task> report, Action<OahuNavigationTarget>? afterAccept = null) : IOahuNavigationSurface
 {
     public async Task ShowAsync(OahuNavigationTarget target, CancellationToken token)
     {
@@ -172,7 +194,12 @@ sealed class Witness(NavigationShellViewModel shell, Func<ShellTarget, Task> rep
         await report(shell.Target.Current);
     }
 
-    public Task AcceptAsync(OahuNavigationTarget target, CancellationToken token) => shell.AcceptAsync(target, token);
+    public async Task AcceptAsync(OahuNavigationTarget target, OahuNavigationTarget committedTarget,
+        Func<Action, bool> applyIfCurrent, CancellationToken token)
+    {
+        await shell.AcceptAsync(target, committedTarget, applyIfCurrent, token);
+        afterAccept?.Invoke(target);
+    }
 }
 
 sealed class LeaseHost(Func<Action, Task> dispatch) : IRouteEntryLeaseHost
