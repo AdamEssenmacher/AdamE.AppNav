@@ -164,11 +164,13 @@ def verify_managed_back(probe):
     probe.wait_for_log(GAME_HISTORY)
     probe.tap("Managed Back: off")
     probe.wait_for_texts("Managed Back: on")
+    probe.tap("Step Back test")
 
     start = len(probe.logs())
     probe.predictive_back(0.70)
     denied = probe.wait_for_log(r"policy back requested id=(\d+) history=2\b", after=start)
     probe.run("shell", "input", "keyevent", "KEYCODE_BACK", "KEYCODE_BACK")
+    probe.tap("Step Back test")
     probe.wait_for_log(r"policy back Canceled history=2\b", after=start)
     probe.wait_for_log(rf"policy back finished id={denied[1]}\b", after=start)
     probe.wait_for_texts("Page: game")
@@ -177,14 +179,17 @@ def verify_managed_back(probe):
     probe.back()
     accepted = probe.wait_for_log(r"policy back requested id=(\d+) history=2\b", after=retry)
     probe.run("shell", "input", "keyevent", "KEYCODE_BACK", "KEYCODE_BACK")
+    probe.tap("Step Back test")
     probe.wait_for_log(r"policy back Completed history=3\b", after=retry)
     # The previous request still owns the gate even after the new stack has settled.
     probe.run("shell", "input", "keyevent", "KEYCODE_BACK", "KEYCODE_BACK")
+    probe.tap("Step Back test")
     probe.wait_for_log(rf"policy back finished id={accepted[1]}\b", after=retry)
     probe.wait_for_texts("Page: home-detail")
     policy_log = probe.logs()[start:]
     assert len(re.findall(r"policy back requested", policy_log)) == 2, policy_log
     assert "game predictive transform" not in policy_log, policy_log
+    assert "game shared predictive preview" not in policy_log, policy_log
     assert not re.search(r"history=[4-9]\d*\b", policy_log), policy_log
     print("PASS managed Back suppresses predictive animation and duplicate requests, then reopens after denial")
 

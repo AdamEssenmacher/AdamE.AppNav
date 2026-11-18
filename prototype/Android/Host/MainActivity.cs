@@ -116,6 +116,9 @@ public sealed class MainActivity : ComponentActivity
             case "deny-next-back":
                 current.Policy.DenyNext();
                 break;
+            case "step-policy-back":
+                current.StepPolicyBack();
+                break;
         }
     }
 
@@ -150,6 +153,9 @@ public sealed class MainActivity : ComponentActivity
 
     private sealed class Session
     {
+        private readonly SemaphoreSlim policySteps = new(0);
+        private volatile bool stepPolicyBack;
+
         public Session()
         {
             Router = new ProbeRouter(Presenter, Leases, [Policy]);
@@ -166,20 +172,29 @@ public sealed class MainActivity : ComponentActivity
         public bool RecreateOnGamePush { get; set; }
         public (long Epoch, NativeObservation Observation)? Withheld { get; set; }
 
+        public void StepPolicyBack()
+        {
+            if (stepPolicyBack)
+                policySteps.Release();
+            else
+                stepPolicyBack = true;
+        }
+
         public async Task RequestBackAsync(long request)
         {
             try
             {
                 Trace($"policy back requested id={request} history={Router.HistoryCount}");
-                // Keep the policy pending long enough for the probe to exercise repeated input.
-                await Task.Delay(TimeSpan.FromSeconds(1.5));
+                if (stepPolicyBack)
+                    await policySteps.WaitAsync();
                 var result = await Router.Navigator.BackAsync(new BackNavigationRequest("main", BackNavigationSource.Host));
                 Trace($"policy back {result.Status} history={Router.HistoryCount}");
                 if (result.NavigationResult is { Presented: true })
                 {
                     OnCommit();
                     // An accepted projection can appear before the caller finishes its work.
-                    await Task.Delay(TimeSpan.FromSeconds(1.5));
+                    if (stepPolicyBack)
+                        await policySteps.WaitAsync();
                 }
             }
             finally

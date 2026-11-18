@@ -66,11 +66,18 @@ public fun DemoShellScreen(model: DemoShellModel) {
                         TextButton(onClick = { model.runCommand("recreate-link") }) { Text("Recreate + link") }
                         TextButton(onClick = { model.runCommand("open-modal") }) { Text("Modal") }
                     }
-                    TextButton(onClick = {
-                        managedBack = !managedBack
-                        if (managedBack) model.runCommand("deny-next-back")
-                    }) {
-                        Text(if (managedBack) "Managed Back: on" else "Managed Back: off")
+                    Row {
+                        TextButton(onClick = {
+                            managedBack = !managedBack
+                            if (managedBack) model.runCommand("deny-next-back")
+                        }) {
+                            Text(if (managedBack) "Managed Back: on" else "Managed Back: off")
+                        }
+                        if (managedBack) {
+                            TextButton(onClick = { model.runCommand("step-policy-back") }) {
+                                Text("Step Back test")
+                            }
+                        }
                     }
                     Text(status, style = MaterialTheme.typography.labelSmall)
                 }
