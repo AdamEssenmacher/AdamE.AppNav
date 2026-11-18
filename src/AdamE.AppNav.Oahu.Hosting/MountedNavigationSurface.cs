@@ -86,18 +86,28 @@ internal sealed class MountedNavigationSurface(RouteEntryLeaseRegistry leases, O
         ValidateAcceptedLeases(accepted, currentMounts);
 
         // Apply has not committed. Keep the exact mounts needed to roll back, even after
-        // native acceptance. A later acceptance can collect them once the router base moves.
+        // native acceptance. Commit collects these mounts once the router base moves.
+        Collect(DisplayedEntries(committed).Concat(DisplayedEntries(accepted)), retryFailed: true);
+    }
+
+    public void Commit(OahuNavigationTarget committed) =>
+        Collect(DisplayedEntries(committed), retryFailed: false);
+
+    private void Collect(IEnumerable<RouteEntry> protectedEntries, bool retryFailed)
+    {
+        // Native observations can run ahead of router history or a projection can still be visible.
+        // Keep both the live projection and the rollback/committed graph's eligible mounts.
         var retained = ScreenEntries(target.Current).Select(entry => entry.Mount).ToHashSet();
-        foreach (var entry in DisplayedEntries(committed).Concat(DisplayedEntries(accepted)))
+        foreach (var entry in protectedEntries)
         {
             if (leases.TryGet(entry.Id, out var lease) && !lease.IsRetired &&
                 mounts.TryGetValue(new MountKey(lease, entry.Route), out var screen))
                 retained.Add(screen.Id);
         }
 
-        if (ReleaseExcept(retained) is { } failure)
+        if (ReleaseExcept(retained, retryFailed) is { } failure)
         {
-            // The old transaction is over. A teardown reporter must not unwind this navigation.
+            // A teardown reporter must not unwind this navigation.
             try { reportFailure(failure); }
             catch (Exception reportingFailure) { System.Diagnostics.Trace.TraceError("{0}", reportingFailure); }
         }
@@ -171,17 +181,19 @@ internal sealed class MountedNavigationSurface(RouteEntryLeaseRegistry leases, O
         }
     }
 
-    private AggregateException? ReleaseExcept(HashSet<long> retained)
+    private AggregateException? ReleaseExcept(HashSet<long> retained, bool retryFailed = true)
     {
+        var releasing = retryFailed ? failedReleases.ToList() : [];
         foreach (var (key, screen) in mounts.ToArray())
         {
             if (retained.Contains(screen.Id)) continue;
             mounts.Remove(key);
             failedReleases.Add(screen);
+            releasing.Add(screen);
         }
 
         List<Exception> failures = [];
-        foreach (var screen in failedReleases.ToArray())
+        foreach (var screen in releasing)
         {
             try
             {

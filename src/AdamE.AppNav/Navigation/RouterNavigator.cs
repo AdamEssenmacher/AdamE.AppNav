@@ -401,6 +401,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             History = History.Push(
                 CreateHistoryEntry(finalizedRequest, finalRoute, CurrentState),
                 _maxHistoryEntries);
+            await NotifyPresentationCommittedAsync(operationId).ConfigureAwait(false);
             activity.SetStatus(ActivityStatusCode.Ok);
 
             return new NavigationResult(finalRoute, plan, CurrentState, true);
@@ -415,6 +416,20 @@ internal sealed class RouterNavigator : IRouterNavigator
                 ex,
                 operationTimer);
             throw;
+        }
+    }
+
+    private async ValueTask NotifyPresentationCommittedAsync(string operationId)
+    {
+        var timer = Stopwatch.StartNew();
+        try
+        {
+            await _presenter.OnCommittedAsync(CurrentState).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            _diagnostics.WriteFailure(NavigationDiagnosticEventKind.PresentationPageReleaseFailed,
+                operationId, "Post-commit presentation cleanup failed.", exception, timer);
         }
     }
 
@@ -567,6 +582,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             _entryLeases?.Commit(CurrentState);
             History = History.Push(CreateHistoryEntry(request, route, CurrentState),
                 _maxHistoryEntries);
+            await NotifyPresentationCommittedAsync(operationId).ConfigureAwait(false);
 
             _diagnostics.Write(
                 NavigationDiagnosticEventKind.BackCompleted,
@@ -670,6 +686,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             History = History.Push(
                 CreateHistoryEntry(finalizedRequest, finalRoute, CurrentState),
                 _maxHistoryEntries);
+            await NotifyPresentationCommittedAsync(operationId).ConfigureAwait(false);
 
             _diagnostics.Write(
                 NavigationDiagnosticEventKind.ReconciliationCompleted,

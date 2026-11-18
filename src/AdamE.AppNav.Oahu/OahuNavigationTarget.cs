@@ -93,7 +93,7 @@ public sealed record OahuNavigationTarget
     }
 }
 
-/// <summary>One native host attachment. Both methods serialize work on its UI thread and check the token there before mutating native state.</summary>
+/// <summary>One native host attachment. Methods serialize work on its UI thread and check the token there before mutating native state.</summary>
 public interface IOahuNavigationSurface
 {
     /// <summary>Stage resources and publish the target. The native renderer reports completion separately.</summary>
@@ -106,4 +106,7 @@ public interface IOahuNavigationSurface
     /// <param name="token">Cancels work for a timed-out or detached presentation.</param>
     Task AcceptAsync(OahuNavigationTarget target, OahuNavigationTarget committedTarget,
         Func<Action, bool> applyIfCurrent, CancellationToken token);
+
+    /// <summary>Releases resources that the committed state and the current native presentation have both dropped.</summary>
+    Task CommitAsync(OahuNavigationTarget committedTarget, CancellationToken token) => Task.CompletedTask;
 }
