@@ -122,6 +122,9 @@ public sealed class MainActivity : ComponentActivity
             case "drop-next-back-completion":
                 current.DropNextBackCompletion();
                 break;
+            case "recreate-activity":
+                Recreate();
+                break;
         }
     }
 
@@ -159,9 +162,11 @@ public sealed class MainActivity : ComponentActivity
         private readonly SemaphoreSlim policySteps = new(0);
         private volatile bool stepPolicyBack;
         private int dropNextBackCompletion;
+        private long activeBackRequest;
 
         public Session()
         {
+            Policy = new DenyNextBackPolicy(token => stepPolicyBack ? policySteps.WaitAsync(token) : Task.CompletedTask);
             Router = new ProbeRouter(Presenter, Leases, [Policy]);
             Router.Committed += OnCommit;
         }
@@ -169,8 +174,7 @@ public sealed class MainActivity : ComponentActivity
         public OahuNavigationPresenter Presenter { get; } = ProbeRouter.CreatePresenter();
         public ProbeRouter Router { get; }
         public RouteEntryLeaseRegistry Leases { get; } = new(AndroidNavigationHost.CreateLeaseHost(Fault));
-        public DenyNextBackPolicy Policy { get; } = new();
-        public StateSource<long> CompletedBack { get; } = new(0);
+        public DenyNextBackPolicy Policy { get; }
         public StateSource<string> Status { get; } = new("Starting");
         public bool RecreateOnLink { get; set; }
         public bool RecreateOnGamePush { get; set; }
@@ -190,7 +194,32 @@ public sealed class MainActivity : ComponentActivity
             Trace("policy back completion drop armed");
         }
 
-        public async Task RequestBackAsync(long request)
+        public async Task RequestBackAsync(long request, Action<long> complete, Action<long> reject)
+        {
+            var pending = Interlocked.CompareExchange(ref activeBackRequest, request, 0);
+            if (pending == request)
+                return;
+            if (pending != 0)
+            {
+                await AndroidNavigationHost.DispatchAsync(() =>
+                {
+                    reject(request);
+                    Trace($"policy back rejected id={request}");
+                });
+                return;
+            }
+
+            try
+            {
+                await EvaluateBackAsync(request, complete);
+            }
+            finally
+            {
+                Interlocked.CompareExchange(ref activeBackRequest, 0, request);
+            }
+        }
+
+        private async Task EvaluateBackAsync(long request, Action<long> complete)
         {
             if (Interlocked.Exchange(ref dropNextBackCompletion, 0) == 1)
             {
@@ -201,8 +230,6 @@ public sealed class MainActivity : ComponentActivity
             try
             {
                 Trace($"policy back requested id={request} history={Router.HistoryCount}");
-                if (stepPolicyBack)
-                    await policySteps.WaitAsync();
                 var result = await Router.Navigator.BackAsync(new BackNavigationRequest("main", BackNavigationSource.Host));
                 Trace($"policy back {result.Status} history={Router.HistoryCount}");
                 if (result.NavigationResult is { Presented: true })
@@ -217,8 +244,15 @@ public sealed class MainActivity : ComponentActivity
             {
                 await AndroidNavigationHost.DispatchAsync(() =>
                 {
-                    CompletedBack.Set(request);
-                    Trace($"policy back finished id={request}");
+                    try
+                    {
+                        complete(request);
+                        Trace($"policy back finished id={request}");
+                    }
+                    finally
+                    {
+                        Interlocked.CompareExchange(ref activeBackRequest, 0, request);
+                    }
                 });
             }
         }
@@ -240,17 +274,21 @@ public sealed class MainActivity : ComponentActivity
         }
     }
 
-    private sealed class DenyNextBackPolicy : IBackNavigationPolicy
+    private sealed class DenyNextBackPolicy(Func<CancellationToken, Task> wait) : IBackNavigationPolicy
     {
         private int denyNext;
 
         public void DenyNext() => Interlocked.Exchange(ref denyNext, 1);
 
-        public ValueTask<BackNavigationPolicyDecision> EvaluateAsync(
-            BackNavigationPolicyContext context, CancellationToken cancellationToken = default) =>
-            ValueTask.FromResult(Interlocked.Exchange(ref denyNext, 0) == 1
+        public async ValueTask<BackNavigationPolicyDecision> EvaluateAsync(
+            BackNavigationPolicyContext context, CancellationToken cancellationToken = default)
+        {
+            Trace("policy back evaluating");
+            await wait(cancellationToken);
+            return Interlocked.Exchange(ref denyNext, 0) == 1
                 ? BackNavigationPolicyDecision.Cancel
-                : BackNavigationPolicyDecision.Continue);
+                : BackNavigationPolicyDecision.Continue;
+        }
     }
 
     private sealed class DemoShellViewModel(INavigationShellViewModel shell, Session session,
@@ -258,8 +296,12 @@ public sealed class MainActivity : ComponentActivity
     {
         public IOahuState<ShellTarget> Target => shell.Target;
         public IOahuState<string> Status => session.Status;
-        public IOahuState<long> CompletedBack => session.CompletedBack;
-        public Task RequestBack(long request) => session.RequestBackAsync(request);
+        private readonly StateSource<long> completedBack = new(0);
+        private readonly StateSource<long> rejectedBack = new(0);
+
+        public IOahuState<long> CompletedBack => completedBack;
+        public IOahuState<long> RejectedBack => rejectedBack;
+        public Task RequestBack(long request) => session.RequestBackAsync(request, completedBack.Set, rejectedBack.Set);
         public void Report(NativeObservation observation) => observe(shell, observation);
         public void RunCommand(string value) => Run(() => AndroidNavigationHost.DispatchAsync(() => command(value)));
         public void RecordTrace(string message) => Trace(message);

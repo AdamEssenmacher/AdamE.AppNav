@@ -58,6 +58,8 @@ import androidx.navigationevent.compose.NavigationBackHandler
 import androidx.navigationevent.compose.NavigationEventState
 import com.adamessenmacher.oahu.compose.OahuMount
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -174,9 +176,8 @@ public fun AppNavNavigationShell(
             backScope.launch {
                 try {
                     requestBack()
-                } catch (canceled: CancellationException) {
-                    throw canceled
                 } catch (failure: Throwable) {
+                    if (failure is CancellationException && !currentCoroutineContext().isActive) throw failure
                     latestBackFailure(failure)
                 } finally {
                     managedBackInFlight = false

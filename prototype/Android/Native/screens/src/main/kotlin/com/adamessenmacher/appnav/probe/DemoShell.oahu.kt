@@ -2,11 +2,12 @@
 // change the C# contract and rebuild (docs/codegen.md). The screen is yours to write, in this package:
 // @Composable fun DemoShellScreen(model: DemoShellModel).
 //
-// Contract hash -608075232377159091, over its signature:
+// Contract hash -4347170740192184296, over its signature:
 //   oahu/1 contract DemoShell
 //   stream 0 state Target: ShellTarget
 //   stream 1 state Status: string
 //   stream 2 state CompletedBack: long
+//   stream 3 state RejectedBack: long
 //   member 0 method RequestBack: long
 //   member 1 method Report: NativeObservation
 //   member 2 method RunCommand: string
@@ -73,11 +74,12 @@ internal object DemoShellContract {
     const val NAME: String = "DemoShell"
 
     /** FNV-1a 64 of DemoShell's signature (above). The .NET host refuses the screen when its own hash differs. */
-    const val HASH: Long = -608075232377159091L
+    const val HASH: Long = -4347170740192184296L
 
     const val STREAM_TARGET: Int = 0
     const val STREAM_STATUS: Int = 1
     const val STREAM_COMPLETED_BACK: Int = 2
+    const val STREAM_REJECTED_BACK: Int = 3
 
     const val MEMBER_REQUEST_BACK: Int = 0
     const val MEMBER_REPORT: Int = 1
@@ -176,6 +178,7 @@ public class DemoShellModel private constructor(
     public val target: StateFlow<ShellTarget>,
     public val status: StateFlow<String>,
     public val completedBack: StateFlow<Long>,
+    public val rejectedBack: StateFlow<Long>,
 ) {
     /** Sends the RequestBack intent. Observe state and events for its effects. */
     public fun requestBack(input: Long) {
@@ -259,6 +262,11 @@ public class DemoShellModel private constructor(
         public fun setCompletedBack(value: Long) {
             port.publish(DemoShellContract.STREAM_COMPLETED_BACK) { it.writeLong(value) }
         }
+
+        /** Publishes a new `RejectedBack`: the screen gets it, and so does a model connected later. */
+        public fun setRejectedBack(value: Long) {
+            port.publish(DemoShellContract.STREAM_REJECTED_BACK) { it.writeLong(value) }
+        }
     }
 
     public companion object {
@@ -278,7 +286,11 @@ public class DemoShellModel private constructor(
                     DemoShellContract.STREAM_COMPLETED_BACK,
                     OahuReader::readLong,
                 )
-                return DemoShellModel(connection, target, status, completedBack)
+                val rejectedBack = connection.subscribeState(
+                    DemoShellContract.STREAM_REJECTED_BACK,
+                    OahuReader::readLong,
+                )
+                return DemoShellModel(connection, target, status, completedBack, rejectedBack)
             } catch (failure: Throwable) {
                 connection.close()
                 throw failure
@@ -293,12 +305,14 @@ public class DemoShellModel private constructor(
             target: ShellTarget,
             status: String,
             completedBack: Long,
+            rejectedBack: Long,
             configure: Preview.() -> Unit = {},
         ): DemoShellModel {
             val port = OahuPreviewPort(DemoShellContract.NAME, DemoShellContract.HASH)
             port.setState(DemoShellContract.STREAM_TARGET) { DemoShellCodec.writeShellTarget(it, target) }
             port.setState(DemoShellContract.STREAM_STATUS) { it.writeString(status) }
             port.setState(DemoShellContract.STREAM_COMPLETED_BACK) { it.writeLong(completedBack) }
+            port.setState(DemoShellContract.STREAM_REJECTED_BACK) { it.writeLong(rejectedBack) }
             val preview = Preview(port)
             preview.configure()
             return connect(port)

@@ -1,5 +1,6 @@
 package com.adamessenmacher.appnav.probe
 
+import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,8 +30,13 @@ import com.adamessenmacher.appnav.compose.NavigationBranch
 import com.adamessenmacher.appnav.compose.NavigationPresentationTransition
 import com.adamessenmacher.appnav.compose.NavigationProjection
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withTimeout
 
 private val backRequestIds = AtomicLong()
 
@@ -43,7 +49,7 @@ public fun DemoShellScreen(model: DemoShellModel) {
     val animations = remember(actions) { gameAnimations(actions) }
     var managedBack by rememberSaveable { mutableStateOf(false) }
     var throwOnBack by remember { mutableStateOf(false) }
-    var dropBackCompletion by remember { mutableStateOf(false) }
+    var shortBackTimeout by remember { mutableStateOf(false) }
     MaterialTheme {
         CompositionLocalProvider(LocalGameActions provides actions) {
             AppNavNavigationShell(
@@ -59,17 +65,32 @@ public fun DemoShellScreen(model: DemoShellModel) {
                             throwOnBack = false
                             error("Probe Back callback failed")
                         }
-                        val completionTimeoutMs = if (dropBackCompletion) 2_000L else 30_000L
-                        dropBackCompletion = false
+                        val completionTimeoutMs = if (shortBackTimeout) 2_000L else 30_000L
+                        shortBackTimeout = false
                         val request = backRequestIds.incrementAndGet()
                         model.requestBack(request)
-                        withTimeoutOrNull(completionTimeoutMs) {
-                            model.completedBack.first { it == request }
-                        } ?: error("No completion for Back request ${request}")
+                        try {
+                            withTimeout(completionTimeoutMs) {
+                                combine(model.completedBack, model.rejectedBack) { completed, rejected ->
+                                    completed == request || rejected == request
+                                }.first { it }
+                            }
+                        } catch (canceled: CancellationException) {
+                            if (!currentCoroutineContext().isActive) {
+                                Log.i("AppNavProbe", "policy back waiter canceled id=$request")
+                            }
+                            throw canceled
+                        }
+                        if (model.rejectedBack.value == request) {
+                            model.recordTrace("policy back rejection observed id=$request")
+                        }
                     }
                 } else null,
                 animations = animations,
-                onBackFailure = { model.recordTrace("policy back failed: ${it.message}") },
+                onBackFailure = { failure ->
+                    val reason = if (failure is TimeoutCancellationException) "timeout" else failure.message
+                    Log.i("AppNavProbe", "policy back failed: $reason")
+                },
             ) {
                 Column(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp)) {
                     Text("AppNav Compose probe", style = MaterialTheme.typography.titleLarge)
@@ -95,9 +116,15 @@ public fun DemoShellScreen(model: DemoShellModel) {
                         Row {
                             TextButton(onClick = { throwOnBack = true }) { Text("Throw on next Back") }
                             TextButton(onClick = {
-                                dropBackCompletion = true
+                                shortBackTimeout = true
                                 model.runCommand("drop-next-back-completion")
                             }) { Text("Drop Back completion") }
+                        }
+                        Row {
+                            TextButton(onClick = { shortBackTimeout = true }) { Text("Time out next Back") }
+                            TextButton(onClick = { model.runCommand("recreate-activity") }) {
+                                Text("Recreate Activity")
+                            }
                         }
                     }
                     Text(status, style = MaterialTheme.typography.labelSmall)

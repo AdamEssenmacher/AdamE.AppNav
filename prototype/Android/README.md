@@ -16,7 +16,7 @@ python3 prototype/Android/UITests/run.py --serial "$ANDROID_SERIAL" \
   --apk prototype/Android/Host/bin/Release/net11.0-android37.0/android-arm64/com.adamessenmacher.appnav.probe-Signed.apk
 ```
 
-Keep the device animator duration scale at 1× for the Game checks. The driver covers seven scenarios.
+Keep the device animator duration scale at 1× for the Game checks. The driver covers eight scenarios.
 
 | Scenario | Checks |
 | --- | --- |
@@ -24,7 +24,8 @@ Keep the device animator duration scale at 1× for the Game checks. The driver c
 | Link recreation | Same-process Activity replacement while the deep link is pending, with the outgoing Activity's observation fenced |
 | Modal stack | Back pops the dialog stack, then dismisses it to reveal the underlying branch |
 | Managed Back | Asynchronous Back policy denies and then accepts a request. Pending input is suppressed across projection updates, and the managed path skips Nav3's predictive animation. |
-| Managed Back recovery | A callback exception and a missing bridge completion are reported, and Back can be retried after each failure. |
+| Managed Back recovery | Callback errors and missing completions are reported. When a live policy outlasts the native deadline, the managed session rejects a retry by ID and the original request commits one pop. |
+| Managed Back recreation | Recreating the Activity quietly cancels the old native waiter. The replacement still respects the retained managed request until it finishes. |
 | Game push and Back | App-supplied resize sees different scene sizes and settles before commit. A canceled edge swipe keeps Game, and a completed swipe reconciles Back once. |
 | Game recreation | Replacement Activity witnesses the pending push without spending the original cover key |
 

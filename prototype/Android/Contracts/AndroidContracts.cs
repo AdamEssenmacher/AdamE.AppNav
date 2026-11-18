@@ -9,6 +9,7 @@ public interface IDemoShellViewModel
     IOahuState<ShellTarget> Target { get; }
     IOahuState<string> Status { get; }
     IOahuState<long> CompletedBack { get; }
+    IOahuState<long> RejectedBack { get; }
     Task RequestBack(long request);
     void Report(NativeObservation observation);
     void RunCommand(string command);

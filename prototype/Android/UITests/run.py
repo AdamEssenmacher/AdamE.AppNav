@@ -213,8 +213,8 @@ def verify_managed_back_recovery(probe):
     probe.tap("Drop Back completion")
     probe.wait_for_log(r"policy back completion drop armed")
     probe.back()
-    dropped = probe.wait_for_log(r"policy back completion dropped id=(\d+)")
-    probe.wait_for_log(rf"policy back failed: No completion for Back request {dropped[1]}\b")
+    probe.wait_for_log(r"policy back completion dropped id=\d+")
+    probe.wait_for_log(r"policy back failed: timeout")
     probe.wait_for_texts("Page: detail")
 
     retry = len(probe.logs())
@@ -224,12 +224,66 @@ def verify_managed_back_recovery(probe):
     probe.wait_for_log(rf"policy back finished id={denied[1]}\b", after=retry)
     probe.wait_for_texts("Page: detail")
 
-    retry = len(probe.logs())
+    probe.tap("Step Back test")
+    probe.tap("Time out next Back")
+    pending = len(probe.logs())
     probe.back()
-    probe.wait_for_log(r"policy back Completed history=3\b", after=retry)
+    original = probe.wait_for_log(r"policy back requested id=(\d+) history=2\b", after=pending)
+    probe.wait_for_log(r"policy back evaluating", after=pending)
+    probe.wait_for_log(r"policy back failed: timeout", after=pending)
+    probe.wait_for_texts("Page: detail")
+
+    probe.back()
+    rejected = probe.wait_for_log(r"policy back rejected id=(\d+)", after=pending)
+    assert rejected[1] != original[1]
+    probe.wait_for_log(rf"policy back rejection observed id={rejected[1]}\b", after=pending)
+    assert not re.search(r"policy back (finished|Completed)", probe.logs()[pending:]), probe.logs()
+
+    probe.tap("Step Back test")
+    probe.wait_for_log(r"policy back Completed history=3\b", after=pending)
+    probe.tap("Step Back test")
+    probe.wait_for_log(rf"policy back finished id={original[1]}\b", after=pending)
     probe.wait_for_texts("Page: item")
-    assert len(re.findall(r"policy back requested", probe.logs())) == 2, probe.logs()
-    print("PASS managed Back reports thrown callbacks and missing completion, then allows retry")
+    trace = probe.logs()[pending:]
+    assert len(re.findall(r"policy back requested", trace)) == 1, trace
+    assert len(re.findall(r"policy back Completed", trace)) == 1, trace
+    assert not re.search(r"history=[4-9]\d*\b", trace), trace
+    print("PASS managed Back reports callback errors and timeouts, rejects a retry during a pending policy, and pops once")
+
+
+def verify_managed_back_recreation(probe):
+    probe.reset()
+    probe.wait_for_texts("Page: home-detail")
+    probe.wait_for_log(r"history=1\b")
+    probe.tap("Deep link")
+    probe.wait_for_texts("Page: detail")
+    probe.wait_for_log(r"history=2\b")
+    probe.tap("Managed Back: off")
+    probe.tap("Step Back test")
+    start = len(probe.logs())
+    probe.back()
+    original = probe.wait_for_log(r"policy back requested id=(\d+) history=2\b", after=start)
+    probe.wait_for_log(r"policy back evaluating", after=start)
+    probe.tap("Recreate Activity")
+    probe.wait_for_log(rf"policy back waiter canceled id={original[1]}\b", after=start)
+    probe.wait_for_log(r"surface epoch=2 .*catalog \[catalog,group,item,detail\]", after=start)
+    texts = probe.wait_for_texts("Page: detail")
+    if "Managed Back: off" in texts:
+        probe.tap("Managed Back: off")
+    probe.wait_for_texts("Managed Back: on")
+
+    probe.back()
+    rejected = probe.wait_for_log(r"policy back rejected id=(\d+)", after=start)
+    assert rejected[1] != original[1]
+    probe.wait_for_log(rf"policy back rejection observed id={rejected[1]}\b", after=start)
+    probe.tap("Step Back test")
+    probe.wait_for_log(r"policy back Canceled history=2\b", after=start)
+    probe.wait_for_log(rf"policy back finished id={original[1]}\b", after=start)
+    probe.wait_for_texts("Page: detail")
+    trace = probe.logs()[start:]
+    assert "policy back failed" not in trace, trace
+    assert len(re.findall(r"policy back requested", trace)) == 1, trace
+    print("PASS Activity recreation cancels the native waiter silently and retains the running managed gate")
 
 
 GAME_HISTORY = r"home\[home,home-detail,game\][^\n]*history=2\b"
@@ -316,6 +370,7 @@ SCENARIOS = {
     "modal": verify_modal_stack,
     "policy-back": verify_managed_back,
     "policy-recovery": verify_managed_back_recovery,
+    "policy-recreate": verify_managed_back_recreation,
     "game-back": verify_game_predictive_back,
     "recreate-game": verify_game_recreation,
 }

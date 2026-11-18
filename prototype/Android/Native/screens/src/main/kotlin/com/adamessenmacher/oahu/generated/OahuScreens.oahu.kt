@@ -2,7 +2,7 @@
 //
 // This library's screen provider. The .NET host finds it by this class name (oahu-runtime's consumer R8 rule
 // keeps it). It shows each contract's screen, found by naming convention (P1-D11):
-//   DemoShell (hash -608075232377159091): @Composable fun DemoShellScreen(model: DemoShellModel) in com.adamessenmacher.appnav.probe
+//   DemoShell (hash -4347170740192184296): @Composable fun DemoShellScreen(model: DemoShellModel) in com.adamessenmacher.appnav.probe
 //   Page (hash -7512465206015465397): @Composable fun PageScreen(model: PageModel) in com.adamessenmacher.appnav.probe
 
 package com.adamessenmacher.oahu.generated
