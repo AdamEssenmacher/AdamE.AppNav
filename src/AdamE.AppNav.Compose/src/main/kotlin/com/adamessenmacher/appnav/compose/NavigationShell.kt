@@ -1,5 +1,6 @@
 package com.adamessenmacher.appnav.compose
 
+import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.SharedTransitionLayout
@@ -56,6 +57,7 @@ import androidx.navigationevent.NavigationEventTransitionState
 import androidx.navigationevent.compose.NavigationBackHandler
 import androidx.navigationevent.compose.NavigationEventState
 import com.adamessenmacher.oahu.compose.OahuMount
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -83,6 +85,8 @@ public fun AppNavNavigationShell(
  * In that mode the callback requests a managed navigation operation and its next projection
  * drives the stack change. Suspend until the managed request finishes, even when the policy
  * refuses Back. The shell holds the Back gate closed while the callback is running.
+ * If the callback fails, [onBackFailure] receives the error and the gate reopens.
+ * Calls across a one-way bridge should bound the wait for completion and report timeout as a failure.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -97,6 +101,7 @@ public fun AppNavNavigationShell(
         }
     },
     animations: NavigationAnimations = DefaultAnimations,
+    onBackFailure: (Throwable) -> Unit = { Log.e("AppNav", "Managed Back failed", it) },
     controls: @Composable () -> Unit = {},
 ) {
     val surface = remember(target.revision) { DisplayedSurface(target) }
@@ -121,6 +126,7 @@ public fun AppNavNavigationShell(
     var renderedPrimary by remember { mutableStateOf<StackRender?>(null) }
     var renderedModal by remember { mutableStateOf<StackRender?>(null) }
     val latestReport by rememberUpdatedState(report)
+    val latestBackFailure by rememberUpdatedState(onBackFailure)
     val observation = NavigationObservation(
         target.revision,
         branch,
@@ -154,6 +160,10 @@ public fun AppNavNavigationShell(
             backScope.launch {
                 try {
                     requestBack()
+                } catch (canceled: CancellationException) {
+                    throw canceled
+                } catch (failure: Throwable) {
+                    latestBackFailure(failure)
                 } finally {
                     managedBackInFlight = false
                 }

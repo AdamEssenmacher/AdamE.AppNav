@@ -30,6 +30,7 @@ import com.adamessenmacher.appnav.compose.NavigationPresentationTransition
 import com.adamessenmacher.appnav.compose.NavigationProjection
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 
 private val backRequestIds = AtomicLong()
 
@@ -41,6 +42,8 @@ public fun DemoShellScreen(model: DemoShellModel) {
     val actions = remember(model) { GameActions(model::runCommand, model::recordTrace) }
     val animations = remember(actions) { gameAnimations(actions) }
     var managedBack by rememberSaveable { mutableStateOf(false) }
+    var throwOnBack by remember { mutableStateOf(false) }
+    var dropBackCompletion by remember { mutableStateOf(false) }
     MaterialTheme {
         CompositionLocalProvider(LocalGameActions provides actions) {
             AppNavNavigationShell(
@@ -52,12 +55,21 @@ public fun DemoShellScreen(model: DemoShellModel) {
                 },
                 requestBack = if (managedBack) {
                     {
+                        if (throwOnBack) {
+                            throwOnBack = false
+                            error("Probe Back callback failed")
+                        }
+                        val completionTimeoutMs = if (dropBackCompletion) 2_000L else 30_000L
+                        dropBackCompletion = false
                         val request = backRequestIds.incrementAndGet()
                         model.requestBack(request)
-                        model.completedBack.first { it == request }
+                        withTimeoutOrNull(completionTimeoutMs) {
+                            model.completedBack.first { it == request }
+                        } ?: error("No completion for Back request ${request}")
                     }
                 } else null,
                 animations = animations,
+                onBackFailure = { model.recordTrace("policy back failed: ${it.message}") },
             ) {
                 Column(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp)) {
                     Text("AppNav Compose probe", style = MaterialTheme.typography.titleLarge)
@@ -77,6 +89,15 @@ public fun DemoShellScreen(model: DemoShellModel) {
                             TextButton(onClick = { model.runCommand("step-policy-back") }) {
                                 Text("Step Back test")
                             }
+                        }
+                    }
+                    if (managedBack) {
+                        Row {
+                            TextButton(onClick = { throwOnBack = true }) { Text("Throw on next Back") }
+                            TextButton(onClick = {
+                                dropBackCompletion = true
+                                model.runCommand("drop-next-back-completion")
+                            }) { Text("Drop Back completion") }
                         }
                     }
                     Text(status, style = MaterialTheme.typography.labelSmall)

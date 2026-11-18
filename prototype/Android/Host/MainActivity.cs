@@ -119,6 +119,9 @@ public sealed class MainActivity : ComponentActivity
             case "step-policy-back":
                 current.StepPolicyBack();
                 break;
+            case "drop-next-back-completion":
+                current.DropNextBackCompletion();
+                break;
         }
     }
 
@@ -155,6 +158,7 @@ public sealed class MainActivity : ComponentActivity
     {
         private readonly SemaphoreSlim policySteps = new(0);
         private volatile bool stepPolicyBack;
+        private int dropNextBackCompletion;
 
         public Session()
         {
@@ -180,8 +184,20 @@ public sealed class MainActivity : ComponentActivity
                 stepPolicyBack = true;
         }
 
+        public void DropNextBackCompletion()
+        {
+            Interlocked.Exchange(ref dropNextBackCompletion, 1);
+            Trace("policy back completion drop armed");
+        }
+
         public async Task RequestBackAsync(long request)
         {
+            if (Interlocked.Exchange(ref dropNextBackCompletion, 0) == 1)
+            {
+                Trace($"policy back completion dropped id={request}");
+                return;
+            }
+
             try
             {
                 Trace($"policy back requested id={request} history={Router.HistoryCount}");

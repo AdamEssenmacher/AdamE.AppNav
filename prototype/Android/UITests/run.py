@@ -194,6 +194,44 @@ def verify_managed_back(probe):
     print("PASS managed Back suppresses predictive animation and duplicate requests, then reopens after denial")
 
 
+def verify_managed_back_recovery(probe):
+    probe.reset()
+    probe.wait_for_texts("Page: home-detail")
+    probe.wait_for_log(r"history=1\b")
+    probe.tap("Deep link")
+    probe.wait_for_texts("Page: detail")
+    probe.wait_for_log(r"history=2\b")
+    probe.tap("Managed Back: off")
+    probe.wait_for_texts("Managed Back: on")
+
+    probe.tap("Throw on next Back")
+    probe.back()
+    probe.wait_for_log(r"policy back failed: Probe Back callback failed")
+    probe.wait_for_texts("Page: detail")
+    assert "policy back requested" not in probe.logs(), probe.logs()
+
+    probe.tap("Drop Back completion")
+    probe.wait_for_log(r"policy back completion drop armed")
+    probe.back()
+    dropped = probe.wait_for_log(r"policy back completion dropped id=(\d+)")
+    probe.wait_for_log(rf"policy back failed: No completion for Back request {dropped[1]}\b")
+    probe.wait_for_texts("Page: detail")
+
+    retry = len(probe.logs())
+    probe.back()
+    denied = probe.wait_for_log(r"policy back requested id=(\d+) history=2\b", after=retry)
+    probe.wait_for_log(r"policy back Canceled history=2\b", after=retry)
+    probe.wait_for_log(rf"policy back finished id={denied[1]}\b", after=retry)
+    probe.wait_for_texts("Page: detail")
+
+    retry = len(probe.logs())
+    probe.back()
+    probe.wait_for_log(r"policy back Completed history=3\b", after=retry)
+    probe.wait_for_texts("Page: item")
+    assert len(re.findall(r"policy back requested", probe.logs())) == 2, probe.logs()
+    print("PASS managed Back reports thrown callbacks and missing completion, then allows retry")
+
+
 GAME_HISTORY = r"home\[home,home-detail,game\][^\n]*history=2\b"
 DISPLAY_RESIZE = r"display size transform from=(\d+)x(\d+) to=(\d+)x(\d+)"
 HOME_RETURN_HISTORY = r"home\[home,home-detail\][^\n]*history=3\b[^\n]*HostReconciliation@home\[home,home-detail\]"
@@ -277,6 +315,7 @@ SCENARIOS = {
     "recreate-link": verify_recreation,
     "modal": verify_modal_stack,
     "policy-back": verify_managed_back,
+    "policy-recovery": verify_managed_back_recovery,
     "game-back": verify_game_predictive_back,
     "recreate-game": verify_game_recreation,
 }
