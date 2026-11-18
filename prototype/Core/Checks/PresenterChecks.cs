@@ -18,8 +18,7 @@ internal static class PresenterChecks
         public List<OahuNavigationTarget> Accepted { get; } = [];
         public Task ShowAsync(OahuNavigationTarget target, CancellationToken token) =>
             frames.Writer.WriteAsync(target, token).AsTask();
-        public async Task AcceptAsync(OahuNavigationTarget target, OahuNavigationTarget committedTarget,
-            Func<Action, bool> applyIfCurrent,
+        public async Task AcceptAsync(OahuNavigationTarget target, Func<Action, bool> applyIfCurrent,
             CancellationToken token)
         {
             if (BeforeAccept is { } beforeAccept)

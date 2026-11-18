@@ -93,7 +93,7 @@ public sealed record OahuNavigationTarget
     }
 }
 
-/// <summary>One native host attachment. Methods serialize work on its UI thread and check the token there before mutating native state.</summary>
+/// <summary>One native host attachment. Both methods serialize work on its UI thread and check the token there before mutating native state.</summary>
 public interface IOahuNavigationSurface
 {
     /// <summary>Stage resources and publish the target. The native renderer reports completion separately.</summary>
@@ -101,12 +101,10 @@ public interface IOahuNavigationSurface
 
     /// <summary>Synchronize occurrence resources with an accepted target after projection, reconciliation, or rollback.</summary>
     /// <param name="target">The accepted target.</param>
-    /// <param name="committedTarget">The projection of the router state that remains committed until this presentation succeeds.</param>
     /// <param name="applyIfCurrent">Call within the UI turn with the synchronous state update. It returns false when a newer observation or attachment has superseded the target. Do not put mount teardown in this callback.</param>
     /// <param name="token">Cancels work for a timed-out or detached presentation.</param>
-    Task AcceptAsync(OahuNavigationTarget target, OahuNavigationTarget committedTarget,
-        Func<Action, bool> applyIfCurrent, CancellationToken token);
+    Task AcceptAsync(OahuNavigationTarget target, Func<Action, bool> applyIfCurrent, CancellationToken token);
 
-    /// <summary>Releases resources that the committed state and the current native presentation have both dropped.</summary>
-    Task CommitAsync(OahuNavigationTarget committedTarget, CancellationToken token) => Task.CompletedTask;
+    /// <summary>Release outgoing resources after the router settles, or after restoring the committed surface.</summary>
+    Task SettleAsync(OahuNavigationTarget target, CancellationToken token) => Task.CompletedTask;
 }

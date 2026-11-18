@@ -13,31 +13,19 @@ internal sealed class MountedNavigationSurface(RouteEntryLeaseRegistry leases, O
     {
         public long Id => Screen.Mount.Id;
 
-        private bool closed;
-        private Exception? closeFailure;
+        public bool NativeClosed { get; private set; }
 
         public void Release()
         {
-            if (closeFailure is not null)
-                throw new InvalidOperationException("OAHU could not certify native mount teardown.", closeFailure);
-
-            if (!closed)
+            if (!NativeClosed)
             {
-                try
-                {
-                    // OAHU invokes the callback even on failure. Only a synchronous successful
-                    // return certifies native close; disposing an already disposed mount cannot retry it.
-                    var completed = false;
-                    Screen.Mount.Dispose(() => completed = true);
-                    if (!completed)
-                        throw new InvalidOperationException("Mount teardown must run outside an OAHU callback.");
-                    closed = true;
-                }
-                catch (Exception error)
-                {
-                    closeFailure = error;
-                    throw;
-                }
+                // OAHU runs its callback even on failure. Only a synchronous successful
+                // return certifies close. A second Dispose cannot certify the original teardown.
+                var completed = false;
+                Screen.Mount.Dispose(() => completed = true);
+                if (!completed)
+                    throw new InvalidOperationException("Mount teardown must run outside an OAHU callback.");
+                NativeClosed = true;
             }
 
             Screen.AfterTeardown?.Invoke();
@@ -47,7 +35,11 @@ internal sealed class MountedNavigationSurface(RouteEntryLeaseRegistry leases, O
 
     private readonly Dictionary<MountKey, ScreenMount> mounts = new();
 
-    private readonly HashSet<ScreenMount> failedReleases = new(ReferenceEqualityComparer.Instance);
+    private readonly HashSet<ScreenMount> pendingReleases = new(ReferenceEqualityComparer.Instance);
+
+    // Retain borrowers with uncertified native teardown for the lifetime of this host.
+    // They cannot safely retry and have already reported their failure.
+    private readonly List<ScreenMount> uncertifiedCloses = [];
 
     private readonly StateSource<ShellTarget> target = new(new(0, "", false, [], "", [], new("initial", "", "", "", "", "")));
 
@@ -71,43 +63,37 @@ internal sealed class MountedNavigationSurface(RouteEntryLeaseRegistry leases, O
         target.Set(staged);
     }
 
-    public void Accept(OahuNavigationTarget accepted, OahuNavigationTarget committed, Func<Action, bool> applyIfCurrent)
+    public void Accept(OahuNavigationTarget accepted, Func<Action, bool> applyIfCurrent)
     {
         var current = target.Current;
         var currentMounts = ScreenEntries(current).ToDictionary(e => e.EntryId, e => e.Mount, StringComparer.Ordinal);
-        ValidateAcceptedLeases(accepted, currentMounts);
         if (!applyIfCurrent(() =>
         {
+            ValidateAcceptedLeases(accepted, currentMounts);
             if (current.Revision == accepted.Revision)
                 target.Set(ToWire(accepted, entry => currentMounts[entry.Id]));
         }))
-            return;
-
-        ValidateAcceptedLeases(accepted, currentMounts);
-
-        // Apply has not committed. Keep the exact mounts needed to roll back, even after
-        // native acceptance. Commit collects these mounts once the router base moves.
-        Collect(DisplayedEntries(committed).Concat(DisplayedEntries(accepted)), retryFailed: true);
+        {
+            // A superseded gesture can still enter history, without publishing to the shell.
+            ValidateAcceptedLeases(accepted, currentMounts);
+        }
     }
 
-    public void Commit(OahuNavigationTarget committed) =>
-        Collect(DisplayedEntries(committed), retryFailed: false);
-
-    private void Collect(IEnumerable<RouteEntry> protectedEntries, bool retryFailed)
+    public void Settle(OahuNavigationTarget committed)
     {
-        // Native observations can run ahead of router history or a projection can still be visible.
-        // Keep both the live projection and the rollback/committed graph's eligible mounts.
+        // The published wire snapshot can still include entries covered by a newer native
+        // gesture. Keep their mounts until that gesture's projection has settled as well.
         var retained = ScreenEntries(target.Current).Select(entry => entry.Mount).ToHashSet();
-        foreach (var entry in protectedEntries)
+        foreach (var entry in DisplayedEntries(committed))
         {
             if (leases.TryGet(entry.Id, out var lease) && !lease.IsRetired &&
                 mounts.TryGetValue(new MountKey(lease, entry.Route), out var screen))
                 retained.Add(screen.Id);
         }
 
-        if (ReleaseExcept(retained, retryFailed) is { } failure)
+        if (ReleaseExcept(retained) is { } failure)
         {
-            // A teardown reporter must not unwind this navigation.
+            // The old transaction is over. A teardown reporter must not unwind this navigation.
             try { reportFailure(failure); }
             catch (Exception reportingFailure) { System.Diagnostics.Trace.TraceError("{0}", reportingFailure); }
         }
@@ -181,27 +167,30 @@ internal sealed class MountedNavigationSurface(RouteEntryLeaseRegistry leases, O
         }
     }
 
-    private AggregateException? ReleaseExcept(HashSet<long> retained, bool retryFailed = true)
+    private AggregateException? ReleaseExcept(HashSet<long> retained)
     {
-        var releasing = retryFailed ? failedReleases.ToList() : [];
         foreach (var (key, screen) in mounts.ToArray())
         {
             if (retained.Contains(screen.Id)) continue;
             mounts.Remove(key);
-            failedReleases.Add(screen);
-            releasing.Add(screen);
+            pendingReleases.Add(screen);
         }
 
         List<Exception> failures = [];
-        foreach (var screen in releasing)
+        foreach (var screen in pendingReleases.ToArray())
         {
             try
             {
                 screen.Release();
-                failedReleases.Remove(screen);
+                pendingReleases.Remove(screen);
             }
             catch (Exception failure)
             {
+                if (!screen.NativeClosed)
+                {
+                    pendingReleases.Remove(screen);
+                    uncertifiedCloses.Add(screen);
+                }
                 failures.Add(failure);
             }
         }
