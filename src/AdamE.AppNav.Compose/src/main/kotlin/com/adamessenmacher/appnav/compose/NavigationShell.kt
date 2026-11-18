@@ -76,6 +76,24 @@ public fun AppNavNavigationShell(
     AppNavNavigationShell(target, report, requestBack, branchLabel, unavailableContent, controls = content)
 }
 
+/** Renders the shell and logs managed Back failures to Android. */
+@Composable
+public fun AppNavNavigationShell(
+    target: NavigationProjection,
+    report: (NavigationObservation) -> Unit,
+    requestBack: (suspend () -> Unit)? = null,
+    branchLabel: @Composable (NavigationBranch) -> Unit = { Text(it.title) },
+    unavailableContent: @Composable (MountedEntry) -> Unit = { UnavailableContent() },
+    animations: NavigationAnimations = DefaultAnimations,
+    controls: @Composable () -> Unit = {},
+) {
+    AppNavNavigationShell(
+        target, report, requestBack, branchLabel, unavailableContent, animations,
+        onBackFailure = { Log.e("AppNav", "Managed Back failed", it) },
+        controls = controls,
+    )
+}
+
 /**
  * Render the managed projection as a selected native stack, optionally overlaid by a modal stack.
  * A new revision supersedes any local edits. On Activity recreation the shell starts with the
@@ -95,13 +113,9 @@ public fun AppNavNavigationShell(
     report: (NavigationObservation) -> Unit,
     requestBack: (suspend () -> Unit)? = null,
     branchLabel: @Composable (NavigationBranch) -> Unit = { Text(it.title) },
-    unavailableContent: @Composable (MountedEntry) -> Unit = {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("Screen unavailable")
-        }
-    },
+    unavailableContent: @Composable (MountedEntry) -> Unit = { UnavailableContent() },
     animations: NavigationAnimations = DefaultAnimations,
-    onBackFailure: (Throwable) -> Unit = { Log.e("AppNav", "Managed Back failed", it) },
+    onBackFailure: (Throwable) -> Unit,
     controls: @Composable () -> Unit = {},
 ) {
     val surface = remember(target.revision) { DisplayedSurface(target) }
@@ -236,6 +250,13 @@ public fun AppNavNavigationShell(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun UnavailableContent() {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Text("Screen unavailable")
     }
 }
 
