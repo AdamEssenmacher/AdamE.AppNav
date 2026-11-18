@@ -99,6 +99,11 @@ public interface IOahuNavigationSurface
     /// <summary>Stage resources and publish the target. The native renderer reports completion separately.</summary>
     Task ShowAsync(OahuNavigationTarget target, CancellationToken token);
 
-    /// <summary>Keep exactly the accepted occurrence resources, including after reconciliation or rollback.</summary>
-    Task AcceptAsync(OahuNavigationTarget target, CancellationToken token);
+    /// <summary>Synchronize occurrence resources with an accepted target after projection, reconciliation, or rollback.</summary>
+    /// <param name="target">The accepted target.</param>
+    /// <param name="committedTarget">The projection of the router state that remains committed until this presentation succeeds.</param>
+    /// <param name="applyIfCurrent">Call within the UI turn with the synchronous state update. It returns false when a newer observation or attachment has superseded the target. Do not put mount teardown in this callback.</param>
+    /// <param name="token">Cancels work for a timed-out or detached presentation.</param>
+    Task AcceptAsync(OahuNavigationTarget target, OahuNavigationTarget committedTarget,
+        Func<Action, bool> applyIfCurrent, CancellationToken token);
 }
