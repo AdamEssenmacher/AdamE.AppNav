@@ -92,6 +92,13 @@ public sealed class NavigationShellViewModel(
         surface.Accept(accepted, committedTarget, applyIfCurrent);
     });
 
+    public Task CommitAsync(OahuNavigationTarget committedTarget, CancellationToken cancellationToken) => dispatch(() =>
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (disposed) return;
+        surface.Commit(committedTarget);
+    });
+
     public async void Report(NativeObservation observation)
     {
         try

@@ -192,6 +192,27 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, IDisposable
         }
     }
 
+    public async ValueTask OnCommittedAsync(NavigationState state)
+    {
+        Presentation? witnessed;
+        lock (gate) witnessed = observed;
+        if (witnessed is null)
+            return;
+
+        var current = witnessed.Host;
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(current.Detached.Token);
+        lifetime.CancelAfter(timeout);
+        var committed = new OahuNavigationTarget(state, witnessed.Target.Revision);
+        try
+        {
+            await current.Surface.CommitAsync(committed, lifetime.Token).WaitAsync(lifetime.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (current.Detached.IsCancellationRequested || !IsCurrent(current))
+        {
+            // A detached surface has its own teardown and no longer represents committed state.
+        }
+    }
+
     private OahuPresentationTransition DescribeTransition(Attachment current, NavigationPlan plan,
         NavigationPresentationContext context, OahuNavigationTarget target, bool replay)
     {

@@ -25,6 +25,7 @@ loop.Run(async () =>
     Dictionary<string, List<Oahu.OahuMount>> created = [];
     List<long> released = [];
     RouteEntryLease? detailLease = null;
+    RouteEntryLease? itemLease = null;
     bool failDetail = true;
     bool retireInFactory = false;
     bool retireBeforeAcknowledgement = false;
@@ -33,6 +34,7 @@ loop.Run(async () =>
     {
         if (entry.Id == "detail" && failDetail) throw new ApplicationException("screen creation failed");
         if (entry.Id == "detail") detailLease = lease;
+        if (entry.Id == "item") itemLease = lease;
         var mount = loop.Mount<INavigationShellViewModel>(shell!);
         if (!created.TryGetValue(entry.Id, out var instances)) created.Add(entry.Id, instances = []);
         instances.Add(mount);
@@ -95,10 +97,21 @@ loop.Run(async () =>
         Check(created["group"].Count == 4 && !created["group"].Last().IsDisposed, "Retry reused a disconnected mount");
         var detail = created["detail"].Last();
         detailLease!.Retire();
+        Check(!detail.IsDisposed && !detailLease.Released.IsCompleted,
+            "Retiring a visible entry released its mount");
         await router.Navigator.RefreshPresentationAsync();
         var catalog = shell.Target.Current.Branches.Single(b => b.Branch == "catalog");
         Check(catalog.Entries.Last() == new ScreenEntry("detail", 0), "Retired entry was remounted");
         Check(detail.IsDisposed && router.HistoryCount == 2, "Refresh retained the old mount or added history");
+
+        var item = created["item"].Last();
+        await presenter.ObserveAsync(epoch, shell.Target.Current.Revision, "catalog", ["catalog", "group"]);
+        Check(router.HistoryCount == 3 && router.CurrentEntryIds.SequenceEqual(["catalog", "group"]),
+            "Native multi-pop did not commit");
+        Check(item.IsDisposed && released.Count(id => id == item.Id) == 1,
+            "Native multi-pop must release its removed mount without another presentation");
+        Check(!created["group"].Last().IsDisposed, "Native multi-pop released the still visible mount");
+        await itemLease!.Released.WaitAsync(TimeSpan.FromSeconds(5));
         presenter.Detach(epoch);
         Task shutdown;
         using (loop.NativeCall())
@@ -167,12 +180,11 @@ loop.Run(async () =>
         "Rollback must restore the original mounted screen");
 
     await unsafeRouter.Navigator.BackAsync();
-    Check(unsafeRouter.HistoryCount == 2 && cleanupAttempts == 0, "Cleanup preceded the router's commit");
-    await unsafeRouter.Navigator.RefreshPresentationAsync();
-    Check(unsafeRouter.HistoryCount == 2 && unsafeRouter.CurrentEntryIds.SequenceEqual(["home"]) &&
+    Check(unsafeRouter.HistoryCount == 2 && cleanupAttempts == 1 &&
+          unsafeRouter.CurrentEntryIds.SequenceEqual(["home"]) &&
           original.IsDisposed && reports.Count == 1 && reports[0] is AggregateException reportedFailure &&
           reportedFailure.InnerExceptions.Contains(cleanupFailure) && !unsafeResourceReleased,
-        "Failed deferred cleanup rolled back Back, released its lease, or lost the error");
+        "Failed post-commit cleanup rolled back Back, released its lease, or lost the error");
     try
     {
         await unsafeShell.DisposeAsync();
@@ -202,6 +214,9 @@ sealed class Witness(NavigationShellViewModel shell, Func<ShellTarget, Task> rep
         await shell.ShowAsync(target, token);
         await report(shell.Target.Current);
     }
+
+    public Task CommitAsync(OahuNavigationTarget committedTarget, CancellationToken token) =>
+        shell.CommitAsync(committedTarget, token);
 
     public async Task AcceptAsync(OahuNavigationTarget target, OahuNavigationTarget committedTarget,
         Func<Action, bool> applyIfCurrent, CancellationToken token)

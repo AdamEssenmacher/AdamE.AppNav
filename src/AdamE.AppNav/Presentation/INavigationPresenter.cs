@@ -1,4 +1,5 @@
 using AdamE.AppNav.Plans;
+using AdamE.AppNav.State;
 
 namespace AdamE.AppNav.Presentation;
 
@@ -34,6 +35,13 @@ public interface INavigationPresenter
         NavigationPlan plan,
         NavigationPresentationContext context,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Finalizes presentation resources after navigation state, history and entry leases have committed.</summary>
+    /// <remarks>
+    /// The router awaits this before admitting the next operation. Cleanup failures are reported without undoing
+    /// the committed navigation. Implementations should bound the wait for their native host.
+    /// </remarks>
+    ValueTask OnCommittedAsync(NavigationState state) => ValueTask.CompletedTask;
 }
 
 internal sealed class NullNavigationPresenter : INavigationPresenter
