@@ -120,6 +120,38 @@ public fun AppNavNavigationShell(
     onBackFailure: (Throwable) -> Unit,
     controls: @Composable () -> Unit = {},
 ) {
+    AppNavNavigationShell(
+        target, report, modalHost = { presentation, content -> DefaultModalHost(presentation, content) },
+        requestBack, branchLabel, unavailableContent, animations, onBackFailure, controls,
+    )
+}
+
+/** State and actions for the active modal occurrence's native presentation. */
+public class NavigationModalPresentation internal constructor(
+    public val id: String,
+    public val entryCount: Int,
+    public val canDismiss: Boolean,
+    public val onDismissRequest: () -> Unit,
+)
+
+/**
+ * Renders the shell with a caller-provided modal window. The [modalHost] must compose its
+ * mounted content and route dismissal requests through [NavigationModalPresentation.onDismissRequest].
+ * That callback preserves AppNav's transition gate and managed Back policy.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+public fun AppNavNavigationShell(
+    target: NavigationProjection,
+    report: (NavigationObservation) -> Unit,
+    modalHost: @Composable (NavigationModalPresentation, @Composable () -> Unit) -> Unit,
+    requestBack: (suspend () -> Unit)? = null,
+    branchLabel: @Composable (NavigationBranch) -> Unit = { Text(it.title) },
+    unavailableContent: @Composable (MountedEntry) -> Unit = { UnavailableContent() },
+    animations: NavigationAnimations = DefaultAnimations,
+    onBackFailure: (Throwable) -> Unit = { Log.e("AppNav", "Managed Back failed", it) },
+    controls: @Composable () -> Unit = {},
+) {
     val surface = remember(target.revision) { DisplayedSurface(target) }
     val origins = remember { NavigationOrigins() }
     val backScope = rememberCoroutineScope()
@@ -228,26 +260,44 @@ public fun AppNavNavigationShell(
         SideEffect { renderedModal = null }
     } else {
         key(modalId) {
-            Dialog(
-                onDismissRequest = { back(modalBack = true) },
-                properties = DialogProperties(dismissOnClickOutside = false),
-            ) {
-                Surface(shape = MaterialTheme.shapes.large) {
-                    Column(Modifier.fillMaxWidth()) {
-                        TextButton(
-                            onClick = { back(modalBack = true) },
-                            enabled = canNavigate(),
-                        ) {
-                            Text(if (modal.size > 1) "Back" else "Dismiss")
-                        }
-                        Box(Modifier.fillMaxWidth().fillMaxHeight(0.8f)) {
-                            MountedStack(expectedModal, target.transition, animations, origins,
-                                canNavigate() && requestBack == null && modal.size > 1,
-                                { back(modalBack = true) }, unavailableContent) {
-                                renderedModal = it
-                            }
-                        }
-                    }
+            val dismiss by rememberUpdatedState({ back(modalBack = true) })
+            var mounted by remember { mutableStateOf(false) }
+            DisposableEffect(Unit) {
+                mounted = true
+                onDispose { mounted = false }
+            }
+            modalHost(NavigationModalPresentation(modalId, modal.size, canNavigate()) {
+                if (mounted) dismiss()
+            }) {
+                MountedStack(expectedModal, target.transition, animations, origins,
+                    canNavigate() && requestBack == null && modal.size > 1,
+                    { back(modalBack = true) }, unavailableContent) {
+                    renderedModal = it
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DefaultModalHost(
+    presentation: NavigationModalPresentation,
+    content: @Composable () -> Unit,
+) {
+    Dialog(
+        onDismissRequest = presentation.onDismissRequest,
+        properties = DialogProperties(dismissOnClickOutside = false),
+    ) {
+        Surface(shape = MaterialTheme.shapes.large) {
+            Column(Modifier.fillMaxWidth()) {
+                TextButton(
+                    onClick = presentation.onDismissRequest,
+                    enabled = presentation.canDismiss,
+                ) {
+                    Text(if (presentation.entryCount > 1) "Back" else "Dismiss")
+                }
+                Box(Modifier.fillMaxWidth().fillMaxHeight(0.8f)) {
+                    content()
                 }
             }
         }
