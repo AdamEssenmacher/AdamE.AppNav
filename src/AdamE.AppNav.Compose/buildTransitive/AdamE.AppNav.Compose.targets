@@ -13,10 +13,10 @@
     <_AppNavAarDir>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', '$(AppNavNavigation3AarDirectory)'))</_AppNavAarDir>
   </PropertyGroup>
   <Target Name="_AppNavDownloadNavigation3" BeforeTargets="_VerifyJavaDependencies;_CategorizeAndroidLibraries;_ResolveAndroidLibraries;PrepareForBuild"
-          Condition="'$(TargetPlatformIdentifier)' == 'android' and '$(AndroidApplication)' == 'true'">
+          Condition="'$(TargetPlatformIdentifier)' == 'android' and '$(AndroidApplication)' == 'true' and '$(DesignTimeBuild)' != 'true'">
     <DownloadFile SourceUrl="https://dl.google.com/android/maven2/androidx/navigation3/%(_AppNavMavenAar.Identity)/$(_AppNavNavigation3Version)/%(_AppNavMavenAar.Identity)-$(_AppNavNavigation3Version).aar"
                   DestinationFolder="$(_AppNavAarDir)"
-                  Retries="0"
+                  Retries="3" RetryDelayMilliseconds="1000"
                   Condition="!Exists('$(_AppNavAarDir)%(_AppNavMavenAar.Identity)-$(_AppNavNavigation3Version).aar')" />
     <ItemGroup>
       <_AppNavAarFile Include="$(_AppNavAarDir)%(_AppNavMavenAar.Identity)-$(_AppNavNavigation3Version).aar" Sha256="%(_AppNavMavenAar.Sha256)"

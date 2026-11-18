@@ -104,18 +104,30 @@ public sealed class AndroidNavigationHost : IDisposable
             return;
 
         disposed = true;
-        Detach();
-        AndroidPortHost.Main.Faulted -= reportFailure;
-        AndroidPortHost.Main.MethodFailed -= reportFailure;
-        if (screen.View.Parent is ViewGroup parent)
-            parent.RemoveView(screen.View);
         try
         {
-            screen.Dispose();
+            Detach();
         }
         finally
         {
-            shell.Dispose();
+            AndroidPortHost.Main.Faulted -= reportFailure;
+            AndroidPortHost.Main.MethodFailed -= reportFailure;
+            try
+            {
+                if (screen.View.Parent is ViewGroup parent)
+                    parent.RemoveView(screen.View);
+            }
+            finally
+            {
+                try
+                {
+                    screen.Dispose();
+                }
+                finally
+                {
+                    shell.Dispose();
+                }
+            }
         }
     }
 

@@ -1,5 +1,6 @@
 package com.adamessenmacher.appnav.compose
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.foundation.layout.Box
@@ -28,6 +29,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
@@ -41,7 +43,6 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.runtime.rememberDecoratedNavEntries
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
-import androidx.navigation3.scene.NavigationBackHandler
 import androidx.navigation3.scene.SceneInfo
 import androidx.navigation3.scene.SinglePaneSceneStrategy
 import androidx.navigation3.scene.rememberNavigationEventState
@@ -52,16 +53,20 @@ import androidx.navigation3.ui.defaultPopTransitionSpec
 import androidx.navigation3.ui.defaultPredictivePopTransitionSpec
 import androidx.navigation3.ui.defaultTransitionSpec
 import androidx.navigationevent.NavigationEventTransitionState
+import androidx.navigationevent.compose.NavigationBackHandler
 import androidx.navigationevent.compose.NavigationEventState
 import com.adamessenmacher.oahu.compose.OahuMount
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+
+private val DefaultAnimations = NavigationAnimations()
 
 /** Renders the shell using the original positional controls argument. */
 @Composable
 public fun AppNavNavigationShell(
     target: NavigationProjection,
     report: (NavigationObservation) -> Unit,
-    requestBack: (() -> Unit)?,
+    requestBack: (suspend () -> Unit)?,
     branchLabel: @Composable (NavigationBranch) -> Unit,
     unavailableContent: @Composable (MountedEntry) -> Unit,
     content: @Composable () -> Unit,
@@ -76,25 +81,28 @@ public fun AppNavNavigationShell(
  *
  * Set [requestBack] when AppNav must evaluate application Back policy before changing the UI.
  * In that mode the callback requests a managed navigation operation and its next projection
- * drives the stack change. The callback can also leave the projection unchanged to refuse Back.
+ * drives the stack change. Suspend until the managed request finishes, even when the policy
+ * refuses Back. The shell holds the Back gate closed while the callback is running.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 public fun AppNavNavigationShell(
     target: NavigationProjection,
     report: (NavigationObservation) -> Unit,
-    requestBack: (() -> Unit)? = null,
+    requestBack: (suspend () -> Unit)? = null,
     branchLabel: @Composable (NavigationBranch) -> Unit = { Text(it.title) },
     unavailableContent: @Composable (MountedEntry) -> Unit = {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("Screen unavailable")
         }
     },
-    animations: NavigationAnimations = NavigationAnimations(),
+    animations: NavigationAnimations = DefaultAnimations,
     controls: @Composable () -> Unit = {},
 ) {
     val surface = remember(target.revision) { DisplayedSurface(target) }
     val origins = remember { NavigationOrigins() }
+    val backScope = rememberCoroutineScope()
+    var managedBackInFlight by remember { mutableStateOf(false) }
     val branchStates = rememberSaveableStateHolder()
     val retainedBranches = remember { mutableSetOf<String>() }
     SideEffect {
@@ -136,15 +144,28 @@ public fun AppNavNavigationShell(
             surface.awaitingAcceptance = false
         }
     }
-    val backPrimary = {
-        if (surface.canNavigate && surface.modal.isEmpty() && surface.branches[surface.branch].orEmpty().size > 1) {
-            if (requestBack == null) surface.popPrimary() else requestBack()
+    fun canNavigate() = surface.canNavigate && !managedBackInFlight
+    fun back(modalBack: Boolean) {
+        if (!canNavigate() || !surface.hasBack(modalBack)) return
+        if (requestBack == null) {
+            if (modalBack) surface.popModal() else surface.popPrimary()
+        } else {
+            managedBackInFlight = true
+            backScope.launch {
+                try {
+                    requestBack()
+                } finally {
+                    managedBackInFlight = false
+                }
+            }
         }
     }
-    val backModal = {
-        if (surface.canNavigate && surface.modal.isNotEmpty()) {
-            if (requestBack == null) surface.popModal() else requestBack()
-        }
+
+    val primaryHasBack = surface.hasBack(modalBack = false)
+    val allowPrimaryPreview = primaryHasBack && canNavigate() && requestBack == null
+    // Consume Back within the shell while a managed request or a presentation is pending.
+    BackHandler(enabled = modal.isEmpty() && !allowPrimaryPreview && (primaryHasBack || !canNavigate())) {
+        back(modalBack = false)
     }
 
     Scaffold(
@@ -156,8 +177,8 @@ public fun AppNavNavigationShell(
                     target.branches.forEach { tab ->
                         Tab(
                             selected = tab.branch == branch,
-                            enabled = surface.canNavigate && modal.isEmpty(),
-                            onClick = { surface.selectBranch(tab.branch) },
+                            enabled = canNavigate() && modal.isEmpty(),
+                            onClick = { if (canNavigate()) surface.selectBranch(tab.branch) },
                             text = { branchLabel(tab) },
                         )
                     }
@@ -170,7 +191,8 @@ public fun AppNavNavigationShell(
                 SideEffect { renderedPrimary = null }
             } else {
                 branchStates.SaveableStateProvider(branch) {
-                    MountedStack(expectedPrimary, target.transition, animations, origins, backPrimary, unavailableContent) {
+                    MountedStack(expectedPrimary, target.transition, animations, origins, allowPrimaryPreview,
+                        { back(modalBack = false) }, unavailableContent) {
                         renderedPrimary = it
                     }
                 }
@@ -182,19 +204,21 @@ public fun AppNavNavigationShell(
     } else {
         key(modalId) {
             Dialog(
-                onDismissRequest = backModal,
+                onDismissRequest = { back(modalBack = true) },
                 properties = DialogProperties(dismissOnClickOutside = false),
             ) {
                 Surface(shape = MaterialTheme.shapes.large) {
                     Column(Modifier.fillMaxWidth()) {
                         TextButton(
-                            onClick = backModal,
-                            enabled = surface.canNavigate,
+                            onClick = { back(modalBack = true) },
+                            enabled = canNavigate(),
                         ) {
                             Text(if (modal.size > 1) "Back" else "Dismiss")
                         }
                         Box(Modifier.fillMaxWidth().fillMaxHeight(0.8f)) {
-                            MountedStack(expectedModal, target.transition, animations, origins, backModal, unavailableContent) {
+                            MountedStack(expectedModal, target.transition, animations, origins,
+                                canNavigate() && requestBack == null && modal.size > 1,
+                                { back(modalBack = true) }, unavailableContent) {
                                 renderedModal = it
                             }
                         }
@@ -215,6 +239,9 @@ private class DisplayedSurface(target: NavigationProjection) {
     var hasReported by mutableStateOf(false)
     var awaitingAcceptance by mutableStateOf(false)
     val canNavigate: Boolean get() = hasReported && !awaitingAcceptance
+
+    fun hasBack(modalBack: Boolean): Boolean =
+        if (modalBack) modal.isNotEmpty() else modal.isEmpty() && branches[branch].orEmpty().size > 1
 
     // The presenter validates each native gesture against the last accepted surface. A tab switch
     // followed immediately by Back must report two changes, even if Compose can coalesce frames.
@@ -259,6 +286,7 @@ private fun MountedStack(
     presentation: NavigationPresentationTransition,
     animations: NavigationAnimations,
     origins: NavigationOrigins,
+    allowBackPreview: Boolean,
     onBack: () -> Unit,
     unavailableContent: @Composable (MountedEntry) -> Unit,
     onSettled: (StackRender) -> Unit,
@@ -276,7 +304,7 @@ private fun MountedStack(
     // Rebuild a changed maintenance scene without using obsolete animation metadata. Each reset
     // owns a distinct NavEntry saveable holder while the old and new compositions exchange places.
     key(epoch) {
-        StackScene(stack, presentation, animations, origins, onBack, unavailableContent) { seen, isStillSettled ->
+        StackScene(stack, presentation, animations, origins, allowBackPreview, onBack, unavailableContent) { seen, isStillSettled ->
             history.settledStack = seen
             history.isStillSettled = isStillSettled
             onSettled(seen)
@@ -290,6 +318,7 @@ private fun StackScene(
     presentation: NavigationPresentationTransition,
     animations: NavigationAnimations,
     origins: NavigationOrigins,
+    allowBackPreview: Boolean,
     onBack: () -> Unit,
     unavailableContent: @Composable (MountedEntry) -> Unit,
     onSettled: (StackRender, () -> Boolean) -> Unit,
@@ -357,7 +386,10 @@ private fun StackScene(
         val navigation = rememberNavigationEventState(scenes)
         SideEffect { navigationState.value = navigation }
         NavigationBackHandler(
-            scenes, navigation, onBackCancelled = { backCancellations++ }, onBackCompleted = onBack,
+            state = navigation,
+            isBackEnabled = allowBackPreview && scenes.currentScene.previousEntries.isNotEmpty(),
+            onBackCancelled = { backCancellations++ },
+            onBackCompleted = onBack,
         )
         NavDisplay(
             sceneState = scenes,

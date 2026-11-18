@@ -2,13 +2,15 @@
 // change the C# contract and rebuild (docs/codegen.md). The screen is yours to write, in this package:
 // @Composable fun DemoShellScreen(model: DemoShellModel).
 //
-// Contract hash -7385396835279111504, over its signature:
+// Contract hash -608075232377159091, over its signature:
 //   oahu/1 contract DemoShell
 //   stream 0 state Target: ShellTarget
 //   stream 1 state Status: string
-//   member 0 method Report: NativeObservation
-//   member 1 method RunCommand: string
-//   member 2 method RecordTrace: string
+//   stream 2 state CompletedBack: long
+//   member 0 method RequestBack: long
+//   member 1 method Report: NativeObservation
+//   member 2 method RunCommand: string
+//   member 3 method RecordTrace: string
 //   type ShellTarget = record {Revision: long, SelectedBranch: string, IsBranchHost: bool, Branches: list<BranchStack>, ModalId: string, ModalEntries: list<ScreenEntry>, Transition: PresentationTransition}
 //   type BranchStack = record {Branch: string, Title: string, Entries: list<ScreenEntry>}
 //   type ScreenEntry = record {EntryId: string, Mount: long}
@@ -71,14 +73,16 @@ internal object DemoShellContract {
     const val NAME: String = "DemoShell"
 
     /** FNV-1a 64 of DemoShell's signature (above). The .NET host refuses the screen when its own hash differs. */
-    const val HASH: Long = -7385396835279111504L
+    const val HASH: Long = -608075232377159091L
 
     const val STREAM_TARGET: Int = 0
     const val STREAM_STATUS: Int = 1
+    const val STREAM_COMPLETED_BACK: Int = 2
 
-    const val MEMBER_REPORT: Int = 0
-    const val MEMBER_RUN_COMMAND: Int = 1
-    const val MEMBER_RECORD_TRACE: Int = 2
+    const val MEMBER_REQUEST_BACK: Int = 0
+    const val MEMBER_REPORT: Int = 1
+    const val MEMBER_RUN_COMMAND: Int = 2
+    const val MEMBER_RECORD_TRACE: Int = 3
 }
 
 /** The codecs of the value types only DemoShell uses (docs/format.md). */
@@ -171,7 +175,13 @@ public class DemoShellModel private constructor(
     private val connection: OahuConnection,
     public val target: StateFlow<ShellTarget>,
     public val status: StateFlow<String>,
+    public val completedBack: StateFlow<Long>,
 ) {
+    /** Sends the RequestBack intent. Observe state and events for its effects. */
+    public fun requestBack(input: Long) {
+        connection.call(DemoShellContract.MEMBER_REQUEST_BACK, { it.writeLong(input) })
+    }
+
     /** Sends the Report intent. Observe state and events for its effects. */
     public fun report(input: NativeObservation) {
         connection.call(DemoShellContract.MEMBER_REPORT, { DemoShellCodec.writeNativeObservation(it, input) })
@@ -203,6 +213,14 @@ public class DemoShellModel private constructor(
          */
         public val port: OahuPreviewPort,
     ) {
+        /** Handles the RequestBack intent. Publish state or events to show its effects. */
+        public fun onRequestBack(handler: (Long) -> Unit) {
+            port.onMethod(DemoShellContract.MEMBER_REQUEST_BACK) {
+                val input = it.readLong()
+                return@onMethod { handler(input) }
+            }
+        }
+
         /** Handles the Report intent. Publish state or events to show its effects. */
         public fun onReport(handler: (NativeObservation) -> Unit) {
             port.onMethod(DemoShellContract.MEMBER_REPORT) {
@@ -236,6 +254,11 @@ public class DemoShellModel private constructor(
         public fun setStatus(value: String) {
             port.publish(DemoShellContract.STREAM_STATUS) { it.writeString(value) }
         }
+
+        /** Publishes a new `CompletedBack`: the screen gets it, and so does a model connected later. */
+        public fun setCompletedBack(value: Long) {
+            port.publish(DemoShellContract.STREAM_COMPLETED_BACK) { it.writeLong(value) }
+        }
     }
 
     public companion object {
@@ -251,7 +274,11 @@ public class DemoShellModel private constructor(
             try {
                 val target = connection.subscribeState(DemoShellContract.STREAM_TARGET, DemoShellCodec::readShellTarget)
                 val status = connection.subscribeState(DemoShellContract.STREAM_STATUS, OahuReader::readString)
-                return DemoShellModel(connection, target, status)
+                val completedBack = connection.subscribeState(
+                    DemoShellContract.STREAM_COMPLETED_BACK,
+                    OahuReader::readLong,
+                )
+                return DemoShellModel(connection, target, status, completedBack)
             } catch (failure: Throwable) {
                 connection.close()
                 throw failure
@@ -265,11 +292,13 @@ public class DemoShellModel private constructor(
         public fun preview(
             target: ShellTarget,
             status: String,
+            completedBack: Long,
             configure: Preview.() -> Unit = {},
         ): DemoShellModel {
             val port = OahuPreviewPort(DemoShellContract.NAME, DemoShellContract.HASH)
             port.setState(DemoShellContract.STREAM_TARGET) { DemoShellCodec.writeShellTarget(it, target) }
             port.setState(DemoShellContract.STREAM_STATUS) { it.writeString(status) }
+            port.setState(DemoShellContract.STREAM_COMPLETED_BACK) { it.writeLong(completedBack) }
             val preview = Preview(port)
             preview.configure()
             return connect(port)

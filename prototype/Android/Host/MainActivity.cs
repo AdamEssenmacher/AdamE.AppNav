@@ -30,7 +30,7 @@ public sealed class MainActivity : ComponentActivity
 
         var attached = AndroidNavigationHost.Attach<IDemoShellViewModel>(this, current.Presenter, current.Leases,
             (entry, _) => OahuScreens.Mount<IPageViewModel>(new PageViewModel(entry.Id)),
-            shell => new DemoShellViewModel(shell, current.Status, Command, Observe), Fault);
+            shell => new DemoShellViewModel(shell, current, Command, Observe), Fault);
         host = attached;
         SetContentView(attached.View);
         Trace($"attached epoch={attached.Epoch}");
@@ -116,9 +116,6 @@ public sealed class MainActivity : ComponentActivity
             case "deny-next-back":
                 current.Policy.DenyNext();
                 break;
-            case "policy-back":
-                Run(current.PolicyBackAsync);
-                break;
         }
     }
 
@@ -163,17 +160,36 @@ public sealed class MainActivity : ComponentActivity
         public ProbeRouter Router { get; }
         public RouteEntryLeaseRegistry Leases { get; } = new(AndroidNavigationHost.CreateLeaseHost(Fault));
         public DenyNextBackPolicy Policy { get; } = new();
+        public StateSource<long> CompletedBack { get; } = new(0);
         public StateSource<string> Status { get; } = new("Starting");
         public bool RecreateOnLink { get; set; }
         public bool RecreateOnGamePush { get; set; }
         public (long Epoch, NativeObservation Observation)? Withheld { get; set; }
 
-        public async Task PolicyBackAsync()
+        public async Task RequestBackAsync(long request)
         {
-            var result = await Router.Navigator.BackAsync(new BackNavigationRequest("main", BackNavigationSource.Host));
-            Trace($"policy back {result.Status} history={Router.HistoryCount}");
-            if (result.NavigationResult is { Presented: true })
-                OnCommit();
+            try
+            {
+                Trace($"policy back requested id={request} history={Router.HistoryCount}");
+                // Keep the policy pending long enough for the probe to exercise repeated input.
+                await Task.Delay(TimeSpan.FromSeconds(1.5));
+                var result = await Router.Navigator.BackAsync(new BackNavigationRequest("main", BackNavigationSource.Host));
+                Trace($"policy back {result.Status} history={Router.HistoryCount}");
+                if (result.NavigationResult is { Presented: true })
+                {
+                    OnCommit();
+                    // An accepted projection can appear before the caller finishes its work.
+                    await Task.Delay(TimeSpan.FromSeconds(1.5));
+                }
+            }
+            finally
+            {
+                await AndroidNavigationHost.DispatchAsync(() =>
+                {
+                    CompletedBack.Set(request);
+                    Trace($"policy back finished id={request}");
+                });
+            }
         }
 
         private void OnCommit()
@@ -206,11 +222,13 @@ public sealed class MainActivity : ComponentActivity
                 : BackNavigationPolicyDecision.Continue);
     }
 
-    private sealed class DemoShellViewModel(INavigationShellViewModel shell, IOahuState<string> status,
+    private sealed class DemoShellViewModel(INavigationShellViewModel shell, Session session,
         Action<string> command, Action<INavigationShellViewModel, NativeObservation> observe) : IDemoShellViewModel
     {
         public IOahuState<ShellTarget> Target => shell.Target;
-        public IOahuState<string> Status => status;
+        public IOahuState<string> Status => session.Status;
+        public IOahuState<long> CompletedBack => session.CompletedBack;
+        public Task RequestBack(long request) => session.RequestBackAsync(request);
         public void Report(NativeObservation observation) => observe(shell, observation);
         public void RunCommand(string value) => Run(() => AndroidNavigationHost.DispatchAsync(() => command(value)));
         public void RecordTrace(string message) => Trace(message);

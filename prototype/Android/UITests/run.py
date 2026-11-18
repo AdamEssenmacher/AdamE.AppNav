@@ -159,20 +159,34 @@ def verify_modal_stack(probe):
 
 def verify_managed_back(probe):
     probe.reset()
-    probe.wait_for_texts("Page: home-detail")
-    probe.wait_for_log(r"history=1\b")
-    probe.tap("Deep link")
-    probe.wait_for_texts("Page: detail")
-    probe.wait_for_log(r"history=2\b")
+    probe.wait_for_log(r"home\[home,home-detail\][^\n]*history=1\b")
+    probe.tap("Play Game")
+    probe.wait_for_log(GAME_HISTORY)
     probe.tap("Managed Back: off")
     probe.wait_for_texts("Managed Back: on")
+
+    start = len(probe.logs())
+    probe.predictive_back(0.70)
+    denied = probe.wait_for_log(r"policy back requested id=(\d+) history=2\b", after=start)
+    probe.run("shell", "input", "keyevent", "KEYCODE_BACK", "KEYCODE_BACK")
+    probe.wait_for_log(r"policy back Canceled history=2\b", after=start)
+    probe.wait_for_log(rf"policy back finished id={denied[1]}\b", after=start)
+    probe.wait_for_texts("Page: game")
+
+    retry = len(probe.logs())
     probe.back()
-    probe.wait_for_log(r"policy back Canceled history=2\b")
-    probe.wait_for_texts("Page: detail")
-    probe.back()
-    probe.wait_for_log(r"policy back Completed history=3\b")
-    probe.wait_for_texts("Page: item")
-    print("PASS managed Back policy can deny a pop, then accept and present it")
+    accepted = probe.wait_for_log(r"policy back requested id=(\d+) history=2\b", after=retry)
+    probe.run("shell", "input", "keyevent", "KEYCODE_BACK", "KEYCODE_BACK")
+    probe.wait_for_log(r"policy back Completed history=3\b", after=retry)
+    # The previous request still owns the gate even after the new stack has settled.
+    probe.run("shell", "input", "keyevent", "KEYCODE_BACK", "KEYCODE_BACK")
+    probe.wait_for_log(rf"policy back finished id={accepted[1]}\b", after=retry)
+    probe.wait_for_texts("Page: home-detail")
+    policy_log = probe.logs()[start:]
+    assert len(re.findall(r"policy back requested", policy_log)) == 2, policy_log
+    assert "game predictive transform" not in policy_log, policy_log
+    assert not re.search(r"history=[4-9]\d*\b", policy_log), policy_log
+    print("PASS managed Back suppresses predictive animation and duplicate requests, then reopens after denial")
 
 
 GAME_HISTORY = r"home\[home,home-detail,game\][^\n]*history=2\b"

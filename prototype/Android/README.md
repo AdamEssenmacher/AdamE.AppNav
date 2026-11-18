@@ -23,7 +23,7 @@ Keep the device animator duration scale at 1× for the Game checks. The driver c
 | Branch switching | Canonical deep link, native Back, and retained Compose state when switching branches |
 | Link recreation | Same-process Activity replacement while the deep link is pending, with the outgoing Activity's observation fenced |
 | Modal stack | Back pops the dialog stack, then dismisses it to reveal the underlying branch |
-| Managed Back | The app's asynchronous Back policy controls native Back acceptance |
+| Managed Back | Asynchronous Back policy denies and then accepts a request. Pending input is suppressed across projection updates, and the managed path skips Nav3's predictive animation. |
 | Game push and Back | App-supplied resize sees different scene sizes and settles before commit. A canceled edge swipe keeps Game, and a completed swipe reconciles Back once. |
 | Game recreation | Replacement Activity witnesses the pending push without spending the original cover key |
 

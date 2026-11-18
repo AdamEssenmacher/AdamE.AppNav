@@ -28,6 +28,10 @@ import com.adamessenmacher.appnav.compose.MountedEntry
 import com.adamessenmacher.appnav.compose.NavigationBranch
 import com.adamessenmacher.appnav.compose.NavigationPresentationTransition
 import com.adamessenmacher.appnav.compose.NavigationProjection
+import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.flow.first
+
+private val backRequestIds = AtomicLong()
 
 @Composable
 public fun DemoShellScreen(model: DemoShellModel) {
@@ -46,7 +50,13 @@ public fun DemoShellScreen(model: DemoShellModel) {
                         observed.revision, observed.branch, observed.entries, observed.modalId, observed.modalEntries,
                     ))
                 },
-                requestBack = if (managedBack) { { model.runCommand("policy-back") } } else null,
+                requestBack = if (managedBack) {
+                    {
+                        val request = backRequestIds.incrementAndGet()
+                        model.requestBack(request)
+                        model.completedBack.first { it == request }
+                    }
+                } else null,
                 animations = animations,
             ) {
                 Column(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp)) {
