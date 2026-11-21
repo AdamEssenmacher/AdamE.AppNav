@@ -50,7 +50,7 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, INavigationP
     private Presentation? pending;
     // Latest witnessed native state. Consecutive gestures may move this ahead of router history.
     private Presentation? observed;
-    private Presentation? awaitingSettlement;
+    private readonly Dictionary<string, Presentation> awaitingSettlement = new(StringComparer.Ordinal);
     private readonly Dictionary<NavigationState, Presentation> witnessedReconciliations = new(ReferenceEqualityComparer.Instance);
     private Task reconciliationTail = Task.CompletedTask;
     private long nextEpoch;
@@ -119,7 +119,8 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, INavigationP
             ObjectDisposedException.ThrowIf(disposed, this);
             previous = host;
             host = current = new(++nextEpoch, surface);
-            observed = pending = awaitingSettlement = null;
+            observed = pending = null;
+            awaitingSettlement.Clear();
             attached.TrySetResult();
         }
         previous?.Detached.Cancel();
@@ -134,7 +135,8 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, INavigationP
             if (host is null || host.Epoch != epoch) return;
             previous = host;
             host = null;
-            observed = pending = awaitingSettlement = null;
+            observed = pending = null;
+            awaitingSettlement.Clear();
             attached = NewSignal();
         }
         previous.Detached.Cancel();
@@ -162,7 +164,7 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, INavigationP
     {
         if (plan.Kind == NavigationPlanKind.Reconcile)
         {
-            await AcceptReconciliationAsync(plan.TargetState, context.CurrentState, cancellationToken).ConfigureAwait(false);
+            await AcceptReconciliationAsync(plan.TargetState, context, cancellationToken).ConfigureAwait(false);
             return;
         }
         var target = new OahuNavigationTarget(plan.TargetState, Interlocked.Increment(ref nextRevision));
@@ -176,7 +178,7 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, INavigationP
             {
                 var accepted = await PresentAsync(current, plan.TargetState, target with { Transition = transition },
                     cancellationToken).ConfigureAwait(false);
-                RememberSettlement(accepted);
+                RememberSettlement(context.OperationId, accepted);
                 return;
             }
             catch (Exception) when (current.Detached.IsCancellationRequested || !IsCurrent(current))
@@ -187,7 +189,7 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, INavigationP
             }
             catch (Exception failure)
             {
-                await RollbackAsync(current, context.CurrentState, failure).ConfigureAwait(false);
+                await RollbackAsync(current, context, failure).ConfigureAwait(false);
                 throw;
             }
         }
@@ -218,18 +220,18 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, INavigationP
         return OahuPresentationTransition.Describe(before?.Target, target, operation, sourceKey, screenName);
     }
 
-    private async Task RollbackAsync(Attachment current, NavigationState state, Exception failure)
+    private async Task RollbackAsync(Attachment current, NavigationPresentationContext context, Exception failure)
     {
         try
         {
+            var state = context.CurrentState;
             var rollback = new OahuNavigationTarget(state, Interlocked.Increment(ref nextRevision));
             OahuNavigationTarget? previous;
             lock (gate) previous = observed?.Target;
             // Recovery must be able to restore the committed stack even when an app callback fails.
             rollback = rollback with { Transition = OahuPresentationTransition.Describe(previous, rollback, "rollback", "", screenName: null) };
             var restored = await PresentAsync(current, state, rollback, CancellationToken.None).ConfigureAwait(false);
-            try { await SettleAsync(restored).ConfigureAwait(false); }
-            catch (Exception cleanupFailure) { System.Diagnostics.Trace.TraceError("{0}", cleanupFailure); }
+            RememberSettlement(context.OperationId, restored);
         }
         catch (Exception recovery) when (IsCurrent(current))
         {
@@ -331,7 +333,7 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, INavigationP
 
     private sealed class SupersededObservationException : Exception;
 
-    private async Task AcceptReconciliationAsync(NavigationState state, NavigationState baseState, CancellationToken token)
+    private async Task AcceptReconciliationAsync(NavigationState state, NavigationPresentationContext context, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
         Presentation stage;
@@ -351,12 +353,12 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, INavigationP
             await AcceptIfCurrentAsync(stage, lifetime.Token).WaitAsync(lifetime.Token).ConfigureAwait(false);
             lifetime.Token.ThrowIfCancellationRequested();
             if (!IsCurrent(stage.Host)) throw new SupersededObservationException();
-            RememberSettlement(stage);
+            RememberSettlement(context.OperationId, stage);
         }
         catch (Exception) when (!IsCurrent(stage.Host)) { throw new SupersededObservationException(); }
         catch (Exception failure)
         {
-            await RollbackAsync(stage.Host, baseState, failure).ConfigureAwait(false);
+            await RollbackAsync(stage.Host, context, failure).ConfigureAwait(false);
             throw;
         }
     }
@@ -378,21 +380,18 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, INavigationP
         }
     }
 
-    private void RememberSettlement(Presentation stage)
+    private void RememberSettlement(string operationId, Presentation stage)
     {
         lock (gate)
             if (ReferenceEquals(host, stage.Host))
-                awaitingSettlement = stage;
+                awaitingSettlement[operationId] = stage;
     }
 
-    async ValueTask INavigationPresentationSettlement.OnPresentationSettledAsync(NavigationState state)
+    async ValueTask INavigationPresentationSettlement.OnPresentationSettledAsync(NavigationState state,
+        string operationId)
     {
         Presentation? settled;
-        lock (gate)
-        {
-            settled = awaitingSettlement;
-            awaitingSettlement = null;
-        }
+        lock (gate) awaitingSettlement.Remove(operationId, out settled);
         if (settled is not null && ReferenceEquals(settled.State, state))
             await SettleAsync(settled).ConfigureAwait(false);
     }
@@ -400,13 +399,10 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, INavigationP
     private async Task SettleAsync(Presentation stage)
     {
         var detached = stage.Host.Detached.Token;
-        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(detached);
-        lifetime.CancelAfter(timeout);
         try
         {
             if (!IsCurrent(stage.Host)) return;
-            await stage.Host.Surface.SettleAsync(stage.Target, lifetime.Token).WaitAsync(lifetime.Token)
-                .ConfigureAwait(false);
+            await stage.Host.Surface.SettleAsync(stage.Target, detached).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (detached.IsCancellationRequested) { }
     }
@@ -431,7 +427,8 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, INavigationP
             disposed = true;
             previous = host;
             host = null;
-            pending = observed = awaitingSettlement = null;
+            pending = observed = null;
+            awaitingSettlement.Clear();
             attached.TrySetResult();
         }
         previous?.Detached.Cancel();

@@ -12,6 +12,7 @@ internal sealed class MountedNavigationSurface(RouteEntryLeaseRegistry leases, O
     private sealed record ScreenMount(OahuMountedScreen Screen, RouteEntryLeaseAttachment Attachment)
     {
         public long Id => Screen.Mount.Id;
+        public long LastStagedRevision { get; set; }
 
         public bool NativeClosed { get; private set; }
 
@@ -43,6 +44,8 @@ internal sealed class MountedNavigationSurface(RouteEntryLeaseRegistry leases, O
 
     private readonly StateSource<ShellTarget> target = new(new(0, "", false, [], "", [], new("initial", "", "", "", "", "")));
 
+    private long settledRevision;
+
     public IOahuState<ShellTarget> Target => target;
 
     public void Stage(OahuNavigationTarget next, CancellationToken cancellationToken)
@@ -53,7 +56,7 @@ internal sealed class MountedNavigationSurface(RouteEntryLeaseRegistry leases, O
         foreach (var entry in DisplayedEntries(next))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            prepared.Add(entry.Id, GetOrMount(entry));
+            prepared.Add(entry.Id, GetOrMount(entry, next.Revision));
         }
         // A factory may retire its lease, or another entry's, while building screens. Resolve
         // mount IDs again before publishing so a prepared screen cannot spend revoked authority.
@@ -81,9 +84,14 @@ internal sealed class MountedNavigationSurface(RouteEntryLeaseRegistry leases, O
 
     public void Settle(OahuNavigationTarget committed)
     {
-        // The published wire snapshot can still include entries covered by a newer native
-        // gesture. Keep their mounts until that gesture's projection has settled as well.
+        if (committed.Revision < settledRevision) return;
+        settledRevision = committed.Revision;
+        // Keep everything referenced by the wire and anything acquired by a later Show,
+        // even when that Show failed before publishing and may still need to roll back.
         var retained = ScreenEntries(target.Current).Select(entry => entry.Mount).ToHashSet();
+        foreach (var screen in mounts.Values)
+            if (screen.LastStagedRevision > committed.Revision)
+                retained.Add(screen.Id);
         foreach (var entry in DisplayedEntries(committed))
         {
             if (leases.TryGet(entry.Id, out var lease) && !lease.IsRetired &&
@@ -140,13 +148,17 @@ internal sealed class MountedNavigationSurface(RouteEntryLeaseRegistry leases, O
         if (accepted.ModalOwner is { } owner) RequireCurrentLease(owner);
     }
 
-    private long GetOrMount(RouteEntry entry)
+    private long GetOrMount(RouteEntry entry, long revision)
     {
         var lease = GetLease(entry, out var opened);
         // A retired committed entry can still belong to the graph, but cannot acquire another attachment.
         if (lease.IsRetired) return 0;
         var key = new MountKey(lease, entry.Route);
-        if (mounts.TryGetValue(key, out var existing)) return existing.Id;
+        if (mounts.TryGetValue(key, out var existing))
+        {
+            existing.LastStagedRevision = revision;
+            return existing.Id;
+        }
         if (!lease.TryAttach(out var attachment))
         {
             if (lease.IsCommitted) return 0;
@@ -157,7 +169,7 @@ internal sealed class MountedNavigationSurface(RouteEntryLeaseRegistry leases, O
             var screen = mount(entry, lease, opened);
             if (screen?.Mount is not { IsDisposed: false } handle || mounts.Values.Any(existing => existing.Id == handle.Id))
                 throw new InvalidOperationException($"The screen factory must return a fresh mount for '{entry.Id}'.");
-            mounts.Add(key, new(screen, attachment));
+            mounts.Add(key, new(screen, attachment) { LastStagedRevision = revision });
             return handle.Id;
         }
         catch
