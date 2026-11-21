@@ -31,7 +31,7 @@ public sealed class NavigationShellViewModel(
     Action<Exception> reportFailure) : INavigationShellViewModel, IOahuNavigationSurface, IDisposable, IAsyncDisposable
 {
     private readonly MountedNavigationSurface surface = new(leases, mount, reportFailure);
-    private bool disposed;
+    private volatile bool disposed;
     private Task? teardown;
     private Action? detach;
 
@@ -84,12 +84,18 @@ public sealed class NavigationShellViewModel(
         surface.Stage(next, cancellationToken);
     });
 
-    public Task AcceptAsync(OahuNavigationTarget accepted, OahuNavigationTarget committedTarget,
-        Func<Action, bool> applyIfCurrent, CancellationToken cancellationToken) => dispatch(() =>
+    public Task AcceptAsync(OahuNavigationTarget accepted, Func<Action, bool> applyIfCurrent, CancellationToken cancellationToken) => dispatch(() =>
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (disposed) return;
-        surface.Accept(accepted, committedTarget, applyIfCurrent);
+        surface.Accept(accepted, applyIfCurrent);
+    });
+
+    public Task SettleAsync(OahuNavigationTarget committed, CancellationToken cancellationToken) => dispatch(() =>
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!disposed)
+            surface.Settle(committed);
     });
 
     public async void Report(NativeObservation observation)
@@ -113,14 +119,18 @@ public sealed class NavigationShellViewModel(
     /// <summary>Disconnects immediately and releases remaining mounts on a fresh UI turn.</summary>
     public void Dispose()
     {
-        if (disposed) return;
-        ObserveTeardown(DisposeAsync().AsTask());
+        if (!disposed)
+            _ = ObserveTeardownAsync(DisposeAsync().AsTask());
     }
 
-    private async void ObserveTeardown(Task task)
+    private async Task ObserveTeardownAsync(Task task)
     {
         try { await task.ConfigureAwait(false); }
-        catch (Exception error) { reportFailure(error); }
+        catch (Exception error)
+        {
+            try { reportFailure(error); }
+            catch (Exception reportingFailure) { System.Diagnostics.Trace.TraceError("{0}", reportingFailure); }
+        }
     }
 
     /// <summary>Waits for final screen cleanup after the native hosting view has been removed.</summary>

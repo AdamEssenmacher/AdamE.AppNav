@@ -101,9 +101,14 @@ public interface IOahuNavigationSurface
 
     /// <summary>Synchronize occurrence resources with an accepted target after projection, reconciliation, or rollback.</summary>
     /// <param name="target">The accepted target.</param>
-    /// <param name="committedTarget">The projection of the router state that remains committed until this presentation succeeds.</param>
     /// <param name="applyIfCurrent">Call within the UI turn with the synchronous state update. It returns false when a newer observation or attachment has superseded the target. Do not put mount teardown in this callback.</param>
     /// <param name="token">Cancels work for a timed-out or detached presentation.</param>
-    Task AcceptAsync(OahuNavigationTarget target, OahuNavigationTarget committedTarget,
-        Func<Action, bool> applyIfCurrent, CancellationToken token);
+    Task AcceptAsync(OahuNavigationTarget target, Func<Action, bool> applyIfCurrent, CancellationToken token);
+
+    /// <summary>Release outgoing resources after the router settles, or after restoring the committed surface.</summary>
+    /// <remarks>
+    /// This callback can arrive after a newer target has been staged or settled. Do not remove resources that
+    /// are displayed or can still be needed by a newer presentation. The token only signals host detachment.
+    /// </remarks>
+    Task SettleAsync(OahuNavigationTarget target, CancellationToken token);
 }

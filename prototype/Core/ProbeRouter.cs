@@ -1,5 +1,6 @@
 using AdamE.AppNav;
 using AdamE.AppNav.Back;
+using AdamE.AppNav.Diagnostics;
 using AdamE.AppNav.Leases;
 using AdamE.AppNav.Navigation;
 using AdamE.AppNav.Oahu;
@@ -29,8 +30,9 @@ public sealed class ProbeRouter : IAsyncDisposable
         public Task ShowAsync(OahuNavigationTarget target, CancellationToken token) =>
             publish(new SurfaceTarget(target.Revision, target.Branch,
                 target.Branches.ToDictionary(x => x.Key, x => x.Value.Select(e => e.Id).ToArray())), token);
-        public Task AcceptAsync(OahuNavigationTarget target, OahuNavigationTarget committedTarget,
-            Func<Action, bool> applyIfCurrent, CancellationToken token) =>
+        public Task SettleAsync(OahuNavigationTarget target, CancellationToken token) => Task.CompletedTask;
+
+        public Task AcceptAsync(OahuNavigationTarget target, Func<Action, bool> applyIfCurrent, CancellationToken token) =>
             Task.CompletedTask;
     }
 
@@ -51,14 +53,17 @@ public sealed class ProbeRouter : IAsyncDisposable
     }
 
     public ProbeRouter(OahuNavigationPresenter presenter, RouteEntryLeaseRegistry? leases = null,
-        IReadOnlyList<IBackNavigationPolicy>? backNavigationPolicies = null)
+        IReadOnlyList<IBackNavigationPolicy>? backNavigationPolicies = null, NavigationDiagnostics? diagnostics = null)
     {
         this.presenter = presenter;
         var table = new RouteTableBuilder()
             .Map<DetailLink>("/catalog/group/item/detail", _ => new DetailLink())
             .Build();
         Navigator = RouterNavigatorFactory.Create(table, new Planner(), presenter,
-            new RouterNavigatorFactoryOptions { EntryLeases = leases, BackNavigationPolicies = backNavigationPolicies ?? [] });
+            new RouterNavigatorFactoryOptions
+            {
+                EntryLeases = leases, BackNavigationPolicies = backNavigationPolicies ?? [], Diagnostics = diagnostics
+            });
         presenter.Bind(Navigator);
         presenter.Reconciled += OnCommit;
     }

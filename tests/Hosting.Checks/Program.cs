@@ -1,3 +1,4 @@
+using System.Threading.Channels;
 using AdamE.AppNav.Leases;
 using AdamE.AppNav.Oahu;
 using AdamE.AppNav.Oahu.Hosting;
@@ -18,6 +19,8 @@ loop.Run(async () =>
         }, null);
         return done.Task;
     }
+
+    await AcceptanceChecks.RunAsync(loop, Dispatch);
 
     var leases = new RouteEntryLeaseRegistry(new LeaseHost(Dispatch));
     using var presenter = new OahuNavigationPresenter();
@@ -43,24 +46,48 @@ loop.Run(async () =>
             released.Add(mount.Id);
         });
     }, Dispatch, _ => Task.CompletedTask, failure => throw failure);
+    var resumeInitialSettlement = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var showFailed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var resumeFailedShow = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
     long epoch = 0;
     var surface = new Witness(shell, target =>
     {
         if (retireBeforeAcknowledgement && target.SelectedBranch == "catalog") detailLease!.Retire();
         return presenter.ObserveAsync(epoch, target.Revision, target.SelectedBranch,
             target.Branches.Single(b => b.Branch == target.SelectedBranch).Entries.Select(e => e.EntryId).ToArray());
-    });
+    }, beforeSettle: target => target.Transition.Operation == "initial" ? resumeInitialSettlement.Task : Task.CompletedTask,
+        onShowFailure: () =>
+        {
+            showFailed.TrySetResult();
+            return resumeFailedShow.Task;
+        });
     epoch = presenter.Attach(surface);
     try
     {
         await router.StartAsync(default);
         var initial = created.Values.SelectMany(x => x).ToArray();
+        var failedLink = router.DeepLinkAsync(default);
         try
         {
-            await router.DeepLinkAsync(default);
+            await showFailed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            resumeInitialSettlement.SetResult();
+            await surface.WaitForSettlementAsync("initial");
+            Check(!created["group"].Single().IsDisposed && !created["item"].Single().IsDisposed,
+                "Old settlement removed newer mounts staged before a screen factory failed");
+        }
+        finally
+        {
+            resumeInitialSettlement.TrySetResult();
+            resumeFailedShow.SetResult();
+        }
+
+        try
+        {
+            await failedLink;
             throw new Exception("Expected screen creation to fail");
         }
         catch (ApplicationException failure) when (failure.Message == "screen creation failed") { }
+        await surface.WaitForSettlementAsync("rollback");
         Check(router.HistoryCount == 1 && router.CurrentBranch == "home", "Failed link changed AppNav");
         Check(created["group"].Single().IsDisposed && created["item"].Single().IsDisposed, "Rollback leaked speculative screens");
         Check(initial.All(m => !m.IsDisposed), "Rollback disconnected a retained screen");
@@ -74,6 +101,7 @@ loop.Run(async () =>
                 throw new Exception("A provisional lease retired without aborting navigation");
             }
             catch (OperationCanceledException) { }
+            await surface.WaitForSettlementAsync("rollback");
             Check(router.HistoryCount == 1 && router.CurrentBranch == "home", "A retired provisional lease changed AppNav");
             Check(created["detail"].Last().IsDisposed && created["group"].Last().IsDisposed,
                 "Rollback leaked a speculative screen after lease retirement");
@@ -96,6 +124,7 @@ loop.Run(async () =>
         var detail = created["detail"].Last();
         detailLease!.Retire();
         await router.Navigator.RefreshPresentationAsync();
+        await surface.WaitForSettlementAsync("refresh");
         var catalog = shell.Target.Current.Branches.Single(b => b.Branch == "catalog");
         Check(catalog.Entries.Last() == new ScreenEntry("detail", 0), "Retired entry was remounted");
         Check(detail.IsDisposed && router.HistoryCount == 2, "Refresh retained the old mount or added history");
@@ -138,12 +167,14 @@ loop.Run(async () =>
         lease.Own(() => unsafeResourceReleased = true);
         return new(mount, () =>
         {
+            Check(unsafeRouter.HistoryCount == 2 && unsafeRouter.CurrentEntryIds.SequenceEqual(["home"]),
+                "Cleanup started before the router committed its state and history");
             cleanupAttempts++;
             if (cleanupAttempts <= 2) throw cleanupFailure;
         });
     }, Dispatch, _ => Task.CompletedTask, reports.Add);
     long unsafeEpoch = 0;
-    unsafeEpoch = unsafePresenter.Attach(new Witness(unsafeShell, target =>
+    var unsafeSurface = new Witness(unsafeShell, target =>
         unsafePresenter.ObserveAsync(unsafeEpoch, target.Revision, target.SelectedBranch,
             target.Branches.Single(b => b.Branch == target.SelectedBranch).Entries.Select(e => e.EntryId).ToArray()),
         accepted =>
@@ -153,8 +184,10 @@ loop.Run(async () =>
                 cancelAfterAccept = false;
                 cancelBack.Cancel();
             }
-        }));
+        });
+    unsafeEpoch = unsafePresenter.Attach(unsafeSurface);
     await unsafeRouter.StartAsync();
+    await unsafeSurface.WaitForSettlementAsync("initial");
     var original = unsafeMount!;
     try
     {
@@ -162,13 +195,13 @@ loop.Run(async () =>
         throw new Exception("Expected cancellation after native acceptance");
     }
     catch (OperationCanceledException) when (cancelBack.IsCancellationRequested) { }
+    await unsafeSurface.WaitForSettlementAsync("rollback");
     Check(unsafeRouter.HistoryCount == 1 && !original.IsDisposed && ReferenceEquals(original, unsafeMount) &&
           unsafeShell.Target.Current.Branches.Single(b => b.Branch == "home").Entries.Last().Mount == original.Id,
         "Rollback must restore the original mounted screen");
 
     await unsafeRouter.Navigator.BackAsync();
-    Check(unsafeRouter.HistoryCount == 2 && cleanupAttempts == 0, "Cleanup preceded the router's commit");
-    await unsafeRouter.Navigator.RefreshPresentationAsync();
+    await unsafeSurface.WaitForSettlementAsync("pop");
     Check(unsafeRouter.HistoryCount == 2 && unsafeRouter.CurrentEntryIds.SequenceEqual(["home"]) &&
           original.IsDisposed && reports.Count == 1 && reports[0] is AggregateException reportedFailure &&
           reportedFailure.InnerExceptions.Contains(cleanupFailure) && !unsafeResourceReleased,
@@ -195,19 +228,41 @@ static void Check(bool condition, string message)
     if (!condition) throw new Exception(message);
 }
 
-sealed class Witness(NavigationShellViewModel shell, Func<ShellTarget, Task> report, Action<OahuNavigationTarget>? afterAccept = null) : IOahuNavigationSurface
+sealed class Witness(NavigationShellViewModel shell, Func<ShellTarget, Task> report,
+    Action<OahuNavigationTarget>? afterAccept = null, Func<OahuNavigationTarget, Task>? beforeSettle = null,
+    Func<Task>? onShowFailure = null) : IOahuNavigationSurface
 {
+    private readonly Channel<OahuNavigationTarget> settlements = Channel.CreateUnbounded<OahuNavigationTarget>();
+
+    public async Task WaitForSettlementAsync(string operation)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        while ((await settlements.Reader.ReadAsync(timeout.Token)).Transition.Operation != operation) { }
+    }
+
     public async Task ShowAsync(OahuNavigationTarget target, CancellationToken token)
     {
-        await shell.ShowAsync(target, token);
+        try { await shell.ShowAsync(target, token); }
+        catch when (onShowFailure is not null)
+        {
+            await onShowFailure();
+            throw;
+        }
         await report(shell.Target.Current);
     }
 
-    public async Task AcceptAsync(OahuNavigationTarget target, OahuNavigationTarget committedTarget,
-        Func<Action, bool> applyIfCurrent, CancellationToken token)
+    public async Task AcceptAsync(OahuNavigationTarget target, Func<Action, bool> applyIfCurrent, CancellationToken token)
     {
-        await shell.AcceptAsync(target, committedTarget, applyIfCurrent, token);
+        await shell.AcceptAsync(target, applyIfCurrent, token);
         afterAccept?.Invoke(target);
+    }
+
+    public async Task SettleAsync(OahuNavigationTarget target, CancellationToken token)
+    {
+        if (beforeSettle is not null)
+            await beforeSettle(target);
+        await shell.SettleAsync(target, token);
+        settlements.Writer.TryWrite(target);
     }
 }
 
