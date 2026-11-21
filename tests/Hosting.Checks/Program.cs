@@ -137,10 +137,10 @@ loop.Run(async () =>
         await presenter.ObserveAsync(epoch, shell.Target.Current.Revision, "catalog", ["catalog", "group"]);
         Check(router.HistoryCount == 3 && router.CurrentEntryIds.SequenceEqual(["catalog", "group"]),
             "Native multi-pop did not commit");
+        await itemLease!.Released.WaitAsync(TimeSpan.FromSeconds(5));
         Check(item.IsDisposed && released.Count(id => id == item.Id) == 1,
             "Native multi-pop must release its removed mount without another presentation");
         Check(!created["group"].Last().IsDisposed, "Native multi-pop released the still visible mount");
-        await itemLease!.Released.WaitAsync(TimeSpan.FromSeconds(5));
         presenter.Detach(epoch);
         Task shutdown;
         using (loop.NativeCall())
