@@ -1,5 +1,6 @@
 using System.Threading.Channels;
 using AdamE.AppNav;
+using AdamE.AppNav.Diagnostics;
 using AdamE.AppNav.Navigation;
 using AdamE.AppNav.Oahu;
 using AdamE.AppNav.Plans;
@@ -15,9 +16,13 @@ internal static class PresenterChecks
         private readonly Channel<OahuNavigationTarget> frames = Channel.CreateUnbounded<OahuNavigationTarget>();
         public bool FailAccept { get; set; }
         public Func<Task>? BeforeAccept { get; set; }
+        public Func<OahuNavigationTarget, Task>? OnSettle { get; set; }
         public List<OahuNavigationTarget> Accepted { get; } = [];
         public Task ShowAsync(OahuNavigationTarget target, CancellationToken token) =>
             frames.Writer.WriteAsync(target, token).AsTask();
+        public Task SettleAsync(OahuNavigationTarget target, CancellationToken token) =>
+            OnSettle?.Invoke(target) ?? Task.CompletedTask;
+
         public async Task AcceptAsync(OahuNavigationTarget target, Func<Action, bool> applyIfCurrent,
             CancellationToken token)
         {
@@ -118,9 +123,52 @@ internal static class PresenterChecks
         Assert(router.HistoryCount == 7, "Router failed to recover after rollback");
 
         await CheckRapidNativePops();
+        await CheckRollbackSettlementFailure();
         await CheckTransitionContext();
         await CheckTopologies();
         Console.WriteLine("PASS: attachment epochs, recreation, tab selection, modal stack, rapid native pops, rollback, shape preflight");
+    }
+
+    private static async Task CheckRollbackSettlementFailure()
+    {
+        var diagnostics = new NavigationDiagnostics();
+        var applyFailure = new TaskCompletionSource<NavigationDiagnosticEvent>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var settleFailure = new TaskCompletionSource<NavigationDiagnosticEvent>(TaskCreationOptions.RunContinuationsAsynchronously);
+        diagnostics.EventWritten += (_, entry) =>
+        {
+            if (entry.Kind == NavigationDiagnosticEventKind.PresentationFailed)
+                applyFailure.TrySetResult(entry);
+            if (entry.Kind == NavigationDiagnosticEventKind.PresentationSettlementFailed)
+                settleFailure.TrySetResult(entry);
+        };
+        using var presenter = new OahuNavigationPresenter();
+        await using var router = new ProbeRouter(presenter, diagnostics: diagnostics);
+        var surface = new Surface
+        {
+            OnSettle = target => target.Transition.Operation == "rollback"
+                ? Task.FromException(new ApplicationException("rollback cleanup failed")) : Task.CompletedTask
+        };
+        var epoch = presenter.Attach(surface);
+        var start = router.StartAsync();
+        await Ack(presenter, epoch, await surface.Next());
+        await start;
+
+        surface.FailAccept = true;
+        var link = router.DeepLinkAsync();
+        await Ack(presenter, epoch, await surface.Next());
+        await Ack(presenter, epoch, await surface.Next());
+        try
+        {
+            await link;
+            throw new Exception("Failed apply unexpectedly succeeded");
+        }
+        catch (InvalidOperationException error) when (error.Message == "injected mount release failure") { }
+
+        var timeout = TimeSpan.FromSeconds(5);
+        var apply = await applyFailure.Task.WaitAsync(timeout);
+        var settle = await settleFailure.Task.WaitAsync(timeout);
+        Assert(apply.OperationId == settle.OperationId && router.HistoryCount == 1 && router.CurrentBranch == "home",
+            "Rollback cleanup failed under a different operation identifier or rewrote history");
     }
 
     private static async Task CheckRapidNativePops()

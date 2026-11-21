@@ -226,6 +226,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             try
             {
                 _entryLeases?.BeginPresentation();
+                RecordPresentationSettlement(state, plan.Kind, operationId);
                 await _presenter.ApplyAsync(plan,
                     new NavigationPresentationContext(request, route, state, operationId), operationCancellation)
                     .ConfigureAwait(false);
@@ -245,7 +246,6 @@ internal sealed class RouterNavigator : IRouterNavigator
                 // A refresh commits nothing, so leases its presenter opened outside the state end with it.
                 _entryLeases?.EndPresentation(state);
             }
-            await NotifyPresentationSettledAsync(state, plan.Kind, operationId).ConfigureAwait(false);
             // Refresh is neither navigation nor an observed host-state replacement. State/history stay identical.
         }
         finally
@@ -373,6 +373,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             try
             {
                 _entryLeases?.BeginPresentation();
+                RecordPresentationSettlement(CurrentState, plan.Kind, operationId);
                 await _presenter.ApplyAsync(
                     plan,
                     new NavigationPresentationContext(finalizedRequest, finalRoute, CurrentState, operationId),
@@ -402,7 +403,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             History = History.Push(
                 CreateHistoryEntry(finalizedRequest, finalRoute, CurrentState),
                 _maxHistoryEntries);
-            await NotifyPresentationSettledAsync(CurrentState, plan.Kind, operationId).ConfigureAwait(false);
+            RecordPresentationSettlement(CurrentState, plan.Kind, operationId);
             activity.SetStatus(ActivityStatusCode.Ok);
 
             return new NavigationResult(finalRoute, plan, CurrentState, true);
@@ -541,6 +542,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             try
             {
                 _entryLeases?.BeginPresentation();
+                RecordPresentationSettlement(CurrentState, plan.Kind, operationId);
                 await _presenter.ApplyAsync(
                     plan,
                     new NavigationPresentationContext(request, route, CurrentState, operationId),
@@ -569,7 +571,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             _entryLeases?.Commit(CurrentState);
             History = History.Push(CreateHistoryEntry(request, route, CurrentState),
                 _maxHistoryEntries);
-            await NotifyPresentationSettledAsync(CurrentState, plan.Kind, operationId).ConfigureAwait(false);
+            RecordPresentationSettlement(CurrentState, plan.Kind, operationId);
 
             _diagnostics.Write(
                 NavigationDiagnosticEventKind.BackCompleted,
@@ -644,6 +646,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             try
             {
                 _entryLeases?.BeginPresentation();
+                RecordPresentationSettlement(CurrentState, plan.Kind, operationId);
                 await _presenter.ApplyAsync(
                     plan,
                     new NavigationPresentationContext(finalizedRequest, finalRoute, CurrentState, operationId),
@@ -673,7 +676,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             History = History.Push(
                 CreateHistoryEntry(finalizedRequest, finalRoute, CurrentState),
                 _maxHistoryEntries);
-            await NotifyPresentationSettledAsync(CurrentState, plan.Kind, operationId).ConfigureAwait(false);
+            RecordPresentationSettlement(CurrentState, plan.Kind, operationId);
 
             _diagnostics.Write(
                 NavigationDiagnosticEventKind.ReconciliationCompleted,
@@ -693,16 +696,22 @@ internal sealed class RouterNavigator : IRouterNavigator
         }
     }
 
-    private async ValueTask NotifyPresentationSettledAsync(
+    private void RecordPresentationSettlement(NavigationState state, NavigationPlanKind kind, string operationId)
+    {
+        if (_presenter is INavigationPresentationSettlement settlement)
+        {
+            RouterOperationContext context = CurrentOperationContext.Value!;
+            context.Settlement = new(settlement, state, kind, operationId);
+        }
+    }
+
+    private async Task NotifyPresentationSettledAsync(INavigationPresentationSettlement settlement,
         NavigationState state, NavigationPlanKind kind, string operationId)
     {
-        if (_presenter is not INavigationPresentationSettlement settlement)
-            return;
-
         var timer = Stopwatch.StartNew();
         try
         {
-            await settlement.OnPresentationSettledAsync(state).ConfigureAwait(false);
+            await settlement.OnPresentationSettledAsync(state, operationId).ConfigureAwait(false);
         }
         catch (Exception exception)
         {
@@ -865,6 +874,21 @@ internal sealed class RouterNavigator : IRouterNavigator
                 if (operationAdmitted)
                     EndOperation();
             }
+        }
+
+        if (operationContext?.Settlement is { } settlement)
+        {
+            operationContext.Settlement = null;
+            // Cleanup runs independently of router admission. Do not flow an active operation
+            // context into arbitrary presenter code.
+            if (ExecutionContext.IsFlowSuppressed())
+                _ = Task.Run(SettleAsync);
+            else
+                using (ExecutionContext.SuppressFlow())
+                    _ = Task.Run(SettleAsync);
+
+            Task SettleAsync() => NotifyPresentationSettledAsync(
+                settlement.Presenter, settlement.State, settlement.Kind, settlement.OperationId);
         }
     }
 
@@ -1086,6 +1110,9 @@ internal sealed class RouterNavigator : IRouterNavigator
         return linkedCancellation.Token;
     }
 
+    private readonly record struct PresentationSettlement(INavigationPresentationSettlement Presenter,
+        NavigationState State, NavigationPlanKind Kind, string OperationId);
+
     private sealed class RouterOperationContext(
         RouterNavigator navigator,
         RouterOperationContext? parent)
@@ -1095,6 +1122,7 @@ internal sealed class RouterNavigator : IRouterNavigator
         public RouterNavigator? ActiveNavigator => Volatile.Read(ref _activeNavigator);
 
         public RouterOperationContext? Parent { get; } = parent;
+        public PresentationSettlement? Settlement { get; set; }
 
         public void Deactivate()
         {

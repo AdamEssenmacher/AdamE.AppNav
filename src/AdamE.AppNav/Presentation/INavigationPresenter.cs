@@ -42,12 +42,15 @@ public interface INavigationPresentationSettlement
 {
     /// <summary>Completes presentation-side cleanup after the router has settled the accepted state.</summary>
     /// <remarks>
-    /// The router awaits this callback after committing state, history, and leases, or after ending a
-    /// successful refresh. Use it to release resources that could still be needed while applying the plan.
-    /// Failures are reported through router diagnostics and do not change the operation's outcome.
+    /// The router schedules this callback when the presentation attempt ends, after committing or retaining
+    /// state, history, and leases. It runs on a thread-pool thread outside the router operation. Later operations
+    /// and their callbacks may run before or during this callback. Match the operation identifier to a
+    /// presentation you certified before releasing resources. Failures are reported through router diagnostics
+    /// and do not change the operation's outcome.
     /// </remarks>
     /// <param name="state">The settled router state.</param>
-    ValueTask OnPresentationSettledAsync(NavigationState state);
+    /// <param name="operationId">The correlation identifier supplied to the presenter when applying the plan.</param>
+    ValueTask OnPresentationSettledAsync(NavigationState state, string operationId);
 }
 
 internal sealed class NullNavigationPresenter : INavigationPresenter

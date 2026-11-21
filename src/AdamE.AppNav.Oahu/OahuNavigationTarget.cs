@@ -106,5 +106,9 @@ public interface IOahuNavigationSurface
     Task AcceptAsync(OahuNavigationTarget target, Func<Action, bool> applyIfCurrent, CancellationToken token);
 
     /// <summary>Release outgoing resources after the router settles, or after restoring the committed surface.</summary>
-    Task SettleAsync(OahuNavigationTarget target, CancellationToken token) => Task.CompletedTask;
+    /// <remarks>
+    /// This callback can arrive after a newer target has been staged or settled. Do not remove resources that
+    /// are displayed or can still be needed by a newer presentation. The token only signals host detachment.
+    /// </remarks>
+    Task SettleAsync(OahuNavigationTarget target, CancellationToken token);
 }
