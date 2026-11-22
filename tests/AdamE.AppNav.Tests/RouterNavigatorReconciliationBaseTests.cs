@@ -162,7 +162,7 @@ public sealed class RouterNavigatorReconciliationBaseTests
         Assert.Equal(
             new[] { NavigationPlanKind.Navigate, NavigationPlanKind.Reconcile, NavigationPlanKind.Navigate },
             presenter.AppliedPlans.Select(plan => plan.Kind));
-        Assert.Same(queued.Result.State, navigator.CurrentState);
+        Assert.Same((await queued).State, navigator.CurrentState);
         Assert.Equal(3, navigator.History.Entries.Count);
         Assert.DoesNotContain(NavigationDiagnosticEventKind.ReconciliationRejected, events);
     }
@@ -189,7 +189,7 @@ public sealed class RouterNavigatorReconciliationBaseTests
         Assert.Equal(
             new[] { NavigationPlanKind.Navigate, NavigationPlanKind.Reconcile, NavigationPlanKind.Navigate },
             presenter.AppliedPlans.Select(plan => plan.Kind));
-        Assert.Same(queued.Result.State, navigator.CurrentState);
+        Assert.Same((await queued).State, navigator.CurrentState);
         Assert.Equal(3, navigator.History.Entries.Count);
         Assert.DoesNotContain(NavigationDiagnosticEventKind.ReconciliationRejected, events);
     }

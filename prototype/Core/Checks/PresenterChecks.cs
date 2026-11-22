@@ -54,7 +54,7 @@ internal static class PresenterChecks
 
     public static async Task RunAsync()
     {
-        var presenter = new OahuNavigationPresenter();
+        var presenter = ProbeRouter.CreatePresenter();
         await using var router = new ProbeRouter(presenter);
         var first = new Surface();
         var e1 = presenter.Attach(first);
@@ -100,16 +100,23 @@ internal static class PresenterChecks
         var window = router.Navigator.CurrentState.ActiveWindow!;
         Assert(window.Modals.Single().Content is StackNode { Entries.Count: 1 } && router.HistoryCount == 5,
             "Modal pop discarded its owner or added the wrong history");
-        await presenter.ObserveAsync(e2, sheet.Revision, "home", ["home", "home-detail"]);
-        Assert(router.Navigator.CurrentState.ActiveWindow!.Modals.Count == 0 && router.HistoryCount == 6,
+        var pushReview = router.PushReviewAsync();
+        var review = await second.Next();
+        Assert(review.ModalId == "editor" && review.ModalEntries.Select(x => x.Id).SequenceEqual(["edit", "review-again"]) &&
+            review.Transition == new OahuPresentationTransition("push", "edit", "review-again", "review-cover", "edit", "review"),
+            $"Review push lost its sheet stack or visual source: {review.Transition}");
+        await Ack(presenter, e2, review);
+        await pushReview;
+        await presenter.ObserveAsync(e2, review.Revision, "home", ["home", "home-detail"]);
+        Assert(router.Navigator.CurrentState.ActiveWindow!.Modals.Count == 0 && router.HistoryCount == 7,
             "Modal dismissal failed");
         await second.NextFailsIfPublished();
 
         // Failed cleanup after an observed change must repair the native path before the router unwinds.
         second.FailAccept = true;
-        var rejected = presenter.ObserveAsync(e2, sheet.Revision, "home", ["home"]);
+        var rejected = presenter.ObserveAsync(e2, review.Revision, "home", ["home"]);
         var rollback = await second.Next();
-        Assert(!rejected.IsCompleted && rollback.Revision != sheet.Revision, "Rollback reused an invalid native witness");
+        Assert(!rejected.IsCompleted && rollback.Revision != review.Revision, "Rollback reused an invalid native witness");
         Assert(rollback.Transition.Operation == "rollback" && rollback.Transition.SourceKey.Length == 0, "Recovery replayed visual origin");
         await Ack(presenter, e2, rollback);
         try
@@ -118,9 +125,9 @@ internal static class PresenterChecks
             throw new Exception("Cleanup failure was swallowed");
         }
         catch (InvalidOperationException e) when (e.Message.Contains("injected")) { }
-        Assert(router.CurrentEntryIds.Length == 2 && router.HistoryCount == 6, "Failed cleanup changed history");
+        Assert(router.CurrentEntryIds.Length == 2 && router.HistoryCount == 7, "Failed cleanup changed history");
         await presenter.ObserveAsync(e2, rollback.Revision, "home", ["home"]);
-        Assert(router.HistoryCount == 7, "Router failed to recover after rollback");
+        Assert(router.HistoryCount == 8, "Router failed to recover after rollback");
 
         await CheckRapidNativePops();
         await CheckRollbackSettlementFailure();

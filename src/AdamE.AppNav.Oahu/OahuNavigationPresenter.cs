@@ -310,9 +310,13 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, INavigationP
         NavigationReconciliation change)
     {
         var navigator = router ?? throw new InvalidOperationException("Bind the presenter before reporting native navigation.");
-        var target = new OahuNavigationTarget(change.TargetState, previousTarget.Revision)
+        var reconciled = new OahuNavigationTarget(change.TargetState, previousTarget.Revision);
+        // The native host performed this gesture itself. Describe what it did rather than republishing the
+        // transition that moved the app into the previous target, whose source key was consumed there.
+        var target = reconciled with
         {
-            Transition = previousTarget.Transition
+            Transition = OahuPresentationTransition.Describe(
+                previousTarget, reconciled, operation: null, sourceKey: "", screenName)
         };
         var next = new Presentation(current, change.TargetState, target);
         observed = next;

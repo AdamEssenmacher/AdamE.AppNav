@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0-android37.0</TargetFramework>
+    <SupportedOSPlatformVersion>28</SupportedOSPlatformVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <Description>Android activity hosting for the AppNav Navigation 3 surface.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../AdamE.AppNav.Oahu.Hosting/AdamE.AppNav.Oahu.Hosting.csproj" />
+    <PackageReference Include="Oahu.Android" Version="0.1.0-preview.g7a56b3ba" />
+    <PackageReference Include="Xamarin.AndroidX.Compose.Runtime" Version="1.11.3.1" />
+    <PackageReference Include="Xamarin.AndroidX.Compose.UI" Version="1.11.3.1" />
+    <PackageReference Include="Xamarin.AndroidX.Compose.Foundation" Version="1.11.3.1" />
+    <PackageReference Include="Xamarin.AndroidX.Compose.Animation" Version="1.11.3.1" />
+    <PackageReference Include="Xamarin.AndroidX.Compose.Material3" Version="1.4.0.3" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="README.md" Pack="true" PackagePath="/" />
+    <None Update="src/main/kotlin/**/*.kt" Pack="true" PackagePath="native/%(Identity)" />
+    <None Update="buildTransitive/*.targets" Pack="true" PackagePath="%(Identity)" />
+  </ItemGroup>
+</Project>

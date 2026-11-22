@@ -20,6 +20,7 @@ loop.Run(async () =>
         return done.Task;
     }
 
+    await ObservationChecks.RunAsync();
     await AcceptanceChecks.RunAsync(loop, Dispatch);
     await TakenBackChecks.RunAsync(loop, Dispatch);
 
