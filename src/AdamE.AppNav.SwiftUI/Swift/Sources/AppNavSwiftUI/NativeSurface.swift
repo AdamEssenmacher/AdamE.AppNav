@@ -1,19 +1,6 @@
+#if canImport(UIKit)
 import SwiftUI
 import UIKit
-
-enum StackKey: Hashable {
-    case branch(String)
-    case modal(String)
-
-    var isModal: Bool {
-        if case .modal = self { return true }
-        return false
-    }
-}
-
-struct ModalSelection: Identifiable, Equatable {
-    let id: String
-}
 
 // Resolve each rendered destination's native controller through the responder chain.
 // Offscreen controllers keep the identity witnessed while they were visible.
@@ -89,53 +76,33 @@ struct FrameObserver: UIViewRepresentable {
     static func dismantleUIView(_ view: FrameView, coordinator: Void) { view.stop() }
 }
 
+// Adapts UIKit and SwiftUI to SurfaceState. It samples the native stacks on each display frame, forwards
+// binding writes and gesture boundaries, and commits what the state machine decides. It holds no
+// navigation rules of its own.
 @MainActor
 final class NativeSurface: ObservableObject {
-    @Published private(set) var target: NavigationProjection?
-    @Published private var paths: [StackKey: [NavigationEntry]] = [:]
-    @Published private var selectedBranch = ""
-    @Published private var selectedModal: ModalSelection?
-    @Published private(set) var diagnostics = NavigationDiagnostics()
-
-    private struct PushOrigin {
-        let key: StackKey
-        let source: NavigationEntry
-        let context: NavigationTransitionContext
-    }
-
-    private var pushOrigins: [NavigationEntry: PushOrigin] = [:]
+    private var state = SurfaceState()
     private var report: ((NavigationReading) -> Void)?
     private var trace: ((String) -> Void)?
+    private var policy: ((NavigationTransitionContext) -> Animation?)?
     private let markers = NSHashTable<MarkerView>.weakObjects()
     private let identities = NSMapTable<UIViewController, NSString>.weakToStrongObjects()
-    // Published so gesture gates in the shell re-render as soon as an apply starts or settles.
-    @Published private(set) var applying = false
-    private var stagedTops: [String] = []
-    private var lastReading: NavigationReading?
-    private var candidate: NavigationReading?
-    private var trackedInteraction: ObjectIdentifier?
-    private var needsGestureVerification = false
-    private var nextDiagnostic = 0.0
-    // The one-entry push being animated for the staged revision, while UIKit can still take it back.
-    private var animatedPush: VisibleStep?
-    // That push after SwiftUI wrote it out of the path, until UIKit's stack settles without it or a cancelled
-    // gesture writes it back.
-    private var takenBack: TakenBack?
-    // Whether the page that push adds has been seen mounted in the window.
-    private var pushWitnessed = false
-    // Whether the last settled frame still showed the taken-back page on top.
-    private var takenBackKept = false
-    // The stack whose animated push can take a Back while it applies: its page has been seen and no Back has taken
-    // it back yet. Every other stack withholds Back until the revision settles.
-    @Published private(set) var backDuringPush: StackKey?
 
-    private struct TakenBack {
-        let key: StackKey
-        let staged: NavigationReading
-        let shorter: NavigationReading
-        let shorterEntries: [NavigationEntry]
-        let restored: [NavigationEntry]
-        let removed: NavigationEntry
+    var target: NavigationProjection? { state.target }
+    var diagnostics: NavigationDiagnostics { state.diagnostics }
+    var applying: Bool { state.applying }
+    var modalTop: NavigationEntry? { state.modalTop }
+
+    func isWaitingForTab(_ key: StackKey) -> Bool { state.isWaitingForTab(key) }
+
+    func withholdsBack(_ key: StackKey) -> Bool { state.withholdsBack(key) }
+
+    func context(for entry: NavigationEntry, key: StackKey) -> NavigationDestinationContext {
+        state.context(for: entry, key: key)
+    }
+
+    func matchedPushContext(for entry: NavigationEntry, key: StackKey) -> NavigationTransitionContext? {
+        state.matchedPushContext(for: entry, key: key)
     }
 
     func updateCallbacks(report: @escaping (NavigationReading) -> Void, trace: @escaping (String) -> Void) {
@@ -143,383 +110,132 @@ final class NativeSurface: ObservableObject {
         self.trace = trace
     }
 
-    func stage(_ next: NavigationProjection, animatesSinglePushes: Bool,
-               transactionAnimation: ((NavigationTransitionContext) -> Animation?)?) {
-        if next.revision == target?.revision {
-            prunePushOrigins(next)
-            target = next
-            return
-        }
-        let step = visibleStep(to: next)
-        let singlePush = step?.isPush == true && (next.transition == nil || next.transition?.operation == .push)
-        var animation: Animation?
-        if let context = next.transition, let transactionAnimation {
-            if canAnimate(next, operation: context.operation, step: step) {
-                animation = transactionAnimation(context)
-            }
-        } else if singlePush && animatesSinglePushes {
-            animation = .default
-        }
-        stagePushOrigins(next, push: singlePush ? step : nil)
-        animatedPush = singlePush && animation != nil ? step : nil
-        // A pending take-back can be dropped here. The presenter stages a new revision only after the router
-        // operation that staged the old one has ended, and that operation can't end while a take-back is pending: the
-        // take-back holds back the staged reading the operation waits for. So a new revision here is the rollback
-        // after that operation timed out or was cancelled, or a reattach. Neither recorded the push, and each installs
-        // the router's committed stack.
-        takenBack = nil
-        takenBackKept = false
-        pushWitnessed = false
-        backDuringPush = nil
-        applying = next.revision > 0
-        nextDiagnostic = CACurrentMediaTime() + 1
-        candidate = nil
-        lastReading = nil
-        stagedTops = []
-        trackedInteraction = nil
-        needsGestureVerification = false
-        var transaction = Transaction(animation: animation)
-        transaction.disablesAnimations = animation == nil
-        withTransaction(transaction) {
-            paths = Dictionary(uniqueKeysWithValues: next.branches.map {
-                (.branch($0.id), Array($0.entries.dropFirst()))
-            })
-            if let modal = next.modal {
-                paths[.modal(modal.id)] = Array(modal.entries.dropFirst())
-            }
-            selectedBranch = next.selectedBranch
-            selectedModal = next.modal.map { ModalSelection(id: $0.id) }
-            target = next
-        }
-    }
-
-    func context(for entry: NavigationEntry, key: StackKey) -> NavigationDestinationContext {
-        let transition = pushOrigins[entry].flatMap { $0.key == key ? $0.context : nil } ??
-            (target?.transition?.destinationEntryID == entry.id ? target?.transition : nil)
-        switch key {
-        case .branch(let id):
-            return NavigationDestinationContext(entry: entry, branchID: id, modalID: nil, transition: transition)
-        case .modal(let id):
-            return NavigationDestinationContext(entry: entry, branchID: nil, modalID: id, transition: transition)
-        }
-    }
-
-    private func stagePushOrigins(_ next: NavigationProjection, push: VisibleStep?) {
-        switch next.transition?.operation {
-        case .initial, .refresh, .rollback, .reattach:
-            pushOrigins.removeAll()
-        default:
-            let nextIDs = Set((next.branches.flatMap(\.entries) + (next.modal?.entries ?? [])).map(\.id))
-            // A removed controller can still be animating out. Preserve its exact match until
-            // settlement if the source still belongs to that stack or is departing alongside it.
-            pushOrigins = pushOrigins.filter { destination, origin in
-                if corresponds(origin, destination: destination, in: next) { return true }
-                guard !nextIDs.contains(destination.id),
-                      let previous = target, corresponds(origin, destination: destination, in: previous)
-                else { return false }
-                return !nextIDs.contains(origin.source.id) ||
-                    entries(for: origin.key, in: next)?.contains(origin.source) == true
-            }
-        }
-        guard let push, let context = next.transition,
-              let source = push.old.last, let destination = push.new.last,
-              source.mount > 0, destination.mount > 0,
-              context.sourceEntryID == source.id, context.destinationEntryID == destination.id else { return }
-        pushOrigins[destination] = PushOrigin(key: push.key, source: source, context: context)
-    }
-
-    private func prunePushOrigins(_ projection: NavigationProjection) {
-        pushOrigins = pushOrigins.filter { destination, origin in
-            corresponds(origin, destination: destination, in: projection)
-        }
-    }
-
-    private func corresponds(_ origin: PushOrigin, destination: NavigationEntry,
-                             in projection: NavigationProjection) -> Bool {
-        guard let entries = entries(for: origin.key, in: projection),
-              let destinationIndex = entries.firstIndex(of: destination), destinationIndex > 0 else { return false }
-        return entries[destinationIndex - 1] == origin.source
-    }
-
-    private func entries(for key: StackKey, in projection: NavigationProjection) -> [NavigationEntry]? {
-        switch key {
-        case .branch(let id):
-            return projection.branches.first(where: { $0.id == id })?.entries
-        case .modal(let id):
-            return projection.modal?.id == id ? projection.modal?.entries : nil
-        }
-    }
-
-    func matchedPushContext(for entry: NavigationEntry, key: StackKey) -> NavigationTransitionContext? {
-        guard let origin = pushOrigins[entry], origin.key == key else { return nil }
-        return origin.context
-    }
-
-    private struct VisibleStep {
-        let key: StackKey
-        let old: [NavigationEntry]
-        let new: [NavigationEntry]
-
-        var isPush: Bool { !old.isEmpty && new.count == old.count + 1 && new.starts(with: old) }
-        var isPop: Bool { !new.isEmpty && old.count == new.count + 1 && old.starts(with: new) }
-    }
-
-    private func settledBranch(to next: NavigationProjection) -> VisibleStep? {
-        guard let prior = target, !applying, trackedInteraction == nil, let reading = lastReading,
-              prior.isBranchHost == next.isBranchHost,
-              prior.branches.map(\.id) == next.branches.map(\.id),
-              selectedBranch == next.selectedBranch, prior.selectedBranch == next.selectedBranch,
-              reading.branch == selectedBranch, reading.modalID == prior.modal?.id,
-              selectedModal?.id == prior.modal?.id,
-              let old = prior.branches.first(where: { $0.id == selectedBranch }),
-              let new = next.branches.first(where: { $0.id == selectedBranch }),
-              reading.entries == old.entries.map(\.id),
-              paths[.branch(selectedBranch)] == Array(old.entries.dropFirst()),
-              prior.branches.filter({ $0.id != selectedBranch }) == next.branches.filter({ $0.id != selectedBranch })
-        else { return nil }
-        return VisibleStep(key: .branch(selectedBranch), old: old.entries, new: new.entries)
-    }
-
-    private func visibleStep(to next: NavigationProjection) -> VisibleStep? {
-        guard let prior = target, let branch = settledBranch(to: next) else { return nil }
-        if prior.modal == nil && next.modal == nil { return branch }
-        guard prior.branches == next.branches, let old = prior.modal, let new = next.modal,
-              old.id == new.id, lastReading?.modalEntries == old.entries.map(\.id),
-              paths[.modal(old.id)] == Array(old.entries.dropFirst()) else { return nil }
-        return VisibleStep(key: .modal(old.id), old: old.entries, new: new.entries)
-    }
-
-    private func canAnimate(_ next: NavigationProjection, operation: NavigationTransitionContext.Operation,
-                            step: VisibleStep?) -> Bool {
-        switch operation {
-        case .push:
-            return step?.isPush == true
-        case .pop:
-            return step?.isPop == true
-        case .modalPresent:
-            // A sheet with prebuilt history must install that history directly.
-            return settledBranch(to: next) != nil && target?.branches == next.branches &&
-                target?.modal == nil && next.modal?.entries.count == 1
-        case .modalDismiss:
-            guard settledBranch(to: next) != nil, target?.branches == next.branches,
-                  let modal = target?.modal, lastReading?.modalEntries == modal.entries.map(\.id),
-                  paths[.modal(modal.id)] == Array(modal.entries.dropFirst()) else { return false }
-            return next.modal == nil
-        case .replace, .branch, .refresh, .rollback, .reattach, .initial:
-            return false
-        }
-    }
-
     func add(_ marker: MarkerView) { markers.add(marker) }
 
+    func stage(_ proposed: NavigationProjection, animatesSinglePushes: Bool,
+               transactionAnimation: ((NavigationTransitionContext) -> Animation?)?) {
+        policy = transactionAnimation
+        // A gesture can begin between display frames. Look for one now so the state machine holds this
+        // revision instead of installing it underneath the gesture.
+        if let interaction = activeInteraction() { track(interaction) }
+        apply {
+            $0.stage(proposed, animatesSinglePushes: animatesSinglePushes, hasPolicy: transactionAnimation != nil,
+                     now: CACurrentMediaTime())
+        }
+    }
+
     var selection: Binding<String> {
-        Binding(get: { self.selectedBranch }, set: { next in
-            guard !self.applying, self.selectedModal == nil,
-                  self.target?.branches.contains(where: { $0.id == next }) == true else { return }
-            self.selectedBranch = next
-        })
+        Binding(get: { self.state.selectedBranch }, set: { next in self.apply { $0.selectBranch(next) } })
     }
 
     var modal: Binding<ModalSelection?> {
-        Binding(get: { self.selectedModal }, set: { next in
-            guard !self.applying, next == nil else { return }
-            self.selectedModal = nil
+        Binding(get: { self.state.selectedModal }, set: { next in
+            guard next == nil else { return }
+            self.apply { $0.dismissModal() }
         })
-    }
-
-    /// Whether native Back is withheld on `key` while a revision applies. The path binding refuses other pops then,
-    /// and the presenter ignores readings that don't match the pending target, so such a Back would never settle.
-    /// An animated one-entry push whose page has been seen is the exception: the shell can take it back.
-    func withholdsBack(_ key: StackKey) -> Bool {
-        applying && backDuringPush != key
-    }
-
-    func isWaitingForTab(_ key: StackKey) -> Bool {
-        !applying && target?.isBranchHost == true && key == .branch(selectedBranch) &&
-            (lastReading?.branch != selectedBranch || target?.selectedBranch != selectedBranch)
-    }
-
-    var modalTop: NavigationEntry? {
-        guard let modal = target?.modal, selectedModal?.id == modal.id else { return nil }
-        return paths[.modal(modal.id)]?.last ?? modal.entries.first
     }
 
     func path(for key: StackKey) -> Binding<[NavigationEntry]> {
-        Binding(get: { self.paths[key] ?? [] }, set: { next in
-            let current = self.paths[key] ?? []
-            guard next != current else { return }
-            let shorter = next.count < current.count && current.starts(with: next)
-            // A cancelled interaction may restore the previously witnessed suffix.
-            let witnessed: [String]? = switch key {
-            case .branch(let id) where self.lastReading?.branch == id: self.lastReading?.entries
-            case .modal(let id) where self.lastReading?.modalID == id: self.lastReading?.modalEntries
-            default: nil
-            }
-            let restore = witnessed?.dropFirst().elementsEqual(next.map(\.id)) == true
-            if self.applying, let taken = self.takenBack, taken.key == key, next == taken.restored {
-                // The Back gesture was cancelled: the push carries on applying.
-                self.restoreTakenBack()
-                return
-            }
-            if self.applying, self.takenBack == nil, shorter, let push = self.animatedPush, push.key == key,
-               current == Array(push.new.dropFirst()), self.pushWitnessed, let staged = self.stagedReading() {
-                // A Back caught a push the shell was still applying, such as a slow swipe during the zoom, or a
-                // multi-entry pop from the Back-history menu, which showing the Back button also enables.
-                // UIKit has usually removed the page by the time SwiftUI writes, so this relies on having seen it.
-                // Ignoring the write would make SwiftUI push the page again. Take the shorter path now, and report
-                // the push and the shorter stack together once UIKit's stack settles without the page.
-                let shorterEntries = [push.new[0]] + next
-                self.takenBack = TakenBack(key: key, staged: staged, shorter: staged.replacing(key, with: next),
-                                           shorterEntries: shorterEntries, restored: current, removed: push.new[push.new.count - 1])
-                self.takenBackKept = false
-                // A further Back before UIKit settles would leave no reading that can settle.
-                self.backDuringPush = nil
-                self.paths[key] = next
-                return
-            }
-            if !self.applying && (shorter || restore) {
-                self.paths[key] = next
-            }
-        })
+        Binding(get: { self.state.paths[key] ?? [] }, set: { next in self.apply { $0.setPath(next, for: key) } })
     }
 
     func frame(window: UIWindow?) {
-        var qualifying = false
-        defer { if !qualifying { candidate = nil } }
-        guard let window, let target, target.revision > 0 else { return }
-
+        guard let window else { return }
         let attached = markers.allObjects.filter { $0.window === window }
-        if let push = animatedPush, !pushWitnessed,
-           attached.contains(where: { $0.entry == push.new.last && $0.key == push.key }) {
-            pushWitnessed = true
-            backDuringPush = push.key
-        }
-        // A window without a root can still present a sheet; only sheet pages may remain attached.
-        if target.branches.isEmpty, !attached.allSatisfy({ $0.key?.isModal == true }) { return }
-
-        let topControllers = attached.compactMap { marker -> StackTop? in
+        var pages: [(marker: MarkerView, nav: UINavigationController, controller: UIViewController,
+                     key: StackKey, entry: NavigationEntry)] = []
+        var isTransitioning = false
+        for marker in attached {
             guard let (nav, controller) = owner(of: marker), let entry = marker.entry, let key = marker.key else {
-                return nil
+                continue
             }
-            // During an interactive zoom UIKit can hit-test a transition container and both
-            // pages can be on screen. Observe the active navigation controller before filtering
-            // markers down to a settled, hittable top; only settle after its completion.
-            if key == .branch(selectedBranch) || selectedModal.map({ key == .modal($0.id) }) == true,
-               let transition = nav.transitionCoordinator ?? controller.transitionCoordinator,
-               transition.isInteractive {
-                track(transition)
+            if let transition = nav.transitionCoordinator ?? controller.transitionCoordinator {
+                isTransitioning = true
+                // During an interactive zoom UIKit can hit-test a transition container and both
+                // pages can be on screen. Report the gesture before any top is read.
+                if key == .branch(state.selectedBranch) || state.selectedModal.map({ key == .modal($0.id) }) == true {
+                    track(transition)
+                }
             }
             identities.setObject(entry.id as NSString, forKey: controller)
-            guard nav.topViewController === controller, !marker.isHidden else { return nil }
-            return StackTop(key: key, entry: entry, nav: nav, controller: controller)
+            pages.append((marker, nav, controller, key, entry))
         }
-
-        if applying && CACurrentMediaTime() >= nextDiagnostic {
-            nextDiagnostic = CACurrentMediaTime() + 2
-            let tops = topControllers.map { top in
-                "\(top.key):\(top.entry.id):depth=\(top.nav.viewControllers.count):visible=\(top.nav.visibleViewController === top.controller):hit=\(hitTest(top.nav, in: window)):transition=\(top.nav.transitionCoordinator != nil || top.controller.transitionCoordinator != nil)"
-            }.joined(separator: ";")
-            trace?("waiting rev=\(target.revision) branch=\(selectedBranch) modal=\(selectedModal?.id ?? "-") attached=\(attached.count) tops=[\(tops)]")
+        let tops = pages.compactMap { page -> StackSample? in
+            guard page.nav.topViewController === page.controller, !page.marker.isHidden else { return nil }
+            return StackSample(
+                key: page.key, top: page.entry, depth: page.nav.viewControllers.count,
+                identities: page.nav.viewControllers.map { identities.object(forKey: $0) as String? },
+                isVisible: page.nav.visibleViewController === page.controller,
+                isInWindow: page.controller.viewIfLoaded?.window === window,
+                isHittable: hitTest(page.nav, in: window),
+                isTransitioning: (page.nav.transitionCoordinator ?? page.controller.transitionCoordinator) != nil)
         }
+        let sample = NativeSample(time: CACurrentMediaTime(), markerKeys: attached.map(\.key), tops: tops,
+                                  isTransitioning: isTransitioning,
+                                  mounted: pages.map { MountedPage(key: $0.key, entry: $0.entry) })
+        apply { $0.sample(sample) }
+    }
 
-        let currentModal = selectedModal.flatMap { selection in target.modal?.id == selection.id ? target.modal : nil }
-        let modalMarkers = attached.filter { $0.key?.isModal == true }
-        let branch = target.branches.first(where: { $0.id == selectedBranch })
-        let branchTop = branch.flatMap { branch in topControllers.first(where: { $0.key == .branch(branch.id) }) }
-        guard target.branches.isEmpty || branchTop != nil else { return }
-
-        let modalTop: StackTop?
-        if let currentModal {
-            let key = StackKey.modal(currentModal.id)
-            guard modalMarkers.allSatisfy({ $0.key == key }),
-                  let visible = topControllers.first(where: { $0.key == key && hitTest($0.nav, in: window) })
-            else { return }
-            modalTop = visible
-        } else {
-            // The old sheet must leave before the uncovered branch can be acknowledged.
-            guard modalMarkers.isEmpty, branchTop.map({ hitTest($0.nav, in: window) }) ?? true else { return }
-            modalTop = nil
-        }
-
-        if applying, let top = modalTop ?? branchTop, stagedTops.last != top.entry.id { stagedTops.append(top.entry.id) }
-        guard branchTop.map(transitioned) ?? true, modalTop.map(transitioned) ?? true, trackedInteraction == nil
-        else { return }
-        if let taken = takenBack, let top = modalTop ?? branchTop, top.key == taken.key, top.entry == taken.removed {
-            // UIKit's stack settled with the taken-back page still on top across two frames, so the Back that took it
-            // was cancelled. A UIKit cancellation alone can't tell this apart from UIKit giving the push back, so only
-            // the settled stack decides.
-            if takenBackKept { restoreTakenBack() } else { takenBackKept = true }
-            return
-        }
-        takenBackKept = false
-
-        let branchEntries: [String]
-        if let branch, let branchTop {
-            guard let entries = read(branchTop, desired: desired(branch.entries, key: .branch(branch.id)), in: window,
-                                     covered: modalTop != nil)
-            else { return }
-            if isWaitingForTab(branchTop.key), entries.count < branch.entries.count {
-                // There is no independent witness for a selection followed by a premature pop.
-                // Reassert the intact newly selected stack so AppNav can commit the tab change.
-                var transaction = Transaction(animation: nil)
-                transaction.disablesAnimations = true
-                withTransaction(transaction) {
-                    paths[branchTop.key] = Array(branch.entries.dropFirst())
-                }
-                return
+    // Runs one state transition and commits it. SwiftUI is told only when something it renders changed,
+    // so the per-frame bookkeeping does not invalidate the shell.
+    private func apply(_ transition: (inout SurfaceState) -> SurfaceOutcome) {
+        var next = state
+        let outcome = transition(&next)
+        var animation: Animation?
+        if let install = outcome.install {
+            animation = switch install {
+            case .none: nil
+            case .standard: .default
+            case .policy(let context): policy?(context)
             }
-            branchEntries = entries
+            // A policy that declines to animate leaves nothing UIKit could take back.
+            if case .policy = install, animation == nil { next.installWasNotAnimated() }
+        }
+        let commit = {
+            if Rendered(next) != Rendered(self.state) { self.objectWillChange.send() }
+            self.state = next
+        }
+        if outcome.install != nil {
+            var transaction = Transaction(animation: animation)
+            transaction.disablesAnimations = animation == nil
+            withTransaction(transaction, commit)
         } else {
-            branchEntries = []
+            commit()
         }
-
-        let modalEntries: [String]
-        if let currentModal, let modalTop {
-            guard let entries = read(modalTop, desired: desired(currentModal.entries, key: .modal(currentModal.id)),
-                                     in: window) else { return }
-            modalEntries = entries
-        } else {
-            modalEntries = []
-        }
-
-        if applying && (branch.map({ target.selectedBranch != $0.id }) == true || target.modal?.id != currentModal?.id) {
-            return
-        }
-        qualifying = true
-        settle(NavigationReading(revision: target.revision, branch: branch?.id ?? "", entries: branchEntries,
-                                 modalID: currentModal?.id, modalEntries: modalEntries))
+        outcome.traces.forEach { trace?($0) }
+        outcome.readings.forEach { report?($0) }
     }
 
-    private struct StackTop {
-        let key: StackKey
-        let entry: NavigationEntry
-        let nav: UINavigationController
-        let controller: UIViewController
-    }
+    private struct Rendered: Equatable {
+        let target: NavigationProjection?
+        let paths: [StackKey: [NavigationEntry]]
+        let selectedBranch: String
+        let selectedModal: ModalSelection?
+        let applying: Bool
+        let idle: Bool
+        let lastReading: NavigationReading?
+        let pushOrigins: [NavigationEntry: SurfaceState.PushOrigin]
+        let stagedTops: [String]
+        let gestures: [Int]
+        let gestureReading: NavigationReading?
+        let backDuringPush: StackKey?
 
-    private func transitioned(_ top: StackTop) -> Bool {
-        if let transition = top.nav.transitionCoordinator ?? top.controller.transitionCoordinator {
-            track(transition)
-            return false
+        init(_ state: SurfaceState) {
+            target = state.target
+            paths = state.paths
+            selectedBranch = state.selectedBranch
+            selectedModal = state.selectedModal
+            applying = state.applying
+            idle = state.phase == .idle
+            lastReading = state.lastReading
+            pushOrigins = state.pushOrigins
+            stagedTops = state.diagnostics.stagedTops
+            gestures = [state.diagnostics.gesturesBegan, state.diagnostics.gesturesCancelled,
+                        state.diagnostics.gesturesCompleted, state.diagnostics.pushesTakenBack,
+                        state.diagnostics.pushesRestored]
+            backDuringPush = state.backDuringPush
+            gestureReading = state.diagnostics.gestureReading
         }
-        return true
-    }
-
-    private func read(_ top: StackTop, desired: [NavigationEntry], in window: UIWindow,
-                      covered: Bool = false) -> [String]? {
-        // UIKit reports the presented sheet as the underlying navigation controller's visible controller.
-        // Its own top still needs to be mounted in the same window and match the retained path.
-        guard let root = desired.first, covered || top.nav.visibleViewController === top.controller,
-              top.controller.viewIfLoaded?.window === window else { return nil }
-        // SwiftUI creates hidden destinations lazily. Verify controller count, mounted top,
-        // and every controller identity that could previously be witnessed.
-        let entries = [root] + (paths[top.key] ?? [])
-        guard top.nav.viewControllers.count == entries.count, top.entry == entries.last,
-              applying ? desired == entries : desired.starts(with: entries) else { return nil }
-        for (controller, entry) in zip(top.nav.viewControllers, entries) {
-            if let witnessed = identities.object(forKey: controller) as String?, witnessed != entry.id { return nil }
-        }
-        return entries.map(\.id)
     }
 
     private func owner(of marker: MarkerView) -> (UINavigationController, UIViewController)? {
@@ -538,106 +254,51 @@ final class NativeSurface: ObservableObject {
         return window.hitTest(middle, with: nil)?.isDescendant(of: view) == true
     }
 
-    private func settle(_ reading: NavigationReading) {
-        guard reading != lastReading || needsGestureVerification else { return }
-        guard candidate == reading else { candidate = reading; return }
-        if needsGestureVerification {
-            diagnostics.gestureReading = reading
-            needsGestureVerification = false
-        }
-        guard reading != lastReading else { return }
-        if let taken = takenBack {
-            guard reading == taken.shorter else { return }
-            // The page was on screen, so AppNav records the push and then a native Back. Both are reported from
-            // this one call. The presenter submits the Back before the push's operation releases the router, and the
-            // router admits it ahead of any operation queued behind the push.
-            takenBack = nil
-            diagnostics.pushesTakenBack += 1
-            commit(taken.staged)
-            // UIKit's stack has settled without the page, so its push origin has nothing left to animate.
-            pushOrigins[taken.removed] = nil
-        }
-        commit(reading)
-    }
-
-    /// Writes a taken-back push into the path again once its Back gesture is cancelled, whether SwiftUI wrote the
-    /// longer path itself or UIKit's stack settled with the page still on top.
-    private func restoreTakenBack() {
-        guard let taken = takenBack else { return }
-        takenBack = nil
-        takenBackKept = false
-        diagnostics.pushesRestored += 1
-        backDuringPush = taken.key
-        guard paths[taken.key] != taken.restored else { return }
-        var transaction = Transaction(animation: nil)
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-            paths[taken.key] = taken.restored
-        }
-    }
-
-    /// The stack a reading must show: the staged one, or the shorter one once a Back gesture took the push back.
-    private func desired(_ entries: [NavigationEntry], key: StackKey) -> [NavigationEntry] {
-        guard let taken = takenBack, taken.key == key else { return entries }
-        return taken.shorterEntries
-    }
-
-    /// The staged revision as AppNav projected it.
-    private func stagedReading() -> NavigationReading? {
-        guard let target else { return nil }
-        // A window without a root reports an empty branch, as `frame` does.
-        let branch = target.branches.first(where: { $0.id == target.selectedBranch })
-        if branch == nil && !target.branches.isEmpty { return nil }
-        return NavigationReading(revision: target.revision, branch: branch?.id ?? "", entries: branch?.entries.map(\.id) ?? [],
-                                 modalID: target.modal?.id, modalEntries: target.modal?.entries.map(\.id) ?? [])
-    }
-
-    private func commit(_ reading: NavigationReading) {
-        candidate = nil
-        animatedPush = nil
-        takenBack = nil
-        takenBackKept = false
-        pushWitnessed = false
-        backDuringPush = nil
-        lastReading = reading
-        if applying, let target {
-            diagnostics.stagedTops = stagedTops
-            prunePushOrigins(target)
-        }
-        applying = false
-        diagnostics.lastReading = reading
-        trace?("settled rev=\(reading.revision) \(reading.branch) \(reading.entries) modal=\(reading.modalID ?? "-") \(reading.modalEntries)")
-        report?(reading)
-    }
-
     private func track(_ transition: any UIViewControllerTransitionCoordinator) {
         let token = ObjectIdentifier(transition as AnyObject)
-        guard transition.isInteractive, trackedInteraction != token else { return }
-        trackedInteraction = token
+        guard transition.isInteractive, state.interaction != token else { return }
         let registered = transition.animate(alongsideTransition: nil) { [weak self] context in
-            guard let self, trackedInteraction == token else { return }
-            if context.isCancelled { diagnostics.gesturesCancelled += 1 } else { diagnostics.gesturesCompleted += 1 }
-            trackedInteraction = nil
-            needsGestureVerification = true
+            guard let self else { return }
+            var resumes = false
+            apply {
+                resumes = $0.interactionEnded(token, cancelled: context.isCancelled)
+                return SurfaceOutcome()
+            }
+            if resumes { resumeHeldStage() }
         }
         if registered {
-            diagnostics.gesturesBegan += 1
-        } else {
-            trackedInteraction = nil
+            apply {
+                $0.interactionBegan(token)
+                return SurfaceOutcome()
+            }
         }
     }
-}
 
-private extension NavigationReading {
-    /// The same reading with the stack under `key` cut back to its root plus `path`.
-    func replacing(_ key: StackKey, with path: [NavigationEntry]) -> NavigationReading {
-        switch key {
-        case .branch:
-            NavigationReading(revision: revision, branch: branch, entries: Array(entries.prefix(1)) + path.map(\.id),
-                              modalID: modalID, modalEntries: modalEntries)
-        case .modal:
-            NavigationReading(revision: revision, branch: branch, entries: entries, modalID: modalID,
-                              modalEntries: Array(modalEntries.prefix(1)) + path.map(\.id))
+    // An interactive transition on any rendered page, including one that began before the frame sampler saw it.
+    private func activeInteraction() -> (any UIViewControllerTransitionCoordinator)? {
+        for marker in markers.allObjects where marker.window != nil {
+            guard let (nav, controller) = owner(of: marker),
+                  let transition = nav.transitionCoordinator ?? controller.transitionCoordinator,
+                  transition.isInteractive else { continue }
+            return transition
+        }
+        return nil
+    }
+
+    private func resumeHeldStage() {
+        // Let SwiftUI write the finished gesture back to its bindings before the held revision replaces them.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            var held: SurfaceState.HeldStage?
+            apply {
+                held = $0.takeHeld()
+                return SurfaceOutcome()
+            }
+            if let held {
+                stage(held.projection, animatesSinglePushes: held.animatesSinglePushes,
+                      transactionAnimation: held.hasPolicy ? policy : nil)
+            }
         }
     }
 }
+#endif

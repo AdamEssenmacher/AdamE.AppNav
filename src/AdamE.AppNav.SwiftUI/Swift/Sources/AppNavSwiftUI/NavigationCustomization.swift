@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import SwiftUI
 
 /// Native navigation style requested for an entry.
@@ -42,3 +43,4 @@ public struct NavigationCustomization {
         self.chrome = chrome
     }
 }
+#endif

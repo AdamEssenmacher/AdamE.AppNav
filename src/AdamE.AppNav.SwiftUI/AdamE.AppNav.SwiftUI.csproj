@@ -12,7 +12,7 @@
     <PackageReference Include="Oahu.iOS" Version="0.1.0-preview.g7a56b3ba" />
   </ItemGroup>
   <ItemGroup>
-    <None Update="Swift/Package.swift;Swift/Sources/**/*.swift" Pack="true" PackagePath="native/%(Identity)" />
+    <None Update="Swift/Package.swift;Swift/Sources/**/*.swift;Swift/Tests/**/*.swift" Pack="true" PackagePath="native/%(Identity)" />
     <None Update="README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
 </Project>
