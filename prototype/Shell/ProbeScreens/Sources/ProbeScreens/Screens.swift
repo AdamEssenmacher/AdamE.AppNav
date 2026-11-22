@@ -74,6 +74,13 @@ public struct ShellScreen: View {
         ProcessInfo.processInfo.arguments.contains("--probe-replace-callbacks")
     }
 
+    private var supportsNativeCrossFade: Bool {
+        #if compiler(>=6.4)
+        if #available(iOS 27, *) { return true }
+        #endif
+        return false
+    }
+
     public init(model: ShellModel) { self.model = model }
 
     public var body: some View {
@@ -101,6 +108,8 @@ public struct ShellScreen: View {
                 Text(gestures(diagnostics)).accessibilityIdentifier("probe-gesture")
                 if ProcessInfo.processInfo.arguments.contains("--probe-animation-style") {
                     Text(animationEvidence).accessibilityIdentifier("probe-animation-style")
+                    Text(supportsNativeCrossFade ? "crossFade" : "automatic")
+                        .accessibilityIdentifier("probe-crossfade-capability")
                 }
                 if testsCallbackReplacement {
                     Text("callbacks=\(generation) report=\(reportGeneration) trace=\(traceGeneration)")
@@ -162,7 +171,7 @@ public struct ShellScreen: View {
             },
             transition: { destination in
                 #if compiler(>=6.4)
-                if #available(iOS 27, *), destination.modalID == "fade-sheet",
+                if #available(iOS 27, *), supportsNativeCrossFade, destination.modalID == "fade-sheet",
                    destination.entry.id == "fade-sheet" {
                     model.recordTrace("native transition crossFade fade-sheet")
                     return .native(.crossFade)
@@ -171,7 +180,7 @@ public struct ShellScreen: View {
                 guard let context = destination.transition else { return .automatic }
                 if isCrossFadePush(context) {
                     #if compiler(>=6.4)
-                    if #available(iOS 27, *) {
+                    if #available(iOS 27, *), supportsNativeCrossFade {
                         model.recordTrace("native transition crossFade game")
                         return .native(.crossFade)
                     }

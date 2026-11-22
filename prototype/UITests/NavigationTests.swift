@@ -219,11 +219,9 @@ final class NavigationTests: XCTestCase {
         awaitLabel("probe-status") {
             $0 == "home[home,home-detail] history=2 [InAppCommand@home[home,home-detail];InAppCommand@home[home,home-detail]]"
         }
-        if #available(iOS 27.0, *) {
-            awaitLabel("probe-animation-style") { $0 == "sheetMotion=fade" }
-        } else {
-            awaitLabel("probe-animation-style") { $0 == "sheetMotion=slide" }
-        }
+        let style = awaitLabel("probe-crossfade-capability") { $0 == "crossFade" || $0 == "automatic" }
+        let expectedMotion = style == "crossFade" ? "sheetMotion=fade" : "sheetMotion=slide"
+        awaitLabel("probe-animation-style") { $0 == expectedMotion }
         capture("AppNav fade sheet")
         app.buttons["probe-dismiss-fade-sheet"].tap()
         awaitLabel("probe-native") { $0.hasSuffix("home [home,home-detail]") }
