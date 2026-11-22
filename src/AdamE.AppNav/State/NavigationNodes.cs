@@ -184,31 +184,36 @@ public sealed record BranchHostNode : NavigationNode
 }
 
 /// <summary>
-/// Represents a platform-neutral two-column layout: a primary column beside an optional secondary column, each with
+/// Represents a platform-neutral two-column layout: a primary column beside an optional secondary column, each holding
 /// its own navigation tree.
 /// </summary>
 /// <remarks>
 /// <para>
-/// A split describes logical state only. A presenter with room for both columns shows them side by side; a presenter
-/// that is too narrow collapses them into one stack, made of the primary column with the secondary column's tree
-/// above it when <see cref="CompactColumn"/> is <see cref="SplitColumn.Secondary"/>. A change of window width
-/// changes only how the split is presented, never its logical state, so collapsing and expanding again shows the
-/// same columns.
+/// A split describes logical state only. A presenter with room for both columns shows them side by side. A presenter
+/// that is too narrow collapses them into one stack: the primary column's tree, with the secondary column's tree above
+/// it when <see cref="CompactColumn"/> is <see cref="SplitColumn.Secondary"/>. What a column shows is its tree's
+/// presented content; for a column holding a branch host, that is its selected branch's content. A change of window
+/// width changes only how the split is presented, never its logical state, so collapsing and expanding again shows
+/// the same trees.
 /// </para>
 /// <para>
 /// For example, a mail app keeps its mailbox list in the primary column and the selected message's stack in the
 /// secondary column. A null <see cref="Secondary"/> means nothing is selected; a presenter may show a placeholder
-/// in its place.
+/// in its place. A split can also show a default message beside the list on wide windows while a collapsed
+/// presentation keeps the list on top: give it a secondary tree and <see cref="SplitColumn.Primary"/>.
 /// </para>
 /// <para>
-/// Logical Back treats the split as collapsed, whatever the presented layout: it goes back inside the secondary
-/// column while that column is the one shown, then returns to the primary column, and otherwise goes back inside the
-/// primary column. A presenter that shows both columns side by side decides itself whether to offer a system Back
-/// that would only change <see cref="CompactColumn"/>; core does not know the layout.
+/// Back follows the layout the presenter reports in
+/// <see cref="Back.BackNavigationRequest.PresentsSplitColumnsSideBySide"/>. Collapsed (the default), Back goes back
+/// inside the secondary tree while it is shown on top, then returns to the primary column, and otherwise goes back
+/// inside the primary tree. Side by side, Back goes back inside the secondary tree, then inside the primary tree, and
+/// never only changes <see cref="CompactColumn"/>. In both layouts, Back inside the primary tree clears
+/// <see cref="Secondary"/> and shows the primary column, because the secondary tree belonged to the primary context
+/// that was left.
 /// </para>
 /// <para>
 /// A split is a window root or the content of a branch. Router validation rejects a split inside a modal or inside
-/// another split's column. Every route entry in both columns is part of the committed state, so entry IDs must be
+/// another split's column. Every route entry in both trees is part of the committed state, so entry IDs must be
 /// unique across both columns, as they are across branches.
 /// </para>
 /// </remarks>
@@ -227,19 +232,20 @@ public sealed record SplitNode : NavigationNode
     /// The navigation tree of the secondary column, or <see langword="null"/> when nothing is selected.
     /// </param>
     /// <param name="CompactColumn">
-    /// The column a collapsed presentation shows on top. <see cref="SplitColumn.Secondary"/> requires a non-null
-    /// <paramref name="Secondary"/>.
+    /// The column a collapsed presentation shows on top, or <see langword="null"/> for the secondary column when
+    /// <paramref name="Secondary"/> is non-null and the primary column otherwise. <see cref="SplitColumn.Secondary"/>
+    /// requires a non-null <paramref name="Secondary"/>.
     /// </param>
     public SplitNode(
         string Id,
         NavigationNode Primary,
         NavigationNode? Secondary = null,
-        SplitColumn CompactColumn = SplitColumn.Primary)
+        SplitColumn? CompactColumn = null)
         : base(Id)
     {
         this.Primary = Primary;
         this.Secondary = Secondary;
-        this.CompactColumn = CompactColumn;
+        this.CompactColumn = CompactColumn ?? (Secondary is null ? SplitColumn.Primary : SplitColumn.Secondary);
         ValidateCompactColumn();
     }
 
@@ -261,8 +267,8 @@ public sealed record SplitNode : NavigationNode
     /// Gets the column a collapsed, single-column presentation shows on top.
     /// </summary>
     /// <remarks>
-    /// <see cref="SplitColumn.Primary"/> shows only the primary column. <see cref="SplitColumn.Secondary"/> shows the
-    /// primary column with the secondary column's tree above it.
+    /// <see cref="SplitColumn.Primary"/> shows only the primary column's tree. <see cref="SplitColumn.Secondary"/> shows
+    /// the primary column's tree with the secondary column's tree above it.
     /// </remarks>
     public SplitColumn CompactColumn
     {

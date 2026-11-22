@@ -106,8 +106,21 @@ WindowNode "main"
 placeholder beside the primary column. `CompactColumn` names the column a
 collapsed presentation shows on top: `Primary` shows only the mailbox list,
 and `Secondary` shows the mailbox list with the message stack above it, so the
-user sees the attachment. `CompactColumn = Secondary` requires a secondary
-column.
+user sees the attachment. When the constructor is not given a
+`CompactColumn`, it shows the secondary column if there is one and the primary
+column otherwise. `CompactColumn = Secondary` requires a secondary column.
+Passing `Primary` with a secondary column keeps a default message beside the
+list on wide windows while a collapsed window keeps the list on top:
+
+```csharp
+new SplitNode("mail", mailboxes, messageStack);                      // CompactColumn: Secondary
+new SplitNode("mail", mailboxes);                                    // CompactColumn: Primary
+new SplitNode("mail", mailboxes, welcomeStack, SplitColumn.Primary); // list on top when collapsed
+```
+
+What a column shows is its tree's presented content. A column holding a branch
+host shows its selected branch's content, so a collapsed split stacks that
+content.
 
 Width changes never change the logical state. Collapsing a two-column window
 to one column, or expanding it again, is purely presentation: the split, both
@@ -116,14 +129,23 @@ committed state whichever column is shown, so their [route-entry
 leases](../advanced/entry-leases.md) stay open and entry IDs must be unique
 across both columns.
 
-Logical Back treats a split as collapsed, whatever the presented layout. While
-`CompactColumn` is `Secondary`, Back first goes back inside the secondary
-column; from its root, Back returns to the primary column by setting
-`CompactColumn` to `Primary` and keeps the secondary column. Otherwise Back
-goes back inside the primary column. A presenter that shows both columns side
-by side decides itself whether to offer a system Back that would only change
-`CompactColumn`; an Android presenter may, for example, let the system finish
-the activity instead. Core does not know the layout.
+Core does not know the presented layout, so the Back request says it.
+`BackNavigationRequest.PresentsSplitColumnsSideBySide` is `false` by default,
+and Back then treats every split as collapsed. While `CompactColumn` is
+`Secondary`, Back first goes back inside the secondary column; from its root,
+Back returns to the primary column by setting `CompactColumn` to `Primary`.
+Otherwise Back goes back inside the primary column. An adapter that shows the
+columns side by side sets the flag to `true`: Back then goes back inside the
+secondary column, then inside the primary column, and never plans a Back that
+only changes `CompactColumn`. The router copies the flag to
+`BackNavigationContext`, so an adapter can also ask
+`IBackNavigator.CreateBackPlan` whether Back would do anything in its layout,
+for example to decide whether to enable a system Back callback.
+
+In both layouts, Back inside the primary column, whether a stack pop or a
+branch host's default-branch fallback, clears the secondary column and shows
+the primary column: the selected message belonged to the mailbox that was just
+left.
 
 Apps build splits through `IAppNavigationPlanner`; the standard models do not
 produce them. The MAUI, UIKit, Android and OAHU presenters do not present

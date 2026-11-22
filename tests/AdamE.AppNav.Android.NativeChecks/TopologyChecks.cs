@@ -39,7 +39,12 @@ internal static class TopologyChecks
                 // A modal declared over the root page alone, over a pushed page.
                 Pushed("root", "pushed", new ModalNode(Sheet, Entry("sheet-entry"))),
                 // Another stack.
-                new([new WindowNode(Window, new StackNode("other", [Entry("root")]))], Window)
+                new([new WindowNode(Window, new StackNode("other", [Entry("root")]))], Window),
+                // A split, which this presenter does not present yet.
+                new([new WindowNode(Window, new SplitNode(
+                    "split",
+                    new StackNode(Stack, [Entry("root")]),
+                    new StackNode("split-detail", [Entry("a")])))], Window)
             ];
             foreach (NavigationState state in refused)
             {

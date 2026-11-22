@@ -859,7 +859,7 @@ internal sealed class MauiNavigationPresenter :
                 return;
             case SplitNode split:
                 throw new NotSupportedException(
-                    $"The MAUI presenter does not support split node '{split.Id}' at {path}; present splits with another adapter.");
+                    $"The MAUI presenter does not support split nodes yet; found split '{split.Id}' at {path}.");
             default:
                 throw new NotSupportedException(
                     $"The MAUI presenter does not support navigation node type '{node.GetType().FullName}' at {path}.");

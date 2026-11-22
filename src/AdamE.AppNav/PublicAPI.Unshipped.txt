@@ -175,7 +175,7 @@ AdamE.AppNav.State.SplitNode.Primary.get -> AdamE.AppNav.State.NavigationNode!
 AdamE.AppNav.State.SplitNode.Primary.init -> void
 AdamE.AppNav.State.SplitNode.Secondary.get -> AdamE.AppNav.State.NavigationNode?
 AdamE.AppNav.State.SplitNode.Secondary.init -> void
-AdamE.AppNav.State.SplitNode.SplitNode(string! Id, AdamE.AppNav.State.NavigationNode! Primary, AdamE.AppNav.State.NavigationNode? Secondary = null, AdamE.AppNav.State.SplitColumn CompactColumn = AdamE.AppNav.State.SplitColumn.Primary) -> void
+AdamE.AppNav.State.SplitNode.SplitNode(string! Id, AdamE.AppNav.State.NavigationNode! Primary, AdamE.AppNav.State.NavigationNode? Secondary = null, AdamE.AppNav.State.SplitColumn? CompactColumn = null) -> void
 override AdamE.AppNav.State.SplitNode.<Clone>$() -> AdamE.AppNav.State.SplitNode!
 override AdamE.AppNav.State.SplitNode.Equals(object? obj) -> bool
 override AdamE.AppNav.State.SplitNode.GetHashCode() -> int
@@ -183,3 +183,7 @@ override AdamE.AppNav.State.SplitNode.ToString() -> string!
 override sealed AdamE.AppNav.State.SplitNode.Equals(AdamE.AppNav.State.NavigationNode? other) -> bool
 static AdamE.AppNav.State.SplitNode.operator !=(AdamE.AppNav.State.SplitNode? left, AdamE.AppNav.State.SplitNode? right) -> bool
 static AdamE.AppNav.State.SplitNode.operator ==(AdamE.AppNav.State.SplitNode? left, AdamE.AppNav.State.SplitNode? right) -> bool
+AdamE.AppNav.Back.BackNavigationContext.PresentsSplitColumnsSideBySide.get -> bool
+AdamE.AppNav.Back.BackNavigationContext.PresentsSplitColumnsSideBySide.init -> void
+AdamE.AppNav.Back.BackNavigationRequest.PresentsSplitColumnsSideBySide.get -> bool
+AdamE.AppNav.Back.BackNavigationRequest.PresentsSplitColumnsSideBySide.init -> void

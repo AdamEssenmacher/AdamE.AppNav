@@ -72,4 +72,15 @@ public sealed record BackNavigationContext
     /// Gets a value indicating whether the request should use the router's active window.
     /// </summary>
     public bool UsesActiveWindow { get; }
+
+    /// <summary>
+    /// Gets whether the presenter shows the columns of every <see cref="SplitNode"/> side by side, rather than
+    /// collapsed to one stack.
+    /// </summary>
+    /// <remarks>
+    /// The router copies <see cref="BackNavigationRequest.PresentsSplitColumnsSideBySide"/> here. An adapter can also
+    /// set it on a context of its own and call <see cref="IBackNavigator.CreateBackPlan(BackNavigationContext)"/> to learn
+    /// whether Back would do anything in that layout, for example to decide whether to enable a system Back callback.
+    /// </remarks>
+    public bool PresentsSplitColumnsSideBySide { get; init; }
 }

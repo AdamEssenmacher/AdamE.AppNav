@@ -23,6 +23,27 @@ public sealed class SplitNodeTests
     }
 
     [Fact]
+    public void ConstructionDefaultsToTheSecondaryColumnWhenSomethingIsSelected()
+    {
+        Assert.Equal(SplitColumn.Secondary, new SplitNode("mail", Mailboxes(), Message("m1")).CompactColumn);
+        Assert.Equal(
+            SplitColumn.Secondary,
+            new SplitNode("mail", Mailboxes(), Message("m1"), CompactColumn: null).CompactColumn);
+    }
+
+    [Fact]
+    public void AnExplicitPrimaryColumnKeepsTheListOnTopBesideADefaultSelection()
+    {
+        // Wide windows show a default message beside the list; a collapsed window keeps the list on top.
+        var split = new SplitNode("mail", Mailboxes(), Message("welcome"), SplitColumn.Primary);
+
+        Assert.Equal(SplitColumn.Primary, split.CompactColumn);
+        Assert.Equal(["welcome"], EntryIds(split.Secondary));
+        Assert.Equal(new MailRoute("inbox"), PresentedRouteTraversal.FindTopRoute(split));
+        NavigationStateValidator.ValidateState(Root(split), "Test");
+    }
+
+    [Fact]
     public void ConstructionRejectsMissingAndInconsistentValues()
     {
         // Nulls on purpose: the null checks are what is tested.
@@ -152,19 +173,154 @@ public sealed class SplitNodeTests
     }
 
     [Fact]
-    public void BackPopsThePrimaryColumnWhileItIsShown()
+    public void BackPopsThePrimaryColumnAndClearsTheSecondaryColumn()
+    {
+        // The list is on top with a message still selected; leaving that list leaves the message's context too.
+        NavigationState state = Root(new SplitNode(
+            "mail",
+            new StackNode("mailboxes", [Entry("accounts"), Entry("inbox")]),
+            Message("m1"),
+            SplitColumn.Primary));
+
+        NavigationPlan plan = Back(state);
+
+        SplitNode split = RootSplit(plan);
+        Assert.Equal(["accounts"], EntryIds(split.Primary));
+        Assert.Null(split.Secondary);
+        Assert.Equal(SplitColumn.Primary, split.CompactColumn);
+    }
+
+    [Fact]
+    public void ADefaultBranchFallbackInThePrimaryColumnClearsTheSecondaryColumn()
+    {
+        var folders = new BranchHostNode(
+            "folders",
+            [
+                new NavigationBranch("inbox", "Inbox", new StackNode("inbox", [Entry("inbox")])),
+                new NavigationBranch("archive", "Archive", new StackNode("archive", [Entry("archive")]))
+            ],
+            "archive",
+            "inbox");
+        NavigationState state = Root(new SplitNode("mail", folders, Message("m1"), SplitColumn.Primary));
+
+        SplitNode split = RootSplit(Back(state));
+
+        Assert.Equal("inbox", Assert.IsType<BranchHostNode>(split.Primary).SelectedBranchId);
+        Assert.Null(split.Secondary);
+        Assert.Equal(SplitColumn.Primary, split.CompactColumn);
+    }
+
+    [Fact]
+    public void ABranchHostInTheSecondaryColumnFallsBackToItsDefaultBranchFirst()
+    {
+        var message = new BranchHostNode(
+            "message-tabs",
+            [
+                new NavigationBranch("body", "Body", new StackNode("body", [Entry("body")])),
+                new NavigationBranch("headers", "Headers", new StackNode("headers", [Entry("headers")]))
+            ],
+            "headers",
+            "body");
+        NavigationState state = Root(new SplitNode("mail", Mailboxes(), message));
+
+        NavigationPlan plan = Back(state);
+
+        SplitNode split = RootSplit(plan);
+        Assert.Equal("body", Assert.IsType<BranchHostNode>(split.Secondary).SelectedBranchId);
+        Assert.Equal(SplitColumn.Secondary, split.CompactColumn);
+        Assert.Equal("Back navigation will return to the default branch.", plan.Reason);
+
+        // Without the fallback, the secondary root returns to the primary column.
+        NavigationPlan? noFallback = new DefaultBackNavigator(
+                new BackNavigationOptions { ReturnToDefaultBranchBeforeLeaving = false })
+            .CreateBackPlan(state);
+        Assert.NotNull(noFallback);
+        Assert.Equal(SplitColumn.Primary, RootSplit(noFallback).CompactColumn);
+    }
+
+    [Fact]
+    public void ASplitAtItsPrimaryRootInsideANonDefaultTabFallsBackToTheDefaultBranch()
+    {
+        var tabs = new BranchHostNode(
+            "tabs",
+            [
+                new NavigationBranch("home", "Home", new StackNode("home", [Entry("home")])),
+                new NavigationBranch("mail", "Mail", Split(SplitColumn.Primary, Message("m1")))
+            ],
+            "mail",
+            "home");
+
+        NavigationPlan plan = Back(Root(tabs));
+
+        BranchHostNode backTabs = Assert.IsType<BranchHostNode>(RootOf(plan));
+        Assert.Equal("home", backTabs.SelectedBranchId);
+        Assert.Equal(tabs.Branches, backTabs.Branches);
+    }
+
+    [Fact]
+    public void SideBySideBackPopsTheSecondaryColumnWhicheverColumnIsOnTop()
+    {
+        foreach (SplitColumn compactColumn in new[] { SplitColumn.Primary, SplitColumn.Secondary })
+        {
+            NavigationPlan plan = SideBySideBack(Root(Split(compactColumn, Message("m1", "attachment"))));
+
+            SplitNode split = RootSplit(plan);
+            Assert.Equal(["m1"], EntryIds(split.Secondary));
+            Assert.Equal(compactColumn, split.CompactColumn);
+        }
+    }
+
+    [Fact]
+    public void SideBySideBackAtTheSecondaryRootPopsThePrimaryColumnAndClearsTheSecondaryColumn()
     {
         NavigationState state = Root(new SplitNode(
             "mail",
             new StackNode("mailboxes", [Entry("accounts"), Entry("inbox")]),
             Message("m1")));
 
-        NavigationPlan plan = Back(state);
+        SplitNode split = RootSplit(SideBySideBack(state));
 
-        SplitNode split = RootSplit(plan);
         Assert.Equal(["accounts"], EntryIds(split.Primary));
-        Assert.Equal(["m1"], EntryIds(split.Secondary));
+        Assert.Null(split.Secondary);
         Assert.Equal(SplitColumn.Primary, split.CompactColumn);
+    }
+
+    [Fact]
+    public void SideBySideBackNeverOnlyChangesTheCompactColumn()
+    {
+        var navigator = new DefaultBackNavigator();
+        foreach (NavigationState state in new[]
+        {
+            Root(Split(SplitColumn.Secondary, Message("m1"))),
+            Root(Split(SplitColumn.Primary, Message("m1"))),
+            Root(Split(SplitColumn.Primary))
+        })
+        {
+            var context = new BackNavigationContext(state, null, "operation") { PresentsSplitColumnsSideBySide = true };
+            Assert.Null(navigator.CreateBackPlan(context));
+        }
+    }
+
+    [Fact]
+    public async Task TheRouterCarriesTheLayoutFromTheRequestToTheBackNavigator()
+    {
+        NavigationState state = Root(Split(SplitColumn.Secondary, Message("m1")));
+        await using IRouterNavigator router = RouterNavigatorFactory.Create(
+            TestRoutes.CreateTable(),
+            TestNavigationPlanner.EchoStack(),
+            new RecordingNavigationPresenter(),
+            new RouterNavigatorFactoryOptions { InitialState = state });
+
+        BackNavigationResult sideBySide = await router.BackAsync(
+            new BackNavigationRequest(source: BackNavigationSource.Host) { PresentsSplitColumnsSideBySide = true });
+        Assert.Equal(BackNavigationStatus.Unhandled, sideBySide.Status);
+        Assert.Same(state, router.CurrentState);
+
+        BackNavigationResult collapsed = await router.BackAsync(new BackNavigationRequest());
+        Assert.Equal(BackNavigationStatus.Completed, collapsed.Status);
+        Assert.Equal(
+            SplitColumn.Primary,
+            Assert.IsType<SplitNode>(router.CurrentState.ActiveWindow?.Root).CompactColumn);
     }
 
     [Fact]
@@ -257,6 +413,15 @@ public sealed class SplitNodeTests
         NavigationPlan? plan = new DefaultBackNavigator().CreateBackPlan(state);
         Assert.NotNull(plan);
         Assert.Equal(NavigationPlanKind.Back, plan.Kind);
+        NavigationStateValidator.ValidatePlan(plan, "Back");
+        return plan;
+    }
+
+    private static NavigationPlan SideBySideBack(NavigationState state)
+    {
+        var context = new BackNavigationContext(state, null, "operation") { PresentsSplitColumnsSideBySide = true };
+        NavigationPlan? plan = new DefaultBackNavigator().CreateBackPlan(context);
+        Assert.NotNull(plan);
         NavigationStateValidator.ValidatePlan(plan, "Back");
         return plan;
     }

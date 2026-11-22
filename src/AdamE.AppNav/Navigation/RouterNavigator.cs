@@ -432,7 +432,10 @@ internal sealed class RouterNavigator : IRouterNavigator
             _diagnostics.StartActivity("Navigation.Back", operationId, backRequest.Source.ToString());
         var timer = Stopwatch.StartNew();
 
-        var backContext = new BackNavigationContext(CurrentState, backRequest.WindowId, operationId);
+        var backContext = new BackNavigationContext(CurrentState, backRequest.WindowId, operationId)
+        {
+            PresentsSplitColumnsSideBySide = backRequest.PresentsSplitColumnsSideBySide
+        };
         string? diagnosticWindowId =
             backContext.ResolvedWindowId ?? backContext.RequestedWindowId ?? CurrentState.ActiveWindowId;
         string diagnosticWindowName = diagnosticWindowId ?? "active";

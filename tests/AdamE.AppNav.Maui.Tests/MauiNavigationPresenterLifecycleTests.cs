@@ -556,7 +556,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
         NotSupportedException nested = await Assert.ThrowsAsync<NotSupportedException>(() =>
             fixture.Presenter.ApplyAsync(Plan(tabs), Context(new TestPageRoute("message"))).AsTask());
 
-        Assert.Contains("does not support split node 'mail' at window root", root.Message, StringComparison.Ordinal);
+        Assert.Contains("does not support split nodes yet; found split 'mail' at window root", root.Message, StringComparison.Ordinal);
         Assert.Contains("at window root branch 'mail'", nested.Message, StringComparison.Ordinal);
         Assert.Empty(fixture.Factory.CreatedPages);
         Assert.Null(fixture.Presenter.CurrentPage);

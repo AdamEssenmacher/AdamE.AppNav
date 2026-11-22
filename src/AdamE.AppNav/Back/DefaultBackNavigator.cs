@@ -16,9 +16,13 @@ namespace AdamE.AppNav.Back;
 /// <remarks>
 /// The default navigator first gives modal content and selected child hosts a chance to go back,
 /// then falls back to modal dismissal, stack popping, and configured default-branch selection.
-/// A <see cref="SplitNode"/> goes back as if collapsed to one column: inside its secondary column while
-/// <see cref="SplitNode.CompactColumn"/> is <see cref="SplitColumn.Secondary"/>, then to the primary column,
-/// and otherwise inside its primary column.
+/// A <see cref="SplitNode"/> goes back as its presenter shows it, which
+/// <see cref="BackNavigationContext.PresentsSplitColumnsSideBySide"/> says. Collapsed (the default), Back goes back
+/// inside the secondary column while <see cref="SplitNode.CompactColumn"/> is <see cref="SplitColumn.Secondary"/>,
+/// then returns to the primary column, and otherwise goes back inside the primary column. Side by side, Back goes
+/// back inside the secondary column, then inside the primary column, and never only changes
+/// <see cref="SplitNode.CompactColumn"/>. In both layouts, Back inside the primary column, including a branch host's
+/// default-branch fallback there, clears the secondary column and shows the primary column.
 /// </remarks>
 public sealed class DefaultBackNavigator(
     BackNavigationOptions? options = null,
@@ -61,7 +65,8 @@ public sealed class DefaultBackNavigator(
         if (window.Modals.Count > 0)
         {
             ModalNode topModal = window.Modals[^1];
-            if (topModal.Content is not null && TryBack(topModal.Content) is { } modalBackResult)
+            if (topModal.Content is not null &&
+                TryBack(topModal.Content, context.PresentsSplitColumnsSideBySide) is { } modalBackResult)
             {
                 ModalNode[] updatedModals = window.Modals.ToArray();
                 updatedModals[^1] = topModal with { Content = modalBackResult.Node };
@@ -89,7 +94,7 @@ public sealed class DefaultBackNavigator(
             return null;
         }
 
-        NodeBackResult? backResult = TryBack(window.Root);
+        NodeBackResult? backResult = TryBack(window.Root, context.PresentsSplitColumnsSideBySide);
         if (backResult is null)
         {
             _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, context.OperationId,
@@ -106,16 +111,16 @@ public sealed class DefaultBackNavigator(
             acceptedBackResult.Reason);
     }
 
-    private NodeBackResult? TryBack(NavigationNode node)
+    private NodeBackResult? TryBack(NavigationNode node, bool splitsSideBySide)
     {
         return node switch
         {
             StackNode stack => TryBackStack(stack),
-            BranchHostNode branchHost => TryBackBranchHost(branchHost),
-            SplitNode split => TryBackSplit(split),
+            BranchHostNode branchHost => TryBackBranchHost(branchHost, splitsSideBySide),
+            SplitNode split => TryBackSplit(split, splitsSideBySide),
             // Window-level modal dismissal is handled from WindowNode.Modals. A nested
             // modal node can only delegate back navigation into its content.
-            ModalNode { Content: not null } modal => TryBack(modal.Content) is { } result
+            ModalNode { Content: not null } modal => TryBack(modal.Content, splitsSideBySide) is { } result
                 ? result with { Node = modal with { Content = result.Node } }
                 : null,
             _ => null
@@ -131,11 +136,11 @@ public sealed class DefaultBackNavigator(
             "Back navigation will pop the selected stack.");
     }
 
-    private NodeBackResult? TryBackBranchHost(BranchHostNode branchHost)
+    private NodeBackResult? TryBackBranchHost(BranchHostNode branchHost, bool splitsSideBySide)
     {
         NavigationBranch? selectedBranch = branchHost.SelectedBranch;
         if (selectedBranch is not null)
-            if (TryBack(selectedBranch.Content) is { } childBack)
+            if (TryBack(selectedBranch.Content, splitsSideBySide) is { } childBack)
                 return childBack with
                 {
                     Node = branchHost.ReplaceBranch(selectedBranch with { Content = childBack.Node })
@@ -152,19 +157,34 @@ public sealed class DefaultBackNavigator(
         return null;
     }
 
-    // A split goes back as if collapsed, whatever its presented layout: the secondary column first while it is the
-    // one shown, then back to the primary column, otherwise inside the primary column.
-    private NodeBackResult? TryBackSplit(SplitNode split)
+    // Collapsed (the default), a split goes back inside its secondary column while that column is the one shown, then
+    // returns to the primary column. Side by side, both columns are shown, so it goes back inside the secondary column
+    // and then the primary one, and never plans a Back that would only change CompactColumn. Either way, Back in the
+    // primary column leaves the context the secondary column belonged to, so the secondary column is cleared.
+    private NodeBackResult? TryBackSplit(SplitNode split, bool sideBySide)
     {
-        if (split is { CompactColumn: SplitColumn.Secondary, Secondary: { } secondary })
-            return TryBack(secondary) is { } secondaryBack
-                ? secondaryBack with { Node = split with { Secondary = secondaryBack.Node } }
-                : new NodeBackResult(
+        bool secondaryFirst = sideBySide || split.CompactColumn == SplitColumn.Secondary;
+        if (secondaryFirst && split.Secondary is { } secondary)
+        {
+            if (TryBack(secondary, sideBySide) is { } secondaryBack)
+                return secondaryBack with { Node = split with { Secondary = secondaryBack.Node } };
+
+            if (!sideBySide)
+                return new NodeBackResult(
                     split with { CompactColumn = SplitColumn.Primary },
                     "Back navigation will return to the primary column.");
+        }
 
-        return TryBack(split.Primary) is { } primaryBack
-            ? primaryBack with { Node = split with { Primary = primaryBack.Node } }
+        return TryBack(split.Primary, sideBySide) is { } primaryBack
+            ? primaryBack with
+            {
+                Node = split with
+                {
+                    Primary = primaryBack.Node,
+                    CompactColumn = SplitColumn.Primary,
+                    Secondary = null
+                }
+            }
             : null;
     }
 
