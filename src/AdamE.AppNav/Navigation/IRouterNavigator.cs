@@ -39,6 +39,11 @@ public interface IRouterNavigator : IDisposable, IAsyncDisposable
         CancellationToken cancellationToken = default);
 #pragma warning restore RS0026
 
+    /// <summary>Records host-observed state the host already shows, ahead of any navigation still queued.</summary>
+    /// <remarks>
+    /// The reconciliation takes its place in line before this call returns, and it never starts inline in its caller:
+    /// presenters call this while holding their own lock. An implementation or decorator must keep both guarantees.
+    /// </remarks>
     ValueTask<NavigationResult> ReconcileAsync(
         NavigationReconciliation reconciliation,
         CancellationToken cancellationToken = default);

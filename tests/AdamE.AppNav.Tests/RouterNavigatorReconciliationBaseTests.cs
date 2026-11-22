@@ -195,6 +195,74 @@ public sealed class RouterNavigatorReconciliationBaseTests
     }
 
     [Fact]
+    public async Task NavigationsQueuedBehindAReconciliationKeepTheirOrder()
+    {
+        // Giving way to a reconciliation must not let two queued navigations swap places. The old admission released
+        // and requeued each one, so their order depended on thread-pool scheduling; repeat to catch that.
+        for (var attempt = 0; attempt < 200; attempt++)
+        {
+            var presenter = new BlockingPresenter();
+            RouterNavigator navigator = CreateNavigator(presenter, []);
+            Task<NavigationResult> first = navigator.NavigateAsync(new TestRoutes.StoreRoute("contoso")).AsTask();
+            await presenter.BlockedApplyStarted;
+            Task<NavigationResult> a = navigator.NavigateAsync(new TestRoutes.StoreRoute("fabrikam")).AsTask();
+            Task<NavigationResult> b = navigator.NavigateAsync(new TestRoutes.StoreRoute("tailspin")).AsTask();
+
+            Task<NavigationResult> reconciliation = navigator.ReconcileAsync(new NavigationReconciliation(
+                presenter.AppliedPlans[^1].TargetState,
+                ReconciledState,
+                NavigationReconciliationSource.HostBack,
+                new TestRoutes.CatalogRoute("northwind"))).AsTask();
+            presenter.ReleaseBlockedApply();
+            await Task.WhenAll(first, a, b, reconciliation);
+
+            Assert.Equal(
+                new[]
+                {
+                    NavigationPlanKind.Navigate, NavigationPlanKind.Reconcile,
+                    NavigationPlanKind.Navigate, NavigationPlanKind.Navigate
+                },
+                presenter.AppliedPlans.Select(plan => plan.Kind));
+            Assert.Same((await a).State, presenter.AppliedPlans[2].TargetState);
+            Assert.Same((await b).State, navigator.CurrentState);
+        }
+    }
+
+    [Fact]
+    public async Task NavigationQueuedBehindChainedPresenterReconciliationsWaitsForAllOfThem()
+    {
+        var presenter = new BlockingPresenter();
+        var events = new List<NavigationDiagnosticEventKind>();
+        RouterNavigator navigator = CreateNavigator(presenter, events);
+        Task<NavigationResult> first = navigator.NavigateAsync(new TestRoutes.StoreRoute("contoso")).AsTask();
+        await presenter.BlockedApplyStarted;
+        Task<NavigationResult> queued = navigator.NavigateAsync(new TestRoutes.StoreRoute("fabrikam")).AsTask();
+        NavigationState secondState = StackState("store", new TestRoutes.StoreRoute("tailspin"));
+
+        presenter.RequestReconciliation(new NavigationReconciliation(
+            presenter.AppliedPlans[^1].TargetState,
+            ReconciledState,
+            NavigationReconciliationSource.HostBack));
+        presenter.RequestReconciliation(new NavigationReconciliation(
+            ReconciledState,
+            secondState,
+            NavigationReconciliationSource.HostBack));
+        presenter.ReleaseBlockedApply();
+        await Task.WhenAll(first, queued);
+        await navigator.WhenReconciliationIdleAsync();
+
+        Assert.Equal(
+            new[]
+            {
+                NavigationPlanKind.Navigate, NavigationPlanKind.Reconcile,
+                NavigationPlanKind.Reconcile, NavigationPlanKind.Navigate
+            },
+            presenter.AppliedPlans.Select(plan => plan.Kind));
+        Assert.Same((await queued).State, navigator.CurrentState);
+        Assert.DoesNotContain(NavigationDiagnosticEventKind.ReconciliationRejected, events);
+    }
+
+    [Fact]
     public async Task ChainedPresenterReconciliationsCommitInOrder()
     {
         var presenter = new BlockingPresenter();

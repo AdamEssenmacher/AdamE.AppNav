@@ -26,11 +26,8 @@ internal sealed class RouterNavigator : IRouterNavigator
     private readonly RouterNavigationDiagnostics _diagnostics;
     private readonly RouteEntryLeaseRegistry? _entryLeases;
     private readonly TimeSpan _entryLeaseShutdownWarningDelay;
-    private readonly SemaphoreSlim _operationLock = new(1, 1);
-    // Reconciliations that have asked for the operation lock and not yet taken it. A queued navigation gives way to
-    // them: the host already shows their state, so planning before they commit would plan against stale state and
-    // reject them.
-    private int _waitingReconciliations;
+    // Admits waiting reconciliations ahead of queued navigation, Back and refresh operations.
+    private readonly RouterOperationGate _operationLock = new();
     private readonly Lock _lifetimeGate = new();
     private readonly Lock _reconciliationGate = new();
     private readonly TaskCompletionSource<bool> _shutdownCompletion =
@@ -124,7 +121,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             CancellationToken operationCancellation = CreateOperationCancellation(
                 cancellationToken,
                 out linkedCancellation);
-            await AcquireOperationLockAsync(operationCancellation).ConfigureAwait(false);
+            await _operationLock.EnterOperationAsync(operationCancellation).ConfigureAwait(false);
             lockTaken = true;
             operationCancellation.ThrowIfCancellationRequested();
             return await NavigateCoreAsync(request, operationCancellation).ConfigureAwait(false);
@@ -162,7 +159,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             CancellationToken operationCancellation = CreateOperationCancellation(
                 cancellationToken,
                 out linkedCancellation);
-            await AcquireOperationLockAsync(operationCancellation).ConfigureAwait(false);
+            await _operationLock.EnterOperationAsync(operationCancellation).ConfigureAwait(false);
             lockTaken = true;
             operationCancellation.ThrowIfCancellationRequested();
             return await BackCoreAsync(request, operationCancellation).ConfigureAwait(false);
@@ -191,7 +188,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             CancellationToken operationCancellation = CreateOperationCancellation(
                 cancellationToken,
                 out linkedCancellation);
-            await AcquireReconciliationLockAsync(operationCancellation).ConfigureAwait(false);
+            await _operationLock.ReserveReconciliation().EnterAsync(operationCancellation).ConfigureAwait(false);
             lockTaken = true;
             operationCancellation.ThrowIfCancellationRequested();
             return await ReconcileAdmittedAsync(reconciliation, operationCancellation).ConfigureAwait(false);
@@ -214,7 +211,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             BeginOperation();
             operationAdmitted = true;
             CancellationToken operationCancellation = CreateOperationCancellation(cancellationToken, out linkedCancellation);
-            await AcquireOperationLockAsync(operationCancellation).ConfigureAwait(false);
+            await _operationLock.EnterOperationAsync(operationCancellation).ConfigureAwait(false);
             lockTaken = true;
             operationCancellation.ThrowIfCancellationRequested();
             // Read only AFTER admission: preceding navigation may still be committing while this request queues.
@@ -736,19 +733,21 @@ internal sealed class RouterNavigator : IRouterNavigator
             lock (_reconciliationGate)
             {
                 NavigationReconciliation reconciliation = e.Reconciliation;
-                // Count it now, in report order, so a navigation queued behind the current operation gives way.
-                Interlocked.Increment(ref _waitingReconciliations);
+                // Take its place in line now, in report order, so a navigation queued behind the current operation
+                // gives way to it.
+                RouterOperationGate.Reservation reservation = _operationLock.ReserveReconciliation();
                 _reconciliationQueue = _reconciliationQueue
                     .ContinueWith(
                         static async (_, state) =>
                         {
-                            (RouterNavigator navigator, NavigationReconciliation nextReconciliation) =
-                                ((RouterNavigator, NavigationReconciliation))state!;
+                            (RouterNavigator navigator, NavigationReconciliation nextReconciliation,
+                                RouterOperationGate.Reservation nextReservation) =
+                                ((RouterNavigator, NavigationReconciliation, RouterOperationGate.Reservation))state!;
                             var lockTaken = false;
                             RouterOperationContext? operationContext = null;
                             try
                             {
-                                await navigator.TakeCountedReconciliationLockAsync(
+                                await nextReservation.EnterAsync(
                                     navigator._shutdownCancellation.Token).ConfigureAwait(false);
                                 lockTaken = true;
                                 navigator._shutdownCancellation.Token.ThrowIfCancellationRequested();
@@ -766,7 +765,7 @@ internal sealed class RouterNavigator : IRouterNavigator
                                     operationAdmitted: true);
                             }
                         },
-                        (this, reconciliation),
+                        (this, reconciliation, reservation),
                         CancellationToken.None,
                         TaskContinuationOptions.None,
                         TaskScheduler.Default)
@@ -825,44 +824,6 @@ internal sealed class RouterNavigator : IRouterNavigator
         return PresentedRouteResolver.FindPresentedRoute(window) ?? fallbackRoute;
     }
 
-    /// <summary>Takes the operation lock for a navigation, Back or refresh after every waiting reconciliation.</summary>
-    private async Task AcquireOperationLockAsync(CancellationToken cancellationToken)
-    {
-        while (true)
-        {
-            await _operationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-            if (Volatile.Read(ref _waitingReconciliations) == 0)
-                return;
-            // The lock goes to the first waiter, so a reconciliation already waiting takes it next.
-            _operationLock.Release();
-            await Task.CompletedTask.ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
-        }
-    }
-
-    /// <summary>Counts a reconciliation as waiting before its first await, then takes the operation lock.</summary>
-    private Task AcquireReconciliationLockAsync(CancellationToken cancellationToken)
-    {
-        Interlocked.Increment(ref _waitingReconciliations);
-        return TakeCountedReconciliationLockAsync(cancellationToken);
-    }
-
-    private async Task TakeCountedReconciliationLockAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            Task wait = _operationLock.WaitAsync(cancellationToken);
-            bool immediate = wait.IsCompleted;
-            await wait.ConfigureAwait(false);
-            // Never run a reconciliation inline in its caller, which may be a presenter holding its own lock.
-            if (immediate)
-                await Task.CompletedTask.ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
-        }
-        finally
-        {
-            Interlocked.Decrement(ref _waitingReconciliations);
-        }
-    }
-
     private void BeginOperation()
     {
         if (!TryBeginOperation())
@@ -906,7 +867,7 @@ internal sealed class RouterNavigator : IRouterNavigator
         try
         {
             if (lockTaken)
-                _operationLock.Release();
+                _operationLock.Exit();
         }
         finally
         {
@@ -1097,7 +1058,6 @@ internal sealed class RouterNavigator : IRouterNavigator
     {
         try
         {
-            _operationLock.Dispose();
             _shutdownCancellation.Dispose();
         }
         finally

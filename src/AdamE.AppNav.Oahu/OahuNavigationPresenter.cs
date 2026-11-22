@@ -70,6 +70,11 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, INavigationP
     /// <summary>Raised after a native reconciliation commits. UI subscribers must dispatch to their UI thread.</summary>
     public event Action? Reconciled;
 
+    /// <summary>Binds the navigator that native reconciliations are submitted to.</summary>
+    /// <remarks>
+    /// The presenter calls <see cref="IRouterNavigator.ReconcileAsync"/> while holding its own lock, so the navigator
+    /// must queue the reconciliation and never start it inline, as the router does.
+    /// </remarks>
     public void Bind(IRouterNavigator navigator)
     {
         ArgumentNullException.ThrowIfNull(navigator);
