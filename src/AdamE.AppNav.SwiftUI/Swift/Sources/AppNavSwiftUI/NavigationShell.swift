@@ -56,10 +56,10 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
                 sheet(modal)
             }
         }
-        .background(FrameObserver(surface: surface))
+        .background(FrameObserver(surface: surface, report: report, trace: trace))
         .onChange(of: projection, initial: true) { _, next in
             surface.stage(next, animatesSinglePushes: animatesSinglePushes,
-                          transactionAnimation: customization?.transactionAnimation, report: report, trace: trace)
+                          transactionAnimation: customization?.transactionAnimation)
         }
     }
 
@@ -128,7 +128,7 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
         _ style: NavigationDestinationTransition, to content: some View,
         context: NavigationDestinationContext, key: StackKey
     ) -> some View {
-        let push = surface.animatedPushContext(for: context.entry, key: key)
+        let push = surface.matchedPushContext(for: context.entry, key: key)
         switch style {
         case .automatic:
             content

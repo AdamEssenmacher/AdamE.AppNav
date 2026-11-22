@@ -67,11 +67,45 @@ public struct ShellScreen: View {
     @Namespace private var gameZoom
     @State private var animationEvidence = "Waiting for native animation"
     @State private var gesturesBegan = 0
+    @State private var callbackGeneration = 0
+    @State private var reportGeneration = -1
+    @State private var traceGeneration = -1
+    @State private var clearsPushTransition = false
+
+    private var testsImmediatePush: Bool {
+        ProcessInfo.processInfo.arguments.contains("--probe-disable-game-push-animation")
+    }
+
+    private var testsCallbackReplacement: Bool {
+        ProcessInfo.processInfo.arguments.contains("--probe-replace-callbacks")
+    }
+
+    private var supportsNativeCrossFade: Bool {
+        #if compiler(>=6.4)
+        if #available(iOS 27, *) { return true }
+        #endif
+        return false
+    }
 
     public init(model: ShellModel) { self.model = model }
 
+    private var projection: NavigationProjection {
+        let target = model.target.projection
+        guard clearsPushTransition else { return target }
+        // Drop the transient metadata while preserving the staged revision and all mounts.
+        return NavigationProjection(revision: target.revision, selectedBranch: target.selectedBranch,
+                                    isBranchHost: target.isBranchHost, branches: target.branches, modal: target.modal)
+    }
+
     public var body: some View {
-        NavigationShell(projection: model.target.projection, report: report, trace: model.recordTrace,
+        let generation = callbackGeneration
+        NavigationShell(projection: projection, report: { reading in
+            if testsCallbackReplacement { reportGeneration = generation }
+            report(reading)
+        }, trace: { message in
+            if testsCallbackReplacement && message.hasPrefix("settled ") { traceGeneration = generation }
+            model.recordTrace(message)
+        },
                         back: NavigationBackControl(intercepts: { $0.id == "home-detail" },
                                                     request: { model.runCommand("request-back") }),
                         customization: customization) {
@@ -88,6 +122,18 @@ public struct ShellScreen: View {
                 Text(gestures(diagnostics)).accessibilityIdentifier("probe-gesture")
                 if ProcessInfo.processInfo.arguments.contains("--probe-animation-style") {
                     Text(animationEvidence).accessibilityIdentifier("probe-animation-style")
+                    Text(supportsNativeCrossFade ? "crossFade" : "automatic")
+                        .accessibilityIdentifier("probe-crossfade-capability")
+                }
+                if testsCallbackReplacement {
+                    Text("callbacks=\(generation) report=\(reportGeneration) trace=\(traceGeneration)")
+                        .accessibilityIdentifier("probe-callback-generations")
+                    Button("Replace callbacks") { callbackGeneration += 1 }
+                        .accessibilityIdentifier("probe-replace-callbacks")
+                }
+                if testsImmediatePush && !clearsPushTransition {
+                    Button("Clear push metadata") { clearsPushTransition = true }
+                        .accessibilityIdentifier("probe-clear-push-metadata")
                 }
                 if Self.holdsGameSettlement {
                     Text("taken back=\(diagnostics.pushesTakenBack) restored=\(diagnostics.pushesRestored)").accessibilityIdentifier("probe-taken-back")
@@ -154,6 +200,7 @@ public struct ShellScreen: View {
     private var customization: NavigationCustomization {
         NavigationCustomization(
             transactionAnimation: { context in
+                if testsImmediatePush && coverKey(for: context) == "game-cover" { return nil }
                 guard context.operation == .pop || coverKey(for: context) != nil || isCrossFadePush(context) ||
                       (context.operation == .modalPresent && context.destinationEntryID == "fade-sheet")
                 else { return nil }
@@ -162,7 +209,7 @@ public struct ShellScreen: View {
             },
             transition: { destination in
                 #if compiler(>=6.4)
-                if #available(iOS 27, *), destination.modalID == "fade-sheet",
+                if #available(iOS 27, *), supportsNativeCrossFade, destination.modalID == "fade-sheet",
                    destination.entry.id == "fade-sheet" {
                     model.recordTrace("native transition crossFade fade-sheet")
                     return .native(.crossFade)
@@ -171,7 +218,7 @@ public struct ShellScreen: View {
                 guard let context = destination.transition else { return .automatic }
                 if isCrossFadePush(context) {
                     #if compiler(>=6.4)
-                    if #available(iOS 27, *) {
+                    if #available(iOS 27, *), supportsNativeCrossFade {
                         model.recordTrace("native transition crossFade game")
                         return .native(.crossFade)
                     }
@@ -185,7 +232,14 @@ public struct ShellScreen: View {
             },
             chrome: { destination, content in
                 guard destination.entry.id == "game" else { return content }
-                return AnyView(content.modifier(GameChrome(kind: .managed, trace: { model.recordTrace($0) })))
+                return AnyView(content
+                    .modifier(GameChrome(kind: .managed, trace: { model.recordTrace($0) }))
+                    .overlay(alignment: .bottom) {
+                        if testsImmediatePush && clearsPushTransition {
+                            Text(destination.transition?.sourceKey ?? "no matched source")
+                                .accessibilityIdentifier("probe-retained-push-source")
+                        }
+                    })
             }
         )
     }
