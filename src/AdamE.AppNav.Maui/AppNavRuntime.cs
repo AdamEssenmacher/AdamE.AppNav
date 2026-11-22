@@ -73,6 +73,11 @@ internal sealed class AppNavRuntime(
         return navigator.RefreshPresentationAsync(cancellationToken);
     }
 
+    public void ReportSplitLayout(string windowId, SplitLayout layout)
+    {
+        navigator.ReportSplitLayout(windowId, layout);
+    }
+
     public void Dispose()
     {
         Interlocked.Exchange(ref _disposed, 1);

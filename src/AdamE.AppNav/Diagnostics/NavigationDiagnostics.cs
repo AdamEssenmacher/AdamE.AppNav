@@ -440,6 +440,7 @@ public sealed class NavigationDiagnostics
                 NavigationDiagnosticEventKind.EntryLeaseShutdownWaiting or
                 NavigationDiagnosticEventKind.PresentationCompleted or
                 NavigationDiagnosticEventKind.PresentationSettlementFailed or
+                NavigationDiagnosticEventKind.SplitLayoutReported or
                 NavigationDiagnosticEventKind.PresentationFailed =>
                 NavigationDiagnosticPhase.Presentation,
             NavigationDiagnosticEventKind.DeferredRequestStoreQuarantined or

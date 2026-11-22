@@ -203,17 +203,19 @@ public sealed record BranchHostNode : NavigationNode
 /// presentation keeps the list on top: give it a secondary tree and <see cref="SplitColumn.Primary"/>.
 /// </para>
 /// <para>
-/// Back follows the layout the presenter reports in
-/// <see cref="Back.BackNavigationRequest.PresentsSplitColumnsSideBySide"/>. Collapsed (the default), Back goes back
+/// Back follows the layout the presenter reports to the router with
+/// <see cref="Navigation.IRouterNavigator.ReportSplitLayout"/>, which a
+/// <see cref="Back.BackNavigationRequest.SplitLayout"/> can override. Collapsed (the default), Back goes back
 /// inside the secondary tree while it is shown on top, then returns to the primary column, and otherwise goes back
 /// inside the primary tree. Side by side, Back goes back inside the secondary tree, then inside the primary tree, and
 /// never only changes <see cref="CompactColumn"/>. In both layouts, Back inside the primary tree clears
 /// <see cref="Secondary"/> and shows the primary column, because the secondary tree belonged to the primary context
-/// that was left.
+/// that was left; that includes a default secondary tree shown beside a primary column that is on top. The route a
+/// navigation result reports follows the same layout: side by side, it is the secondary tree's top whenever there is
+/// one, since that column has the focus.
 /// </para>
 /// <para>
-/// A split is a window root or the content of a branch. Router validation rejects a split inside a modal or inside
-/// another split's column. Every route entry in both trees is part of the committed state, so entry IDs must be
+/// A split cannot be nested, at any depth, inside a modal or another split; router validation rejects such a state. Every route entry in both trees is part of the committed state, so entry IDs must be
 /// unique across both columns, as they are across branches.
 /// </para>
 /// </remarks>

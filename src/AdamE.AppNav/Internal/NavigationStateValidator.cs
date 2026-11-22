@@ -124,17 +124,17 @@ internal static class NavigationStateValidator
                 $"{path} default branch id '{branchHost.DefaultBranchId}' does not reference an existing branch.");
     }
 
-    // A split is a window root or a branch's content. Inside a modal or another split's column, what collapsing
-    // means is not defined, so such placements are rejected rather than left to each presenter.
+    // A split cannot be nested, at any depth, inside a modal or another split: what collapsing means there is not
+    // defined, so such placements are rejected rather than left to each presenter.
     private static void ValidateSplit(SplitNode split, string path, SplitPlacement splitPlacement)
     {
         switch (splitPlacement)
         {
             case SplitPlacement.InsideModal:
-                throw Invalid($"{path} is a split inside a modal; a split must be a window root or a branch's content.");
+                throw Invalid($"{path} is a split inside a modal; a split cannot be nested, at any depth, inside a modal or another split.");
             case SplitPlacement.InsideSplit:
                 throw Invalid(
-                    $"{path} is a split inside another split's column; a split must be a window root or a branch's content.");
+                    $"{path} is a split inside another split; a split cannot be nested, at any depth, inside a modal or another split.");
         }
 
         if (!Enum.IsDefined(split.CompactColumn))

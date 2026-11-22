@@ -21,6 +21,7 @@ internal static class NavigationDiagnosticSanitizer
         NavigationDiagnosticDataKeys.CandidateCount,
         NavigationDiagnosticDataKeys.PlanKind,
         NavigationDiagnosticDataKeys.ContextualFallback,
+        NavigationDiagnosticDataKeys.SplitLayout,
         NavigationDiagnosticDataKeys.PolicyType,
         NavigationDiagnosticDataKeys.Decision,
         NavigationDiagnosticDataKeys.RequestTransformerType,

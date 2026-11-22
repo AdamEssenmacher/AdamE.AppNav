@@ -183,7 +183,13 @@ override AdamE.AppNav.State.SplitNode.ToString() -> string!
 override sealed AdamE.AppNav.State.SplitNode.Equals(AdamE.AppNav.State.NavigationNode? other) -> bool
 static AdamE.AppNav.State.SplitNode.operator !=(AdamE.AppNav.State.SplitNode? left, AdamE.AppNav.State.SplitNode? right) -> bool
 static AdamE.AppNav.State.SplitNode.operator ==(AdamE.AppNav.State.SplitNode? left, AdamE.AppNav.State.SplitNode? right) -> bool
-AdamE.AppNav.Back.BackNavigationContext.PresentsSplitColumnsSideBySide.get -> bool
-AdamE.AppNav.Back.BackNavigationContext.PresentsSplitColumnsSideBySide.init -> void
-AdamE.AppNav.Back.BackNavigationRequest.PresentsSplitColumnsSideBySide.get -> bool
-AdamE.AppNav.Back.BackNavigationRequest.PresentsSplitColumnsSideBySide.init -> void
+AdamE.AppNav.Back.BackNavigationContext.SplitLayout.get -> AdamE.AppNav.State.SplitLayout
+AdamE.AppNav.Back.BackNavigationContext.SplitLayout.init -> void
+AdamE.AppNav.Back.BackNavigationRequest.SplitLayout.get -> AdamE.AppNav.State.SplitLayout?
+AdamE.AppNav.Back.BackNavigationRequest.SplitLayout.init -> void
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.SplitLayoutReported = 85 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Navigation.IRouterNavigator.ReportSplitLayout(string! windowId, AdamE.AppNav.State.SplitLayout layout) -> void
+AdamE.AppNav.State.SplitLayout
+AdamE.AppNav.State.SplitLayout.Collapsed = 0 -> AdamE.AppNav.State.SplitLayout
+AdamE.AppNav.State.SplitLayout.SideBySide = 1 -> AdamE.AppNav.State.SplitLayout
+const AdamE.AppNav.Diagnostics.NavigationDiagnosticDataKeys.SplitLayout = "splitLayout" -> string!

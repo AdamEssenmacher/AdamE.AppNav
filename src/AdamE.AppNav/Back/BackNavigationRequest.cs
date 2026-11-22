@@ -30,13 +30,19 @@ public sealed class BackNavigationRequest
     public string? ExpectedModalEntryId { get; init; }
 
     /// <summary>
-    /// Gets whether the presenter shows the columns of every <see cref="State.SplitNode"/> side by side, rather than
-    /// collapsed to one stack. The default, <see langword="false"/>, plans Back as if every split were collapsed.
+    /// Gets the split layout to plan this Back for, or <see langword="null"/> (the default) to use the layout the
+    /// presenter last reported for the target window with <see cref="Navigation.IRouterNavigator.ReportSplitLayout"/>.
     /// </summary>
     /// <remarks>
-    /// Core does not know the presented layout; the adapter that shows the splits says it here. Side by side, Back goes
-    /// back inside the secondary column, then inside the primary column, and never plans a Back that only changes
-    /// <see cref="State.SplitNode.CompactColumn"/>.
+    /// Set it only to override what the presenter reported, such as a host Back raised for a layout the presenter is
+    /// changing to. Side by side, Back goes back inside the secondary column, then inside the primary column, and
+    /// never plans a Back that only changes <see cref="State.SplitNode.CompactColumn"/>.
     /// </remarks>
-    public bool PresentsSplitColumnsSideBySide { get; init; }
+    public State.SplitLayout? SplitLayout
+    {
+        get;
+        init => field = value is not { } layout || Enum.IsDefined(layout)
+            ? value
+            : throw new ArgumentOutOfRangeException(nameof(SplitLayout), value, "Unknown split layout.");
+    }
 }

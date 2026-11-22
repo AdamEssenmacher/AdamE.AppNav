@@ -30,6 +30,9 @@ internal sealed class RouterNavigator : IRouterNavigator
     private readonly RouterOperationGate _operationLock = new();
     private readonly Lock _lifetimeGate = new();
     private readonly Lock _reconciliationGate = new();
+    // Presentation, not logical state: read when an operation plans, never queued behind one.
+    private readonly Lock _splitLayoutGate = new();
+    private readonly Dictionary<string, SplitLayout> _splitLayouts = new(StringComparer.Ordinal);
     private readonly TaskCompletionSource<bool> _shutdownCompletion =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly CancellationTokenSource _shutdownCancellation = new();
@@ -364,7 +367,7 @@ internal sealed class RouterNavigator : IRouterNavigator
                 throw;
             }
 
-            AppRoute finalRoute = ResolvePresentedRoute(plan.TargetState, effectiveRequest.WindowId, route);
+            AppRoute finalRoute = ResolvePresentedRoute(plan.TargetState, effectiveRequest.WindowId, route, null);
             RouterNavigationRequest finalizedRequest = effectiveRequest;
             var presentationTimer = Stopwatch.StartNew();
             _diagnostics.Write(
@@ -432,9 +435,10 @@ internal sealed class RouterNavigator : IRouterNavigator
             _diagnostics.StartActivity("Navigation.Back", operationId, backRequest.Source.ToString());
         var timer = Stopwatch.StartNew();
 
-        var backContext = new BackNavigationContext(CurrentState, backRequest.WindowId, operationId)
+        var backContext = new BackNavigationContext(CurrentState, backRequest.WindowId, operationId);
+        backContext = backContext with
         {
-            PresentsSplitColumnsSideBySide = backRequest.PresentsSplitColumnsSideBySide
+            SplitLayout = backRequest.SplitLayout ?? SplitLayoutOf(backContext.ResolvedWindowId)
         };
         string? diagnosticWindowId =
             backContext.ResolvedWindowId ?? backContext.RequestedWindowId ?? CurrentState.ActiveWindowId;
@@ -534,7 +538,11 @@ internal sealed class RouterNavigator : IRouterNavigator
             }
 
             string? resolvedWindowId = backContext.ResolvedWindowId ?? backContext.RequestedWindowId;
-            AppRoute route = ResolvePresentedRoute(plan.TargetState, resolvedWindowId, new BackRoute());
+            AppRoute route = ResolvePresentedRoute(
+                plan.TargetState,
+                resolvedWindowId,
+                new BackRoute(),
+                backContext.SplitLayout);
             RouterNavigationRequest request =
                 RouterNavigationRequest.FromRoute(route, ResolveBackRequestSource(backRequest.Source), resolvedWindowId);
 
@@ -640,7 +648,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             if (_entryLeases is not null)
                 RouteEntryLeaseRegistry.ValidateUniqueEntryIds(plan.TargetState, "Navigation reconciliation");
 
-            AppRoute finalRoute = ResolvePresentedRoute(plan.TargetState, request.WindowId, route);
+            AppRoute finalRoute = ResolvePresentedRoute(plan.TargetState, request.WindowId, route, null);
             RouterNavigationRequest finalizedRequest = request;
             var presentationTimer = Stopwatch.StartNew();
             _diagnostics.Write(
@@ -815,16 +823,62 @@ internal sealed class RouterNavigator : IRouterNavigator
         return new NavigationHistoryEntry(request, route, state);
     }
 
-    private static AppRoute ResolvePresentedRoute(
+    // The route the user sees in the window's presented split layout, or in splitLayout when the operation already
+    // resolved one, as a Back does.
+    private AppRoute ResolvePresentedRoute(
         NavigationState state,
         string? preferredWindowId,
-        AppRoute fallbackRoute)
+        AppRoute fallbackRoute,
+        SplitLayout? splitLayout)
     {
         WindowNode? window = string.IsNullOrWhiteSpace(preferredWindowId)
             ? state.ActiveWindow
             : state.FindWindow(preferredWindowId) ?? state.ActiveWindow;
 
-        return PresentedRouteResolver.FindPresentedRoute(window) ?? fallbackRoute;
+        return PresentedRouteResolver.FindPresentedRoute(window, splitLayout ?? SplitLayoutOf(window?.Id))
+               ?? fallbackRoute;
+    }
+
+    public void ReportSplitLayout(string windowId, SplitLayout layout)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(windowId);
+        if (!Enum.IsDefined(layout))
+            throw new ArgumentOutOfRangeException(nameof(layout), layout, "Unknown split layout.");
+
+        lock (_lifetimeGate)
+        {
+            if (_shutdownStarted)
+                return;
+        }
+
+        bool changed;
+        lock (_splitLayoutGate)
+        {
+            // Collapsed is the default, so only side-by-side windows are kept.
+            changed = layout == SplitLayout.Collapsed
+                ? _splitLayouts.Remove(windowId)
+                : _splitLayouts.TryAdd(windowId, layout);
+        }
+
+        if (changed)
+            _diagnostics.Write(
+                NavigationDiagnosticEventKind.SplitLayoutReported,
+                Guid.NewGuid().ToString("N"),
+                layout.ToString(),
+                RouterNavigationDiagnostics.Data(
+                    (NavigationDiagnosticDataKeys.WindowId, windowId),
+                    (NavigationDiagnosticDataKeys.SplitLayout, layout.ToString())));
+    }
+
+    private SplitLayout SplitLayoutOf(string? windowId)
+    {
+        if (windowId is null)
+            return SplitLayout.Collapsed;
+
+        lock (_splitLayoutGate)
+        {
+            return _splitLayouts.TryGetValue(windowId, out SplitLayout layout) ? layout : SplitLayout.Collapsed;
+        }
     }
 
     private void BeginOperation()

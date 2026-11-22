@@ -74,13 +74,19 @@ public sealed record BackNavigationContext
     public bool UsesActiveWindow { get; }
 
     /// <summary>
-    /// Gets whether the presenter shows the columns of every <see cref="SplitNode"/> side by side, rather than
-    /// collapsed to one stack.
+    /// Gets the split layout this Back is planned for. The default is <see cref="SplitLayout.Collapsed"/>.
     /// </summary>
     /// <remarks>
-    /// The router copies <see cref="BackNavigationRequest.PresentsSplitColumnsSideBySide"/> here. An adapter can also
-    /// set it on a context of its own and call <see cref="IBackNavigator.CreateBackPlan(BackNavigationContext)"/> to learn
-    /// whether Back would do anything in that layout, for example to decide whether to enable a system Back callback.
+    /// The router resolves it from <see cref="BackNavigationRequest.SplitLayout"/>, or else from the layout the
+    /// presenter reported for the window. An adapter can also set it on a context of its own and call
+    /// <see cref="IBackNavigator.CreateBackPlan(BackNavigationContext)"/> to learn whether Back would do anything in
+    /// that layout, for example to decide whether to enable a system Back callback.
     /// </remarks>
-    public bool PresentsSplitColumnsSideBySide { get; init; }
+    public SplitLayout SplitLayout
+    {
+        get;
+        init => field = Enum.IsDefined(value)
+            ? value
+            : throw new ArgumentOutOfRangeException(nameof(SplitLayout), value, "Unknown split layout.");
+    }
 }

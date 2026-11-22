@@ -17,7 +17,8 @@ namespace AdamE.AppNav.Back;
 /// The default navigator first gives modal content and selected child hosts a chance to go back,
 /// then falls back to modal dismissal, stack popping, and configured default-branch selection.
 /// A <see cref="SplitNode"/> goes back as its presenter shows it, which
-/// <see cref="BackNavigationContext.PresentsSplitColumnsSideBySide"/> says. Collapsed (the default), Back goes back
+/// <see cref="BackNavigationContext.SplitLayout"/> says, and every evaluation records that layout as
+/// <see cref="NavigationDiagnosticDataKeys.SplitLayout"/>. Collapsed (the default), Back goes back
 /// inside the secondary column while <see cref="SplitNode.CompactColumn"/> is <see cref="SplitColumn.Secondary"/>,
 /// then returns to the primary column, and otherwise goes back inside the primary column. Side by side, Back goes
 /// back inside the secondary column, then inside the primary column, and never only changes
@@ -43,6 +44,10 @@ public sealed class DefaultBackNavigator(
     /// <returns>
     /// A back-navigation plan, or <see langword="null"/> when the current state cannot handle back navigation.
     /// </returns>
+    /// <remarks>
+    /// This overload plans every <see cref="SplitNode"/> as <see cref="SplitLayout.Collapsed"/>. To plan for another
+    /// layout, pass a <see cref="BackNavigationContext"/> with its <see cref="BackNavigationContext.SplitLayout"/> set.
+    /// </remarks>
     public NavigationPlan? CreateBackPlan(NavigationState state, string? windowId = null)
     {
         return CreateBackPlan(new BackNavigationContext(state, windowId, Guid.NewGuid().ToString("N")));
@@ -57,7 +62,7 @@ public sealed class DefaultBackNavigator(
         if (window is null)
         {
             _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, context.OperationId,
-                "No active window was available for back navigation.");
+                "No active window was available for back navigation.", LayoutData(context));
 
             return null;
         }
@@ -66,12 +71,12 @@ public sealed class DefaultBackNavigator(
         {
             ModalNode topModal = window.Modals[^1];
             if (topModal.Content is not null &&
-                TryBack(topModal.Content, context.PresentsSplitColumnsSideBySide) is { } modalBackResult)
+                TryBack(topModal.Content, context.SplitLayout == SplitLayout.SideBySide) is { } modalBackResult)
             {
                 ModalNode[] updatedModals = window.Modals.ToArray();
                 updatedModals[^1] = topModal with { Content = modalBackResult.Node };
                 _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, context.OperationId,
-                    modalBackResult.Reason);
+                modalBackResult.Reason, LayoutData(context));
 
                 return new NavigationPlan(
                     ReplaceWindow(context, window with { Modals = updatedModals }),
@@ -81,7 +86,7 @@ public sealed class DefaultBackNavigator(
 
             WindowNode updatedWindow = window with { Modals = RemoveLast(window.Modals) };
             _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, context.OperationId,
-                "Back navigation will dismiss the top modal.");
+                "Back navigation will dismiss the top modal.", LayoutData(context));
 
             return new NavigationPlan(ReplaceWindow(context, updatedWindow), NavigationPlanKind.Back, "Dismiss modal");
         }
@@ -89,22 +94,23 @@ public sealed class DefaultBackNavigator(
         if (window.Root is null)
         {
             _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, context.OperationId,
-                "The active window has no root node.");
+                "The active window has no root node.", LayoutData(context));
 
             return null;
         }
 
-        NodeBackResult? backResult = TryBack(window.Root, context.PresentsSplitColumnsSideBySide);
+        NodeBackResult? backResult = TryBack(window.Root, context.SplitLayout == SplitLayout.SideBySide);
         if (backResult is null)
         {
             _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, context.OperationId,
-                "No host accepted back navigation.");
+                "No host accepted back navigation.", LayoutData(context));
 
             return null;
         }
 
         NodeBackResult acceptedBackResult = backResult.Value;
-        _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, context.OperationId, acceptedBackResult.Reason);
+        _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, context.OperationId,
+            acceptedBackResult.Reason, LayoutData(context));
         return new NavigationPlan(
             ReplaceWindow(context, window with { Root = acceptedBackResult.Node }),
             NavigationPlanKind.Back,
@@ -206,6 +212,16 @@ public sealed class DefaultBackNavigator(
 
         return result;
     }
+
+    // Shared, so recording the layout on every BackEvaluated allocates nothing.
+    private static readonly IReadOnlyDictionary<string, object?> CollapsedData =
+        new Dictionary<string, object?> { [NavigationDiagnosticDataKeys.SplitLayout] = nameof(SplitLayout.Collapsed) };
+
+    private static readonly IReadOnlyDictionary<string, object?> SideBySideData =
+        new Dictionary<string, object?> { [NavigationDiagnosticDataKeys.SplitLayout] = nameof(SplitLayout.SideBySide) };
+
+    private static IReadOnlyDictionary<string, object?> LayoutData(BackNavigationContext context) =>
+        context.SplitLayout == SplitLayout.SideBySide ? SideBySideData : CollapsedData;
 
     private readonly record struct NodeBackResult(NavigationNode Node, string Reason);
 }

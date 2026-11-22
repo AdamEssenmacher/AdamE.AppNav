@@ -68,9 +68,8 @@ as one particular inventory subgroup or item within a stack.
   confirmation shown before loading a save.
 - `SplitNode` owns a primary column and an optional secondary column, each with
   its own navigation tree, and says which column a collapsed presentation shows
-  on top. A split is a window root or a branch's content; validation rejects a
-  split inside a modal or inside another split's column. See [split
-  layouts](#split-layouts).
+  on top. A split cannot be nested, at any depth, inside a modal or another
+  split; validation rejects such a state. See [split layouts](#split-layouts).
 
 `NavigationNode` is externally non-derivable. Unknown shapes are rejected
 before presentation. A non-null `ActiveWindowId` must identify an existing
@@ -129,23 +128,39 @@ committed state whichever column is shown, so their [route-entry
 leases](../advanced/entry-leases.md) stay open and entry IDs must be unique
 across both columns.
 
-Core does not know the presented layout, so the Back request says it.
-`BackNavigationRequest.PresentsSplitColumnsSideBySide` is `false` by default,
-and Back then treats every split as collapsed. While `CompactColumn` is
+Core does not know the presented layout, so the presenter reports it. A
+presenter that shows splits calls `IRouterNavigator.ReportSplitLayout(windowId,
+layout)` whenever its layout for a window changes, with `SplitLayout.Collapsed`
+or `SplitLayout.SideBySide`. A window never reported is collapsed. Reporting is
+presentation only: it changes neither `CurrentState` nor history, is not
+queued behind navigation, and writes a `SplitLayoutReported` diagnostic when
+the layout changes. App code then calls `BackAsync()` as usual and gets the
+Back that matches what the user sees.
+
+Collapsed, Back treats every split as one stack. While `CompactColumn` is
 `Secondary`, Back first goes back inside the secondary column; from its root,
 Back returns to the primary column by setting `CompactColumn` to `Primary`.
-Otherwise Back goes back inside the primary column. An adapter that shows the
-columns side by side sets the flag to `true`: Back then goes back inside the
-secondary column, then inside the primary column, and never plans a Back that
-only changes `CompactColumn`. The router copies the flag to
-`BackNavigationContext`, so an adapter can also ask
-`IBackNavigator.CreateBackPlan` whether Back would do anything in its layout,
-for example to decide whether to enable a system Back callback.
+Otherwise Back goes back inside the primary column. Side by side, Back goes
+back inside the secondary column, then inside the primary column, and never
+plans a Back that only changes `CompactColumn`. A
+`BackNavigationRequest.SplitLayout` overrides the reported layout for one
+request. The router resolves the layout into `BackNavigationContext.SplitLayout`
+and records it as `splitLayout` on `BackEvaluated`, so an adapter can also ask
+`IBackNavigator.CreateBackPlan` with a context of its own whether Back would do
+anything in its layout, for example to decide whether to enable a system Back
+callback. `DefaultBackNavigator.CreateBackPlan(state, windowId)` always plans
+collapsed.
 
 In both layouts, Back inside the primary column, whether a stack pop or a
 branch host's default-branch fallback, clears the secondary column and shows
 the primary column: the selected message belonged to the mailbox that was just
-left.
+left. A default message shown beside the list with `CompactColumn = Primary`
+is cleared the same way.
+
+The route a navigation result and its history entry report follows the same
+layout. Collapsed, it is the route on top of the collapsed stack. Side by side,
+it is the secondary column's top whenever the split has a secondary column,
+since that column has the focus, and the primary column's top otherwise.
 
 Apps build splits through `IAppNavigationPlanner`; the standard models do not
 produce them. The MAUI, UIKit, Android and OAHU presenters do not present

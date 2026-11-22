@@ -1,4 +1,5 @@
 using AdamE.AppNav.Back;
+using AdamE.AppNav.Diagnostics;
 using AdamE.AppNav.Internal;
 using AdamE.AppNav.Leases;
 using AdamE.AppNav.Navigation;
@@ -144,6 +145,144 @@ public sealed class SplitNodeTests
         AppNavigationConfigurationException nested = Assert.Throws<AppNavigationConfigurationException>(() =>
             NavigationStateValidator.ValidateState(Root(nestedSplit), "Test"));
         Assert.Contains("inside another split", nested.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ValidatorRejectsASplitNestedThroughABranchHostInsideAnotherSplit()
+    {
+        var tabs = new BranchHostNode(
+            "tabs",
+            [new NavigationBranch("mail", "Mail", Split(SplitColumn.Primary))],
+            "mail");
+        var outer = new SplitNode("outer", new StackNode("accounts", [Entry("accounts")]), tabs);
+
+        AppNavigationConfigurationException exception = Assert.Throws<AppNavigationConfigurationException>(() =>
+            NavigationStateValidator.ValidateState(Root(outer), "Test"));
+        Assert.Contains("Root.Secondary.Branch('mail').Content", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("cannot be nested, at any depth", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TopRouteFollowsTheLayout()
+    {
+        SplitNode listOnTop = Split(SplitColumn.Primary, Message("m1", "attachment"));
+
+        Assert.Equal(new MailRoute("inbox"), PresentedRouteTraversal.FindTopRoute(listOnTop, SplitLayout.Collapsed));
+        Assert.Equal(
+            new MailRoute("attachment"),
+            PresentedRouteTraversal.FindTopRoute(listOnTop, SplitLayout.SideBySide));
+        Assert.Equal(
+            new MailRoute("inbox"),
+            PresentedRouteTraversal.FindTopRoute(Split(SplitColumn.Primary), SplitLayout.SideBySide));
+    }
+
+    [Fact]
+    public async Task BackDefaultsToTheLayoutReportedForItsWindow()
+    {
+        NavigationState state = Root(Split(SplitColumn.Secondary, Message("m1")));
+        await using IRouterNavigator router = Router(state);
+
+        router.ReportSplitLayout("main", SplitLayout.SideBySide);
+        BackNavigationResult sideBySide = await router.BackAsync();
+        Assert.Equal(BackNavigationStatus.Unhandled, sideBySide.Status);
+        Assert.Same(state, router.CurrentState);
+
+        router.ReportSplitLayout("main", SplitLayout.Collapsed);
+        BackNavigationResult collapsed = await router.BackAsync();
+        Assert.Equal(BackNavigationStatus.Completed, collapsed.Status);
+        Assert.Equal(SplitColumn.Primary, RootSplitOf(router.CurrentState, "main").CompactColumn);
+    }
+
+    [Fact]
+    public async Task EachWindowKeepsItsOwnLayout()
+    {
+        var state = new NavigationState(
+            [
+                new WindowNode("main", Split(SplitColumn.Secondary, Message("m1"))),
+                new WindowNode(
+                    "other",
+                    new SplitNode(
+                        "other-mail",
+                        new StackNode("other-mailboxes", [Entry("other-inbox")]),
+                        new StackNode("other-message", [Entry("o1")])))
+            ],
+            "main");
+        await using IRouterNavigator router = Router(state);
+        router.ReportSplitLayout("main", SplitLayout.SideBySide);
+
+        Assert.Equal(BackNavigationStatus.Unhandled, (await router.BackAsync("main")).Status);
+        Assert.Equal(BackNavigationStatus.Completed, (await router.BackAsync("other")).Status);
+        Assert.Equal(SplitColumn.Secondary, RootSplitOf(router.CurrentState, "main").CompactColumn);
+        Assert.Equal(SplitColumn.Primary, RootSplitOf(router.CurrentState, "other").CompactColumn);
+    }
+
+    [Fact]
+    public async Task ARequestCanOverrideTheReportedLayout()
+    {
+        NavigationState state = Root(Split(SplitColumn.Secondary, Message("m1")));
+        await using IRouterNavigator router = Router(state);
+        router.ReportSplitLayout("main", SplitLayout.SideBySide);
+
+        BackNavigationResult result = await router.BackAsync(
+            new BackNavigationRequest { SplitLayout = SplitLayout.Collapsed });
+
+        Assert.Equal(BackNavigationStatus.Completed, result.Status);
+        Assert.Equal(SplitColumn.Primary, RootSplitOf(router.CurrentState, "main").CompactColumn);
+        Assert.Throws<ArgumentOutOfRangeException>(() => new BackNavigationRequest { SplitLayout = (SplitLayout)9 });
+    }
+
+    [Fact]
+    public async Task ResultsAndHistoryReportTheRouteTheLayoutShows()
+    {
+        // The list is on top when collapsed, beside a default message shown when wide.
+        var planner = new TestNavigationPlanner((_, _) => ValueTask.FromResult(new NavigationPlan(
+            Root(Split(SplitColumn.Primary, Message("welcome"))))));
+        await using IRouterNavigator router = RouterNavigatorFactory.Create(
+            TestRoutes.CreateTable(),
+            planner,
+            new RecordingNavigationPresenter());
+
+        NavigationResult collapsed = await router.NavigateAsync(new TestRoutes.StoreRoute("a"));
+        Assert.Equal(new MailRoute("inbox"), collapsed.Route);
+
+        router.ReportSplitLayout("main", SplitLayout.SideBySide);
+        NavigationResult sideBySide = await router.NavigateAsync(new TestRoutes.StoreRoute("b"));
+        Assert.Equal(new MailRoute("welcome"), sideBySide.Route);
+        Assert.Equal(new MailRoute("welcome"), router.History.Current?.Route);
+    }
+
+    [Fact]
+    public async Task ReportingALayoutChangesNoStateOrHistoryAndIsADiagnostic()
+    {
+        var diagnostics = new NavigationDiagnostics(
+            options: new NavigationDiagnosticsOptions { DataMode = NavigationDiagnosticDataMode.Full });
+        var events = new List<NavigationDiagnosticEvent>();
+        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+        NavigationState state = Root(Split(SplitColumn.Secondary, Message("m1")));
+        await using IRouterNavigator router = RouterNavigatorFactory.Create(
+            TestRoutes.CreateTable(),
+            TestNavigationPlanner.EchoStack(),
+            new RecordingNavigationPresenter(),
+            new RouterNavigatorFactoryOptions { InitialState = state, Diagnostics = diagnostics });
+        var history = router.History;
+
+        router.ReportSplitLayout("main", SplitLayout.SideBySide);
+        router.ReportSplitLayout("main", SplitLayout.SideBySide);
+        router.ReportSplitLayout("main", SplitLayout.Collapsed);
+
+        Assert.Same(state, router.CurrentState);
+        Assert.Same(history, router.History);
+        Assert.Equal(
+            ["SideBySide", "Collapsed"],
+            events.Where(static e => e.Kind == NavigationDiagnosticEventKind.SplitLayoutReported)
+                .Select(static e => e.Data[NavigationDiagnosticDataKeys.SplitLayout]));
+        Assert.Throws<ArgumentException>(() => router.ReportSplitLayout(" ", SplitLayout.SideBySide));
+        Assert.Throws<ArgumentOutOfRangeException>(() => router.ReportSplitLayout("main", (SplitLayout)9));
+
+        await router.BackAsync();
+        NavigationDiagnosticEvent evaluated =
+            Assert.Single(events, static e => e.Kind == NavigationDiagnosticEventKind.BackEvaluated);
+        Assert.Equal("Collapsed", evaluated.Data[NavigationDiagnosticDataKeys.SplitLayout]);
     }
 
     [Fact]
@@ -296,7 +435,7 @@ public sealed class SplitNodeTests
             Root(Split(SplitColumn.Primary))
         })
         {
-            var context = new BackNavigationContext(state, null, "operation") { PresentsSplitColumnsSideBySide = true };
+            var context = new BackNavigationContext(state, null, "operation") { SplitLayout = SplitLayout.SideBySide };
             Assert.Null(navigator.CreateBackPlan(context));
         }
     }
@@ -312,7 +451,7 @@ public sealed class SplitNodeTests
             new RouterNavigatorFactoryOptions { InitialState = state });
 
         BackNavigationResult sideBySide = await router.BackAsync(
-            new BackNavigationRequest(source: BackNavigationSource.Host) { PresentsSplitColumnsSideBySide = true });
+            new BackNavigationRequest(source: BackNavigationSource.Host) { SplitLayout = SplitLayout.SideBySide });
         Assert.Equal(BackNavigationStatus.Unhandled, sideBySide.Status);
         Assert.Same(state, router.CurrentState);
 
@@ -417,9 +556,18 @@ public sealed class SplitNodeTests
         return plan;
     }
 
+    private static IRouterNavigator Router(NavigationState state) => RouterNavigatorFactory.Create(
+        TestRoutes.CreateTable(),
+        TestNavigationPlanner.EchoStack(),
+        new RecordingNavigationPresenter(),
+        new RouterNavigatorFactoryOptions { InitialState = state });
+
+    private static SplitNode RootSplitOf(NavigationState state, string windowId) =>
+        Assert.IsType<SplitNode>(state.FindWindow(windowId)?.Root);
+
     private static NavigationPlan SideBySideBack(NavigationState state)
     {
-        var context = new BackNavigationContext(state, null, "operation") { PresentsSplitColumnsSideBySide = true };
+        var context = new BackNavigationContext(state, null, "operation") { SplitLayout = SplitLayout.SideBySide };
         NavigationPlan? plan = new DefaultBackNavigator().CreateBackPlan(context);
         Assert.NotNull(plan);
         NavigationStateValidator.ValidatePlan(plan, "Back");

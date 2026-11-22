@@ -32,12 +32,13 @@ using only public core APIs and is created with the router through
 ## Adapter owns
 
 - UI artifacts and mapping from `RouteEntry` to them;
-- the layout of any `SplitNode` it presents: an adapter that shows split
-  columns side by side sets `BackNavigationRequest.PresentsSplitColumnsSideBySide`
-  on the Back requests it sends, and can call `IBackNavigator.CreateBackPlan`
-  with the same `BackNavigationContext.PresentsSplitColumnsSideBySide` to learn
-  whether to offer a system Back. An adapter that cannot present splits refuses
-  them with `NotSupportedException` before it builds anything;
+- the layout of any `SplitNode` it presents: it reports each window's layout
+  with `IRouterNavigator.ReportSplitLayout` whenever it changes, so every Back
+  and navigation result matches what the user sees, and it can call
+  `IBackNavigator.CreateBackPlan` with a `BackNavigationContext` whose
+  `SplitLayout` is set to learn whether to offer a system Back. An adapter
+  that cannot present splits refuses them with `NotSupportedException` before
+  it builds anything;
 - attaching each native artifact to its entry's lease, and detaching it once
   the artifact no longer uses the lease, including during rollback and
   shutdown, and finishing rollback before `ApplyAsync` throws;
