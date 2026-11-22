@@ -35,6 +35,7 @@ internal sealed class RouterNavigator : IRouterNavigator
     private readonly int _maxHistoryEntries;
     private Task _reconciliationQueue = Task.CompletedTask;
     private Task _entryLeaseDrain = Task.CompletedTask;
+    private Task _settlementDrain = Task.CompletedTask;
     private int _activeOperations;
     private bool _shutdownStarted;
     private bool _shutdownSignalIssued;
@@ -871,25 +872,45 @@ internal sealed class RouterNavigator : IRouterNavigator
             }
             finally
             {
+                // Register settlement while this operation still holds admission. Once the count reaches
+                // zero a pending shutdown completes, and a settlement started after that would escape the
+                // drain disposal waits on.
+                StartPresentationSettlement(operationContext);
                 if (operationAdmitted)
                     EndOperation();
             }
         }
+    }
 
-        if (operationContext?.Settlement is { } settlement)
+    private void StartPresentationSettlement(RouterOperationContext? operationContext)
+    {
+        if (operationContext?.Settlement is not { } settlement)
+            return;
+
+        operationContext.Settlement = null;
+        // Cleanup runs independently of router admission and never blocks the operation, but disposal
+        // waits for it. Do not flow an active operation context into arbitrary presenter code.
+        Task settling;
+        if (ExecutionContext.IsFlowSuppressed())
         {
-            operationContext.Settlement = null;
-            // Cleanup runs independently of router admission. Do not flow an active operation
-            // context into arbitrary presenter code.
-            if (ExecutionContext.IsFlowSuppressed())
-                _ = Task.Run(SettleAsync);
-            else
-                using (ExecutionContext.SuppressFlow())
-                    _ = Task.Run(SettleAsync);
-
-            Task SettleAsync() => NotifyPresentationSettledAsync(
-                settlement.Presenter, settlement.State, settlement.Kind, settlement.OperationId);
+            settling = Task.Run(SettleAsync);
         }
+        else
+        {
+            using (ExecutionContext.SuppressFlow())
+                settling = Task.Run(SettleAsync);
+        }
+
+        lock (_lifetimeGate)
+        {
+            // A faulted drain is dropped rather than chained: its failure was already reported.
+            _settlementDrain = _settlementDrain.IsCompleted
+                ? settling
+                : Task.WhenAll(_settlementDrain, settling);
+        }
+
+        Task SettleAsync() => NotifyPresentationSettledAsync(
+            settlement.Presenter, settlement.State, settlement.Kind, settlement.OperationId);
     }
 
     private bool TryBeginOperation()
@@ -1022,18 +1043,35 @@ internal sealed class RouterNavigator : IRouterNavigator
         }
         finally
         {
-            if (_entryLeaseDrain.IsCompletedSuccessfully)
+            Task entryLeaseDrain = _entryLeaseDrain;
+            Task settlementDrain;
+            lock (_lifetimeGate)
+                settlementDrain = _settlementDrain;
+
+            if (entryLeaseDrain.IsCompletedSuccessfully && settlementDrain.IsCompleted)
                 _shutdownCompletion.TrySetResult(true);
             else
-                _ = CompleteShutdownAfterEntryLeasesAsync();
+                _ = CompleteShutdownAfterDrainsAsync(entryLeaseDrain, settlementDrain);
         }
     }
 
-    private async Task CompleteShutdownAfterEntryLeasesAsync()
+    private async Task CompleteShutdownAfterDrainsAsync(Task entryLeaseDrain, Task settlementDrain)
     {
+        // Settlement releases what an entry lease may still be waiting on, so it is awaited first. Its
+        // failures are reported through diagnostics and never change an operation's outcome, so they must
+        // not fault disposal either: disposal only waits for settlement to finish.
         try
         {
-            await _entryLeaseDrain.ConfigureAwait(false);
+            await settlementDrain.ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // Reported when it happened; nothing further to surface here.
+        }
+
+        try
+        {
+            await entryLeaseDrain.ConfigureAwait(false);
             _shutdownCompletion.TrySetResult(true);
         }
         catch (Exception ex)
