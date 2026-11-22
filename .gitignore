@@ -436,3 +436,6 @@ FodyWeavers.xsd
 
 # Local device-test runner output
 test-results/
+
+# SwiftPM build output
+.build/

@@ -58,6 +58,14 @@ public struct NavigationReading: Equatable, Sendable {
     public let entries: [String]
     public let modalID: String?
     public let modalEntries: [String]
+
+    public init(revision: Int64, branch: String, entries: [String], modalID: String?, modalEntries: [String]) {
+        self.revision = revision
+        self.branch = branch
+        self.entries = entries
+        self.modalID = modalID
+        self.modalEntries = modalEntries
+    }
 }
 
 
@@ -91,4 +99,32 @@ public struct NavigationDestinationContext {
     public let branchID: String?
     public let modalID: String?
     public let transition: NavigationTransitionContext?
+
+    public init(entry: NavigationEntry, branchID: String?, modalID: String?,
+                transition: NavigationTransitionContext? = nil) {
+        self.entry = entry
+        self.branchID = branchID
+        self.modalID = modalID
+        self.transition = transition
+    }
+}
+
+/// Optional counters for observing native rendering and interactive Back during integration tests.
+public struct NavigationDiagnostics {
+    public internal(set) var lastReading: NavigationReading?
+    public internal(set) var stagedTops: [String] = []
+    public internal(set) var gesturesBegan = 0
+    public internal(set) var gesturesCancelled = 0
+    public internal(set) var gesturesCompleted = 0
+    public internal(set) var gestureReading: NavigationReading?
+
+    public init(lastReading: NavigationReading? = nil, stagedTops: [String] = [], gesturesBegan: Int = 0,
+                gesturesCancelled: Int = 0, gesturesCompleted: Int = 0, gestureReading: NavigationReading? = nil) {
+        self.lastReading = lastReading
+        self.stagedTops = stagedTops
+        self.gesturesBegan = gesturesBegan
+        self.gesturesCancelled = gesturesCancelled
+        self.gesturesCompleted = gesturesCompleted
+        self.gestureReading = gestureReading
+    }
 }

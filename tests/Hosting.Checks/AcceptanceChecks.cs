@@ -82,6 +82,7 @@ internal static class AcceptanceChecks
         using var presenter = new OahuNavigationPresenter();
         var router = new ProbeRouter(presenter, leases);
         var reports = new List<Exception>();
+        var healthyLeases = new List<RouteEntryLease>();
         bool deferNativeClose = false;
         RouteEntryLease? detail = null;
         bool cleaned = false;
@@ -89,7 +90,11 @@ internal static class AcceptanceChecks
         shell = new NavigationShellViewModel(leases, (entry, lease, _) =>
         {
             var mount = loop.Mount<INavigationShellViewModel>(shell!);
-            if (entry.Id != "home-detail") return new(mount);
+            if (entry.Id != "home-detail")
+            {
+                healthyLeases.Add(lease);
+                return new(mount);
+            }
             detail = lease;
             return new(mount, () => cleaned = true);
         }, action => dispatch(() =>
@@ -112,7 +117,17 @@ internal static class AcceptanceChecks
         presenter.Detach(epoch);
         await shell.DisposeAsync();
         var shutdown = router.DisposeAsync().AsTask();
-        if (reports.Count != 1 || !detail!.IsRetired || cleaned || detail.Released.IsCompleted || shutdown.IsCompleted)
+        // Shutdown deliberately stays pending for the uncertified mount. Drain the other
+        // leases so their host callbacks finish before the next check uses this loop.
+        var healthyReleases = Task.WhenAll(healthyLeases.Select(lease => lease.Released));
+        var firstCompletion = await Task.WhenAny(healthyReleases, shutdown).WaitAsync(TimeSpan.FromSeconds(5));
+        if (firstCompletion == shutdown || shutdown.IsCompleted)
+        {
+            await shutdown;
+            throw new InvalidOperationException("Router shutdown completed while an uncertified mount was attached.");
+        }
+        await healthyReleases;
+        if (reports.Count != 1 || !detail!.IsRetired || cleaned || detail.Released.IsCompleted)
             throw new InvalidOperationException("An uncertified close must report once and keep its lease attached.");
     }
 

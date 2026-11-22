@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import OahuRuntime
 import SwiftUI
 
@@ -41,8 +42,11 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
                                 .tag(branch.id)
                         }
                     }
-                } else if let branch = target.branches.first {
+                } else if let branch = target.branches.first(where: { $0.id == target.selectedBranch }) {
+                    // The surface only witnesses the selected branch, so a stack root renders that branch.
+                    // Its id gives each branch its own NavigationStack instead of rebinding one in place.
                     stack(branch.entries, key: .branch(branch.id))
+                        .id(branch.id)
                 } else {
                     emptyContent()
                 }
@@ -67,7 +71,9 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
     private func sheet(_ modal: ModalProjection) -> some View {
         let key = StackKey.modal(modal.id)
         let content = stack(modal.entries, key: key, presentsRoot: true)
-            .interactiveDismissDisabled(surface.modalTop.map { back?.intercepts($0) == true } ?? false)
+            // While a revision applies, the modal binding refuses dismissal. A swipe that UIKit
+            // completed anyway would leave the surface waiting for a sheet that is gone.
+            .interactiveDismissDisabled(surface.applying || surface.modalTop.map { back?.intercepts($0) == true } ?? false)
         if let root = modal.entries.first, let customization {
             let context = surface.context(for: root, key: key)
             applyTransition(customization.transition(context), to: content, context: context, key: key)
@@ -79,18 +85,24 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
     private func stack(_ entries: [NavigationEntry], key: StackKey, presentsRoot: Bool = false) -> some View {
         NavigationStack(path: surface.path(for: key)) {
             if let root = entries.first {
-                page(root, key: key, appliesTransition: !presentsRoot)
+                page(root, key: key, appliesTransition: !presentsRoot, isBranchRoot: !presentsRoot)
                     .navigationDestination(for: NavigationEntry.self) { page($0, key: key) }
             }
         }
     }
 
-    private func page(_ entry: NavigationEntry, key: StackKey, appliesTransition: Bool = true) -> some View {
-        let intercept = back?.intercepts(entry) == true
+    private func page(_ entry: NavigationEntry, key: StackKey, appliesTransition: Bool = true,
+                      isBranchRoot: Bool = false) -> some View {
+        // A branch root has nothing behind it, so it gets no replacement Back button. A sheet root keeps
+        // it as the managed close affordance.
+        let intercept = !isBranchRoot && back?.intercepts(entry) == true
         let context = surface.context(for: entry, key: key)
         return styledDestination(context, key: key, appliesTransition: appliesTransition)
         .background(PageMarker(surface: surface, key: key, entry: entry))
-        .navigationBarBackButtonHidden(intercept || surface.isWaitingForTab(key))
+        // While a revision applies, the path binding refuses pops and the presenter ignores readings that
+        // don't match the pending target. A Back that UIKit completed anyway would never settle.
+        // Hiding the button also disables the edge swipe and the Back-history menu.
+        .navigationBarBackButtonHidden(intercept || surface.applying || surface.isWaitingForTab(key))
         .toolbar {
             if intercept, let back {
                 ToolbarItem(placement: .topBarLeading) {
@@ -182,16 +194,6 @@ public struct NavigationBackControl {
     }
 }
 
-/// Optional counters for observing native rendering and interactive Back during integration tests.
-public struct NavigationDiagnostics {
-    public internal(set) var lastReading: NavigationReading?
-    public internal(set) var stagedTops: [String] = []
-    public internal(set) var gesturesBegan = 0
-    public internal(set) var gesturesCancelled = 0
-    public internal(set) var gesturesCompleted = 0
-    public internal(set) var gestureReading: NavigationReading?
-}
-
 /// Stages the projection when the shell appears and again whenever it changes.
 private struct StageProjection: ViewModifier {
     let projection: NavigationProjection
@@ -249,3 +251,4 @@ private struct UnavailableScreen: View {
         }
     }
 }
+#endif
