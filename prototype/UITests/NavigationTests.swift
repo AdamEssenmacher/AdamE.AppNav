@@ -8,6 +8,9 @@ final class NavigationTests: XCTestCase {
         if name.contains("testReplaceHostDuringGamePush") {
             app.launchArguments.append("--probe-replace-host")
         }
+        if name.contains("testHomeGameZoomTakenBackDuringPush") || name.contains("testHomeGameCancelledBackDuringPush") {
+            app.launchArguments.append("--probe-hold-game-settlement")
+        }
         if name.contains("testHomeGameCrossFadeCancelAndReturn") || name.contains("testNativeFadeSheetPreservesHistory") {
             app.launchArguments.append("--probe-animation-style")
         }
@@ -22,6 +25,46 @@ final class NavigationTests: XCTestCase {
 
     func testHomeGameZoomCancelAndReturn() {
         verifyGameCancelAndReturn(openButton: "probe-open-game")
+    }
+
+    // A slow Back swipe can catch the zoom before the shell settles the push. UIKit then gives the push back and
+    // SwiftUI writes the shorter path while the push is still applying. AppNav records the push and a native Back, and
+    // SwiftUI must not push Game again. The probe holds the push applying until Game leaves the top of the stack.
+    func testHomeGameZoomTakenBackDuringPush() {
+        awaitLabel("probe-status") { $0 == self.home }
+        awaitLabel("probe-native") { $0.hasSuffix("home [home,home-detail]") }
+        app.buttons["probe-open-game"].press(forDuration: 0.22)
+        XCTAssertTrue(app.staticTexts["page-game"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["probe-native"].label.hasSuffix("home [home,home-detail]"),
+                      "The shell settled the push before Back")
+        XCTAssertEqual(app.staticTexts["probe-status"].label, home)
+
+        edgeSwipe(to: 0.9)
+        awaitLabel("probe-taken-back") { $0 == "taken back=1" }
+        awaitLabel("probe-status") { $0 == self.returned }
+        awaitLabel("probe-native") { $0.hasSuffix("home [home,home-detail]") }
+        XCTAssertTrue(app.staticTexts["page-game"].waitForNonExistence(timeout: 10))
+        // Game stays gone once the native Back settles.
+        Thread.sleep(forTimeInterval: 3)
+        XCTAssertFalse(app.staticTexts["page-game"].exists)
+        XCTAssertEqual(app.staticTexts["probe-status"].label, returned)
+    }
+
+    // A Back swipe released short while the push is still applying leaves Game, and the push settles as usual.
+    func testHomeGameCancelledBackDuringPush() {
+        awaitLabel("probe-status") { $0 == self.home }
+        awaitLabel("probe-native") { $0.hasSuffix("home [home,home-detail]") }
+        app.buttons["probe-open-game"].press(forDuration: 0.22)
+        XCTAssertTrue(app.staticTexts["page-game"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["probe-native"].label.hasSuffix("home [home,home-detail]"),
+                      "The shell settled the push before Back")
+
+        edgeSwipe(to: 0.18)
+        awaitLabel("probe-status") { $0 == self.game }
+        awaitLabel("probe-native") { $0.hasSuffix("home [home,home-detail,game]") }
+        awaitLabel("probe-gesture") { $0.hasPrefix("began=1 cancelled=1 completed=0") }
+        XCTAssertEqual(app.staticTexts["probe-taken-back"].label, "taken back=0")
+        XCTAssertTrue(app.staticTexts["page-game"].exists)
     }
 
     func testHomeGameCrossFadeCancelAndReturn() {

@@ -22,6 +22,8 @@ prototype/UITests/record.sh "$DEVICE" /tmp/home-game.mp4 \
   -only-testing:NavigationTests/NavigationTests/testNativeHomeGameZoomReference
 ```
 
+`testHomeGameZoomTakenBackDuringPush` covers a Back swipe that arrives before the shell settles the Game push. On a slower device a slow swipe can catch the zoom, and UIKit gives the push back. The probe's `--probe-hold-game-settlement` argument keeps a band over the navigation controller's centre while Game is on top, until a Back gesture begins. The shell cannot settle the push, so an ordinary edge swipe makes SwiftUI shorten the path while the push is still applying. The test expects the push and a HostReconciliation Back, a history count of 3, and Game to stay gone. The probe simulates the applying condition. The Game zoom has finished before the swipe, so the test does not reproduce UIKit reversing a push that is still animating. That case was checked on an iPhone SE running Scavos. `testHomeGameCancelledBackDuringPush` releases the same swipe short and expects Game to stay and the push to settle with a history count of 2.
+
 ## Native cross-fade
 
 On iOS 27 the probe presents a single-entry sheet using `.native(.crossFade)` on the presented container. Its background fades in at a fixed position; dismissal returns to the original Home stack. iOS 18 uses the automatic presentation. [iOS 27.2 sheet recording](results/fade-sheet-ios27.mp4).

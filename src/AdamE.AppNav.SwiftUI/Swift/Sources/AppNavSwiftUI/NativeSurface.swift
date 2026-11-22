@@ -109,6 +109,21 @@ final class NativeSurface: ObservableObject {
     private var trackedInteraction: ObjectIdentifier?
     private var needsGestureVerification = false
     private var nextDiagnostic = 0.0
+    // The one-entry push being animated for the staged revision, while UIKit can still take it back.
+    private var animatedPush: VisibleStep?
+    // That push after SwiftUI wrote it out of the path, until UIKit's stack settles without it or a cancelled
+    // gesture writes it back.
+    private var takenBack: TakenBack?
+    // Whether the page that push adds has been seen mounted in the window.
+    private var pushWitnessed = false
+
+    private struct TakenBack {
+        let key: StackKey
+        let staged: NavigationReading
+        let shorter: NavigationReading
+        let shorterEntries: [NavigationEntry]
+        let restored: [NavigationEntry]
+    }
 
     func stage(_ next: NavigationProjection, animatesSinglePushes: Bool,
                transactionAnimation: ((NavigationTransitionContext) -> Animation?)?, report: @escaping (NavigationReading) -> Void,
@@ -130,7 +145,11 @@ final class NativeSurface: ObservableObject {
         } else if singlePush && animatesSinglePushes {
             animation = .default
         }
-        stagePushOrigins(next, push: singlePush && animation != nil ? step : nil)
+        let animatedPush = singlePush && animation != nil ? step : nil
+        stagePushOrigins(next, push: animatedPush)
+        self.animatedPush = animatedPush
+        takenBack = nil
+        pushWitnessed = false
         applying = next.revision > 0
         nextDiagnostic = CACurrentMediaTime() + 1
         candidate = nil
@@ -309,6 +328,25 @@ final class NativeSurface: ObservableObject {
             default: nil
             }
             let restore = witnessed?.dropFirst().elementsEqual(next.map(\.id)) == true
+            if self.applying, let taken = self.takenBack, taken.key == key, next == taken.restored {
+                // The Back gesture was cancelled: the push carries on applying.
+                self.takenBack = nil
+                self.paths[key] = next
+                return
+            }
+            if self.applying, self.takenBack == nil, shorter, let push = self.animatedPush, push.key == key,
+               current == Array(push.new.dropFirst()), next == Array(push.old.dropFirst()),
+               self.pushWitnessed, let staged = self.stagedReading() {
+                // A Back gesture caught a push the shell was still applying, such as a slow swipe during the zoom.
+                // UIKit has usually removed the page by the time SwiftUI writes, so this relies on having seen it.
+                // Ignoring the write would make SwiftUI push the page again. Take the shorter path now, and report
+                // the push and the shorter stack together once UIKit's stack settles without the page.
+                let shorterEntries = [push.new[0]] + next
+                self.takenBack = TakenBack(key: key, staged: staged, shorter: staged.replacing(key, with: next),
+                                           shorterEntries: shorterEntries, restored: current)
+                self.paths[key] = next
+                return
+            }
             if !self.applying && (shorter || restore) {
                 self.paths[key] = next
             }
@@ -321,6 +359,10 @@ final class NativeSurface: ObservableObject {
         guard let window, let target, target.revision > 0 else { return }
 
         let attached = markers.allObjects.filter { $0.window === window }
+        if let push = animatedPush, !pushWitnessed,
+           attached.contains(where: { $0.entry == push.new.last && $0.key == push.key }) {
+            pushWitnessed = true
+        }
         if target.branches.isEmpty {
             guard attached.isEmpty else { return }
             qualifying = true
@@ -376,7 +418,8 @@ final class NativeSurface: ObservableObject {
         let top = modalTop ?? branchTop
         if applying, stagedTops.last != top.entry.id { stagedTops.append(top.entry.id) }
         guard transitioned(branchTop), modalTop.map(transitioned) ?? true, trackedInteraction == nil,
-              let branchEntries = read(branchTop, desired: branch.entries, in: window, covered: modalTop != nil) else { return }
+              let branchEntries = read(branchTop, desired: desired(branch.entries, key: .branch(branch.id)), in: window,
+                                       covered: modalTop != nil) else { return }
 
         if isWaitingForTab(branchTop.key), branchEntries.count < branch.entries.count {
             // There is no independent witness for a selection followed by a premature pop.
@@ -391,7 +434,8 @@ final class NativeSurface: ObservableObject {
 
         let modalEntries: [String]
         if let currentModal, let modalTop {
-            guard let entries = read(modalTop, desired: currentModal.entries, in: window) else { return }
+            guard let entries = read(modalTop, desired: desired(currentModal.entries, key: .modal(currentModal.id)),
+                                     in: window) else { return }
             modalEntries = entries
         } else {
             modalEntries = []
@@ -459,6 +503,36 @@ final class NativeSurface: ObservableObject {
             needsGestureVerification = false
         }
         guard reading != lastReading else { return }
+        if let taken = takenBack {
+            guard reading == taken.shorter else { return }
+            // The page was on screen, so AppNav records the push and then a native Back. Both are reported
+            // together, so no router operation is admitted between them.
+            takenBack = nil
+            diagnostics.pushesTakenBack += 1
+            commit(taken.staged)
+        }
+        commit(reading)
+    }
+
+    /// The stack a reading must show: the staged one, or the shorter one once a Back gesture took the push back.
+    private func desired(_ entries: [NavigationEntry], key: StackKey) -> [NavigationEntry] {
+        guard let taken = takenBack, taken.key == key else { return entries }
+        return taken.shorterEntries
+    }
+
+
+    /// The staged revision as AppNav projected it.
+    private func stagedReading() -> NavigationReading? {
+        guard let target, let branch = target.branches.first(where: { $0.id == target.selectedBranch }) else { return nil }
+        return NavigationReading(revision: target.revision, branch: branch.id, entries: branch.entries.map(\.id),
+                                 modalID: target.modal?.id, modalEntries: target.modal?.entries.map(\.id) ?? [])
+    }
+
+    private func commit(_ reading: NavigationReading) {
+        candidate = nil
+        animatedPush = nil
+        takenBack = nil
+        pushWitnessed = false
         lastReading = reading
         if applying, let target {
             diagnostics.stagedTops = stagedTops
@@ -484,6 +558,20 @@ final class NativeSurface: ObservableObject {
             diagnostics.gesturesBegan += 1
         } else {
             trackedInteraction = nil
+        }
+    }
+}
+
+private extension NavigationReading {
+    /// The same reading with the stack under `key` cut back to its root plus `path`.
+    func replacing(_ key: StackKey, with path: [NavigationEntry]) -> NavigationReading {
+        switch key {
+        case .branch:
+            NavigationReading(revision: revision, branch: branch, entries: Array(entries.prefix(1)) + path.map(\.id),
+                              modalID: modalID, modalEntries: modalEntries)
+        case .modal:
+            NavigationReading(revision: revision, branch: branch, entries: entries, modalID: modalID,
+                              modalEntries: Array(modalEntries.prefix(1)) + path.map(\.id))
         }
     }
 }
