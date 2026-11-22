@@ -17,9 +17,10 @@ import androidx.navigationevent.NavigationEvent
 /**
  * Optional native Nav3 animations. Returning null uses Nav3's normal animation.
  *
- * Use [remember][androidx.compose.runtime.remember] when creating this configuration in a composable.
- * Key it on the inputs that affect the animation. The shell uses the configuration instance to remember
- * Nav3 entries and their transition metadata across recompositions.
+ * Instances compare by identity, and the shell keys its `NavEntry` list on this object, so hold one
+ * across recompositions with `remember`. Constructing it inline in the call to
+ * [AppNavNavigationShell] rebuilds every entry and its metadata on each recomposition. A `data class`
+ * would not help here: the callback properties below are function types, which compare by reference.
  */
 public class NavigationAnimations(
     /** Nav3's display-wide size animation. A non-null value lets the display measure each scene at its preferred size. */
