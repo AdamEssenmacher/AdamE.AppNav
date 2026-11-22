@@ -61,10 +61,10 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
             }
         }
         .background(FrameObserver(surface: surface, report: report, trace: trace))
-        .onChange(of: projection, initial: true) { _, next in
+        .modifier(StageProjection(projection: projection) { next in
             surface.stage(next, animatesSinglePushes: animatesSinglePushes,
                           transactionAnimation: customization?.transactionAnimation)
-        }
+        })
     }
 
     @ViewBuilder
@@ -120,9 +120,7 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
 
     @ViewBuilder
     private func styledDestination(_ context: NavigationDestinationContext, key: StackKey, appliesTransition: Bool) -> some View {
-        let content = OahuMountView(id: context.entry.mount) {
-            ContentUnavailableView("Screen unavailable", systemImage: "rectangle.slash")
-        }
+        let content = OahuMountView(id: context.entry.mount) { UnavailableScreen() }
         if let customization {
             let decorated = customization.chrome?(context, AnyView(content)) ?? AnyView(content)
             if appliesTransition {
@@ -193,6 +191,64 @@ public struct NavigationBackControl {
     public init(intercepts: @escaping (NavigationEntry) -> Bool, request: @escaping () -> Void) {
         self.intercepts = intercepts
         self.request = request
+    }
+}
+
+/// Stages the projection when the shell appears and again whenever it changes.
+private struct StageProjection: ViewModifier {
+    let projection: NavigationProjection
+    let stage: (NavigationProjection) -> Void
+
+    func body(content: Content) -> some View {
+        if #available(iOS 17, *) {
+            content.onChange(of: projection, initial: true) { _, next in stage(next) }
+        } else {
+            content.modifier(LegacyStageProjection(projection: projection, stage: stage))
+        }
+    }
+}
+
+/// iOS 16 staging. It has no initial change action. A second appearance is harmless: staging a revision that is
+/// already staged only refreshes its metadata.
+/// iOS 16 can run the change action captured by the previous body, so its `stage` would apply the previous
+/// animation policy. Both actions call through `latest`, which each body refreshes.
+private struct LegacyStageProjection: ViewModifier {
+    let projection: NavigationProjection
+    let stage: (NavigationProjection) -> Void
+    // `@StateObject` builds its value once per shell; `@State` would build and discard one on every init.
+    @StateObject private var latest = LatestStage()
+
+    func body(content: Content) -> some View {
+        let latest = latest
+        let _ = latest.stage = stage
+        content
+            .onAppear { latest.stage?(projection) }
+            .onChange(of: projection) { next in latest.stage?(next) }
+    }
+}
+
+/// The stage action from the most recent body, for iOS 16's change action. It publishes nothing, so holding it
+/// never invalidates the view.
+@MainActor
+private final class LatestStage: ObservableObject {
+    var stage: ((NavigationProjection) -> Void)?
+}
+
+/// What a destination shows while its mount is unavailable.
+private struct UnavailableScreen: View {
+    var body: some View {
+        if #available(iOS 17, *) {
+            ContentUnavailableView("Screen unavailable", systemImage: "rectangle.slash")
+        } else {
+            VStack(spacing: 8) {
+                Image(systemName: "rectangle.slash")
+                    .font(.largeTitle)
+                    .foregroundStyle(.secondary)
+                Text("Screen unavailable")
+                    .font(.headline)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
     }
 }
 #endif

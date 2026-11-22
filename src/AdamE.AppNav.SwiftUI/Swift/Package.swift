@@ -12,7 +12,7 @@ let runtime = environment["OAHU_RUNTIME_SWIFT"].flatMap { $0.isEmpty ? nil : $0 
 // state machine's tests on the host.
 let package = Package(
     name: "AppNavSwiftUI",
-    platforms: [.iOS(.v18), .macOS(.v15)],
+    platforms: [.iOS(.v17), .macOS(.v15)],
     products: [.library(name: "AppNavSwiftUI", targets: ["AppNavSwiftUI"])],
     dependencies: [.package(name: "OahuRuntime", path: runtime)],
     targets: [
