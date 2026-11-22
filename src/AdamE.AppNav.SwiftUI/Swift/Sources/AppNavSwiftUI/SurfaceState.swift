@@ -43,6 +43,14 @@ struct NativeSample {
     var tops: [StackSample]
     /// Any rendered page has a transition coordinator.
     var isTransitioning = false
+    /// Every configured page marker attached to the window, as its stack and entry.
+    var mounted: [MountedPage] = []
+}
+
+/// A page whose marker is attached to the sampled window.
+struct MountedPage: Equatable {
+    var key: StackKey
+    var entry: NavigationEntry
 }
 
 /// How the adapter should commit a change: nil leaves the ambient transaction alone.
@@ -93,6 +101,16 @@ struct SurfaceState {
         var selectedModal: ModalSelection?
     }
 
+    // An animated one-entry push that SwiftUI wrote out of the path before it settled.
+    private struct TakenBack {
+        let key: StackKey
+        let staged: NavigationReading
+        let shorter: NavigationReading
+        let shorterEntries: [NavigationEntry]
+        let restored: [NavigationEntry]
+        let removed: NavigationEntry
+    }
+
     private enum Undo: Equatable {
         /// Put the applying target back.
         case target
@@ -122,6 +140,18 @@ struct SurfaceState {
     private var candidate: NavigationReading?
     private var needsGestureVerification = false
     private var nextDiagnostic = 0.0
+    // The one-entry push being animated for the staged revision, while UIKit can still take it back.
+    private var animatedPush: VisibleStep?
+    // That push after SwiftUI wrote it out of the path, until UIKit's stack settles without it or a cancelled
+    // gesture writes it back.
+    private var takenBack: TakenBack?
+    // Whether the page that push adds has been seen mounted in the window.
+    private var pushWitnessed = false
+    // Whether the last settled frame still showed the taken-back page on top.
+    private var takenBackKept = false
+    /// The stack whose animated push can take a Back while it applies: its page has been seen and no Back has
+    /// taken it back yet. Every other stack withholds Back until the revision settles.
+    private(set) var backDuringPush: StackKey?
 
     var applying: Bool {
         if case .applying = phase { return true }
@@ -167,6 +197,13 @@ struct SurfaceState {
             animation = .standard
         }
         stagePushOrigins(next, push: singlePush ? step : nil, sheetRoot: sheetRoot)
+        animatedPush = singlePush && animation != .none ? step : nil
+        // A pending take-back can be dropped here. The presenter stages a new revision only after the router
+        // operation that staged the old one has ended, and that operation can't end while a take-back is pending: the
+        // take-back holds back the staged reading the operation waits for. So a new revision here is the rollback
+        // after that operation timed out or was cancelled, or a reattach. Neither recorded the push, and each installs
+        // the router's committed stack.
+        clearTakeBack()
         phase = next.revision > 0 ? .applying(quietSince: nil) : .idle
         nextDiagnostic = now + 1
         candidate = nil
@@ -182,6 +219,21 @@ struct SurfaceState {
         target = next
         out.install = animation
         return out
+    }
+
+    /// The app's transaction policy returned no animation for the staged revision, so its push can't be taken back.
+    mutating func installWasNotAnimated() {
+        guard takenBack == nil else { return }
+        animatedPush = nil
+        pushWitnessed = false
+        backDuringPush = nil
+    }
+
+    private mutating func clearTakeBack() {
+        takenBack = nil
+        takenBackKept = false
+        pushWitnessed = false
+        backDuringPush = nil
     }
 
     /// The revision held during a gesture, once no gesture is in flight.
@@ -406,8 +458,33 @@ struct SurfaceState {
             paths[key] = next
             return out
         }
+        if applying, let taken = takenBack, taken.key == key, next == taken.restored {
+            // The Back gesture was cancelled and SwiftUI wrote the push back: it carries on applying.
+            restoreTakenBack(&out, installs: false)
+            return out
+        }
+        if applying, takenBack == nil, undo == nil, shorter, let push = animatedPush, push.key == key,
+           current == Array(push.new.dropFirst()), pushWitnessed, let staged = stagedReading() {
+            // A Back caught a push the shell was still applying, such as a slow swipe during the zoom, or a
+            // multi-entry pop from the Back-history menu, which showing the Back button also enables.
+            // UIKit has usually removed the page by the time SwiftUI writes, so this relies on having seen it.
+            // Undoing the write would make SwiftUI push the page again. Take the shorter path for good, and
+            // report the push and the shorter stack together once UIKit's stack settles without the page.
+            takenBack = TakenBack(key: key, staged: staged, shorter: staged.replacing(key, with: next),
+                                  shorterEntries: [push.new[0]] + next, restored: current,
+                                  removed: push.new[push.new.count - 1])
+            takenBackKept = false
+            // A further Back before UIKit settles is not accepted, and is undone like any other.
+            backDuringPush = nil
+            paths[key] = next
+            out.traces.append("native Back took back the push of \(push.new[push.new.count - 1].id) rev=\(staged.revision)")
+            return out
+        }
         // A stack the target no longer renders is on its way out; its last writes mean nothing.
         guard let target, entries(for: key, in: target) != nil else { return out }
+        // A write that moves a taken-back stack anywhere else ends the take-back. The undo below puts the
+        // staged target back and the push carries on applying.
+        if takenBack?.key == key { clearTakeBack() }
         noteUnacceptedWrite("path \(key)", &out)
         paths[key] = next
         return out
@@ -456,6 +533,14 @@ struct SurfaceState {
         phase = .abandoned
         undo = nil
         candidate = nil
+        animatedPush = nil
+        clearTakeBack()
+    }
+
+    /// Whether native Back is withheld on `key` while a revision applies. An animated one-entry push whose
+    /// page has been seen is the exception: the shell can take it back.
+    func withholdsBack(_ key: StackKey) -> Bool {
+        applying && backDuringPush != key
     }
 
     // MARK: Gates
@@ -476,6 +561,11 @@ struct SurfaceState {
         var out = SurfaceOutcome()
         let quiet = !sample.isTransitioning && interaction == nil
         var qualified = false
+        if applying, let push = animatedPush, !pushWitnessed,
+           sample.mounted.contains(where: { $0.entry == push.new.last && $0.key == push.key }) {
+            pushWitnessed = true
+            backDuringPush = push.key
+        }
         if let pending = undo, quiet {
             restore(pending, &out)
         } else {
@@ -552,10 +642,19 @@ struct SurfaceState {
         if applying, let top = modalTop ?? branchTop, stagedTops.last != top.top.id { stagedTops.append(top.top.id) }
         guard branchTop?.isTransitioning != true, modalTop?.isTransitioning != true, interaction == nil
         else { return false }
+        if let taken = takenBack, let top = modalTop ?? branchTop, top.key == taken.key, top.top == taken.removed {
+            // UIKit's stack settled with the taken-back page still on top across two frames, so the Back that took it
+            // was cancelled. A UIKit cancellation alone can't tell this apart from UIKit giving the push back, so only
+            // the settled stack decides.
+            if takenBackKept { restoreTakenBack(&out, installs: true) } else { takenBackKept = true }
+            return false
+        }
+        takenBackKept = false
 
         let branchEntries: [String]
         if let branch, let branchTop {
-            guard let entries = read(branchTop, desired: branch.entries, covered: modalTop != nil)
+            guard let entries = read(branchTop, desired: desired(branch.entries, key: .branch(branch.id)),
+                                     covered: modalTop != nil)
             else { return false }
             if isWaitingForTab(branchTop.key), entries.count < branch.entries.count {
                 // There is no independent witness for a selection followed by a premature pop.
@@ -571,7 +670,8 @@ struct SurfaceState {
 
         let modalEntries: [String]
         if let currentModal, let modalTop {
-            guard let entries = read(modalTop, desired: currentModal.entries) else { return false }
+            guard let entries = read(modalTop, desired: desired(currentModal.entries, key: .modal(currentModal.id)))
+            else { return false }
             modalEntries = entries
         } else {
             modalEntries = []
@@ -609,6 +709,24 @@ struct SurfaceState {
             needsGestureVerification = false
         }
         guard reading != lastReading else { return }
+        if let taken = takenBack {
+            guard reading == taken.shorter else { return }
+            // The page was on screen, so AppNav records the push and then a native Back. Both are reported from
+            // this one frame. The presenter submits the Back before the push's operation releases the router, and
+            // the router admits it ahead of any operation queued behind the push.
+            takenBack = nil
+            diagnostics.pushesTakenBack += 1
+            commit(taken.staged, &out)
+            // UIKit's stack has settled without the page, so its push origin has nothing left to animate.
+            pushOrigins[taken.removed] = nil
+        }
+        commit(reading, &out)
+    }
+
+    private mutating func commit(_ reading: NavigationReading, _ out: inout SurfaceOutcome) {
+        candidate = nil
+        animatedPush = nil
+        clearTakeBack()
         lastReading = reading
         if phase != .idle, let target {
             diagnostics.stagedTops = stagedTops
@@ -619,5 +737,51 @@ struct SurfaceState {
         diagnostics.lastReading = reading
         out.traces.append("settled rev=\(reading.revision) \(reading.branch) \(reading.entries) modal=\(reading.modalID ?? "-") \(reading.modalEntries)")
         out.readings.append(reading)
+    }
+
+    // MARK: Taken-back pushes
+
+    /// Puts a taken-back push into the path again once its Back gesture is cancelled, whether SwiftUI wrote the
+    /// longer path itself or UIKit's stack settled with the page still on top.
+    private mutating func restoreTakenBack(_ out: inout SurfaceOutcome, installs: Bool) {
+        guard let taken = takenBack else { return }
+        takenBack = nil
+        takenBackKept = false
+        diagnostics.pushesRestored += 1
+        backDuringPush = taken.key
+        guard paths[taken.key] != taken.restored else { return }
+        paths[taken.key] = taken.restored
+        if installs { out.install = InstallAnimation.none }
+    }
+
+    /// The stack a reading must show: the staged one, or the shorter one once a Back took the push back.
+    private func desired(_ entries: [NavigationEntry], key: StackKey) -> [NavigationEntry] {
+        guard let taken = takenBack, taken.key == key else { return entries }
+        return taken.shorterEntries
+    }
+
+    /// The staged revision as AppNav projected it.
+    private func stagedReading() -> NavigationReading? {
+        guard let target else { return nil }
+        // A window without a root reports an empty branch, as `witness` does.
+        let branch = target.branches.first(where: { $0.id == target.selectedBranch })
+        if branch == nil && !target.branches.isEmpty { return nil }
+        return NavigationReading(revision: target.revision, branch: branch?.id ?? "",
+                                 entries: branch?.entries.map(\.id) ?? [], modalID: target.modal?.id,
+                                 modalEntries: target.modal?.entries.map(\.id) ?? [])
+    }
+}
+
+private extension NavigationReading {
+    /// The same reading with the stack under `key` cut back to its root plus `path`.
+    func replacing(_ key: StackKey, with path: [NavigationEntry]) -> NavigationReading {
+        switch key {
+        case .branch:
+            NavigationReading(revision: revision, branch: branch, entries: Array(entries.prefix(1)) + path.map(\.id),
+                              modalID: modalID, modalEntries: modalEntries)
+        case .modal:
+            NavigationReading(revision: revision, branch: branch, entries: entries, modalID: modalID,
+                              modalEntries: Array(modalEntries.prefix(1)) + path.map(\.id))
+        }
     }
 }

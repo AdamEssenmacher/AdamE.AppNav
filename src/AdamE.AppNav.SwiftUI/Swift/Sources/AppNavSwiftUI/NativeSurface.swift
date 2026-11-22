@@ -95,6 +95,8 @@ final class NativeSurface: ObservableObject {
 
     func isWaitingForTab(_ key: StackKey) -> Bool { state.isWaitingForTab(key) }
 
+    func withholdsBack(_ key: StackKey) -> Bool { state.withholdsBack(key) }
+
     func context(for entry: NavigationEntry, key: StackKey) -> NavigationDestinationContext {
         state.context(for: entry, key: key)
     }
@@ -169,7 +171,8 @@ final class NativeSurface: ObservableObject {
                 isTransitioning: (page.nav.transitionCoordinator ?? page.controller.transitionCoordinator) != nil)
         }
         let sample = NativeSample(time: CACurrentMediaTime(), markerKeys: attached.map(\.key), tops: tops,
-                                  isTransitioning: isTransitioning)
+                                  isTransitioning: isTransitioning,
+                                  mounted: pages.map { MountedPage(key: $0.key, entry: $0.entry) })
         apply { $0.sample(sample) }
     }
 
@@ -178,16 +181,21 @@ final class NativeSurface: ObservableObject {
     private func apply(_ transition: (inout SurfaceState) -> SurfaceOutcome) {
         var next = state
         let outcome = transition(&next)
-        let commit = {
-            if Rendered(next) != Rendered(self.state) { self.objectWillChange.send() }
-            self.state = next
-        }
+        var animation: Animation?
         if let install = outcome.install {
-            let animation: Animation? = switch install {
+            animation = switch install {
             case .none: nil
             case .standard: .default
             case .policy(let context): policy?(context)
             }
+            // A policy that declines to animate leaves nothing UIKit could take back.
+            if case .policy = install, animation == nil { next.installWasNotAnimated() }
+        }
+        let commit = {
+            if Rendered(next) != Rendered(self.state) { self.objectWillChange.send() }
+            self.state = next
+        }
+        if outcome.install != nil {
             var transaction = Transaction(animation: animation)
             transaction.disablesAnimations = animation == nil
             withTransaction(transaction, commit)
@@ -210,6 +218,7 @@ final class NativeSurface: ObservableObject {
         let stagedTops: [String]
         let gestures: [Int]
         let gestureReading: NavigationReading?
+        let backDuringPush: StackKey?
 
         init(_ state: SurfaceState) {
             target = state.target
@@ -222,7 +231,9 @@ final class NativeSurface: ObservableObject {
             pushOrigins = state.pushOrigins
             stagedTops = state.diagnostics.stagedTops
             gestures = [state.diagnostics.gesturesBegan, state.diagnostics.gesturesCancelled,
-                        state.diagnostics.gesturesCompleted]
+                        state.diagnostics.gesturesCompleted, state.diagnostics.pushesTakenBack,
+                        state.diagnostics.pushesRestored]
+            backDuringPush = state.backDuringPush
             gestureReading = state.diagnostics.gestureReading
         }
     }

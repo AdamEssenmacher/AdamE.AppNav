@@ -266,6 +266,113 @@ final class SurfaceStateTests: XCTestCase {
         XCTAssertEqual(h.state.paths[.branch("main")], [], "the native state stands")
     }
 
+    // An animated one-entry push whose page is on screen, still applying.
+    private func harnessWithAnimatedPush(_ before: [String], pushing page: String) -> Harness {
+        var h = Harness()
+        h.stage(stack(1, before))
+        h.settle()
+        h.stage(stack(2, before + [page]), animatesSinglePushes: true)
+        XCTAssertEqual(h.installs.last, .standard)
+        XCTAssertTrue(h.state.withholdsBack(.branch("main")), "Back stays withheld until the page is seen")
+        var sample = h.faithfulSample()
+        sample.mounted = [MountedPage(key: .branch("main"), entry: entry(page))]
+        h.frame(sample)
+        XCTAssertFalse(h.state.withholdsBack(.branch("main")))
+        return h
+    }
+
+    func testBackDuringAnAnimatedPushIsReportedAsThePushThenANativeBack() {
+        var h = harnessWithAnimatedPush(["home"], pushing: "game")
+        h.readings = []
+
+        h.absorb(h.state.setPath([], for: .branch("main")))
+        XCTAssertEqual(h.state.paths[.branch("main")], [], "the shorter path is taken, not undone")
+        XCTAssertTrue(h.state.withholdsBack(.branch("main")), "a further Back waits for the stack to settle")
+        h.settle()
+
+        XCTAssertEqual(h.readings.map(\.entries), [["home", "game"], ["home"]])
+        XCTAssertEqual(h.readings.map(\.revision), [2, 2])
+        XCTAssertEqual(h.state.diagnostics.pushesTakenBack, 1)
+        XCTAssertEqual(h.state.phase, .idle)
+        XCTAssertEqual(h.state.paths[.branch("main")], [], "nothing pushes the page again")
+    }
+
+    func testBackHistoryPopDuringAnAnimatedPushTakesBackSeveralEntries() {
+        var h = harnessWithAnimatedPush(["home", "a"], pushing: "b")
+        h.readings = []
+
+        h.absorb(h.state.setPath([], for: .branch("main")))
+        h.settle()
+
+        XCTAssertEqual(h.readings.map(\.entries), [["home", "a", "b"], ["home"]])
+    }
+
+    func testTakenBackPushIsRestoredWhenUIKitKeepsThePage() {
+        var h = harnessWithAnimatedPush(["home"], pushing: "game")
+        h.readings = []
+        h.installs = []
+        h.absorb(h.state.setPath([], for: .branch("main")))
+
+        // UIKit settles with Game still on top: the Back was cancelled.
+        let kept = NativeSample(time: 0, markerKeys: [.branch("main")], tops: [
+            StackSample(key: .branch("main"), top: entry("game"), depth: 2, identities: ["home", "game"])])
+        h.frame(kept)
+        XCTAssertEqual(h.state.paths[.branch("main")], [], "one frame is not enough to call it cancelled")
+        h.frame(kept)
+        XCTAssertEqual(h.state.paths[.branch("main")], [entry("game")])
+        XCTAssertEqual(h.installs, [.none])
+        XCTAssertEqual(h.state.diagnostics.pushesRestored, 1)
+        XCTAssertFalse(h.state.withholdsBack(.branch("main")))
+
+        h.settle()
+        XCTAssertEqual(h.readings.map(\.entries), [["home", "game"]])
+        XCTAssertEqual(h.state.diagnostics.pushesTakenBack, 0)
+    }
+
+    func testSwiftUIWritingThePushBackRestoresIt() {
+        var h = harnessWithAnimatedPush(["home"], pushing: "game")
+        h.readings = []
+        h.absorb(h.state.setPath([], for: .branch("main")))
+
+        h.absorb(h.state.setPath([entry("game")], for: .branch("main")))
+        XCTAssertEqual(h.state.diagnostics.pushesRestored, 1)
+        h.settle()
+
+        XCTAssertEqual(h.readings.map(\.entries), [["home", "game"]])
+    }
+
+    func testAFurtherWriteAfterATakeBackIsUndoneAndThePushCarriesOn() {
+        var h = harnessWithAnimatedPush(["home", "a"], pushing: "b")
+        h.readings = []
+        h.absorb(h.state.setPath([entry("a")], for: .branch("main")))
+
+        h.absorb(h.state.setPath([], for: .branch("main")))
+        h.frame()
+        XCTAssertEqual(h.state.paths[.branch("main")], [entry("a"), entry("b")], "the staged target is put back")
+        h.settle()
+
+        XCTAssertEqual(h.readings.map(\.entries), [["home", "a", "b"]])
+        XCTAssertEqual(h.state.diagnostics.pushesTakenBack, 0)
+    }
+
+    func testBackDuringAPushWhosePolicyDeclinedToAnimateIsUndone() {
+        var h = Harness()
+        h.stage(stack(1, ["home"]))
+        h.settle()
+        let push = NavigationTransitionContext(operation: .push, sourceEntryID: "home", destinationEntryID: "game")
+        h.stage(stack(2, ["home", "game"], transition: push), hasPolicy: true)
+        h.state.installWasNotAnimated()
+        var sample = h.faithfulSample()
+        sample.mounted = [MountedPage(key: .branch("main"), entry: entry("game"))]
+        h.frame(sample)
+        XCTAssertTrue(h.state.withholdsBack(.branch("main")))
+
+        h.absorb(h.state.setPath([], for: .branch("main")))
+        h.frame()
+
+        XCTAssertEqual(h.state.paths[.branch("main")], [entry("game")])
+    }
+
     func testPushTheShellDidNotMakeIsUndoneWhenIdle() {
         var h = Harness()
         h.stage(stack(1, ["home"]))

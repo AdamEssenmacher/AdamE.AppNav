@@ -117,14 +117,21 @@ public struct NavigationDiagnostics {
     public internal(set) var gesturesCancelled = 0
     public internal(set) var gesturesCompleted = 0
     public internal(set) var gestureReading: NavigationReading?
+    /// Animated pushes UIKit gave back before they settled, each reported as the push and then a native Back.
+    public internal(set) var pushesTakenBack = 0
+    /// Pushes taken back by a Back gesture that was then cancelled, so the push carried on applying.
+    public internal(set) var pushesRestored = 0
 
     public init(lastReading: NavigationReading? = nil, stagedTops: [String] = [], gesturesBegan: Int = 0,
-                gesturesCancelled: Int = 0, gesturesCompleted: Int = 0, gestureReading: NavigationReading? = nil) {
+                gesturesCancelled: Int = 0, gesturesCompleted: Int = 0, gestureReading: NavigationReading? = nil,
+                pushesTakenBack: Int = 0, pushesRestored: Int = 0) {
         self.lastReading = lastReading
         self.stagedTops = stagedTops
         self.gesturesBegan = gesturesBegan
         self.gesturesCancelled = gesturesCancelled
         self.gesturesCompleted = gesturesCompleted
         self.gestureReading = gestureReading
+        self.pushesTakenBack = pushesTakenBack
+        self.pushesRestored = pushesRestored
     }
 }

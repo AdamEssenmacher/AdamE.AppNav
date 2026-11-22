@@ -26,7 +26,8 @@ internal sealed class RouterNavigator : IRouterNavigator
     private readonly RouterNavigationDiagnostics _diagnostics;
     private readonly RouteEntryLeaseRegistry? _entryLeases;
     private readonly TimeSpan _entryLeaseShutdownWarningDelay;
-    private readonly SemaphoreSlim _operationLock = new(1, 1);
+    // Admits waiting reconciliations ahead of queued navigation, Back and refresh operations.
+    private readonly RouterOperationGate _operationLock = new();
     private readonly Lock _lifetimeGate = new();
     private readonly Lock _reconciliationGate = new();
     private readonly TaskCompletionSource<bool> _shutdownCompletion =
@@ -40,7 +41,7 @@ internal sealed class RouterNavigator : IRouterNavigator
     private bool _shutdownStarted;
     private bool _shutdownSignalIssued;
     private bool _shutdownCancellationCompleted;
-    private bool _operationLockDisposed;
+    private bool _shutdownCompleted;
 
     public RouterNavigator(
         RouteTable routes,
@@ -120,7 +121,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             CancellationToken operationCancellation = CreateOperationCancellation(
                 cancellationToken,
                 out linkedCancellation);
-            await _operationLock.WaitAsync(operationCancellation).ConfigureAwait(false);
+            await _operationLock.EnterOperationAsync(operationCancellation).ConfigureAwait(false);
             lockTaken = true;
             operationCancellation.ThrowIfCancellationRequested();
             return await NavigateCoreAsync(request, operationCancellation).ConfigureAwait(false);
@@ -158,7 +159,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             CancellationToken operationCancellation = CreateOperationCancellation(
                 cancellationToken,
                 out linkedCancellation);
-            await _operationLock.WaitAsync(operationCancellation).ConfigureAwait(false);
+            await _operationLock.EnterOperationAsync(operationCancellation).ConfigureAwait(false);
             lockTaken = true;
             operationCancellation.ThrowIfCancellationRequested();
             return await BackCoreAsync(request, operationCancellation).ConfigureAwait(false);
@@ -187,7 +188,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             CancellationToken operationCancellation = CreateOperationCancellation(
                 cancellationToken,
                 out linkedCancellation);
-            await _operationLock.WaitAsync(operationCancellation).ConfigureAwait(false);
+            await _operationLock.ReserveReconciliation().EnterAsync(operationCancellation).ConfigureAwait(false);
             lockTaken = true;
             operationCancellation.ThrowIfCancellationRequested();
             return await ReconcileAdmittedAsync(reconciliation, operationCancellation).ConfigureAwait(false);
@@ -210,7 +211,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             BeginOperation();
             operationAdmitted = true;
             CancellationToken operationCancellation = CreateOperationCancellation(cancellationToken, out linkedCancellation);
-            await _operationLock.WaitAsync(operationCancellation).ConfigureAwait(false);
+            await _operationLock.EnterOperationAsync(operationCancellation).ConfigureAwait(false);
             lockTaken = true;
             operationCancellation.ThrowIfCancellationRequested();
             // Read only AFTER admission: preceding navigation may still be committing while this request queues.
@@ -732,17 +733,21 @@ internal sealed class RouterNavigator : IRouterNavigator
             lock (_reconciliationGate)
             {
                 NavigationReconciliation reconciliation = e.Reconciliation;
+                // Take its place in line now, in report order, so a navigation queued behind the current operation
+                // gives way to it.
+                RouterOperationGate.Reservation reservation = _operationLock.ReserveReconciliation();
                 _reconciliationQueue = _reconciliationQueue
                     .ContinueWith(
                         static async (_, state) =>
                         {
-                            (RouterNavigator navigator, NavigationReconciliation nextReconciliation) =
-                                ((RouterNavigator, NavigationReconciliation))state!;
+                            (RouterNavigator navigator, NavigationReconciliation nextReconciliation,
+                                RouterOperationGate.Reservation nextReservation) =
+                                ((RouterNavigator, NavigationReconciliation, RouterOperationGate.Reservation))state!;
                             var lockTaken = false;
                             RouterOperationContext? operationContext = null;
                             try
                             {
-                                await navigator._operationLock.WaitAsync(
+                                await nextReservation.EnterAsync(
                                     navigator._shutdownCancellation.Token).ConfigureAwait(false);
                                 lockTaken = true;
                                 navigator._shutdownCancellation.Token.ThrowIfCancellationRequested();
@@ -760,7 +765,7 @@ internal sealed class RouterNavigator : IRouterNavigator
                                     operationAdmitted: true);
                             }
                         },
-                        (this, reconciliation),
+                        (this, reconciliation, reservation),
                         CancellationToken.None,
                         TaskContinuationOptions.None,
                         TaskScheduler.Default)
@@ -862,7 +867,7 @@ internal sealed class RouterNavigator : IRouterNavigator
         try
         {
             if (lockTaken)
-                _operationLock.Release();
+                _operationLock.Exit();
         }
         finally
         {
@@ -950,9 +955,9 @@ internal sealed class RouterNavigator : IRouterNavigator
                 throw new InvalidOperationException("Router operation admission count became negative.");
 
             if (_shutdownStarted && _shutdownSignalIssued && _shutdownCancellationCompleted &&
-                _activeOperations == 0 && !_operationLockDisposed)
+                _activeOperations == 0 && !_shutdownCompleted)
             {
-                _operationLockDisposed = true;
+                _shutdownCompleted = true;
                 completeShutdown = true;
             }
         }
@@ -1009,9 +1014,9 @@ internal sealed class RouterNavigator : IRouterNavigator
                     _shutdownSignalIssued = true;
 
                 if (_shutdownStarted && _shutdownSignalIssued && _shutdownCancellationCompleted &&
-                    _activeOperations == 0 && !_operationLockDisposed)
+                    _activeOperations == 0 && !_shutdownCompleted)
                 {
-                    _operationLockDisposed = true;
+                    _shutdownCompleted = true;
                     completeShutdown = true;
                 }
             }
@@ -1038,9 +1043,9 @@ internal sealed class RouterNavigator : IRouterNavigator
         lock (_lifetimeGate)
         {
             _shutdownCancellationCompleted = true;
-            if (_shutdownStarted && _shutdownSignalIssued && _activeOperations == 0 && !_operationLockDisposed)
+            if (_shutdownStarted && _shutdownSignalIssued && _activeOperations == 0 && !_shutdownCompleted)
             {
-                _operationLockDisposed = true;
+                _shutdownCompleted = true;
                 completeShutdown = true;
             }
         }
@@ -1053,7 +1058,6 @@ internal sealed class RouterNavigator : IRouterNavigator
     {
         try
         {
-            _operationLock.Dispose();
             _shutdownCancellation.Dispose();
         }
         finally
