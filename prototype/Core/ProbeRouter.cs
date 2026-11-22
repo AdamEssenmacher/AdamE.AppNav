@@ -13,7 +13,8 @@ using AdamE.AppNav.State;
 namespace AppNav.SwiftUI.Prototype;
 
 // The simulator app's routes and instrumentation. The presenter itself has no dependency on this project.
-public sealed record SurfaceTarget(long Revision, string Branch, IReadOnlyDictionary<string, string[]> Branches)
+public sealed record SurfaceTarget(long Revision, string Branch, IReadOnlyDictionary<string, string[]> Branches,
+    OahuPresentationTransition Transition)
 {
     public string[] EntryIds => Branch.Length == 0 ? [] : Branches[Branch];
 }
@@ -29,7 +30,7 @@ public sealed class ProbeRouter : IAsyncDisposable
     {
         public Task ShowAsync(OahuNavigationTarget target, CancellationToken token) =>
             publish(new SurfaceTarget(target.Revision, target.Branch,
-                target.Branches.ToDictionary(x => x.Key, x => x.Value.Select(e => e.Id).ToArray())), token);
+                target.Branches.ToDictionary(x => x.Key, x => x.Value.Select(e => e.Id).ToArray()), target.Transition), token);
         public Task SettleAsync(OahuNavigationTarget target, CancellationToken token) => Task.CompletedTask;
 
         public Task AcceptAsync(OahuNavigationTarget target, Func<Action, bool> applyIfCurrent, CancellationToken token) =>
@@ -47,7 +48,7 @@ public sealed class ProbeRouter : IAsyncDisposable
         _ => ""
     });
 
-    public ProbeRouter(Func<SurfaceTarget, CancellationToken, Task> publish) : this(new OahuNavigationPresenter())
+    public ProbeRouter(Func<SurfaceTarget, CancellationToken, Task> publish) : this(CreatePresenter())
     {
         probeEpoch = presenter.Attach(new CheckSurface(publish));
     }
