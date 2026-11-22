@@ -104,6 +104,11 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
         if let modal = surface.target?.modal, modal.id == selection.id {
             modalStack(modal)
                 .onAppear { presentedModalStyle = style }
+        } else {
+            // The target can move on before the presenter builds its content. The presenter is still on screen,
+            // so record it; otherwise the other presenter could activate before this one dismisses.
+            Color.clear
+                .onAppear { presentedModalStyle = style }
         }
     }
 
