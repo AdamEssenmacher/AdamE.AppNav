@@ -196,6 +196,7 @@ public struct NavigationDiagnostics {
 private struct StageProjection: ViewModifier {
     let projection: NavigationProjection
     let stage: (NavigationProjection) -> Void
+    @State private var latest = LatestStage()
 
     func body(content: Content) -> some View {
         if #available(iOS 17, *) {
@@ -203,11 +204,21 @@ private struct StageProjection: ViewModifier {
         } else {
             // iOS 16 has no initial change action. A second appearance is harmless: staging a revision that is
             // already staged only refreshes its metadata.
+            // iOS 16 can run the change action captured by the previous body, so its `stage` would apply the
+            // previous animation policy. Both actions call through `latest`, which each body refreshes.
+            let latest = latest
+            let _ = latest.stage = stage
             content
-                .onAppear { stage(projection) }
-                .onChange(of: projection) { next in stage(next) }
+                .onAppear { latest.stage?(projection) }
+                .onChange(of: projection) { next in latest.stage?(next) }
         }
     }
+}
+
+/// The stage action from the most recent body, for iOS 16's change action.
+@MainActor
+private final class LatestStage {
+    var stage: ((NavigationProjection) -> Void)?
 }
 
 /// What a destination shows while its mount is unavailable.
