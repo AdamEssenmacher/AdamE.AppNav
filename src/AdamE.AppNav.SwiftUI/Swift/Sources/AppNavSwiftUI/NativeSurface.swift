@@ -574,8 +574,10 @@ final class NativeSurface: ObservableObject {
             guard let self, trackedInteraction == token else { return }
             if context.isCancelled {
                 diagnostics.gesturesCancelled += 1
-                // UIKit kept the page. SwiftUI may not write the longer path back, so restore it here.
-                restoreTakenBack()
+                // A cancelled Back from the taken-back page keeps it, and SwiftUI may not write the longer path back,
+                // so restore it here. A cancelled push to that page is UIKit giving the push back: keep it taken.
+                let from = context.viewController(forKey: .from).flatMap { identities.object(forKey: $0) as String? }
+                if let taken = takenBack, from == taken.removed.id { restoreTakenBack() }
             } else {
                 diagnostics.gesturesCompleted += 1
             }
