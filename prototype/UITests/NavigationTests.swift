@@ -40,13 +40,14 @@ final class NavigationTests: XCTestCase {
         XCTAssertEqual(app.staticTexts["probe-status"].label, home)
 
         edgeSwipe(to: 0.9)
-        awaitLabel("probe-taken-back") { $0 == "taken back=1" }
+        awaitLabel("probe-taken-back") { $0 == "taken back=1 restored=0" }
         awaitLabel("probe-status") { $0 == self.returned }
         awaitLabel("probe-native") { $0.hasSuffix("home [home,home-detail]") }
         XCTAssertTrue(app.staticTexts["page-game"].waitForNonExistence(timeout: 10))
         // Game stays gone once the native Back settles.
-        Thread.sleep(forTimeInterval: 3)
-        XCTAssertFalse(app.staticTexts["page-game"].exists)
+        let reappeared = expectation(for: NSPredicate(format: "exists == true"), evaluatedWith: app.staticTexts["page-game"])
+        reappeared.isInverted = true
+        wait(for: [reappeared], timeout: 3)
         XCTAssertEqual(app.staticTexts["probe-status"].label, returned)
     }
 
@@ -63,7 +64,9 @@ final class NavigationTests: XCTestCase {
         awaitLabel("probe-status") { $0 == self.game }
         awaitLabel("probe-native") { $0.hasSuffix("home [home,home-detail,game]") }
         awaitLabel("probe-gesture") { $0.hasPrefix("began=1 cancelled=1 completed=0") }
-        XCTAssertEqual(app.staticTexts["probe-taken-back"].label, "taken back=0")
+        // SwiftUI writes the shorter path only once a Back gesture completes, so a short release never takes the push
+        // back and there is nothing to restore.
+        XCTAssertEqual(app.staticTexts["probe-taken-back"].label, "taken back=0 restored=0")
         XCTAssertTrue(app.staticTexts["page-game"].exists)
     }
 

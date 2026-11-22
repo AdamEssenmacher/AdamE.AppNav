@@ -90,7 +90,7 @@ public struct ShellScreen: View {
                     Text(animationEvidence).accessibilityIdentifier("probe-animation-style")
                 }
                 if Self.holdsGameSettlement {
-                    Text("taken back=\(diagnostics.pushesTakenBack)").accessibilityIdentifier("probe-taken-back")
+                    Text("taken back=\(diagnostics.pushesTakenBack) restored=\(diagnostics.pushesRestored)").accessibilityIdentifier("probe-taken-back")
                         .onChange(of: diagnostics.gesturesBegan, initial: true) { _, count in gesturesBegan = count }
                 }
                 HStack {
@@ -254,4 +254,3 @@ private extension PresentationTransition {
 private extension ScreenEntry {
     var projection: NavigationEntry { NavigationEntry(id: entryId, mount: mount) }
 }
-
