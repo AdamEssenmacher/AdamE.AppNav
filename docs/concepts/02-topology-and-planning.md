@@ -122,7 +122,9 @@ Change the selection with `split.Select(messageStack)` and
 does unless you pass one, and `ClearSecondary` also shows the primary column.
 A `with { Secondary = ... }` expression does not apply that default again: it
 keeps the current `CompactColumn`, so selecting a message that way on a split
-showing its list leaves the list on top.
+showing its list leaves the list on top. Clearing the selection with
+`with { Secondary = null }` on a split showing its message keeps
+`CompactColumn = Secondary`, which validation rejects; use `ClearSecondary()`.
 
 What a column shows is its tree's presented content. A column holding a branch
 host shows its selected branch's content, so a collapsed split stacks that
@@ -147,9 +149,12 @@ column.
 Back inside the primary column, whether a stack pop or a branch host's
 default-branch fallback, also closes the secondary column: the selected
 message belonged to the mailbox that was just left. A default message shown
-beside the list with `CompactColumn = Primary` is closed the same way. Every
-Back a split plans therefore removes an entry or a column, so none is
-invisible at any width.
+beside the list with `CompactColumn = Primary` is closed the same way.
+
+No Back a split plans only changes `CompactColumn`. Each one changes what a
+column shows: it pops an entry, closes the secondary column, or returns a
+branch host inside a column to its default branch. So no Back is invisible at
+any width.
 
 The route a navigation result and its history entry report is the top of the
 column `CompactColumn` names: the message stack's top while a message is

@@ -116,6 +116,7 @@ public sealed class SplitNodeTests
         AppNavigationConfigurationException exception = Assert.Throws<AppNavigationConfigurationException>(() =>
             NavigationStateValidator.ValidateState(Root(split), "Test"));
         Assert.Contains("no secondary content", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("ClearSecondary()", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -232,23 +233,33 @@ public sealed class SplitNodeTests
     [Fact]
     public void BackNeverOnlyChangesTheCompactColumn()
     {
-        // Every Back a split plans removes an entry or a column, so it shows a change at any window width.
-        foreach (NavigationState state in new[]
+        // Every Back a split plans changes what a column shows, so it shows a change at any window width.
+        var messageTabs = new BranchHostNode(
+            "message-tabs",
+            [
+                new NavigationBranch("body", "Body", new StackNode("body", [Entry("body")])),
+                new NavigationBranch("headers", "Headers", new StackNode("headers", [Entry("headers")]))
+            ],
+            "headers",
+            "body");
+        foreach (SplitNode before in new[]
         {
-            Root(Split(SplitColumn.Secondary, Message("m1", "attachment"))),
-            Root(Split(SplitColumn.Secondary, Message("m1"))),
-            Root(new SplitNode(
+            Split(SplitColumn.Secondary, Message("m1", "attachment")),
+            Split(SplitColumn.Secondary, Message("m1")),
+            Split(SplitColumn.Secondary, messageTabs),
+            Split(SplitColumn.Secondary, messageTabs with { SelectedBranchId = "body" }),
+            new SplitNode(
                 "mail",
                 new StackNode("mailboxes", [Entry("accounts"), Entry("inbox")]),
                 Message("m1"),
-                SplitColumn.Primary))
+                SplitColumn.Primary)
         })
         {
-            NavigationPlan plan = Back(state);
+            SplitNode after = RootSplit(Back(Root(before)));
 
             Assert.True(
-                RouteEntryLeaseRegistry.EntryIds(plan.TargetState).Count <
-                RouteEntryLeaseRegistry.EntryIds(state).Count);
+                !Equals(before.Primary, after.Primary) || !Equals(before.Secondary, after.Secondary),
+                "Back changed neither column.");
         }
     }
 

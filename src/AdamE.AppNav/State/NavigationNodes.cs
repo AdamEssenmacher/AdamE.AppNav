@@ -224,7 +224,8 @@ public sealed record BranchHostNode : NavigationNode
 /// Planners change the selection with <see cref="Select"/> and <see cref="ClearSecondary"/>. A
 /// <c>with { Secondary = ... }</c> expression does not apply the constructor's <see cref="CompactColumn"/> default
 /// again: it keeps the current column, so selecting an item that way on a split showing its primary column leaves the
-/// list on top. Every route entry in both trees is part of the committed state, so entry IDs must be
+/// list on top, and clearing the selection that way on a split showing its secondary column builds a split that
+/// router validation rejects. Every route entry in both trees is part of the committed state, so entry IDs must be
 /// unique across both columns, as they are across branches.
 /// </para>
 /// </remarks>
@@ -272,6 +273,11 @@ public sealed record SplitNode : NavigationNode
     /// <summary>
     /// Gets the navigation tree of the secondary column, or <see langword="null"/> when nothing is selected.
     /// </summary>
+    /// <remarks>
+    /// To remove the selection, call <see cref="ClearSecondary"/>. A <c>with { Secondary = null }</c> expression keeps
+    /// the current <see cref="CompactColumn"/>, so on a split showing its secondary column it builds a split that
+    /// router validation rejects.
+    /// </remarks>
     public NavigationNode? Secondary { get; init; }
 
     /// <summary>

@@ -144,7 +144,9 @@ internal static class NavigationStateValidator
         if (split.Secondary is not null)
             ValidateNode(split.Secondary, $"{path}.Secondary", SplitPlacement.InsideSplit);
         else if (split.CompactColumn == SplitColumn.Secondary)
-            throw Invalid($"{path} shows its secondary column but has no secondary content.");
+            throw Invalid(
+                $"{path} shows its secondary column but has no secondary content. Remove a selection with " +
+                "SplitNode.ClearSecondary(); 'with { Secondary = null }' keeps CompactColumn as it was.");
     }
 
     private static void ValidateModal(ModalNode modal, string path)
