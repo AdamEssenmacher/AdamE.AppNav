@@ -17,6 +17,12 @@ final class NavigationTests: XCTestCase {
         if name.contains("testHomeGameCrossFadeCancelAndReturn") || name.contains("testNativeFadeSheetPreservesHistory") {
             app.launchArguments.append("--probe-animation-style")
         }
+        if name.contains("testNonanimatedGamePushRetainsMatchedSourceForNativeBack") {
+            app.launchArguments.append("--probe-disable-game-push-animation")
+        }
+        if name.contains("testCallbackReplacementWithUnchangedProjection") {
+            app.launchArguments.append("--probe-replace-callbacks")
+        }
         app.launch()
     }
 
@@ -43,13 +49,14 @@ final class NavigationTests: XCTestCase {
         XCTAssertEqual(app.staticTexts["probe-status"].label, home)
 
         edgeSwipe(to: 0.9)
-        awaitLabel("probe-taken-back") { $0 == "taken back=1" }
+        awaitLabel("probe-taken-back") { $0 == "taken back=1 restored=0" }
         awaitLabel("probe-status") { $0 == self.returned }
         awaitLabel("probe-native") { $0.hasSuffix("home [home,home-detail]") }
         XCTAssertTrue(app.staticTexts["page-game"].waitForNonExistence(timeout: 10))
         // Game stays gone once the native Back settles.
-        Thread.sleep(forTimeInterval: 3)
-        XCTAssertFalse(app.staticTexts["page-game"].exists)
+        let reappeared = expectation(for: NSPredicate(format: "exists == true"), evaluatedWith: app.staticTexts["page-game"])
+        reappeared.isInverted = true
+        wait(for: [reappeared], timeout: 3)
         XCTAssertEqual(app.staticTexts["probe-status"].label, returned)
     }
 
@@ -66,7 +73,9 @@ final class NavigationTests: XCTestCase {
         awaitLabel("probe-status") { $0 == self.game }
         awaitLabel("probe-native") { $0.hasSuffix("home [home,home-detail,game]") }
         awaitLabel("probe-gesture") { $0.hasPrefix("began=1 cancelled=1 completed=0") }
-        XCTAssertEqual(app.staticTexts["probe-taken-back"].label, "taken back=0")
+        // SwiftUI writes the shorter path only once a Back gesture completes, so a short release never takes the push
+        // back and there is nothing to restore.
+        XCTAssertEqual(app.staticTexts["probe-taken-back"].label, "taken back=0 restored=0")
         XCTAssertTrue(app.staticTexts["page-game"].exists)
     }
 
@@ -125,6 +134,37 @@ final class NavigationTests: XCTestCase {
         XCTAssertTrue(app.buttons["probe-open-game"].exists)
         capture("AppNav Home after return")
         verifyAnimation()
+    }
+
+    func testNonanimatedGamePushRetainsMatchedSourceForNativeBack() {
+        awaitLabel("probe-status") { $0 == self.home }
+        app.buttons["probe-open-game"].tap()
+        awaitLabel("probe-status") { $0 == self.game }
+        XCTAssertTrue(app.staticTexts["page-game"].exists)
+
+        let installed = awaitLabel("probe-native") { $0.hasSuffix("home [home,home-detail,game]") }
+        app.buttons["probe-clear-push-metadata"].tap()
+        awaitLabel("probe-retained-push-source") { $0 == "game-cover" }
+        XCTAssertEqual(app.staticTexts["probe-native"].label, installed)
+
+        app.navigationBars["Game"].buttons.firstMatch.tap()
+        awaitLabel("probe-status") { $0 == self.returned }
+        awaitLabel("probe-native") { $0.hasSuffix("home [home,home-detail]") }
+    }
+
+    func testCallbackReplacementWithUnchangedProjection() {
+        awaitLabel("probe-status") { $0 == self.home }
+        awaitLabel("probe-callback-generations") { $0 == "callbacks=0 report=0 trace=0" }
+        let initial = awaitLabel("probe-native") { $0.hasSuffix("home [home,home-detail]") }
+
+        app.buttons["probe-replace-callbacks"].tap()
+        awaitLabel("probe-callback-generations") { $0 == "callbacks=1 report=0 trace=0" }
+        XCTAssertEqual(app.staticTexts["probe-native"].label, initial)
+        XCTAssertEqual(app.staticTexts["probe-status"].label, home)
+
+        app.tabBars.buttons["catalog"].tap()
+        awaitLabel("probe-status") { $0.hasPrefix("catalog[catalog] history=2 ") }
+        awaitLabel("probe-callback-generations") { $0 == "callbacks=1 report=1 trace=1" }
     }
 
     func testNativeHomeGameZoomReference() {
@@ -243,11 +283,9 @@ final class NavigationTests: XCTestCase {
         awaitLabel("probe-status") {
             $0 == "home[home,home-detail] history=2 [InAppCommand@home[home,home-detail];InAppCommand@home[home,home-detail]]"
         }
-        if #available(iOS 27.0, *) {
-            awaitLabel("probe-animation-style") { $0 == "sheetMotion=fade" }
-        } else {
-            awaitLabel("probe-animation-style") { $0 == "sheetMotion=slide" }
-        }
+        let style = awaitLabel("probe-crossfade-capability") { $0 == "crossFade" || $0 == "automatic" }
+        let expectedMotion = style == "crossFade" ? "sheetMotion=fade" : "sheetMotion=slide"
+        awaitLabel("probe-animation-style") { $0 == expectedMotion }
         capture("AppNav fade sheet")
         app.buttons["probe-dismiss-fade-sheet"].tap()
         awaitLabel("probe-native") { $0.hasSuffix("home [home,home-detail]") }

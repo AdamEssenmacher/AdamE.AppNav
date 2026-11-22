@@ -74,12 +74,18 @@ final class FrameView: UIView {
 
 struct FrameObserver: UIViewRepresentable {
     let surface: NativeSurface
+    let report: (NavigationReading) -> Void
+    let trace: (String) -> Void
+
     func makeUIView(context: Context) -> FrameView {
         let view = FrameView()
         view.isUserInteractionEnabled = false
         return view
     }
-    func updateUIView(_ view: FrameView, context: Context) { view.surface = surface }
+    func updateUIView(_ view: FrameView, context: Context) {
+        view.surface = surface
+        surface.updateCallbacks(report: report, trace: trace)
+    }
     static func dismantleUIView(_ view: FrameView, coordinator: Void) { view.stop() }
 }
 
@@ -123,13 +129,16 @@ final class NativeSurface: ObservableObject {
         let shorter: NavigationReading
         let shorterEntries: [NavigationEntry]
         let restored: [NavigationEntry]
+        let removed: NavigationEntry
+    }
+
+    func updateCallbacks(report: @escaping (NavigationReading) -> Void, trace: @escaping (String) -> Void) {
+        self.report = report
+        self.trace = trace
     }
 
     func stage(_ next: NavigationProjection, animatesSinglePushes: Bool,
-               transactionAnimation: ((NavigationTransitionContext) -> Animation?)?, report: @escaping (NavigationReading) -> Void,
-               trace: @escaping (String) -> Void) {
-        self.report = report
-        self.trace = trace
+               transactionAnimation: ((NavigationTransitionContext) -> Animation?)?) {
         if next.revision == target?.revision {
             prunePushOrigins(next)
             target = next
@@ -145,9 +154,8 @@ final class NativeSurface: ObservableObject {
         } else if singlePush && animatesSinglePushes {
             animation = .default
         }
-        let animatedPush = singlePush && animation != nil ? step : nil
-        stagePushOrigins(next, push: animatedPush)
-        self.animatedPush = animatedPush
+        stagePushOrigins(next, push: singlePush ? step : nil)
+        animatedPush = singlePush && animation != nil ? step : nil
         takenBack = nil
         pushWitnessed = false
         applying = next.revision > 0
@@ -229,7 +237,7 @@ final class NativeSurface: ObservableObject {
         }
     }
 
-    func animatedPushContext(for entry: NavigationEntry, key: StackKey) -> NavigationTransitionContext? {
+    func matchedPushContext(for entry: NavigationEntry, key: StackKey) -> NavigationTransitionContext? {
         guard let origin = pushOrigins[entry], origin.key == key else { return nil }
         return origin.context
     }
@@ -330,8 +338,7 @@ final class NativeSurface: ObservableObject {
             let restore = witnessed?.dropFirst().elementsEqual(next.map(\.id)) == true
             if self.applying, let taken = self.takenBack, taken.key == key, next == taken.restored {
                 // The Back gesture was cancelled: the push carries on applying.
-                self.takenBack = nil
-                self.paths[key] = next
+                self.restoreTakenBack()
                 return
             }
             if self.applying, self.takenBack == nil, shorter, let push = self.animatedPush, push.key == key,
@@ -343,7 +350,7 @@ final class NativeSurface: ObservableObject {
                 // the push and the shorter stack together once UIKit's stack settles without the page.
                 let shorterEntries = [push.new[0]] + next
                 self.takenBack = TakenBack(key: key, staged: staged, shorter: staged.replacing(key, with: next),
-                                           shorterEntries: shorterEntries, restored: current)
+                                           shorterEntries: shorterEntries, restored: current, removed: push.new[push.new.count - 1])
                 self.paths[key] = next
                 return
             }
@@ -510,8 +517,24 @@ final class NativeSurface: ObservableObject {
             takenBack = nil
             diagnostics.pushesTakenBack += 1
             commit(taken.staged)
+            // UIKit's stack has settled without the page, so its push origin has nothing left to animate.
+            pushOrigins[taken.removed] = nil
         }
         commit(reading)
+    }
+
+    /// Writes a taken-back push into the path again once its Back gesture is cancelled, whether SwiftUI wrote the
+    /// longer path itself or UIKit only reported the cancellation.
+    private func restoreTakenBack() {
+        guard let taken = takenBack else { return }
+        takenBack = nil
+        diagnostics.pushesRestored += 1
+        guard paths[taken.key] != taken.restored else { return }
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            paths[taken.key] = taken.restored
+        }
     }
 
     /// The stack a reading must show: the staged one, or the shorter one once a Back gesture took the push back.
@@ -519,7 +542,6 @@ final class NativeSurface: ObservableObject {
         guard let taken = takenBack, taken.key == key else { return entries }
         return taken.shorterEntries
     }
-
 
     /// The staged revision as AppNav projected it.
     private func stagedReading() -> NavigationReading? {
@@ -550,7 +572,15 @@ final class NativeSurface: ObservableObject {
         trackedInteraction = token
         let registered = transition.animate(alongsideTransition: nil) { [weak self] context in
             guard let self, trackedInteraction == token else { return }
-            if context.isCancelled { diagnostics.gesturesCancelled += 1 } else { diagnostics.gesturesCompleted += 1 }
+            if context.isCancelled {
+                diagnostics.gesturesCancelled += 1
+                // A cancelled Back from the taken-back page keeps it, and SwiftUI may not write the longer path back,
+                // so restore it here. A cancelled push to that page is UIKit giving the push back: keep it taken.
+                let from = context.viewController(forKey: .from).flatMap { identities.object(forKey: $0) as String? }
+                if let taken = takenBack, from == taken.removed.id { restoreTakenBack() }
+            } else {
+                diagnostics.gesturesCompleted += 1
+            }
             trackedInteraction = nil
             needsGestureVerification = true
         }

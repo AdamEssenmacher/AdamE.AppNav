@@ -53,10 +53,10 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
         }
         .sheet(item: selection(for: .sheet), content: modalContent)
         .fullScreenCover(item: selection(for: .fullScreenCover), content: modalContent)
-        .background(FrameObserver(surface: surface))
+        .background(FrameObserver(surface: surface, report: report, trace: trace))
         .onChange(of: projection, initial: true) { _, next in
             surface.stage(next, animatesSinglePushes: animatesSinglePushes,
-                          transactionAnimation: customization?.transactionAnimation, report: report, trace: trace)
+                          transactionAnimation: customization?.transactionAnimation)
         }
     }
 
@@ -146,7 +146,7 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
         _ style: NavigationDestinationTransition, to content: some View,
         context: NavigationDestinationContext, key: StackKey
     ) -> some View {
-        let push = surface.animatedPushContext(for: context.entry, key: key)
+        let push = surface.matchedPushContext(for: context.entry, key: key)
         switch style {
         case .automatic:
             content
@@ -212,4 +212,6 @@ public struct NavigationDiagnostics {
     public internal(set) var gestureReading: NavigationReading?
     /// Animated pushes UIKit gave back before they settled, each reported as the push and then a native Back.
     public internal(set) var pushesTakenBack = 0
+    /// Pushes taken back by a Back gesture that was then cancelled, so the push carried on applying.
+    public internal(set) var pushesRestored = 0
 }
