@@ -122,6 +122,8 @@ final class NativeSurface: ObservableObject {
     private var takenBack: TakenBack?
     // Whether the page that push adds has been seen mounted in the window.
     private var pushWitnessed = false
+    // Whether the last settled frame still showed the taken-back page on top.
+    private var takenBackKept = false
 
     private struct TakenBack {
         let key: StackKey
@@ -157,6 +159,7 @@ final class NativeSurface: ObservableObject {
         stagePushOrigins(next, push: singlePush ? step : nil)
         animatedPush = singlePush && animation != nil ? step : nil
         takenBack = nil
+        takenBackKept = false
         pushWitnessed = false
         applying = next.revision > 0
         nextDiagnostic = CACurrentMediaTime() + 1
@@ -351,6 +354,7 @@ final class NativeSurface: ObservableObject {
                 let shorterEntries = [push.new[0]] + next
                 self.takenBack = TakenBack(key: key, staged: staged, shorter: staged.replacing(key, with: next),
                                            shorterEntries: shorterEntries, restored: current, removed: push.new[push.new.count - 1])
+                self.takenBackKept = false
                 self.paths[key] = next
                 return
             }
@@ -424,8 +428,16 @@ final class NativeSurface: ObservableObject {
 
         let top = modalTop ?? branchTop
         if applying, stagedTops.last != top.entry.id { stagedTops.append(top.entry.id) }
-        guard transitioned(branchTop), modalTop.map(transitioned) ?? true, trackedInteraction == nil,
-              let branchEntries = read(branchTop, desired: desired(branch.entries, key: .branch(branch.id)), in: window,
+        guard transitioned(branchTop), modalTop.map(transitioned) ?? true, trackedInteraction == nil else { return }
+        if let taken = takenBack, top.key == taken.key, top.entry == taken.removed {
+            // UIKit's stack settled with the taken-back page still on top across two frames, so the Back that took it
+            // was cancelled. A UIKit cancellation alone can't tell this apart from UIKit giving the push back, so only
+            // the settled stack decides.
+            if takenBackKept { restoreTakenBack() } else { takenBackKept = true }
+            return
+        }
+        takenBackKept = false
+        guard let branchEntries = read(branchTop, desired: desired(branch.entries, key: .branch(branch.id)), in: window,
                                        covered: modalTop != nil) else { return }
 
         if isWaitingForTab(branchTop.key), branchEntries.count < branch.entries.count {
@@ -512,8 +524,9 @@ final class NativeSurface: ObservableObject {
         guard reading != lastReading else { return }
         if let taken = takenBack {
             guard reading == taken.shorter else { return }
-            // The page was on screen, so AppNav records the push and then a native Back. Both are reported
-            // together, so no router operation is admitted between them.
+            // The page was on screen, so AppNav records the push and then a native Back. Both are reported from
+            // this one call. The presenter submits the Back before the push's operation releases the router, and the
+            // router admits it ahead of any operation queued behind the push.
             takenBack = nil
             diagnostics.pushesTakenBack += 1
             commit(taken.staged)
@@ -524,10 +537,11 @@ final class NativeSurface: ObservableObject {
     }
 
     /// Writes a taken-back push into the path again once its Back gesture is cancelled, whether SwiftUI wrote the
-    /// longer path itself or UIKit only reported the cancellation.
+    /// longer path itself or UIKit's stack settled with the page still on top.
     private func restoreTakenBack() {
         guard let taken = takenBack else { return }
         takenBack = nil
+        takenBackKept = false
         diagnostics.pushesRestored += 1
         guard paths[taken.key] != taken.restored else { return }
         var transaction = Transaction(animation: nil)
@@ -554,6 +568,7 @@ final class NativeSurface: ObservableObject {
         candidate = nil
         animatedPush = nil
         takenBack = nil
+        takenBackKept = false
         pushWitnessed = false
         lastReading = reading
         if applying, let target {
@@ -572,15 +587,7 @@ final class NativeSurface: ObservableObject {
         trackedInteraction = token
         let registered = transition.animate(alongsideTransition: nil) { [weak self] context in
             guard let self, trackedInteraction == token else { return }
-            if context.isCancelled {
-                diagnostics.gesturesCancelled += 1
-                // A cancelled Back from the taken-back page keeps it, and SwiftUI may not write the longer path back,
-                // so restore it here. A cancelled push to that page is UIKit giving the push back: keep it taken.
-                let from = context.viewController(forKey: .from).flatMap { identities.object(forKey: $0) as String? }
-                if let taken = takenBack, from == taken.removed.id { restoreTakenBack() }
-            } else {
-                diagnostics.gesturesCompleted += 1
-            }
+            if context.isCancelled { diagnostics.gesturesCancelled += 1 } else { diagnostics.gesturesCompleted += 1 }
             trackedInteraction = nil
             needsGestureVerification = true
         }
