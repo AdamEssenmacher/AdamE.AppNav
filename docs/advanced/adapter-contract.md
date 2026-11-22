@@ -32,22 +32,12 @@ using only public core APIs and is created with the router through
 ## Adapter owns
 
 - UI artifacts and mapping from `RouteEntry` to them;
-- the layout of any `SplitNode` it presents: it reports each window's layout
-  with `IRouterNavigator.ReportSplitLayout`, from the UI thread, when it
-  attaches to the window, while applying (or after) the plan that adds the
-  window, and whenever the width changes. Back plans for the layout reported
-  when it runs; a result and its history entry use the layout reported when the
-  operation was planned, which for a navigation or reconciliation is before
-  `ApplyAsync`. Application code does not call it. A layout is forgotten once a
-  commit no longer has its window, and a layout reported before its window
-  exists is forgotten by any commit that does not add it; a report made inside
-  the `ApplyAsync` that adds the window survives that commit. The navigation
-  that creates a window therefore records its route collapsed unless a report
-  made before it is still kept. A report racing the commit that removes a
-  window can carry over to a window re-added with the same ID; the report on
-  attach replaces it. It can also call `IBackNavigator.CreateBackPlan` with a
-  `BackNavigationContext` whose `SplitLayout` is set to learn whether to offer
-  a system Back. An adapter that cannot present splits refuses them with
+- how it lays out any `SplitNode` it presents: side by side when there is
+  room, or as one stack with the column `CompactColumn` names on top. Core
+  never learns which, and no plan depends on it. When the host closes the
+  secondary column itself, such as a native Back from its root in a
+  single-column window, the adapter reconciles to a state whose split has no
+  secondary column. An adapter that cannot present splits refuses them with
   `NotSupportedException` before it builds anything;
 - attaching each native artifact to its entry's lease, and detaching it once
   the artifact no longer uses the lease, including during rollback and

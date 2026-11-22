@@ -203,16 +203,19 @@ public sealed record BranchHostNode : NavigationNode
 /// presentation keeps the list on top: give it a secondary tree and <see cref="SplitColumn.Primary"/>.
 /// </para>
 /// <para>
-/// Back follows the layout the presenter reports to the router with
-/// <see cref="Navigation.IRouterNavigator.ReportSplitLayout"/>, which a
-/// <see cref="Back.BackNavigationRequest.SplitLayout"/> can override. Collapsed (the default), Back goes back
-/// inside the secondary tree while it is shown on top, then returns to the primary column, and otherwise goes back
-/// inside the primary tree. Side by side, Back goes back inside the secondary tree, then inside the primary tree, and
-/// never only changes <see cref="CompactColumn"/>. In both layouts, Back inside the primary tree clears
-/// <see cref="Secondary"/> and shows the primary column, because the secondary tree belonged to the primary context
-/// that was left; that includes a default secondary tree shown beside a primary column that is on top. The route a
-/// navigation result reports follows the same layout: side by side, it is the secondary tree's top whenever there is
-/// one, since that column has the focus.
+/// A split differs from a <see cref="BranchHostNode"/> in two ways. A branch host shows one selected branch at a
+/// time, and that choice is logical state; a split's columns are both part of what is presented, and whether they
+/// appear together depends only on the room the presenter has. A branch host's branches are independent peers; a
+/// split's columns are ordered, and the secondary tree belongs to what the primary tree shows.
+/// </para>
+/// <para>
+/// Back does not depend on how the split is presented. While <see cref="CompactColumn"/> is
+/// <see cref="SplitColumn.Secondary"/>, Back goes back inside the secondary tree, and from its root closes the
+/// secondary column: <see cref="Secondary"/> becomes null, so its entries leave the state. Otherwise Back goes back
+/// inside the primary tree. Back inside the primary tree also closes the secondary column, because the secondary tree
+/// belonged to the primary context that was left; that includes a default secondary tree shown beside a primary
+/// column that is on top. The route a navigation result reports is the top of the column
+/// <see cref="CompactColumn"/> names.
 /// </para>
 /// <para>
 /// A split cannot be nested, at any depth, inside a modal or another split; router validation rejects such a state.

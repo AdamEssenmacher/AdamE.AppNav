@@ -96,7 +96,6 @@ public sealed class PublicApiContractTests
                 "AdamE.AppNav.Presentation.NavigationTopologyMatch",
                 "AdamE.AppNav.Presentation.NavigationTopologyModal",
                 "AdamE.AppNav.Presentation.NavigationTopologySupport",
-                "AdamE.AppNav.Presentation.SplitLayout",
                 "AdamE.AppNav.Requests.DeferredNavigationReplayResult",
                 "AdamE.AppNav.Requests.DeferredNavigationRequestPersistenceOptions",
                 "AdamE.AppNav.Requests.DeferredNavigationRequestReplayer",

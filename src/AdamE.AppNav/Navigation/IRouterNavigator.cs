@@ -48,44 +48,6 @@ public interface IRouterNavigator : IDisposable, IAsyncDisposable
         NavigationReconciliation reconciliation,
         CancellationToken cancellationToken = default);
 
-    /// <summary>Records how the presenter now shows the split columns of window <paramref name="windowId"/>.</summary>
-    /// <remarks>
-    /// <para>
-    /// This is for presenters and adapters, not application code. A presenter that shows <see cref="SplitNode"/>
-    /// columns reports a window's layout when it attaches to the window, while applying (or after) the plan that adds
-    /// the window, and whenever the layout changes, such as when the window is resized or a foldable opens. A window
-    /// never reported is <see cref="SplitLayout.Collapsed"/>.
-    /// </para>
-    /// <para>
-    /// The layout is presentation, not logical state: it never changes <see cref="CurrentState"/> or
-    /// <see cref="History"/> and is not queued behind navigation. A Back planned after this call returns, including one
-    /// already queued, uses it unless its <see cref="BackNavigationRequest.SplitLayout"/> overrides it. A result and
-    /// its history entry report the route shown in the layout reported when the operation was planned, which for a
-    /// navigation or reconciliation is before the presenter applies it, or, for a Back, the layout in its
-    /// <see cref="BackNavigationRequest.SplitLayout"/> override if set.
-    /// </para>
-    /// <para>
-    /// A layout may be reported for a window the state does not have yet; it is kept until the next commit, and
-    /// forgotten by any commit that does not add the window. A report made inside the
-    /// <see cref="INavigationPresenter.ApplyAsync"/> that adds the window survives that plan's commit, so report while
-    /// applying the plan that adds a window, or after it. The navigation that creates a window is planned before such a
-    /// report, so it records its route collapsed unless an earlier report is still kept. A layout is also forgotten
-    /// once a commit removes its window, so a later window with the same ID starts collapsed until it is reported
-    /// again. A report that races the commit removing its window can survive that commit and carry over to a window the
-    /// next commit adds with the same ID; a presenter that reports when it attaches to a window replaces it.
-    /// </para>
-    /// <para>
-    /// It is safe to call from any thread. A report admitted before shutdown starts applies, and writes its
-    /// <see cref="Diagnostics.NavigationDiagnosticEventKind.SplitLayoutReported"/> diagnostic when the layout changed,
-    /// before disposal completes; a report after shutdown starts is ignored. Diagnostics are written outside the
-    /// router's locks, so reports from different threads may produce their diagnostics in either order; report from
-    /// one thread, normally the UI thread.
-    /// </para>
-    /// </remarks>
-    /// <param name="windowId">The <see cref="WindowNode"/> ID of the window whose layout changed.</param>
-    /// <param name="layout">The layout the presenter now shows.</param>
-    void ReportSplitLayout(string windowId, SplitLayout layout);
-
     /// <summary>Reapplies accepted state after native host recreation, without replanning or changing history.</summary>
     /// <remarks>Serialized with navigation and shutdown. The presenter must still verify native completion.</remarks>
     ValueTask RefreshPresentationAsync(CancellationToken cancellationToken = default);

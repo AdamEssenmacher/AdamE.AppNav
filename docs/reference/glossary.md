@@ -369,7 +369,10 @@ A `SplitNode` with a primary column beside an optional secondary column, each
 holding its own navigation tree, such as a mailbox list beside the selected
 message. `CompactColumn` says which column a collapsed, single-column
 presentation shows on top. Window width changes only the presentation, never
-the logical state. See [Topology and
+the logical state or what Back does. Unlike a branch host, whose branches are
+independent and shown one at a time, a split's columns are shown together
+when there is room, and the secondary column belongs to what the primary
+column shows. See [Topology and
 planning](../concepts/02-topology-and-planning.md#split-layouts).
 
 ### Stack

@@ -1,7 +1,5 @@
-using System.Collections.ObjectModel;
 using AdamE.AppNav.Diagnostics;
 using AdamE.AppNav.Plans;
-using AdamE.AppNav.Presentation;
 using AdamE.AppNav.State;
 
 namespace AdamE.AppNav.Back;
@@ -18,14 +16,10 @@ namespace AdamE.AppNav.Back;
 /// <remarks>
 /// The default navigator first gives modal content and selected child hosts a chance to go back,
 /// then falls back to modal dismissal, stack popping, and configured default-branch selection.
-/// A <see cref="SplitNode"/> goes back as its presenter shows it, which
-/// <see cref="BackNavigationContext.SplitLayout"/> says, and an evaluation in a window holding a split records that
-/// layout as <see cref="NavigationDiagnosticDataKeys.SplitLayout"/>. Collapsed (the default), Back goes back
-/// inside the secondary column while <see cref="SplitNode.CompactColumn"/> is <see cref="SplitColumn.Secondary"/>,
-/// then returns to the primary column, and otherwise goes back inside the primary column. Side by side, Back goes
-/// back inside the secondary column, then inside the primary column, and never only changes
-/// <see cref="SplitNode.CompactColumn"/>. In both layouts, Back inside the primary column, including a branch host's
-/// default-branch fallback there, clears the secondary column and shows the primary column.
+/// A <see cref="SplitNode"/> goes back inside its secondary column while <see cref="SplitNode.CompactColumn"/> is
+/// <see cref="SplitColumn.Secondary"/>, and from that column's root closes it, which removes its content. Otherwise
+/// it goes back inside the primary column, which also closes the secondary column. The plan is the same however
+/// wide the window is.
 /// </remarks>
 public sealed class DefaultBackNavigator(
     BackNavigationOptions? options = null,
@@ -46,10 +40,6 @@ public sealed class DefaultBackNavigator(
     /// <returns>
     /// A back-navigation plan, or <see langword="null"/> when the current state cannot handle back navigation.
     /// </returns>
-    /// <remarks>
-    /// This overload plans every <see cref="SplitNode"/> as <see cref="SplitLayout.Collapsed"/>. To plan for another
-    /// layout, pass a <see cref="BackNavigationContext"/> with its <see cref="BackNavigationContext.SplitLayout"/> set.
-    /// </remarks>
     public NavigationPlan? CreateBackPlan(NavigationState state, string? windowId = null)
     {
         return CreateBackPlan(new BackNavigationContext(state, windowId, Guid.NewGuid().ToString("N")));
@@ -64,7 +54,7 @@ public sealed class DefaultBackNavigator(
         if (window is null)
         {
             _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, context.OperationId,
-                "No active window was available for back navigation.", LayoutData(context));
+                "No active window was available for back navigation.");
 
             return null;
         }
@@ -72,13 +62,12 @@ public sealed class DefaultBackNavigator(
         if (window.Modals.Count > 0)
         {
             ModalNode topModal = window.Modals[^1];
-            if (topModal.Content is not null &&
-                TryBack(topModal.Content, context.SplitLayout == SplitLayout.SideBySide) is { } modalBackResult)
+            if (topModal.Content is not null && TryBack(topModal.Content) is { } modalBackResult)
             {
                 ModalNode[] updatedModals = window.Modals.ToArray();
                 updatedModals[^1] = topModal with { Content = modalBackResult.Node };
                 _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, context.OperationId,
-                modalBackResult.Reason, LayoutData(context));
+                    modalBackResult.Reason);
 
                 return new NavigationPlan(
                     ReplaceWindow(context, window with { Modals = updatedModals }),
@@ -88,7 +77,7 @@ public sealed class DefaultBackNavigator(
 
             WindowNode updatedWindow = window with { Modals = RemoveLast(window.Modals) };
             _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, context.OperationId,
-                "Back navigation will dismiss the top modal.", LayoutData(context));
+                "Back navigation will dismiss the top modal.");
 
             return new NavigationPlan(ReplaceWindow(context, updatedWindow), NavigationPlanKind.Back, "Dismiss modal");
         }
@@ -96,39 +85,38 @@ public sealed class DefaultBackNavigator(
         if (window.Root is null)
         {
             _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, context.OperationId,
-                "The active window has no root node.", LayoutData(context));
+                "The active window has no root node.");
 
             return null;
         }
 
-        NodeBackResult? backResult = TryBack(window.Root, context.SplitLayout == SplitLayout.SideBySide);
+        NodeBackResult? backResult = TryBack(window.Root);
         if (backResult is null)
         {
             _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, context.OperationId,
-                "No host accepted back navigation.", LayoutData(context));
+                "No host accepted back navigation.");
 
             return null;
         }
 
         NodeBackResult acceptedBackResult = backResult.Value;
-        _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, context.OperationId,
-            acceptedBackResult.Reason, LayoutData(context));
+        _diagnostics.Write(NavigationDiagnosticEventKind.BackEvaluated, context.OperationId, acceptedBackResult.Reason);
         return new NavigationPlan(
             ReplaceWindow(context, window with { Root = acceptedBackResult.Node }),
             NavigationPlanKind.Back,
             acceptedBackResult.Reason);
     }
 
-    private NodeBackResult? TryBack(NavigationNode node, bool splitsSideBySide)
+    private NodeBackResult? TryBack(NavigationNode node)
     {
         return node switch
         {
             StackNode stack => TryBackStack(stack),
-            BranchHostNode branchHost => TryBackBranchHost(branchHost, splitsSideBySide),
-            SplitNode split => TryBackSplit(split, splitsSideBySide),
+            BranchHostNode branchHost => TryBackBranchHost(branchHost),
+            SplitNode split => TryBackSplit(split),
             // Window-level modal dismissal is handled from WindowNode.Modals. A nested
             // modal node can only delegate back navigation into its content.
-            ModalNode { Content: not null } modal => TryBack(modal.Content, splitsSideBySide) is { } result
+            ModalNode { Content: not null } modal => TryBack(modal.Content) is { } result
                 ? result with { Node = modal with { Content = result.Node } }
                 : null,
             _ => null
@@ -144,11 +132,11 @@ public sealed class DefaultBackNavigator(
             "Back navigation will pop the selected stack.");
     }
 
-    private NodeBackResult? TryBackBranchHost(BranchHostNode branchHost, bool splitsSideBySide)
+    private NodeBackResult? TryBackBranchHost(BranchHostNode branchHost)
     {
         NavigationBranch? selectedBranch = branchHost.SelectedBranch;
         if (selectedBranch is not null)
-            if (TryBack(selectedBranch.Content, splitsSideBySide) is { } childBack)
+            if (TryBack(selectedBranch.Content) is { } childBack)
                 return childBack with
                 {
                     Node = branchHost.ReplaceBranch(selectedBranch with { Content = childBack.Node })
@@ -165,29 +153,19 @@ public sealed class DefaultBackNavigator(
         return null;
     }
 
-    // Collapsed (the default), a split goes back inside its secondary column while that column is the one shown, then
-    // returns to the primary column. Side by side, both columns are shown, so it goes back inside the secondary column
-    // and then the primary one, and never plans a Back that would only change CompactColumn. Either way, Back in the
-    // primary column leaves the context the secondary column belonged to, so the secondary column is cleared.
-    private NodeBackResult? TryBackSplit(SplitNode split, bool sideBySide)
+    // The secondary column belongs to what the primary column shows. Back from the secondary column's root closes
+    // that column, so its entries leave the state and their leases end. Back inside the primary column leaves the
+    // context the secondary column belonged to, so it closes the secondary column too. Neither depends on whether
+    // the presenter shows the columns side by side.
+    private NodeBackResult? TryBackSplit(SplitNode split)
     {
-        bool secondaryFirst = sideBySide || split.CompactColumn == SplitColumn.Secondary;
-        if (secondaryFirst && split.Secondary is { } secondary)
-        {
-            if (TryBack(secondary, sideBySide) is { } secondaryBack)
-                return secondaryBack with { Node = split with { Secondary = secondaryBack.Node } };
+        if (split.CompactColumn == SplitColumn.Secondary && split.Secondary is { } secondary)
+            return TryBack(secondary) is { } secondaryBack
+                ? secondaryBack with { Node = split with { Secondary = secondaryBack.Node } }
+                : new NodeBackResult(split.ClearSecondary(), "Back navigation will close the secondary column.");
 
-            if (!sideBySide)
-                return new NodeBackResult(
-                    split with { CompactColumn = SplitColumn.Primary },
-                    "Back navigation will return to the primary column.");
-        }
-
-        return TryBack(split.Primary, sideBySide) is { } primaryBack
-            ? primaryBack with
-            {
-                Node = (split with { Primary = primaryBack.Node }).ClearSecondary()
-            }
+        return TryBack(split.Primary) is { } primaryBack
+            ? primaryBack with { Node = (split with { Primary = primaryBack.Node }).ClearSecondary() }
             : null;
     }
 
@@ -208,51 +186,6 @@ public sealed class DefaultBackNavigator(
         for (var i = 0; i < result.Length; i++) result[i] = source[i];
 
         return result;
-    }
-
-    // Shared and read-only, so recording the layout on BackEvaluated allocates nothing.
-    private static readonly IReadOnlyDictionary<string, object?> CollapsedData = LayoutValue(nameof(SplitLayout.Collapsed));
-
-    private static readonly IReadOnlyDictionary<string, object?> SideBySideData = LayoutValue(nameof(SplitLayout.SideBySide));
-
-    private static ReadOnlyDictionary<string, object?> LayoutValue(string layout) =>
-        new(new Dictionary<string, object?> { [NavigationDiagnosticDataKeys.SplitLayout] = layout });
-
-    // The layout is recorded only when the window holds a split, since it changes nothing otherwise.
-    private static IReadOnlyDictionary<string, object?>? LayoutData(BackNavigationContext context) =>
-        context.Window is not { } window || !ContainsSplit(window)
-            ? null
-            : context.SplitLayout == SplitLayout.SideBySide ? SideBySideData : CollapsedData;
-
-    // Indexed loops: interface enumerators would allocate on every Back.
-    private static bool ContainsSplit(WindowNode window)
-    {
-        if (window.Root is not null && ContainsSplit(window.Root))
-            return true;
-
-        for (var i = 0; i < window.Modals.Count; i++)
-            if (ContainsSplit(window.Modals[i]))
-                return true;
-
-        return false;
-    }
-
-    private static bool ContainsSplit(NavigationNode? node)
-    {
-        switch (node)
-        {
-            case SplitNode:
-                return true;
-            case BranchHostNode branchHost:
-                for (var i = 0; i < branchHost.Branches.Count; i++)
-                    if (ContainsSplit(branchHost.Branches[i].Content))
-                        return true;
-                return false;
-            case ModalNode modal:
-                return ContainsSplit(modal.Content);
-            default:
-                return false;
-        }
     }
 
     private readonly record struct NodeBackResult(NavigationNode Node, string Reason);

@@ -28,21 +28,4 @@ public sealed class BackNavigationRequest
     /// the request. Use this for a native dismissal attempt that can queue behind another operation.
     /// </summary>
     public string? ExpectedModalEntryId { get; init; }
-
-    /// <summary>
-    /// Gets the split layout to plan this Back for, or <see langword="null"/> (the default) to use the layout the
-    /// presenter last reported for the target window with <see cref="Navigation.IRouterNavigator.ReportSplitLayout"/>.
-    /// </summary>
-    /// <remarks>
-    /// Set it only to override what the presenter reported, such as a host Back raised for a layout the presenter is
-    /// changing to. Side by side, Back goes back inside the secondary column, then inside the primary column, and
-    /// never plans a Back that only changes <see cref="State.SplitNode.CompactColumn"/>.
-    /// </remarks>
-    public Presentation.SplitLayout? SplitLayout
-    {
-        get;
-        init => field = value is not { } layout || Enum.IsDefined(layout)
-            ? value
-            : throw new ArgumentOutOfRangeException(nameof(SplitLayout), value, "Unknown split layout.");
-    }
 }

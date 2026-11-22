@@ -1,5 +1,4 @@
 using AdamE.AppNav.Back;
-using AdamE.AppNav.Diagnostics;
 using AdamE.AppNav.Internal;
 using AdamE.AppNav.Leases;
 using AdamE.AppNav.Navigation;
@@ -163,129 +162,6 @@ public sealed class SplitNodeTests
     }
 
     [Fact]
-    public void TopRouteFollowsTheLayout()
-    {
-        SplitNode listOnTop = Split(SplitColumn.Primary, Message("m1", "attachment"));
-
-        Assert.Equal(new MailRoute("inbox"), PresentedRouteTraversal.FindTopRoute(listOnTop, SplitLayout.Collapsed));
-        Assert.Equal(
-            new MailRoute("attachment"),
-            PresentedRouteTraversal.FindTopRoute(listOnTop, SplitLayout.SideBySide));
-        Assert.Equal(
-            new MailRoute("inbox"),
-            PresentedRouteTraversal.FindTopRoute(Split(SplitColumn.Primary), SplitLayout.SideBySide));
-    }
-
-    [Fact]
-    public async Task BackDefaultsToTheLayoutReportedForItsWindow()
-    {
-        NavigationState state = Root(Split(SplitColumn.Secondary, Message("m1")));
-        await using IRouterNavigator router = Router(state);
-
-        router.ReportSplitLayout("main", SplitLayout.SideBySide);
-        BackNavigationResult sideBySide = await router.BackAsync();
-        Assert.Equal(BackNavigationStatus.Unhandled, sideBySide.Status);
-        Assert.Same(state, router.CurrentState);
-
-        router.ReportSplitLayout("main", SplitLayout.Collapsed);
-        BackNavigationResult collapsed = await router.BackAsync();
-        Assert.Equal(BackNavigationStatus.Completed, collapsed.Status);
-        Assert.Equal(SplitColumn.Primary, RootSplitOf(router.CurrentState, "main").CompactColumn);
-    }
-
-    [Fact]
-    public async Task EachWindowKeepsItsOwnLayout()
-    {
-        var state = new NavigationState(
-            [
-                new WindowNode("main", Split(SplitColumn.Secondary, Message("m1"))),
-                new WindowNode(
-                    "other",
-                    new SplitNode(
-                        "other-mail",
-                        new StackNode("other-mailboxes", [Entry("other-inbox")]),
-                        new StackNode("other-message", [Entry("o1")])))
-            ],
-            "main");
-        await using IRouterNavigator router = Router(state);
-        router.ReportSplitLayout("main", SplitLayout.SideBySide);
-
-        Assert.Equal(BackNavigationStatus.Unhandled, (await router.BackAsync("main")).Status);
-        Assert.Equal(BackNavigationStatus.Completed, (await router.BackAsync("other")).Status);
-        Assert.Equal(SplitColumn.Secondary, RootSplitOf(router.CurrentState, "main").CompactColumn);
-        Assert.Equal(SplitColumn.Primary, RootSplitOf(router.CurrentState, "other").CompactColumn);
-    }
-
-    [Fact]
-    public async Task ARequestCanOverrideTheReportedLayout()
-    {
-        NavigationState state = Root(Split(SplitColumn.Secondary, Message("m1")));
-        await using IRouterNavigator router = Router(state);
-        router.ReportSplitLayout("main", SplitLayout.SideBySide);
-
-        BackNavigationResult result = await router.BackAsync(
-            new BackNavigationRequest { SplitLayout = SplitLayout.Collapsed });
-
-        Assert.Equal(BackNavigationStatus.Completed, result.Status);
-        Assert.Equal(SplitColumn.Primary, RootSplitOf(router.CurrentState, "main").CompactColumn);
-        Assert.Throws<ArgumentOutOfRangeException>(() => new BackNavigationRequest { SplitLayout = (SplitLayout)9 });
-    }
-
-    [Fact]
-    public async Task ResultsAndHistoryReportTheRouteTheLayoutShows()
-    {
-        // The list is on top when collapsed, beside a default message shown when wide.
-        var planner = new TestNavigationPlanner((_, _) => ValueTask.FromResult(new NavigationPlan(
-            Root(Split(SplitColumn.Primary, Message("welcome"))))));
-        await using IRouterNavigator router = RouterNavigatorFactory.Create(
-            TestRoutes.CreateTable(),
-            planner,
-            new RecordingNavigationPresenter());
-
-        NavigationResult collapsed = await router.NavigateAsync(new TestRoutes.StoreRoute("a"));
-        Assert.Equal(new MailRoute("inbox"), collapsed.Route);
-
-        router.ReportSplitLayout("main", SplitLayout.SideBySide);
-        NavigationResult sideBySide = await router.NavigateAsync(new TestRoutes.StoreRoute("b"));
-        Assert.Equal(new MailRoute("welcome"), sideBySide.Route);
-        Assert.Equal(new MailRoute("welcome"), router.History.Current?.Route);
-    }
-
-    [Fact]
-    public async Task ReportingALayoutChangesNoStateOrHistoryAndIsADiagnostic()
-    {
-        var diagnostics = new NavigationDiagnostics(
-            options: new NavigationDiagnosticsOptions { DataMode = NavigationDiagnosticDataMode.Full });
-        var events = new List<NavigationDiagnosticEvent>();
-        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
-        NavigationState state = Root(Split(SplitColumn.Secondary, Message("m1")));
-        await using IRouterNavigator router = RouterNavigatorFactory.Create(
-            TestRoutes.CreateTable(),
-            TestNavigationPlanner.EchoStack(),
-            new RecordingNavigationPresenter(),
-            new RouterNavigatorFactoryOptions { InitialState = state, Diagnostics = diagnostics });
-        var history = router.History;
-
-        router.ReportSplitLayout("main", SplitLayout.SideBySide);
-        router.ReportSplitLayout("main", SplitLayout.SideBySide);
-        router.ReportSplitLayout("main", SplitLayout.Collapsed);
-
-        Assert.Same(state, router.CurrentState);
-        Assert.Same(history, router.History);
-        Assert.Equal(
-            ["SideBySide", "Collapsed"],
-            events.Where(static e => e.Kind == NavigationDiagnosticEventKind.SplitLayoutReported)
-                .Select(static e => e.Data[NavigationDiagnosticDataKeys.SplitLayout]));
-        Assert.Throws<ArgumentException>(() => router.ReportSplitLayout(" ", SplitLayout.SideBySide));
-        Assert.Throws<ArgumentOutOfRangeException>(() => router.ReportSplitLayout("main", (SplitLayout)9));
-
-        await router.BackAsync();
-        NavigationDiagnosticEvent evaluated =
-            Assert.Single(events, static e => e.Kind == NavigationDiagnosticEventKind.BackEvaluated);
-        Assert.Equal("Collapsed", evaluated.Data[NavigationDiagnosticDataKeys.SplitLayout]);
-    }
-
-    [Fact]
     public void SelectResolvesTheCompactColumnLikeTheConstructor()
     {
         SplitNode empty = Split(SplitColumn.Primary);
@@ -324,272 +200,6 @@ public sealed class SplitNodeTests
     }
 
     [Fact]
-    public async Task ALayoutIsForgottenOnceACommitRemovesItsWindow()
-    {
-        var planner = new TestNavigationPlanner((context, _) =>
-        {
-            var route = (TestRoutes.StoreRoute)context.Route;
-            var main = new WindowNode("main", new StackNode("main-stack", [Entry("home")]));
-            var detail = new WindowNode("detail", Split(SplitColumn.Secondary, Message("m1")));
-            return ValueTask.FromResult(new NavigationPlan(route.StoreId == "both"
-                ? new NavigationState([main, detail], "main")
-                : new NavigationState([main], "main")));
-        });
-        await using IRouterNavigator router = RouterNavigatorFactory.Create(
-            TestRoutes.CreateTable(),
-            planner,
-            new RecordingNavigationPresenter());
-        await router.NavigateAsync(new TestRoutes.StoreRoute("both"));
-        router.ReportSplitLayout("detail", SplitLayout.SideBySide);
-        Assert.Equal(BackNavigationStatus.Unhandled, (await router.BackAsync("detail")).Status);
-
-        await router.NavigateAsync(new TestRoutes.StoreRoute("main"));
-        await router.NavigateAsync(new TestRoutes.StoreRoute("both"));
-
-        Assert.Equal(BackNavigationStatus.Completed, (await router.BackAsync("detail")).Status);
-        Assert.Equal(SplitColumn.Primary, RootSplitOf(router.CurrentState, "detail").CompactColumn);
-    }
-
-    [Fact]
-    public async Task ALayoutReportedBeforeItsWindowExistsAppliesWhenTheNextCommitAddsIt()
-    {
-        var planner = new TestNavigationPlanner((_, _) =>
-            ValueTask.FromResult(new NavigationPlan(Root(Split(SplitColumn.Secondary, Message("m1"))))));
-        await using IRouterNavigator router = RouterNavigatorFactory.Create(
-            TestRoutes.CreateTable(),
-            planner,
-            new RecordingNavigationPresenter());
-
-        router.ReportSplitLayout("main", SplitLayout.SideBySide);
-        await router.NavigateAsync(new TestRoutes.StoreRoute("a"));
-
-        Assert.Equal(BackNavigationStatus.Unhandled, (await router.BackAsync()).Status);
-    }
-
-    [Fact]
-    public async Task AReportAfterDisposalIsIgnored()
-    {
-        var diagnostics = new NavigationDiagnostics(
-            options: new NavigationDiagnosticsOptions { DataMode = NavigationDiagnosticDataMode.Full });
-        var events = new List<NavigationDiagnosticEvent>();
-        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
-        IRouterNavigator router = RouterNavigatorFactory.Create(
-            TestRoutes.CreateTable(),
-            TestNavigationPlanner.EchoStack(),
-            new RecordingNavigationPresenter(),
-            new RouterNavigatorFactoryOptions { Diagnostics = diagnostics });
-        await router.DisposeAsync();
-
-        router.ReportSplitLayout("main", SplitLayout.SideBySide);
-
-        Assert.DoesNotContain(events, static e => e.Kind == NavigationDiagnosticEventKind.SplitLayoutReported);
-    }
-
-    [Fact]
-    public async Task AQueuedBackUsesALayoutReportedWhileItWaited()
-    {
-        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var presenter = new RecordingNavigationPresenter
-        {
-            OnApplyAsync = async (_, _, _) =>
-            {
-                started.TrySetResult();
-                await release.Task;
-            }
-        };
-        var planner = new TestNavigationPlanner((_, _) =>
-            ValueTask.FromResult(new NavigationPlan(Root(Split(SplitColumn.Secondary, Message("m1"))))));
-        await using IRouterNavigator router = RouterNavigatorFactory.Create(TestRoutes.CreateTable(), planner, presenter);
-
-        Task<NavigationResult> navigation = router.NavigateAsync(new TestRoutes.StoreRoute("a")).AsTask();
-        await started.Task.WaitAsync(TimeSpan.FromSeconds(10));
-        Task<BackNavigationResult> back = router.BackAsync().AsTask();
-        router.ReportSplitLayout("main", SplitLayout.SideBySide);
-        release.SetResult();
-        await navigation.WaitAsync(TimeSpan.FromSeconds(10));
-
-        Assert.Equal(BackNavigationStatus.Unhandled, (await back.WaitAsync(TimeSpan.FromSeconds(10))).Status);
-        Assert.Equal(SplitColumn.Secondary, RootSplitOf(router.CurrentState, "main").CompactColumn);
-    }
-
-    [Fact]
-    public async Task AReconciliationReportsTheRouteTheLayoutShows()
-    {
-        NavigationState state = Root(Split(SplitColumn.Primary, Message("m1", "attachment")));
-        await using IRouterNavigator router = Router(state);
-        router.ReportSplitLayout("main", SplitLayout.SideBySide);
-        NavigationState popped = Root(Split(SplitColumn.Primary, Message("m1")));
-
-        NavigationResult result = await router.ReconcileAsync(
-            new NavigationReconciliation(state, popped, NavigationReconciliationSource.HostBack));
-
-        Assert.Equal(new MailRoute("m1"), result.Route);
-    }
-
-    [Fact]
-    public async Task BackRecordsTheLayoutOnlyInAWindowWithASplit()
-    {
-        var diagnostics = new NavigationDiagnostics(
-            options: new NavigationDiagnosticsOptions { DataMode = NavigationDiagnosticDataMode.Full });
-        var events = new List<NavigationDiagnosticEvent>();
-        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
-        await using IRouterNavigator router = RouterNavigatorFactory.Create(
-            TestRoutes.CreateTable(),
-            TestNavigationPlanner.EchoStack(),
-            new RecordingNavigationPresenter(),
-            new RouterNavigatorFactoryOptions
-            {
-                InitialState = Root(new StackNode("mailboxes", [Entry("accounts"), Entry("inbox")])),
-                Diagnostics = diagnostics
-            });
-
-        await router.BackAsync();
-
-        NavigationDiagnosticEvent evaluated =
-            Assert.Single(events, static e => e.Kind == NavigationDiagnosticEventKind.BackEvaluated);
-        Assert.False(evaluated.Data.ContainsKey(NavigationDiagnosticDataKeys.SplitLayout));
-    }
-
-    [Fact]
-    public async Task AFlipOnlyCollapsedBackReportsThePrimaryColumnsTop()
-    {
-        await using IRouterNavigator router = Router(Root(Split(SplitColumn.Secondary, Message("m1"))));
-
-        BackNavigationResult result = await router.BackAsync();
-
-        Assert.Equal(BackNavigationStatus.Completed, result.Status);
-        Assert.Equal(new MailRoute("inbox"), result.NavigationResult?.Route);
-        Assert.Equal(new MailRoute("inbox"), router.History.Current?.Route);
-    }
-
-    [Fact]
-    public async Task ABackThatLeavesItsWindowReportsTheRouteInTheOtherWindowsLayout()
-    {
-        var other = new WindowNode("other", Split(SplitColumn.Primary, Message("o1")));
-        var state = new NavigationState(
-            [new WindowNode("main", new StackNode("main-stack", [Entry("home")])), other],
-            "main");
-        // A custom navigator that closes the window and activates the other one.
-        var closing = new ClosingBackNavigator(new NavigationState([other], "other"));
-        await using IRouterNavigator router = RouterNavigatorFactory.Create(
-            TestRoutes.CreateTable(),
-            TestNavigationPlanner.EchoStack(),
-            new RecordingNavigationPresenter(),
-            new RouterNavigatorFactoryOptions { InitialState = state, BackNavigator = closing });
-        router.ReportSplitLayout("main", SplitLayout.Collapsed);
-        router.ReportSplitLayout("other", SplitLayout.SideBySide);
-
-        BackNavigationResult result = await router.BackAsync("main");
-
-        Assert.Equal(new MailRoute("o1"), result.NavigationResult?.Route);
-    }
-
-    [Fact]
-    public async Task AReportAdmittedBeforeShutdownWritesItsDiagnosticBeforeDisposalCompletes()
-    {
-        var diagnostics = new NavigationDiagnostics(
-            options: new NavigationDiagnosticsOptions { DataMode = NavigationDiagnosticDataMode.Full });
-        var inObserver = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var releaseObserver = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var reported = 0;
-        diagnostics.EventWritten += (_, diagnosticEvent) =>
-        {
-            if (diagnosticEvent.Kind != NavigationDiagnosticEventKind.SplitLayoutReported)
-                return;
-            inObserver.TrySetResult();
-            releaseObserver.Task.Wait(TimeSpan.FromSeconds(10));
-            Interlocked.Increment(ref reported);
-        };
-        IRouterNavigator router = RouterNavigatorFactory.Create(
-            TestRoutes.CreateTable(),
-            TestNavigationPlanner.EchoStack(),
-            new RecordingNavigationPresenter(),
-            new RouterNavigatorFactoryOptions { Diagnostics = diagnostics });
-
-        // The report is admitted, then held inside its diagnostic while disposal starts.
-        Task report = Task.Run(() => router.ReportSplitLayout("main", SplitLayout.SideBySide));
-        await inObserver.Task.WaitAsync(TimeSpan.FromSeconds(10));
-        Task disposal = router.DisposeAsync().AsTask();
-        await Task.Delay(50);
-        Assert.False(disposal.IsCompleted);
-
-        releaseObserver.SetResult();
-        await report.WaitAsync(TimeSpan.FromSeconds(10));
-        await disposal.WaitAsync(TimeSpan.FromSeconds(10));
-        Assert.Equal(1, Volatile.Read(ref reported));
-    }
-
-    [Fact]
-    public async Task ABackCommitThatRemovesAWindowForgetsItsLayout()
-    {
-        var closing = new ClosingBackNavigator(new NavigationState([MainWindow()], "main"));
-        await using IRouterNavigator router = RouterNavigatorFactory.Create(
-            TestRoutes.CreateTable(),
-            TwoWindowPlanner(),
-            new RecordingNavigationPresenter(),
-            new RouterNavigatorFactoryOptions { BackNavigator = closing });
-        await router.NavigateAsync(new TestRoutes.StoreRoute("both"));
-        router.ReportSplitLayout("detail", SplitLayout.SideBySide);
-        Assert.Equal(
-            new MailRoute("m1"),
-            (await router.NavigateAsync(new TestRoutes.StoreRoute("both"))).Route);
-
-        await router.BackAsync("detail");
-        NavigationResult readded = await router.NavigateAsync(new TestRoutes.StoreRoute("both"));
-
-        Assert.Equal(new MailRoute("inbox"), readded.Route);
-    }
-
-    [Fact]
-    public async Task AReconciliationThatRemovesAWindowForgetsItsLayout()
-    {
-        await using IRouterNavigator router = RouterNavigatorFactory.Create(
-            TestRoutes.CreateTable(),
-            TwoWindowPlanner(),
-            new RecordingNavigationPresenter());
-        await router.NavigateAsync(new TestRoutes.StoreRoute("both"));
-        router.ReportSplitLayout("detail", SplitLayout.SideBySide);
-
-        await router.ReconcileAsync(new NavigationReconciliation(
-            router.CurrentState,
-            new NavigationState([MainWindow()], "main"),
-            NavigationReconciliationSource.HostBack));
-        NavigationResult readded = await router.NavigateAsync(new TestRoutes.StoreRoute("both"));
-
-        Assert.Equal(new MailRoute("inbox"), readded.Route);
-    }
-
-    [Fact]
-    public async Task TheLayoutSurvivesTheDefaultSafeDiagnosticsMode()
-    {
-        // Default options: Safe data mode, which keeps only structural values.
-        var diagnostics = new NavigationDiagnostics();
-        var events = new List<NavigationDiagnosticEvent>();
-        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
-        await using IRouterNavigator router = RouterNavigatorFactory.Create(
-            TestRoutes.CreateTable(),
-            TestNavigationPlanner.EchoStack(),
-            new RecordingNavigationPresenter(),
-            new RouterNavigatorFactoryOptions
-            {
-                InitialState = Root(Split(SplitColumn.Secondary, Message("m1", "attachment"))),
-                Diagnostics = diagnostics
-            });
-
-        router.ReportSplitLayout("main", SplitLayout.SideBySide);
-        await router.BackAsync();
-
-        NavigationDiagnosticEvent reported =
-            Assert.Single(events, static e => e.Kind == NavigationDiagnosticEventKind.SplitLayoutReported);
-        NavigationDiagnosticEvent evaluated =
-            Assert.Single(events, static e => e.Kind == NavigationDiagnosticEventKind.BackEvaluated);
-        Assert.Equal("SideBySide", reported.Data[NavigationDiagnosticDataKeys.SplitLayout]);
-        Assert.Equal("SideBySide", evaluated.Data[NavigationDiagnosticDataKeys.SplitLayout]);
-        Assert.DoesNotContain(NavigationDiagnosticDataKeys.WindowId, reported.Data.Keys);
-    }
-
-    [Fact]
     public void BackPopsTheSecondaryColumnWhileItIsShown()
     {
         NavigationState state = Root(Split(SplitColumn.Secondary, Message("m1", "attachment")));
@@ -603,16 +213,69 @@ public sealed class SplitNodeTests
     }
 
     [Fact]
-    public void BackFromTheSecondaryRootReturnsToThePrimaryColumn()
+    public void BackFromTheSecondaryRootClosesTheSecondaryColumn()
     {
         NavigationState state = Root(Split(SplitColumn.Secondary, Message("m1")));
 
         NavigationPlan plan = Back(state);
 
         SplitNode split = RootSplit(plan);
+        Assert.Null(split.Secondary);
         Assert.Equal(SplitColumn.Primary, split.CompactColumn);
-        Assert.Equal(["m1"], EntryIds(split.Secondary));
-        Assert.Equal("Back navigation will return to the primary column.", plan.Reason);
+        Assert.Equal("Back navigation will close the secondary column.", plan.Reason);
+        // The closed column's entry leaves the state, so its lease ends.
+        Assert.Equal(
+            new HashSet<string>(["inbox"], StringComparer.Ordinal),
+            RouteEntryLeaseRegistry.EntryIds(plan.TargetState));
+    }
+
+    [Fact]
+    public void BackNeverOnlyChangesTheCompactColumn()
+    {
+        // Every Back a split plans removes an entry or a column, so it shows a change at any window width.
+        foreach (NavigationState state in new[]
+        {
+            Root(Split(SplitColumn.Secondary, Message("m1", "attachment"))),
+            Root(Split(SplitColumn.Secondary, Message("m1"))),
+            Root(new SplitNode(
+                "mail",
+                new StackNode("mailboxes", [Entry("accounts"), Entry("inbox")]),
+                Message("m1"),
+                SplitColumn.Primary))
+        })
+        {
+            NavigationPlan plan = Back(state);
+
+            Assert.True(
+                RouteEntryLeaseRegistry.EntryIds(plan.TargetState).Count <
+                RouteEntryLeaseRegistry.EntryIds(state).Count);
+        }
+    }
+
+    [Fact]
+    public async Task ARouterBackFromTheSecondaryRootReportsThePrimaryColumnsTop()
+    {
+        await using IRouterNavigator router = Router(Root(Split(SplitColumn.Secondary, Message("m1"))));
+
+        BackNavigationResult result = await router.BackAsync();
+
+        Assert.Equal(BackNavigationStatus.Completed, result.Status);
+        Assert.Null(Assert.IsType<SplitNode>(router.CurrentState.ActiveWindow?.Root).Secondary);
+        Assert.Equal(new MailRoute("inbox"), result.NavigationResult?.Route);
+        Assert.Equal(new MailRoute("inbox"), router.History.Current?.Route);
+    }
+
+    [Fact]
+    public async Task AReconciliationReportsTheTopOfTheCompactColumn()
+    {
+        NavigationState state = Root(Split(SplitColumn.Secondary, Message("m1", "attachment")));
+        await using IRouterNavigator router = Router(state);
+        NavigationState popped = Root(Split(SplitColumn.Secondary, Message("m1")));
+
+        NavigationResult result = await router.ReconcileAsync(
+            new NavigationReconciliation(state, popped, NavigationReconciliationSource.HostBack));
+
+        Assert.Equal(new MailRoute("m1"), result.Route);
     }
 
     [Fact]
@@ -673,12 +336,12 @@ public sealed class SplitNodeTests
         Assert.Equal(SplitColumn.Secondary, split.CompactColumn);
         Assert.Equal("Back navigation will return to the default branch.", plan.Reason);
 
-        // Without the fallback, the secondary root returns to the primary column.
+        // Without the fallback, Back from the secondary root closes the secondary column.
         NavigationPlan? noFallback = new DefaultBackNavigator(
                 new BackNavigationOptions { ReturnToDefaultBranchBeforeLeaving = false })
             .CreateBackPlan(state);
         Assert.NotNull(noFallback);
-        Assert.Equal(SplitColumn.Primary, RootSplit(noFallback).CompactColumn);
+        Assert.Null(RootSplit(noFallback).Secondary);
     }
 
     [Fact]
@@ -698,72 +361,6 @@ public sealed class SplitNodeTests
         BranchHostNode backTabs = Assert.IsType<BranchHostNode>(RootOf(plan));
         Assert.Equal("home", backTabs.SelectedBranchId);
         Assert.Equal(tabs.Branches, backTabs.Branches);
-    }
-
-    [Fact]
-    public void SideBySideBackPopsTheSecondaryColumnWhicheverColumnIsOnTop()
-    {
-        foreach (SplitColumn compactColumn in new[] { SplitColumn.Primary, SplitColumn.Secondary })
-        {
-            NavigationPlan plan = SideBySideBack(Root(Split(compactColumn, Message("m1", "attachment"))));
-
-            SplitNode split = RootSplit(plan);
-            Assert.Equal(["m1"], EntryIds(split.Secondary));
-            Assert.Equal(compactColumn, split.CompactColumn);
-        }
-    }
-
-    [Fact]
-    public void SideBySideBackAtTheSecondaryRootPopsThePrimaryColumnAndClearsTheSecondaryColumn()
-    {
-        NavigationState state = Root(new SplitNode(
-            "mail",
-            new StackNode("mailboxes", [Entry("accounts"), Entry("inbox")]),
-            Message("m1")));
-
-        SplitNode split = RootSplit(SideBySideBack(state));
-
-        Assert.Equal(["accounts"], EntryIds(split.Primary));
-        Assert.Null(split.Secondary);
-        Assert.Equal(SplitColumn.Primary, split.CompactColumn);
-    }
-
-    [Fact]
-    public void SideBySideBackNeverOnlyChangesTheCompactColumn()
-    {
-        var navigator = new DefaultBackNavigator();
-        foreach (NavigationState state in new[]
-        {
-            Root(Split(SplitColumn.Secondary, Message("m1"))),
-            Root(Split(SplitColumn.Primary, Message("m1"))),
-            Root(Split(SplitColumn.Primary))
-        })
-        {
-            var context = new BackNavigationContext(state, null, "operation") { SplitLayout = SplitLayout.SideBySide };
-            Assert.Null(navigator.CreateBackPlan(context));
-        }
-    }
-
-    [Fact]
-    public async Task TheRouterCarriesTheLayoutFromTheRequestToTheBackNavigator()
-    {
-        NavigationState state = Root(Split(SplitColumn.Secondary, Message("m1")));
-        await using IRouterNavigator router = RouterNavigatorFactory.Create(
-            TestRoutes.CreateTable(),
-            TestNavigationPlanner.EchoStack(),
-            new RecordingNavigationPresenter(),
-            new RouterNavigatorFactoryOptions { InitialState = state });
-
-        BackNavigationResult sideBySide = await router.BackAsync(
-            new BackNavigationRequest(source: BackNavigationSource.Host) { SplitLayout = SplitLayout.SideBySide });
-        Assert.Equal(BackNavigationStatus.Unhandled, sideBySide.Status);
-        Assert.Same(state, router.CurrentState);
-
-        BackNavigationResult collapsed = await router.BackAsync(new BackNavigationRequest());
-        Assert.Equal(BackNavigationStatus.Completed, collapsed.Status);
-        Assert.Equal(
-            SplitColumn.Primary,
-            Assert.IsType<SplitNode>(router.CurrentState.ActiveWindow?.Root).CompactColumn);
     }
 
     [Fact]
@@ -860,34 +457,11 @@ public sealed class SplitNodeTests
         return plan;
     }
 
-    private static WindowNode MainWindow() => new("main", new StackNode("main-stack", [Entry("home")]));
-
-    // "both" shows a main window and a detail window whose split keeps its list on top beside message m1, so the
-    // detail route is m1 side by side and inbox collapsed; any other store shows only the main window.
-    private static TestNavigationPlanner TwoWindowPlanner() => new((context, _) =>
-        ValueTask.FromResult(new NavigationPlan(((TestRoutes.StoreRoute)context.Route).StoreId == "both"
-            ? new NavigationState(
-                [MainWindow(), new WindowNode("detail", Split(SplitColumn.Primary, Message("m1")))],
-                "detail")
-            : new NavigationState([MainWindow()], "main"))));
-
     private static IRouterNavigator Router(NavigationState state) => RouterNavigatorFactory.Create(
         TestRoutes.CreateTable(),
         TestNavigationPlanner.EchoStack(),
         new RecordingNavigationPresenter(),
         new RouterNavigatorFactoryOptions { InitialState = state });
-
-    private static SplitNode RootSplitOf(NavigationState state, string windowId) =>
-        Assert.IsType<SplitNode>(state.FindWindow(windowId)?.Root);
-
-    private static NavigationPlan SideBySideBack(NavigationState state)
-    {
-        var context = new BackNavigationContext(state, null, "operation") { SplitLayout = SplitLayout.SideBySide };
-        NavigationPlan? plan = new DefaultBackNavigator().CreateBackPlan(context);
-        Assert.NotNull(plan);
-        NavigationStateValidator.ValidatePlan(plan, "Back");
-        return plan;
-    }
 
     private static NavigationNode? RootOf(NavigationPlan plan) => plan.TargetState.ActiveWindow?.Root;
 
@@ -910,10 +484,4 @@ public sealed class SplitNodeTests
     private static RouteEntry Entry(string id) => new(id, new MailRoute(id));
 
     private sealed record MailRoute(string Value) : AppRoute;
-
-    private sealed class ClosingBackNavigator(NavigationState target) : IBackNavigator
-    {
-        public NavigationPlan? CreateBackPlan(BackNavigationContext context) =>
-            new(target, NavigationPlanKind.Back, "Close the window.");
-    }
 }

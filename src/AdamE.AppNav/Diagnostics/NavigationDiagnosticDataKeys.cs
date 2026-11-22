@@ -136,11 +136,6 @@ public static class NavigationDiagnosticDataKeys
     public const string ContextualFallback = "contextualFallback";
 
     /// <summary>
-    /// The split layout a Back was planned for, or that a presenter reported for a window.
-    /// </summary>
-    public const string SplitLayout = "splitLayout";
-
-    /// <summary>
     /// Fully qualified type name of a request or plan policy.
     /// </summary>
     public const string PolicyType = "policyType";

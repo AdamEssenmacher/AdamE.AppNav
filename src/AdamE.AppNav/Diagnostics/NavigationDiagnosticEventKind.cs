@@ -349,10 +349,5 @@ public enum NavigationDiagnosticEventKind
     /// <summary>
     /// Presentation cleanup failed after the router settled the accepted state.
     /// </summary>
-    PresentationSettlementFailed,
-
-    /// <summary>
-    /// A presenter reported a new split layout for a window. Logical state and history are unchanged.
-    /// </summary>
-    SplitLayoutReported
+    PresentationSettlementFailed
 }

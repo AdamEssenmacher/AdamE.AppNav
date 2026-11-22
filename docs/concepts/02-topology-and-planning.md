@@ -135,50 +135,39 @@ committed state whichever column is shown, so their [route-entry
 leases](../advanced/entry-leases.md) stay open and entry IDs must be unique
 across both columns.
 
-Core does not know the presented layout, so the presenter reports it. A
-presenter that shows splits calls `IRouterNavigator.ReportSplitLayout(windowId,
-layout)` when it attaches to a window, while applying (or after) the plan that
-adds the window, and whenever its layout there changes, with
-`SplitLayout.Collapsed` or `SplitLayout.SideBySide`; application code does not
-call it. A window never reported is collapsed, and a layout is forgotten once a
-commit no longer has its window. A layout reported before its window exists is
-forgotten by any commit that does not add the window, but a report made inside
-the `ApplyAsync` that adds it survives that commit. The navigation that creates
-a window is planned before that report, so it records its route collapsed
-unless a report made before it is still kept. A report racing the commit that
-removes a window can carry over to a window re-added with the same ID, which
-the presenter's report on attaching replaces. Reporting is presentation only:
-it changes neither `CurrentState` nor history, is not queued behind navigation,
-and writes a `SplitLayoutReported` diagnostic when the layout changes. App code
-then calls `BackAsync()` as usual and gets the Back that matches what the user
-sees.
+Back does not depend on the layout either, so `BackAsync()` plans the same
+change in a narrow window and a wide one. While `CompactColumn` is
+`Secondary`, Back first goes back inside the secondary column. From that
+column's root, Back closes it: `Secondary` becomes null and `CompactColumn`
+becomes `Primary`, so the message's entries leave the state and their leases
+end. A narrow window pops back to the list, and a wide window shows the list
+beside an empty secondary column. Otherwise Back goes back inside the primary
+column.
 
-Collapsed, Back treats every split as one stack. While `CompactColumn` is
-`Secondary`, Back first goes back inside the secondary column; from its root,
-Back returns to the primary column by setting `CompactColumn` to `Primary`.
-Otherwise Back goes back inside the primary column. Side by side, Back goes
-back inside the secondary column, then inside the primary column, and never
-plans a Back that only changes `CompactColumn`. A
-`BackNavigationRequest.SplitLayout` overrides the reported layout for one
-request. The router resolves the layout into
-`BackNavigationContext.SplitLayout`, and the default Back navigator, when the
-window holds a split, records it as `splitLayout` on `BackEvaluated`. An
-adapter can also ask `IBackNavigator.CreateBackPlan` with a context of its own
-whether Back would do anything in its layout, for example to decide whether to
-enable a system Back callback. `DefaultBackNavigator.CreateBackPlan(state,
-windowId)` always plans collapsed.
+Back inside the primary column, whether a stack pop or a branch host's
+default-branch fallback, also closes the secondary column: the selected
+message belonged to the mailbox that was just left. A default message shown
+beside the list with `CompactColumn = Primary` is closed the same way. Every
+Back a split plans therefore removes an entry or a column, so none is
+invisible at any width.
 
-In both layouts, Back inside the primary column, whether a stack pop or a
-branch host's default-branch fallback, clears the secondary column and shows
-the primary column: the selected message belonged to the mailbox that was just
-left. A default message shown beside the list with `CompactColumn = Primary`
-is cleared the same way.
+The route a navigation result and its history entry report is the top of the
+column `CompactColumn` names: the message stack's top while a message is
+selected, and the list's top otherwise.
 
-The route a navigation result and its history entry report follows the layout
-reported when the operation was planned. Collapsed, it is the route on top of
-the collapsed stack. Side by side, it is the secondary column's top whenever
-the split has a secondary column, since that column has the focus, and the
-primary column's top otherwise.
+### Splits and branch hosts
+
+Both nodes own several navigation trees, but they mean different things:
+
+| | `BranchHostNode` | `SplitNode` |
+| --- | --- | --- |
+| Shown at once | One branch: the selected one. That choice is logical state. | Both columns when there is room. How many fit is presentation. |
+| Relationship | Independent peers. Back in one never changes another. | Ordered. The secondary column belongs to what the primary column shows, so Back in the primary column closes it. |
+| Children | A fixed set the app declares, each with a title for the host's tabs or menu. | A primary tree and an optional secondary tree that comes and goes with the selection. |
+
+They compose: a split can be a branch's content, and a column can hold a
+branch host. A sidebar that switches between sections is a branch host; the
+list and detail inside one section is a split.
 
 Apps build splits through `IAppNavigationPlanner`; the standard models do not
 produce them. The MAUI, UIKit, Android and OAHU presenters do not present

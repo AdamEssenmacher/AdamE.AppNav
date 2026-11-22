@@ -2928,8 +2928,6 @@ internal sealed class MauiNavigationPresenter :
         };
     }
 
-    // Uses the collapsed split layout, the traversal's default: the MAUI presenter refuses splits in preflight, so a
-    // state it shows never has one.
     private static AppRoute? FindTopRouteForPresentedNode(WindowNode window, string? ownerModalId)
     {
         if (!string.IsNullOrWhiteSpace(ownerModalId))

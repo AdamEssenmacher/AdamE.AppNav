@@ -1,4 +1,3 @@
-using AdamE.AppNav.Presentation;
 using AdamE.AppNav.State;
 
 namespace AdamE.AppNav.Back;
@@ -73,21 +72,4 @@ public sealed record BackNavigationContext
     /// Gets a value indicating whether the request should use the router's active window.
     /// </summary>
     public bool UsesActiveWindow { get; }
-
-    /// <summary>
-    /// Gets the split layout this Back is planned for. The default is <see cref="SplitLayout.Collapsed"/>.
-    /// </summary>
-    /// <remarks>
-    /// The router resolves it from <see cref="BackNavigationRequest.SplitLayout"/>, or else from the layout the
-    /// presenter reported for the window. An adapter can also set it on a context of its own and call
-    /// <see cref="IBackNavigator.CreateBackPlan(BackNavigationContext)"/> to learn whether Back would do anything in
-    /// that layout, for example to decide whether to enable a system Back callback.
-    /// </remarks>
-    public SplitLayout SplitLayout
-    {
-        get;
-        init => field = Enum.IsDefined(value)
-            ? value
-            : throw new ArgumentOutOfRangeException(nameof(SplitLayout), value, "Unknown split layout.");
-    }
 }
