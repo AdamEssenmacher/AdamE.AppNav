@@ -138,11 +138,11 @@ across both columns.
 Core does not know the presented layout, so the presenter reports it. A
 presenter that shows splits calls `IRouterNavigator.ReportSplitLayout(windowId,
 layout)` before its first apply to a window and whenever its layout there
-changes, with `SplitLayout.Collapsed`
-or `SplitLayout.SideBySide`; application code does not call it. A window
-never reported is collapsed, and a layout is forgotten once a commit no longer
-has its window. Reporting is
-presentation only: it changes neither `CurrentState` nor history, is not
+changes, with `SplitLayout.Collapsed` or `SplitLayout.SideBySide`; application
+code does not call it. A window never reported is collapsed, and a layout is
+forgotten once a commit no longer has its window. A report racing that commit
+can carry over to a window re-added with the same ID, which the presenter's
+report on attaching replaces. Reporting is presentation only: it changes neither `CurrentState` nor history, is not
 queued behind navigation, and writes a `SplitLayoutReported` diagnostic when
 the layout changes. App code then calls `BackAsync()` as usual and gets the
 Back that matches what the user sees.

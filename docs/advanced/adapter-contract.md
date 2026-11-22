@@ -37,9 +37,10 @@ using only public core APIs and is created with the router through
   first apply to that window and whenever the width changes. Back plans for
   the layout reported when it runs; a result and its history entry use the
   layout reported when the operation was planned, which for a navigation or
-  reconciliation is before `ApplyAsync`. Application code does not call it. A layout is forgotten once a commit
-  no longer has its window, so an adapter reports again when it attaches to a
-  recreated window, and it can call
+  reconciliation is before `ApplyAsync`. Application code does not call it.
+  A layout is forgotten once a commit no longer has its window, but a report
+  racing that commit can carry over to a window re-added with the same ID, so
+  an adapter reports again whenever it attaches to a window. It can also call
   `IBackNavigator.CreateBackPlan` with a `BackNavigationContext` whose
   `SplitLayout` is set to learn whether to offer a system Back. An adapter
   that cannot present splits refuses them with `NotSupportedException` before

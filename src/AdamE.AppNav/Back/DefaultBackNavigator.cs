@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using AdamE.AppNav.Diagnostics;
 using AdamE.AppNav.Plans;
 using AdamE.AppNav.Presentation;
@@ -209,12 +210,13 @@ public sealed class DefaultBackNavigator(
         return result;
     }
 
-    // Shared, so recording the layout on BackEvaluated allocates nothing.
-    private static readonly IReadOnlyDictionary<string, object?> CollapsedData =
-        new Dictionary<string, object?> { [NavigationDiagnosticDataKeys.SplitLayout] = nameof(SplitLayout.Collapsed) };
+    // Shared and read-only, so recording the layout on BackEvaluated allocates nothing.
+    private static readonly IReadOnlyDictionary<string, object?> CollapsedData = LayoutValue(nameof(SplitLayout.Collapsed));
 
-    private static readonly IReadOnlyDictionary<string, object?> SideBySideData =
-        new Dictionary<string, object?> { [NavigationDiagnosticDataKeys.SplitLayout] = nameof(SplitLayout.SideBySide) };
+    private static readonly IReadOnlyDictionary<string, object?> SideBySideData = LayoutValue(nameof(SplitLayout.SideBySide));
+
+    private static ReadOnlyDictionary<string, object?> LayoutValue(string layout) =>
+        new(new Dictionary<string, object?> { [NavigationDiagnosticDataKeys.SplitLayout] = layout });
 
     // The layout is recorded only when the window holds a split, since it changes nothing otherwise.
     private static IReadOnlyDictionary<string, object?>? LayoutData(BackNavigationContext context) =>

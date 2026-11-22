@@ -521,6 +521,46 @@ public sealed class SplitNodeTests
     }
 
     [Fact]
+    public async Task ABackCommitThatRemovesAWindowForgetsItsLayout()
+    {
+        var closing = new ClosingBackNavigator(new NavigationState([MainWindow()], "main"));
+        await using IRouterNavigator router = RouterNavigatorFactory.Create(
+            TestRoutes.CreateTable(),
+            TwoWindowPlanner(),
+            new RecordingNavigationPresenter(),
+            new RouterNavigatorFactoryOptions { BackNavigator = closing });
+        await router.NavigateAsync(new TestRoutes.StoreRoute("both"));
+        router.ReportSplitLayout("detail", SplitLayout.SideBySide);
+        Assert.Equal(
+            new MailRoute("m1"),
+            (await router.NavigateAsync(new TestRoutes.StoreRoute("both"))).Route);
+
+        await router.BackAsync("detail");
+        NavigationResult readded = await router.NavigateAsync(new TestRoutes.StoreRoute("both"));
+
+        Assert.Equal(new MailRoute("inbox"), readded.Route);
+    }
+
+    [Fact]
+    public async Task AReconciliationThatRemovesAWindowForgetsItsLayout()
+    {
+        await using IRouterNavigator router = RouterNavigatorFactory.Create(
+            TestRoutes.CreateTable(),
+            TwoWindowPlanner(),
+            new RecordingNavigationPresenter());
+        await router.NavigateAsync(new TestRoutes.StoreRoute("both"));
+        router.ReportSplitLayout("detail", SplitLayout.SideBySide);
+
+        await router.ReconcileAsync(new NavigationReconciliation(
+            router.CurrentState,
+            new NavigationState([MainWindow()], "main"),
+            NavigationReconciliationSource.HostBack));
+        NavigationResult readded = await router.NavigateAsync(new TestRoutes.StoreRoute("both"));
+
+        Assert.Equal(new MailRoute("inbox"), readded.Route);
+    }
+
+    [Fact]
     public void BackPopsTheSecondaryColumnWhileItIsShown()
     {
         NavigationState state = Root(Split(SplitColumn.Secondary, Message("m1", "attachment")));
@@ -790,6 +830,17 @@ public sealed class SplitNodeTests
         NavigationStateValidator.ValidatePlan(plan, "Back");
         return plan;
     }
+
+    private static WindowNode MainWindow() => new("main", new StackNode("main-stack", [Entry("home")]));
+
+    // "both" shows a main window and a detail window whose split keeps its list on top beside message m1, so the
+    // detail route is m1 side by side and inbox collapsed; any other store shows only the main window.
+    private static TestNavigationPlanner TwoWindowPlanner() => new((context, _) =>
+        ValueTask.FromResult(new NavigationPlan(((TestRoutes.StoreRoute)context.Route).StoreId == "both"
+            ? new NavigationState(
+                [MainWindow(), new WindowNode("detail", Split(SplitColumn.Primary, Message("m1")))],
+                "detail")
+            : new NavigationState([MainWindow()], "main"))));
 
     private static IRouterNavigator Router(NavigationState state) => RouterNavigatorFactory.Create(
         TestRoutes.CreateTable(),

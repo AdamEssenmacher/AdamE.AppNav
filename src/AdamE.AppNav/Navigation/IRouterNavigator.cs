@@ -67,7 +67,8 @@ public interface IRouterNavigator : IDisposable, IAsyncDisposable
     /// A layout may be reported for a window the state does not have yet, such as before the first navigation; it is
     /// kept until the next commit, and forgotten then unless the committed state has the window. A layout is also
     /// forgotten once a commit removes its window, so a later window with the same ID starts collapsed until it is
-    /// reported again.
+    /// reported again. A report that races the commit removing its window can survive that commit and carry over to a
+    /// window the next commit adds with the same ID; a presenter that reports when it attaches to a window replaces it.
     /// </para>
     /// <para>
     /// It is safe to call from any thread. A report admitted before shutdown starts applies, and writes its
