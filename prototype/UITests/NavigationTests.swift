@@ -5,6 +5,9 @@ final class NavigationTests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
+        if name.contains("testFullScreenModal") {
+            app.launchArguments.append("--probe-full-screen")
+        }
         if name.contains("testReplaceHostDuringGamePush") {
             app.launchArguments.append("--probe-replace-host")
         }
@@ -255,6 +258,49 @@ final class NavigationTests: XCTestCase {
         awaitLabel("probe-status") { $0.hasPrefix("home[home,home-detail] history=4 ") }
         awaitLabel("probe-native") { $0.hasSuffix("home [home,home-detail]") }
         XCTAssertTrue(app.staticTexts["page-home-detail"].exists)
+    }
+
+    func testFullScreenModalPreservesHistoryAndDismisses() {
+        awaitLabel("probe-status") { $0 == self.home }
+        let window = app.windows.firstMatch.frame
+        app.buttons["probe-open-fade-sheet"].tap()
+        let dismiss = app.buttons["probe-dismiss-fade-sheet"]
+        XCTAssertTrue(dismiss.waitForExistence(timeout: 10))
+        awaitModalCommit(2)
+        let bounds = app.descendants(matching: .any)["probe-modal-bounds"].frame
+        XCTAssertEqual(bounds.minX, window.minX, accuracy: 1)
+        XCTAssertEqual(bounds.minY, window.minY, accuracy: 1)
+        XCTAssertEqual(bounds.width, window.width, accuracy: 1)
+        XCTAssertEqual(bounds.height, window.height, accuracy: 1)
+        dismiss.tap()
+        awaitLabel("probe-status") { $0.hasPrefix("home[home,home-detail] history=3 ") }
+        awaitLabel("probe-native") { $0.hasSuffix("home [home,home-detail]") }
+        XCTAssertTrue(app.buttons["probe-open-fade-sheet"].isHittable)
+    }
+
+    func testFullScreenModalReplacesSheetAndReturnsToSheet() {
+        awaitLabel("probe-status") { $0 == self.home }
+        openModal()
+        XCTAssertTrue(app.staticTexts["page-review"].waitForExistence(timeout: 10))
+        awaitModalCommit(2)
+
+        app.buttons["probe-replace-with-cover"].tap()
+        XCTAssertTrue(app.staticTexts["page-fade-sheet"].waitForExistence(timeout: 10))
+        awaitModalCommit(3)
+
+        app.buttons["probe-replace-with-sheet"].tap()
+        XCTAssertTrue(app.staticTexts["page-review"].waitForExistence(timeout: 10))
+        awaitModalCommit(4)
+
+        app.navigationBars["review"].buttons.firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["page-edit"].waitForExistence(timeout: 10))
+        app.navigationBars["edit"].buttons["Done"].tap()
+        awaitLabel("probe-status") { $0.hasPrefix("home[home,home-detail] history=6 ") }
+        awaitLabel("probe-native") { $0.hasSuffix("home [home,home-detail]") }
+    }
+
+    private func awaitModalCommit(_ historyCount: Int) {
+        awaitLabel("probe-modal-status") { $0.hasPrefix("home[home,home-detail] history=\(historyCount) ") }
     }
 
     func testNativeFadeSheetPreservesHistory() {

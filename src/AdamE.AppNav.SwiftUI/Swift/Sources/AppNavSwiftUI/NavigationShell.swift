@@ -13,6 +13,7 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
     private let emptyContent: () -> EmptyContent
     private let footer: (NavigationDiagnostics) -> Footer
     @StateObject private var surface = NativeSurface()
+    @State private var presentedModalStyle: NavigationModalPresentation?
 
     public init(projection: NavigationProjection, report: @escaping (NavigationReading) -> Void,
                 trace: @escaping (String) -> Void = { _ in },
@@ -55,10 +56,12 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
             }
             footer(surface.diagnostics)
         }
-        .sheet(item: surface.modal) { selection in
-            if let modal = surface.target?.modal, modal.id == selection.id {
-                sheet(modal)
-            }
+        .sheet(item: modalSelection(for: .sheet), onDismiss: { modalDidDismiss(.sheet) }) {
+            modalContent($0, style: .sheet)
+        }
+        .fullScreenCover(item: modalSelection(for: .fullScreenCover),
+                         onDismiss: { modalDidDismiss(.fullScreenCover) }) {
+            modalContent($0, style: .fullScreenCover)
         }
         .background(FrameObserver(surface: surface, report: report, trace: trace))
         .modifier(StageProjection(projection: projection) { next in
@@ -67,8 +70,50 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
         })
     }
 
+    private func modalSelection(for style: NavigationModalPresentation) -> Binding<ModalSelection?> {
+        guard let modal = surface.target?.modal, modalStyle(for: modal) == style,
+              presentedModalStyle == nil || presentedModalStyle == style else {
+            return .constant(nil)
+        }
+        return Binding(get: {
+            guard let current = surface.modal.wrappedValue, current.id == modal.id else { return nil }
+            return current
+        }, set: { next in
+            // A dismissed presenter must not clear the selection of a replacement modal.
+            if surface.modal.wrappedValue?.id == modal.id { surface.modal.wrappedValue = next }
+        })
+    }
+
+    private func modalStyle(for modal: ModalProjection) -> NavigationModalPresentation {
+        customization?.modalPresentation(modal) ?? .sheet
+    }
+
+    private func modalDidDismiss(_ style: NavigationModalPresentation) {
+        guard presentedModalStyle == style else { return }
+        if let modal = surface.target?.modal, surface.modal.wrappedValue?.id == modal.id,
+           modalStyle(for: modal) == style {
+            // SwiftUI can replace a modal with another using the same presenter.
+            return
+        }
+        // Wait for the previous presenter to finish dismissing before activating the other one.
+        presentedModalStyle = nil
+    }
+
     @ViewBuilder
-    private func sheet(_ modal: ModalProjection) -> some View {
+    private func modalContent(_ selection: ModalSelection, style: NavigationModalPresentation) -> some View {
+        if let modal = surface.target?.modal, modal.id == selection.id {
+            modalStack(modal)
+                .onAppear { presentedModalStyle = style }
+        } else {
+            // The target can move on before the presenter builds its content. The presenter is still on screen,
+            // so record it; otherwise the other presenter could activate before this one dismisses.
+            Color.clear
+                .onAppear { presentedModalStyle = style }
+        }
+    }
+
+    @ViewBuilder
+    private func modalStack(_ modal: ModalProjection) -> some View {
         let key = StackKey.modal(modal.id)
         let content = stack(modal.entries, key: key, presentsRoot: true)
             // While a revision applies, the modal binding refuses dismissal. A swipe that UIKit

@@ -12,6 +12,7 @@ struct GameProbeContext: Sendable {
     let open: @MainActor @Sendable () -> Void
     let openCrossFade: @MainActor @Sendable () -> Void
     let pushReview: @MainActor @Sendable () -> Void
+    let replaceModal: @MainActor @Sendable (String) -> Void
     let trace: @MainActor @Sendable (String) -> Void
 }
 

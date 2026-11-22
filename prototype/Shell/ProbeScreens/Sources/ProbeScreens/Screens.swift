@@ -29,6 +29,13 @@ public struct PageScreen: View {
                     reviewButton(gameProbe)
                 }
             }
+            if Self.probesFullScreen, let gameProbe, ["fade-sheet", "review"].contains(model.title) {
+                Text(gameProbe.status).accessibilityIdentifier("probe-modal-status")
+                Button("Replace modal") {
+                    gameProbe.replaceModal(model.title == "fade-sheet" ? "open-modal" : "open-fade-sheet")
+                }
+                .accessibilityIdentifier(model.title == "fade-sheet" ? "probe-replace-with-sheet" : "probe-replace-with-cover")
+            }
             if model.title == "fade-sheet" {
                 Button("Dismiss") { dismiss() }
                     .accessibilityIdentifier("probe-dismiss-fade-sheet")
@@ -41,7 +48,19 @@ public struct PageScreen: View {
                     .background(FadeSheetFrameProbe(trace: gameProbe.trace))
             }
         }
-            .navigationTitle(model.title)
+            .overlay {
+            if Self.probesFullScreen && model.title == "fade-sheet" {
+                GeometryReader { geometry in
+                    Color.clear.accessibilityElement()
+                        .accessibilityLabel("Modal bounds")
+                        .accessibilityIdentifier("probe-modal-bounds")
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                }
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+            }
+        }
+        .navigationTitle(model.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 if model.title == "edit" {
@@ -57,6 +76,8 @@ public struct PageScreen: View {
             .buttonStyle(.borderedProminent)
             .accessibilityIdentifier("probe-push-review")
     }
+
+    private static let probesFullScreen = ProcessInfo.processInfo.arguments.contains("--probe-full-screen")
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.gameProbe) private var gameProbe
@@ -177,7 +198,8 @@ public struct ShellScreen: View {
             hasGame: model.target.branches.contains { $0.entries.contains { $0.entryId == "game" } },
             status: model.status, open: { model.runCommand("open-game") },
             openCrossFade: { model.runCommand("open-game-crossfade") },
-            pushReview: { model.runCommand("push-review") }, trace: gameTrace))
+            pushReview: { model.runCommand("push-review") },
+            replaceModal: { model.runCommand($0) }, trace: gameTrace))
     }
 
     /// Keeps a Game push applying, so a UI test can go Back before the shell settles it.
@@ -199,6 +221,10 @@ public struct ShellScreen: View {
 
     private var customization: NavigationCustomization {
         NavigationCustomization(
+            modalPresentation: { modal in
+                modal.id == "fade-sheet" && ProcessInfo.processInfo.arguments.contains("--probe-full-screen")
+                    ? .fullScreenCover : .sheet
+            },
             transactionAnimation: { context in
                 if testsImmediatePush && coverKey(for: context) == "game-cover" { return nil }
                 guard context.operation == .pop || coverKey(for: context) != nil || isCrossFadePush(context) ||
