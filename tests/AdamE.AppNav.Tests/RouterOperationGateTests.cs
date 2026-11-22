@@ -83,4 +83,32 @@ public sealed class RouterOperationGateTests
 
         await entered.WaitAsync(TimeSpan.FromSeconds(5));
     }
+
+    [Fact]
+    public async Task ReconciliationHandedTheLockBeforeItIsAwaitedNeverRunsInlineInItsCaller()
+    {
+        var gate = new RouterOperationGate();
+        await gate.EnterOperationAsync(CancellationToken.None);
+        RouterOperationGate.Reservation reservation = gate.ReserveReconciliation();
+        // The running operation ends between the reservation and the await.
+        gate.Exit();
+        var sync = new object();
+        var callerReturned = false;
+        Task entered;
+
+        async Task ReconcileAsync()
+        {
+            await reservation.EnterAsync(CancellationToken.None);
+            lock (sync)
+                Assert.True(callerReturned);
+        }
+
+        lock (sync)
+        {
+            entered = ReconcileAsync();
+            callerReturned = true;
+        }
+
+        await entered.WaitAsync(TimeSpan.FromSeconds(5));
+    }
 }

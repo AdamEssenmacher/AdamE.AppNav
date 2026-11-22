@@ -123,7 +123,8 @@ internal sealed class RouterOperationGate
                 return;
             }
 
-            await _owner.WaitAsync(_node, cancellationToken).ConfigureAwait(false);
+            // The lock may already have been handed over, between the reservation and this await. Yield then too.
+            await _owner.WaitAsync(_node, cancellationToken).ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
         }
     }
 }

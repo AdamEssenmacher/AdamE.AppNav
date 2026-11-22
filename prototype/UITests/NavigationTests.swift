@@ -35,7 +35,7 @@ final class NavigationTests: XCTestCase {
 
     // A slow Back swipe can catch the zoom before the shell settles the push. UIKit then gives the push back and
     // SwiftUI writes the shorter path while the push is still applying. AppNav records the push and a native Back, and
-    // SwiftUI must not push Game again. The probe holds the push applying until Game leaves the top of the stack.
+    // SwiftUI must not push Game again. The probe holds the push applying until a Back gesture begins.
     func testHomeGameZoomTakenBackDuringPush() {
         awaitLabel("probe-status") { $0 == self.home }
         awaitLabel("probe-native") { $0.hasSuffix("home [home,home-detail]") }
