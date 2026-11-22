@@ -96,10 +96,54 @@ public sealed class RouterNavigatorPresentationTests
         Assert.Equal(Assert.Single(presenter.AppliedOperations), diagnostic.OperationId);
     }
 
+    [Fact]
+    public async Task DisposalWaitsForSettlementStartedByAnOperationInFlightAndIgnoresItsFailure()
+    {
+        var presenter = new SettlingPresenter
+        {
+            ApplyGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
+        };
+        var navigator = new RouterNavigator(TestRoutes.CreateTable(), TestNavigationPlanner.EchoStack(), presenter);
+        var settling = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        presenter.Settle = async (_, operationId) =>
+        {
+            settling.TrySetResult(operationId);
+            await finish.Task.ConfigureAwait(false);
+            throw new InvalidOperationException("Cleanup failed during shutdown.");
+        };
+
+        var timeout = TimeSpan.FromSeconds(5);
+        try
+        {
+            // Dispose while the operation still holds admission, so its settlement is registered during shutdown.
+            Task navigation = navigator.NavigateAsync(RouterNavigationRequest.FromRoute(
+                new TestRoutes.StoreRoute("northwind"), NavigationRequestSource.Test)).AsTask();
+            await presenter.Applying.Task.WaitAsync(timeout);
+            Task shutdown = navigator.DisposeAsync().AsTask();
+            presenter.ApplyGate.SetResult();
+            await Task.WhenAny(navigation).WaitAsync(timeout);
+
+            Assert.Equal(Assert.Single(presenter.AppliedOperations), await settling.Task.WaitAsync(timeout));
+            await Task.Delay(100);
+            Assert.False(shutdown.IsCompleted, "Disposal completed while presentation settlement was still running.");
+
+            finish.SetResult();
+            await shutdown.WaitAsync(timeout);
+        }
+        finally
+        {
+            finish.TrySetResult();
+            presenter.ApplyGate.TrySetResult();
+        }
+    }
+
     private sealed class SettlingPresenter : INavigationPresenter, INavigationPresentationSettlement
     {
         public List<string> AppliedOperations { get; } = [];
         public Exception? ApplyFailure { get; init; }
+        public TaskCompletionSource? ApplyGate { get; init; }
+        public TaskCompletionSource Applying { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public Func<NavigationState, string, ValueTask>? Settle { get; set; }
 
         public event EventHandler<NavigationReconciliationRequestedEventArgs>? ReconciliationRequested
@@ -108,11 +152,15 @@ public sealed class RouterNavigatorPresentationTests
             remove { }
         }
 
-        public ValueTask ApplyAsync(NavigationPlan plan, NavigationPresentationContext context,
+        public async ValueTask ApplyAsync(NavigationPlan plan, NavigationPresentationContext context,
             CancellationToken cancellationToken = default)
         {
             AppliedOperations.Add(context.OperationId);
-            return ApplyFailure is { } failure ? ValueTask.FromException(failure) : ValueTask.CompletedTask;
+            Applying.TrySetResult();
+            if (ApplyGate is { } gate)
+                await gate.Task.ConfigureAwait(false);
+            if (ApplyFailure is { } failure)
+                throw failure;
         }
 
         public ValueTask OnPresentationSettledAsync(NavigationState state, string operationId) =>
