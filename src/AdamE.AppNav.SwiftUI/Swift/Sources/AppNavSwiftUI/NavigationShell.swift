@@ -81,14 +81,17 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
     private func stack(_ entries: [NavigationEntry], key: StackKey, presentsRoot: Bool = false) -> some View {
         NavigationStack(path: surface.path(for: key)) {
             if let root = entries.first {
-                page(root, key: key, appliesTransition: !presentsRoot)
+                page(root, key: key, appliesTransition: !presentsRoot, isBranchRoot: !presentsRoot)
                     .navigationDestination(for: NavigationEntry.self) { page($0, key: key) }
             }
         }
     }
 
-    private func page(_ entry: NavigationEntry, key: StackKey, appliesTransition: Bool = true) -> some View {
-        let intercept = back?.intercepts(entry) == true
+    private func page(_ entry: NavigationEntry, key: StackKey, appliesTransition: Bool = true,
+                      isBranchRoot: Bool = false) -> some View {
+        // A branch root has nothing behind it, so it gets no replacement Back button. A sheet root keeps
+        // it as the managed close affordance.
+        let intercept = !isBranchRoot && back?.intercepts(entry) == true
         let context = surface.context(for: entry, key: key)
         return styledDestination(context, key: key, appliesTransition: appliesTransition)
         .background(PageMarker(surface: surface, key: key, entry: entry))

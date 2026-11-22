@@ -389,12 +389,8 @@ final class NativeSurface: ObservableObject {
             pushWitnessed = true
             backDuringPush = push.key
         }
-        if target.branches.isEmpty {
-            guard attached.isEmpty else { return }
-            qualifying = true
-            settle(NavigationReading(revision: target.revision, branch: "", entries: [], modalID: nil, modalEntries: []))
-            return
-        }
+        // A window without a root can still present a sheet; only sheet pages may remain attached.
+        if target.branches.isEmpty, !attached.allSatisfy({ $0.key?.isModal == true }) { return }
 
         let topControllers = attached.compactMap { marker -> StackTop? in
             guard let (nav, controller) = owner(of: marker), let entry = marker.entry, let key = marker.key else {
@@ -423,10 +419,9 @@ final class NativeSurface: ObservableObject {
 
         let currentModal = selectedModal.flatMap { selection in target.modal?.id == selection.id ? target.modal : nil }
         let modalMarkers = attached.filter { $0.key?.isModal == true }
-        guard
-            let branch = target.branches.first(where: { $0.id == selectedBranch }),
-            let branchTop = topControllers.first(where: { $0.key == .branch(branch.id) })
-        else { return }
+        let branch = target.branches.first(where: { $0.id == selectedBranch })
+        let branchTop = branch.flatMap { branch in topControllers.first(where: { $0.key == .branch(branch.id) }) }
+        guard target.branches.isEmpty || branchTop != nil else { return }
 
         let modalTop: StackTop?
         if let currentModal {
@@ -437,14 +432,14 @@ final class NativeSurface: ObservableObject {
             modalTop = visible
         } else {
             // The old sheet must leave before the uncovered branch can be acknowledged.
-            guard modalMarkers.isEmpty, hitTest(branchTop.nav, in: window) else { return }
+            guard modalMarkers.isEmpty, branchTop.map({ hitTest($0.nav, in: window) }) ?? true else { return }
             modalTop = nil
         }
 
-        let top = modalTop ?? branchTop
-        if applying, stagedTops.last != top.entry.id { stagedTops.append(top.entry.id) }
-        guard transitioned(branchTop), modalTop.map(transitioned) ?? true, trackedInteraction == nil else { return }
-        if let taken = takenBack, top.key == taken.key, top.entry == taken.removed {
+        if applying, let top = modalTop ?? branchTop, stagedTops.last != top.entry.id { stagedTops.append(top.entry.id) }
+        guard branchTop.map(transitioned) ?? true, modalTop.map(transitioned) ?? true, trackedInteraction == nil
+        else { return }
+        if let taken = takenBack, let top = modalTop ?? branchTop, top.key == taken.key, top.entry == taken.removed {
             // UIKit's stack settled with the taken-back page still on top across two frames, so the Back that took it
             // was cancelled. A UIKit cancellation alone can't tell this apart from UIKit giving the push back, so only
             // the settled stack decides.
@@ -452,18 +447,25 @@ final class NativeSurface: ObservableObject {
             return
         }
         takenBackKept = false
-        guard let branchEntries = read(branchTop, desired: desired(branch.entries, key: .branch(branch.id)), in: window,
-                                       covered: modalTop != nil) else { return }
 
-        if isWaitingForTab(branchTop.key), branchEntries.count < branch.entries.count {
-            // There is no independent witness for a selection followed by a premature pop.
-            // Reassert the intact newly selected stack so AppNav can commit the tab change.
-            var transaction = Transaction(animation: nil)
-            transaction.disablesAnimations = true
-            withTransaction(transaction) {
-                paths[branchTop.key] = Array(branch.entries.dropFirst())
+        let branchEntries: [String]
+        if let branch, let branchTop {
+            guard let entries = read(branchTop, desired: desired(branch.entries, key: .branch(branch.id)), in: window,
+                                     covered: modalTop != nil)
+            else { return }
+            if isWaitingForTab(branchTop.key), entries.count < branch.entries.count {
+                // There is no independent witness for a selection followed by a premature pop.
+                // Reassert the intact newly selected stack so AppNav can commit the tab change.
+                var transaction = Transaction(animation: nil)
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    paths[branchTop.key] = Array(branch.entries.dropFirst())
+                }
+                return
             }
-            return
+            branchEntries = entries
+        } else {
+            branchEntries = []
         }
 
         let modalEntries: [String]
@@ -475,9 +477,11 @@ final class NativeSurface: ObservableObject {
             modalEntries = []
         }
 
-        if applying && (target.selectedBranch != branch.id || target.modal?.id != currentModal?.id) { return }
+        if applying && (branch.map({ target.selectedBranch != $0.id }) == true || target.modal?.id != currentModal?.id) {
+            return
+        }
         qualifying = true
-        settle(NavigationReading(revision: target.revision, branch: branch.id, entries: branchEntries,
+        settle(NavigationReading(revision: target.revision, branch: branch?.id ?? "", entries: branchEntries,
                                  modalID: currentModal?.id, modalEntries: modalEntries))
     }
 
@@ -575,8 +579,11 @@ final class NativeSurface: ObservableObject {
 
     /// The staged revision as AppNav projected it.
     private func stagedReading() -> NavigationReading? {
-        guard let target, let branch = target.branches.first(where: { $0.id == target.selectedBranch }) else { return nil }
-        return NavigationReading(revision: target.revision, branch: branch.id, entries: branch.entries.map(\.id),
+        guard let target else { return nil }
+        // A window without a root reports an empty branch, as `frame` does.
+        let branch = target.branches.first(where: { $0.id == target.selectedBranch })
+        if branch == nil && !target.branches.isEmpty { return nil }
+        return NavigationReading(revision: target.revision, branch: branch?.id ?? "", entries: branch?.entries.map(\.id) ?? [],
                                  modalID: target.modal?.id, modalEntries: target.modal?.entries.map(\.id) ?? [])
     }
 
