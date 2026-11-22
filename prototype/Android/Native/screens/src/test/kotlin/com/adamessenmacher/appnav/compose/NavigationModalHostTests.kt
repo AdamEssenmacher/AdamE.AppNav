@@ -4,7 +4,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsEnabled
-import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.activity.ComponentActivity
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.window.Dialog
@@ -19,7 +20,7 @@ import org.robolectric.shadows.ShadowDialog
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
 class NavigationModalHostTests {
-    @get:Rule val compose = createComposeRule()
+    @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
 
     @Test
     fun defaultHostRendersContentAndDismissesNatively() {
@@ -94,11 +95,60 @@ class NavigationModalHostTests {
         compose.runOnIdle { assertEquals(0, requested) }
     }
 
-    private fun target(modalId: String = "first", revision: Long = 1L) = NavigationProjection(
+    @Test
+    fun inlineHostRoutesSystemBackThroughManagedPolicy() {
+        val observations = mutableListOf<NavigationObservation>()
+        var requested = 0
+        compose.setContent {
+            AppNavNavigationShell(
+                target(),
+                observations::add,
+                modalHost = { _, content -> content() },
+                requestBack = { requested++ },
+                unavailableContent = { Text(it.entryId) },
+            )
+        }
+
+        compose.onNodeWithText("first-entry").assertExists()
+        compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        compose.runOnIdle {
+            assertEquals(1, requested)
+            assertEquals(listOf("first-entry"), observations.last().modalEntries)
+        }
+        compose.onNodeWithText("first-entry").assertExists()
+        assertEquals(false, compose.activity.isFinishing)
+    }
+
+    @Test
+    fun inlineHostBackDismissesModalWithoutPoppingPrimary() {
+        val observations = mutableListOf<NavigationObservation>()
+        compose.setContent {
+            AppNavNavigationShell(
+                target(primary = listOf("home-entry", "detail-entry")),
+                observations::add,
+                modalHost = { _, content -> content() },
+                unavailableContent = { Text(it.entryId) },
+            )
+        }
+
+        compose.onNodeWithText("first-entry").assertExists()
+        compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        compose.onNodeWithText("first-entry").assertDoesNotExist()
+        compose.runOnIdle {
+            assertEquals("", observations.last().modalId)
+            assertEquals(listOf("home-entry", "detail-entry"), observations.last().entries)
+        }
+    }
+
+    private fun target(
+        modalId: String = "first",
+        revision: Long = 1L,
+        primary: List<String> = listOf("home-entry"),
+    ) = NavigationProjection(
         revision,
         "home",
         false,
-        listOf(NavigationBranch("home", "Home", listOf(MountedEntry("home-entry", 0)))),
+        listOf(NavigationBranch("home", "Home", primary.mapIndexed { i, id -> MountedEntry(id, i.toLong()) })),
         modalId,
         listOf(MountedEntry("$modalId-entry", 0)),
     )

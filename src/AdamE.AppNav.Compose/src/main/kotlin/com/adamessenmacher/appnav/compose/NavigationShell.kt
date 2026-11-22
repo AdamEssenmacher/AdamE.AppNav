@@ -126,10 +126,19 @@ public fun AppNavNavigationShell(
     )
 }
 
-/** State and actions for the active modal occurrence's native presentation. */
+/**
+ * State and actions for the active modal occurrence's native presentation.
+ *
+ * The shell owns the modal's lifetime: the occurrence is presented for exactly as long as the shell
+ * composes the host for it. [onDismissRequest] only asks; AppNav can ignore it while a transition
+ * is pending or refuse it through managed Back policy. A host must therefore never hide itself.
+ * Keep the window shown until the shell stops composing it. For a sheet, veto the hidden state
+ * (for example `confirmValueChange = { it != SheetValue.Hidden }`) and call [onDismissRequest] instead.
+ */
 public class NavigationModalPresentation internal constructor(
     public val id: String,
     public val entryCount: Int,
+    /** False while AppNav ignores dismissal requests. True does not promise Back policy will allow it. */
     public val canDismiss: Boolean,
     public val onDismissRequest: () -> Unit,
 )
@@ -137,7 +146,8 @@ public class NavigationModalPresentation internal constructor(
 /**
  * Renders the shell with a caller-provided modal window. The [modalHost] must compose its
  * mounted content and route dismissal requests through [NavigationModalPresentation.onDismissRequest].
- * That callback preserves AppNav's transition gate and managed Back policy.
+ * That callback preserves AppNav's transition gate and managed Back policy. A host that draws in
+ * the Activity window instead of its own still gets system Back: the shell routes it to the modal.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -218,11 +228,16 @@ public fun AppNavNavigationShell(
         }
     }
 
+    val modalShown = modal.isNotEmpty()
     val primaryHasBack = surface.hasBack(modalBack = false)
-    val allowPrimaryPreview = primaryHasBack && canNavigate() && requestBack == null
-    // Consume Back within the shell while a managed request or a presentation is pending.
-    BackHandler(enabled = modal.isEmpty() && !allowPrimaryPreview && (primaryHasBack || !canNavigate())) {
-        back(modalBack = false)
+    val allowPrimaryPreview = !modalShown && primaryHasBack && canNavigate() && requestBack == null
+    val allowModalPreview = modalShown && canNavigate() && requestBack == null && modal.size > 1
+    // Consume Back within the shell while a managed request or a presentation is pending. A modal
+    // host need not have its own window, so while a modal is shown the shell takes Back for it.
+    BackHandler(
+        enabled = if (modalShown) !allowModalPreview else !allowPrimaryPreview && (primaryHasBack || !canNavigate()),
+    ) {
+        back(modalBack = modalShown)
     }
 
     Scaffold(
@@ -269,8 +284,7 @@ public fun AppNavNavigationShell(
             modalHost(NavigationModalPresentation(modalId, modal.size, canNavigate()) {
                 if (mounted) dismiss()
             }) {
-                MountedStack(expectedModal, target.transition, animations, origins,
-                    canNavigate() && requestBack == null && modal.size > 1,
+                MountedStack(expectedModal, target.transition, animations, origins, allowModalPreview,
                     { back(modalBack = true) }, unavailableContent) {
                     renderedModal = it
                 }
