@@ -210,4 +210,6 @@ public struct NavigationDiagnostics {
     public internal(set) var gesturesCancelled = 0
     public internal(set) var gesturesCompleted = 0
     public internal(set) var gestureReading: NavigationReading?
+    /// Animated pushes UIKit gave back before they settled, each reported as the push and then a native Back.
+    public internal(set) var pushesTakenBack = 0
 }
