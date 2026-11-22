@@ -34,7 +34,7 @@ public struct PageScreen: View {
                 Button("Replace modal") {
                     gameProbe.replaceModal(model.title == "fade-sheet" ? "open-modal" : "open-fade-sheet")
                 }
-                .accessibilityIdentifier("probe-replace-modal")
+                .accessibilityIdentifier(model.title == "fade-sheet" ? "probe-replace-with-sheet" : "probe-replace-with-cover")
             }
             if model.title == "fade-sheet" {
                 Button("Dismiss") { dismiss() }

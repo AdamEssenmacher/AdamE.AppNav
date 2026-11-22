@@ -284,11 +284,11 @@ final class NavigationTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["page-review"].waitForExistence(timeout: 10))
         awaitModalCommit(2)
 
-        app.buttons["probe-replace-modal"].tap()
+        app.buttons["probe-replace-with-cover"].tap()
         XCTAssertTrue(app.staticTexts["page-fade-sheet"].waitForExistence(timeout: 10))
         awaitModalCommit(3)
 
-        app.buttons["probe-replace-modal"].tap()
+        app.buttons["probe-replace-with-sheet"].tap()
         XCTAssertTrue(app.staticTexts["page-review"].waitForExistence(timeout: 10))
         awaitModalCommit(4)
 

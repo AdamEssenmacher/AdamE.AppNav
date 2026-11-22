@@ -13,6 +13,7 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
     private let emptyContent: () -> EmptyContent
     private let footer: (NavigationDiagnostics) -> Footer
     @StateObject private var surface = NativeSurface()
+    @State private var presentedModalStyle: NavigationModalPresentation?
 
     public init(projection: NavigationProjection, report: @escaping (NavigationReading) -> Void,
                 trace: @escaping (String) -> Void = { _ in },
@@ -55,8 +56,13 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
             }
             footer(surface.diagnostics)
         }
-        .sheet(item: modalSelection(for: .sheet), content: modalContent)
-        .fullScreenCover(item: modalSelection(for: .fullScreenCover), content: modalContent)
+        .sheet(item: modalSelection(for: .sheet), onDismiss: { modalDidDismiss(.sheet) }) {
+            modalContent($0, style: .sheet)
+        }
+        .fullScreenCover(item: modalSelection(for: .fullScreenCover),
+                         onDismiss: { modalDidDismiss(.fullScreenCover) }) {
+            modalContent($0, style: .fullScreenCover)
+        }
         .background(FrameObserver(surface: surface, report: report, trace: trace))
         .modifier(StageProjection(projection: projection) { next in
             surface.stage(next, animatesSinglePushes: animatesSinglePushes,
@@ -65,8 +71,8 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
     }
 
     private func modalSelection(for style: NavigationModalPresentation) -> Binding<ModalSelection?> {
-        guard let modal = surface.target?.modal,
-              (customization?.modalPresentation(modal) ?? .sheet) == style else {
+        guard let modal = surface.target?.modal, modalStyle(for: modal) == style,
+              presentedModalStyle == nil || presentedModalStyle == style else {
             return .constant(nil)
         }
         return Binding(get: {
@@ -78,10 +84,26 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
         })
     }
 
+    private func modalStyle(for modal: ModalProjection) -> NavigationModalPresentation {
+        customization?.modalPresentation(modal) ?? .sheet
+    }
+
+    private func modalDidDismiss(_ style: NavigationModalPresentation) {
+        guard presentedModalStyle == style else { return }
+        if let modal = surface.target?.modal, surface.modal.wrappedValue?.id == modal.id,
+           modalStyle(for: modal) == style {
+            // SwiftUI can replace a modal with another using the same presenter.
+            return
+        }
+        // Wait for the previous presenter to finish dismissing before activating the other one.
+        presentedModalStyle = nil
+    }
+
     @ViewBuilder
-    private func modalContent(_ selection: ModalSelection) -> some View {
+    private func modalContent(_ selection: ModalSelection, style: NavigationModalPresentation) -> some View {
         if let modal = surface.target?.modal, modal.id == selection.id {
             modalStack(modal)
+                .onAppear { presentedModalStyle = style }
         }
     }
 
