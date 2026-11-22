@@ -142,6 +142,59 @@ public sealed class RouterNavigatorReconciliationBaseTests
     }
 
     [Fact]
+    public async Task ReconciliationOvertakesANavigationQueuedBehindTheOperationItObserved()
+    {
+        var presenter = new BlockingPresenter();
+        var events = new List<NavigationDiagnosticEventKind>();
+        RouterNavigator navigator = CreateNavigator(presenter, events);
+        Task<NavigationResult> first = navigator.NavigateAsync(new TestRoutes.StoreRoute("contoso")).AsTask();
+        await presenter.BlockedApplyStarted;
+        Task<NavigationResult> queued = navigator.NavigateAsync(new TestRoutes.StoreRoute("fabrikam")).AsTask();
+
+        Task<NavigationResult> reconciliation = navigator.ReconcileAsync(new NavigationReconciliation(
+            presenter.AppliedPlans[^1].TargetState,
+            ReconciledState,
+            NavigationReconciliationSource.HostBack,
+            new TestRoutes.CatalogRoute("northwind"))).AsTask();
+        presenter.ReleaseBlockedApply();
+        await Task.WhenAll(first, queued, reconciliation);
+
+        Assert.Equal(
+            new[] { NavigationPlanKind.Navigate, NavigationPlanKind.Reconcile, NavigationPlanKind.Navigate },
+            presenter.AppliedPlans.Select(plan => plan.Kind));
+        Assert.Same(queued.Result.State, navigator.CurrentState);
+        Assert.Equal(3, navigator.History.Entries.Count);
+        Assert.DoesNotContain(NavigationDiagnosticEventKind.ReconciliationRejected, events);
+    }
+
+    [Fact]
+    public async Task PresenterReconciliationOvertakesANavigationQueuedBehindTheOperationItObserved()
+    {
+        var presenter = new BlockingPresenter();
+        var events = new List<NavigationDiagnosticEventKind>();
+        RouterNavigator navigator = CreateNavigator(presenter, events);
+        Task<NavigationResult> first = navigator.NavigateAsync(new TestRoutes.StoreRoute("contoso")).AsTask();
+        await presenter.BlockedApplyStarted;
+        Task<NavigationResult> queued = navigator.NavigateAsync(new TestRoutes.StoreRoute("fabrikam")).AsTask();
+
+        presenter.RequestReconciliation(new NavigationReconciliation(
+            presenter.AppliedPlans[^1].TargetState,
+            ReconciledState,
+            NavigationReconciliationSource.HostBack,
+            new TestRoutes.CatalogRoute("northwind")));
+        presenter.ReleaseBlockedApply();
+        await Task.WhenAll(first, queued);
+        await navigator.WhenReconciliationIdleAsync();
+
+        Assert.Equal(
+            new[] { NavigationPlanKind.Navigate, NavigationPlanKind.Reconcile, NavigationPlanKind.Navigate },
+            presenter.AppliedPlans.Select(plan => plan.Kind));
+        Assert.Same(queued.Result.State, navigator.CurrentState);
+        Assert.Equal(3, navigator.History.Entries.Count);
+        Assert.DoesNotContain(NavigationDiagnosticEventKind.ReconciliationRejected, events);
+    }
+
+    [Fact]
     public async Task ChainedPresenterReconciliationsCommitInOrder()
     {
         var presenter = new BlockingPresenter();

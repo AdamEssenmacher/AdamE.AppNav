@@ -21,6 +21,7 @@ loop.Run(async () =>
     }
 
     await AcceptanceChecks.RunAsync(loop, Dispatch);
+    await TakenBackChecks.RunAsync(loop, Dispatch);
 
     var leases = new RouteEntryLeaseRegistry(new LeaseHost(Dispatch));
     using var presenter = new OahuNavigationPresenter();
