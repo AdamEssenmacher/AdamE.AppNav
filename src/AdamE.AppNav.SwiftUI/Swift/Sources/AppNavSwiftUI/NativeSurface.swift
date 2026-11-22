@@ -74,12 +74,18 @@ final class FrameView: UIView {
 
 struct FrameObserver: UIViewRepresentable {
     let surface: NativeSurface
+    let report: (NavigationReading) -> Void
+    let trace: (String) -> Void
+
     func makeUIView(context: Context) -> FrameView {
         let view = FrameView()
         view.isUserInteractionEnabled = false
         return view
     }
-    func updateUIView(_ view: FrameView, context: Context) { view.surface = surface }
+    func updateUIView(_ view: FrameView, context: Context) {
+        view.surface = surface
+        surface.updateCallbacks(report: report, trace: trace)
+    }
     static func dismantleUIView(_ view: FrameView, coordinator: Void) { view.stop() }
 }
 
@@ -125,11 +131,13 @@ final class NativeSurface: ObservableObject {
         let restored: [NavigationEntry]
     }
 
-    func stage(_ next: NavigationProjection, animatesSinglePushes: Bool,
-               transactionAnimation: ((NavigationTransitionContext) -> Animation?)?, report: @escaping (NavigationReading) -> Void,
-               trace: @escaping (String) -> Void) {
+    func updateCallbacks(report: @escaping (NavigationReading) -> Void, trace: @escaping (String) -> Void) {
         self.report = report
         self.trace = trace
+    }
+
+    func stage(_ next: NavigationProjection, animatesSinglePushes: Bool,
+               transactionAnimation: ((NavigationTransitionContext) -> Animation?)?) {
         if next.revision == target?.revision {
             prunePushOrigins(next)
             target = next
@@ -145,9 +153,8 @@ final class NativeSurface: ObservableObject {
         } else if singlePush && animatesSinglePushes {
             animation = .default
         }
-        let animatedPush = singlePush && animation != nil ? step : nil
-        stagePushOrigins(next, push: animatedPush)
-        self.animatedPush = animatedPush
+        stagePushOrigins(next, push: singlePush ? step : nil)
+        animatedPush = singlePush && animation != nil ? step : nil
         takenBack = nil
         pushWitnessed = false
         applying = next.revision > 0
@@ -229,7 +236,7 @@ final class NativeSurface: ObservableObject {
         }
     }
 
-    func animatedPushContext(for entry: NavigationEntry, key: StackKey) -> NavigationTransitionContext? {
+    func matchedPushContext(for entry: NavigationEntry, key: StackKey) -> NavigationTransitionContext? {
         guard let origin = pushOrigins[entry], origin.key == key else { return nil }
         return origin.context
     }
