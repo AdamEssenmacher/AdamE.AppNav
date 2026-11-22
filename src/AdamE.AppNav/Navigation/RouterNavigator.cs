@@ -41,7 +41,7 @@ internal sealed class RouterNavigator : IRouterNavigator
     private bool _shutdownStarted;
     private bool _shutdownSignalIssued;
     private bool _shutdownCancellationCompleted;
-    private bool _operationLockDisposed;
+    private bool _shutdownCompleted;
 
     public RouterNavigator(
         RouteTable routes,
@@ -955,9 +955,9 @@ internal sealed class RouterNavigator : IRouterNavigator
                 throw new InvalidOperationException("Router operation admission count became negative.");
 
             if (_shutdownStarted && _shutdownSignalIssued && _shutdownCancellationCompleted &&
-                _activeOperations == 0 && !_operationLockDisposed)
+                _activeOperations == 0 && !_shutdownCompleted)
             {
-                _operationLockDisposed = true;
+                _shutdownCompleted = true;
                 completeShutdown = true;
             }
         }
@@ -1014,9 +1014,9 @@ internal sealed class RouterNavigator : IRouterNavigator
                     _shutdownSignalIssued = true;
 
                 if (_shutdownStarted && _shutdownSignalIssued && _shutdownCancellationCompleted &&
-                    _activeOperations == 0 && !_operationLockDisposed)
+                    _activeOperations == 0 && !_shutdownCompleted)
                 {
-                    _operationLockDisposed = true;
+                    _shutdownCompleted = true;
                     completeShutdown = true;
                 }
             }
@@ -1043,9 +1043,9 @@ internal sealed class RouterNavigator : IRouterNavigator
         lock (_lifetimeGate)
         {
             _shutdownCancellationCompleted = true;
-            if (_shutdownStarted && _shutdownSignalIssued && _activeOperations == 0 && !_operationLockDisposed)
+            if (_shutdownStarted && _shutdownSignalIssued && _activeOperations == 0 && !_shutdownCompleted)
             {
-                _operationLockDisposed = true;
+                _shutdownCompleted = true;
                 completeShutdown = true;
             }
         }

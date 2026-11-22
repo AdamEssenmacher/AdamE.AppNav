@@ -357,9 +357,9 @@ final class NativeSurface: ObservableObject {
                 return
             }
             if self.applying, self.takenBack == nil, shorter, let push = self.animatedPush, push.key == key,
-               current == Array(push.new.dropFirst()), next == Array(push.old.dropFirst()),
-               self.pushWitnessed, let staged = self.stagedReading() {
-                // A Back gesture caught a push the shell was still applying, such as a slow swipe during the zoom.
+               current == Array(push.new.dropFirst()), self.pushWitnessed, let staged = self.stagedReading() {
+                // A Back caught a push the shell was still applying, such as a slow swipe during the zoom, or a
+                // multi-entry pop from the Back-history menu, which showing the Back button also enables.
                 // UIKit has usually removed the page by the time SwiftUI writes, so this relies on having seen it.
                 // Ignoring the write would make SwiftUI push the page again. Take the shorter path now, and report
                 // the push and the shorter stack together once UIKit's stack settles without the page.
