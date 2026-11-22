@@ -137,19 +137,21 @@ across both columns.
 
 Core does not know the presented layout, so the presenter reports it. A
 presenter that shows splits calls `IRouterNavigator.ReportSplitLayout(windowId,
-layout)` before its first apply to a window and whenever its layout there
-changes, with `SplitLayout.Collapsed` or `SplitLayout.SideBySide`; application
-code does not call it. A window never reported is collapsed, and a layout is
-forgotten once a commit no longer has its window. A layout reported before its
-window exists is forgotten by any commit that does not add the window, so the
-presenter reports again after the commit that adds it, as well as when it
-attaches. The first navigation that creates a window therefore records its
-route collapsed, unless a report made before it is still kept. A report racing the commit that removes a window can carry
-over to a window re-added with the same ID, which the presenter's report on
-attaching replaces. Reporting is presentation only: it changes neither
-`CurrentState` nor history, is not queued behind navigation, and writes a
-`SplitLayoutReported` diagnostic when the layout changes. App code then calls
-`BackAsync()` as usual and gets the Back that matches what the user sees.
+layout)` when it attaches to a window, while applying (or after) the plan that
+adds the window, and whenever its layout there changes, with
+`SplitLayout.Collapsed` or `SplitLayout.SideBySide`; application code does not
+call it. A window never reported is collapsed, and a layout is forgotten once a
+commit no longer has its window. A layout reported before its window exists is
+forgotten by any commit that does not add the window, but a report made inside
+the `ApplyAsync` that adds it survives that commit. The navigation that creates
+a window is planned before that report, so it records its route collapsed
+unless a report made before it is still kept. A report racing the commit that
+removes a window can carry over to a window re-added with the same ID, which
+the presenter's report on attaching replaces. Reporting is presentation only:
+it changes neither `CurrentState` nor history, is not queued behind navigation,
+and writes a `SplitLayoutReported` diagnostic when the layout changes. App code
+then calls `BackAsync()` as usual and gets the Back that matches what the user
+sees.
 
 Collapsed, Back treats every split as one stack. While `CompactColumn` is
 `Secondary`, Back first goes back inside the secondary column; from its root,
