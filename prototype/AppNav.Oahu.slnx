@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="../src/AdamE.AppNav/AdamE.AppNav.csproj" />
+    <Project Path="../src/AdamE.AppNav.Generators/AdamE.AppNav.Generators.csproj" />
+    <Project Path="../src/AdamE.AppNav.Oahu/AdamE.AppNav.Oahu.csproj" />
+    <Project Path="../src/AdamE.AppNav.Oahu.Hosting/AdamE.AppNav.Oahu.Hosting.csproj" />
+  </Folder>
+  <Folder Name="/checks/">
+    <Project Path="Core/Core.csproj" />
+    <Project Path="Core/Checks/Checks.csproj" />
+    <Project Path="../tests/Hosting.Checks/Hosting.Checks.csproj" />
+  </Folder>
+</Solution>

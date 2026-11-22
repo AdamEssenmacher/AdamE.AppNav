@@ -6,6 +6,8 @@ Define destinations once, then use the same typed routes for in-app navigation,
 deep links, native stacks, tabs, and flyouts, Back behavior, restoration, and testing.
 AppNav owns the navigation model while MAUI keeps rendering native controls.
 
+The [OAHU presenter integration suite](prototype/README.md) builds the shared transaction and screen-hosting libraries against AppNav core from this checkout.
+
 ## Try the source sample
 
 The smallest runnable example is Home -> Detail -> native Back. From the

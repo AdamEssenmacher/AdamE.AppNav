@@ -84,6 +84,7 @@ public sealed class PublicApiContractTests
                 "AdamE.AppNav.Policies.NavigationRequestPolicyContext",
                 "AdamE.AppNav.Policies.NavigationRequestTransformContext",
                 "AdamE.AppNav.Policies.RoutePlannerNotFoundException",
+                "AdamE.AppNav.Presentation.INavigationPresentationSettlement",
                 "AdamE.AppNav.Presentation.INavigationPresenter",
                 "AdamE.AppNav.Presentation.NavigationModalDeclaration",
                 "AdamE.AppNav.Presentation.NavigationModalPlacement",

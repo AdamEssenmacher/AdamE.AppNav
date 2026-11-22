@@ -35,6 +35,7 @@ internal sealed class RouterNavigator : IRouterNavigator
     private readonly int _maxHistoryEntries;
     private Task _reconciliationQueue = Task.CompletedTask;
     private Task _entryLeaseDrain = Task.CompletedTask;
+    private Task _settlementDrain = Task.CompletedTask;
     private int _activeOperations;
     private bool _shutdownStarted;
     private bool _shutdownSignalIssued;
@@ -226,6 +227,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             try
             {
                 _entryLeases?.BeginPresentation();
+                RecordPresentationSettlement(state, plan.Kind, operationId);
                 await _presenter.ApplyAsync(plan,
                     new NavigationPresentationContext(request, route, state, operationId), operationCancellation)
                     .ConfigureAwait(false);
@@ -372,6 +374,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             try
             {
                 _entryLeases?.BeginPresentation();
+                RecordPresentationSettlement(CurrentState, plan.Kind, operationId);
                 await _presenter.ApplyAsync(
                     plan,
                     new NavigationPresentationContext(finalizedRequest, finalRoute, CurrentState, operationId),
@@ -401,6 +404,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             History = History.Push(
                 CreateHistoryEntry(finalizedRequest, finalRoute, CurrentState),
                 _maxHistoryEntries);
+            RecordPresentationSettlement(CurrentState, plan.Kind, operationId);
             activity.SetStatus(ActivityStatusCode.Ok);
 
             return new NavigationResult(finalRoute, plan, CurrentState, true);
@@ -539,6 +543,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             try
             {
                 _entryLeases?.BeginPresentation();
+                RecordPresentationSettlement(CurrentState, plan.Kind, operationId);
                 await _presenter.ApplyAsync(
                     plan,
                     new NavigationPresentationContext(request, route, CurrentState, operationId),
@@ -567,6 +572,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             _entryLeases?.Commit(CurrentState);
             History = History.Push(CreateHistoryEntry(request, route, CurrentState),
                 _maxHistoryEntries);
+            RecordPresentationSettlement(CurrentState, plan.Kind, operationId);
 
             _diagnostics.Write(
                 NavigationDiagnosticEventKind.BackCompleted,
@@ -641,6 +647,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             try
             {
                 _entryLeases?.BeginPresentation();
+                RecordPresentationSettlement(CurrentState, plan.Kind, operationId);
                 await _presenter.ApplyAsync(
                     plan,
                     new NavigationPresentationContext(finalizedRequest, finalRoute, CurrentState, operationId),
@@ -670,6 +677,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             History = History.Push(
                 CreateHistoryEntry(finalizedRequest, finalRoute, CurrentState),
                 _maxHistoryEntries);
+            RecordPresentationSettlement(CurrentState, plan.Kind, operationId);
 
             _diagnostics.Write(
                 NavigationDiagnosticEventKind.ReconciliationCompleted,
@@ -686,6 +694,30 @@ internal sealed class RouterNavigator : IRouterNavigator
             _diagnostics.WriteFailure(NavigationDiagnosticEventKind.ReconciliationFailed, operationId,
                 reconciliation.Source.ToString(), ex, timer);
             throw;
+        }
+    }
+
+    private void RecordPresentationSettlement(NavigationState state, NavigationPlanKind kind, string operationId)
+    {
+        if (_presenter is INavigationPresentationSettlement settlement)
+        {
+            RouterOperationContext context = CurrentOperationContext.Value!;
+            context.Settlement = new(settlement, state, kind, operationId);
+        }
+    }
+
+    private async Task NotifyPresentationSettledAsync(INavigationPresentationSettlement settlement,
+        NavigationState state, NavigationPlanKind kind, string operationId)
+    {
+        var timer = Stopwatch.StartNew();
+        try
+        {
+            await settlement.OnPresentationSettledAsync(state, operationId).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            _diagnostics.WriteFailure(NavigationDiagnosticEventKind.PresentationSettlementFailed,
+                operationId, kind.ToString(), exception, timer);
         }
     }
 
@@ -840,10 +872,45 @@ internal sealed class RouterNavigator : IRouterNavigator
             }
             finally
             {
+                // Register settlement while this operation still holds admission. Once the count reaches
+                // zero a pending shutdown completes, and a settlement started after that would escape the
+                // drain disposal waits on.
+                StartPresentationSettlement(operationContext);
                 if (operationAdmitted)
                     EndOperation();
             }
         }
+    }
+
+    private void StartPresentationSettlement(RouterOperationContext? operationContext)
+    {
+        if (operationContext?.Settlement is not { } settlement)
+            return;
+
+        operationContext.Settlement = null;
+        // Cleanup runs independently of router admission and never blocks the operation, but disposal
+        // waits for it. Do not flow an active operation context into arbitrary presenter code.
+        Task settling;
+        if (ExecutionContext.IsFlowSuppressed())
+        {
+            settling = Task.Run(SettleAsync);
+        }
+        else
+        {
+            using (ExecutionContext.SuppressFlow())
+                settling = Task.Run(SettleAsync);
+        }
+
+        lock (_lifetimeGate)
+        {
+            // A faulted drain is dropped rather than chained: its failure was already reported.
+            _settlementDrain = _settlementDrain.IsCompleted
+                ? settling
+                : Task.WhenAll(_settlementDrain, settling);
+        }
+
+        Task SettleAsync() => NotifyPresentationSettledAsync(
+            settlement.Presenter, settlement.State, settlement.Kind, settlement.OperationId);
     }
 
     private bool TryBeginOperation()
@@ -976,18 +1043,35 @@ internal sealed class RouterNavigator : IRouterNavigator
         }
         finally
         {
-            if (_entryLeaseDrain.IsCompletedSuccessfully)
+            Task entryLeaseDrain = _entryLeaseDrain;
+            Task settlementDrain;
+            lock (_lifetimeGate)
+                settlementDrain = _settlementDrain;
+
+            if (entryLeaseDrain.IsCompletedSuccessfully && settlementDrain.IsCompleted)
                 _shutdownCompletion.TrySetResult(true);
             else
-                _ = CompleteShutdownAfterEntryLeasesAsync();
+                _ = CompleteShutdownAfterDrainsAsync(entryLeaseDrain, settlementDrain);
         }
     }
 
-    private async Task CompleteShutdownAfterEntryLeasesAsync()
+    private async Task CompleteShutdownAfterDrainsAsync(Task entryLeaseDrain, Task settlementDrain)
     {
+        // Settlement releases what an entry lease may still be waiting on, so it is awaited first. Its
+        // failures are reported through diagnostics and never change an operation's outcome, so they must
+        // not fault disposal either: disposal only waits for settlement to finish.
         try
         {
-            await _entryLeaseDrain.ConfigureAwait(false);
+            await settlementDrain.ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // Reported when it happened; nothing further to surface here.
+        }
+
+        try
+        {
+            await entryLeaseDrain.ConfigureAwait(false);
             _shutdownCompletion.TrySetResult(true);
         }
         catch (Exception ex)
@@ -1064,6 +1148,9 @@ internal sealed class RouterNavigator : IRouterNavigator
         return linkedCancellation.Token;
     }
 
+    private readonly record struct PresentationSettlement(INavigationPresentationSettlement Presenter,
+        NavigationState State, NavigationPlanKind Kind, string OperationId);
+
     private sealed class RouterOperationContext(
         RouterNavigator navigator,
         RouterOperationContext? parent)
@@ -1073,6 +1160,7 @@ internal sealed class RouterNavigator : IRouterNavigator
         public RouterNavigator? ActiveNavigator => Volatile.Read(ref _activeNavigator);
 
         public RouterOperationContext? Parent { get; } = parent;
+        public PresentationSettlement? Settlement { get; set; }
 
         public void Deactivate()
         {
