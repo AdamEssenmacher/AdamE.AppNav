@@ -112,7 +112,7 @@ public sealed class NavigationShellViewModel(
         }
         catch (Exception error)
         {
-            reportFailure(error);
+            ReportFailure(error);
         }
     }
 
@@ -128,9 +128,14 @@ public sealed class NavigationShellViewModel(
         try { await task.ConfigureAwait(false); }
         catch (Exception error)
         {
-            try { reportFailure(error); }
-            catch (Exception reportingFailure) { System.Diagnostics.Trace.TraceError("{0}", reportingFailure); }
+            ReportFailure(error);
         }
+    }
+
+    private void ReportFailure(Exception error)
+    {
+        try { reportFailure(error); }
+        catch (Exception reportingFailure) { System.Diagnostics.Trace.TraceError("{0}", reportingFailure); }
     }
 
     /// <summary>Waits for final screen cleanup after the native hosting view has been removed.</summary>
