@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0-ios</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>AppNavSwiftUIProbe</AssemblyName>
+    <RuntimeIdentifier>iossimulator-arm64</RuntimeIdentifier>
+    <!-- This simulator-only probe runs managed code on CoreCLR's JIT. -->
+    <PublishReadyToRun>false</PublishReadyToRun>
+    <SupportedOSPlatformVersion>18.0</SupportedOSPlatformVersion>
+    <ApplicationId>com.adamessenmacher.appnav.swiftuiprobe</ApplicationId>
+    <ApplicationTitle>AppNav SwiftUI Probe</ApplicationTitle>
+    <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+    <ApplicationVersion>1</ApplicationVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <OahuVersion>0.1.0-preview.g7a56b3ba</OahuVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Core/Core.csproj" />
+    <ProjectReference Include="../Shell/Shell.csproj" />
+    <ProjectReference Include="../../src/AdamE.AppNav.SwiftUI/AdamE.AppNav.SwiftUI.csproj" />
+    <PackageReference Include="Oahu.iOS" Version="$(OahuVersion)" />
+    <PackageReference Include="Oahu.Gen.Build" Version="$(OahuVersion)" PrivateAssets="all" />
+    <OahuGen Include="../Shell/Shell.csproj" SwiftOut="../Shell/ProbeScreens/Sources/ProbeScreens" />
+    <OahuSwiftPackage Include="../Shell/ProbeScreens" />
+  </ItemGroup>
+</Project>

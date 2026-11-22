@@ -1,0 +1,17 @@
+iOS 27.2 Simulator screen recording, AppNav Open Fade Sheet → Dismiss
+Video: fade-sheet-ios27.mp4
+
+The sheet root requests SwiftUI .native(.crossFade). The timestamps below
+refer to the trimmed 60 fps video. RGB24 samples come from a 160 × 348
+rescale at x=13% of the screen width and the indicated screen heights.
+
+Time (s)  y=20%          y=60%          y=75%
+0.867     (13, 34, 56)   (13, 34, 56)   (13, 34, 56)
+0.883     (59, 54, 53)   (59, 54, 53)   (59, 54, 53)
+0.950     (133, 84, 44)  (133, 84, 44)  (133, 84, 44)
+1.067     (228, 127, 39) (228, 127, 39) (228, 127, 39)
+1.500     (252, 138, 37) (252, 138, 37) (252, 138, 37)
+
+The three vertically separated regions blend over the same frames. The
+XCUITest also verifies that the sheet presentation creates one history
+entry and the native dismissal creates one reconciliation entry.
