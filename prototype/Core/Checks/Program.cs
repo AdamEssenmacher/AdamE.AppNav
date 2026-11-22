@@ -16,6 +16,7 @@ static void Check(bool condition, string message)
 
 var start = router.StartAsync();
 var home = await Next();
+Check(home.Transition.DestinationScreen == "home-detail", "Start lost its destination screen name");
 Check(router.HistoryCount == 0 && router.CurrentEntryIds.Length == 0, "Start committed before native ACK");
 await Ack(home);
 await start;

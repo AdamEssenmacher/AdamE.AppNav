@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0-android37.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <RuntimeIdentifier>android-arm64</RuntimeIdentifier>
+    <SupportedOSPlatformVersion>28</SupportedOSPlatformVersion>
+    <ApplicationId>com.adamessenmacher.appnav.probe</ApplicationId>
+    <ApplicationTitle>AppNav Compose Probe</ApplicationTitle>
+    <ApplicationVersion>1</ApplicationVersion>
+    <ApplicationDisplayVersion>0.1.0</ApplicationDisplayVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AndroidPackageFormats>apk</AndroidPackageFormats>
+    <OahuVersion>0.1.0-preview.g7a56b3ba</OahuVersion>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <AndroidLinkTool>r8</AndroidLinkTool>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Core/Core.csproj" />
+    <ProjectReference Include="../../../src/AdamE.AppNav.Compose/AdamE.AppNav.Compose.csproj" />
+    <ProjectReference Include="../Contracts/Contracts.csproj" />
+    <PackageReference Include="Oahu.Gen.Build" Version="$(OahuVersion)" PrivateAssets="all" />
+    <AndroidGradleProject Include="../Native/build.gradle.kts" ModuleName="screens" Bind="false" Configuration="Release" />
+    <OahuGen Include="../Contracts/Contracts.csproj" KotlinOut="../Native/screens/src/main/kotlin"
+             KotlinPackage="com.adamessenmacher.appnav.probe" />
+  </ItemGroup>
+  <Target Name="_IncludeComposePresenterSources" BeforeTargets="_GetBuildAndroidGradleProjectsInputs">
+    <ItemGroup>
+      <_GradleInputs Include="../../../src/AdamE.AppNav.Compose/src/main/kotlin/**/*.kt" />
+    </ItemGroup>
+  </Target>
+  <Import Project="../../../src/AdamE.AppNav.Compose/buildTransitive/AdamE.AppNav.Compose.targets" />
+</Project>

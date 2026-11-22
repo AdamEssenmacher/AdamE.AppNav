@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import OahuRuntime
 import SwiftUI
 
@@ -41,8 +42,11 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
                                 .tag(branch.id)
                         }
                     }
-                } else if let branch = target.branches.first {
+                } else if let branch = target.branches.first(where: { $0.id == target.selectedBranch }) {
+                    // The surface only witnesses the selected branch, so a stack root renders that branch.
+                    // Its id gives each branch its own NavigationStack instead of rebinding one in place.
                     stack(branch.entries, key: .branch(branch.id))
+                        .id(branch.id)
                 } else {
                     emptyContent()
                 }
@@ -51,25 +55,25 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
             }
             footer(surface.diagnostics)
         }
-        .sheet(item: selection(for: .sheet), content: modalContent)
-        .fullScreenCover(item: selection(for: .fullScreenCover), content: modalContent)
-        .background(FrameObserver(surface: surface))
-        .onChange(of: projection, initial: true) { _, next in
+        .sheet(item: modalSelection(for: .sheet), content: modalContent)
+        .fullScreenCover(item: modalSelection(for: .fullScreenCover), content: modalContent)
+        .background(FrameObserver(surface: surface, report: report, trace: trace))
+        .modifier(StageProjection(projection: projection) { next in
             surface.stage(next, animatesSinglePushes: animatesSinglePushes,
-                          transactionAnimation: customization?.transactionAnimation, report: report, trace: trace)
-        }
+                          transactionAnimation: customization?.transactionAnimation)
+        })
     }
 
-    private func selection(for style: NavigationModalPresentation) -> Binding<ModalSelection?> {
-        let modal = surface.target?.modal
-        guard let modal, (customization?.modalPresentation(modal) ?? .sheet) == style else {
+    private func modalSelection(for style: NavigationModalPresentation) -> Binding<ModalSelection?> {
+        guard let modal = surface.target?.modal,
+              (customization?.modalPresentation(modal) ?? .sheet) == style else {
             return .constant(nil)
         }
-        // A dismissed presenter must not clear the selection of a replacement modal.
         return Binding(get: {
             guard let current = surface.modal.wrappedValue, current.id == modal.id else { return nil }
             return current
         }, set: { next in
+            // A dismissed presenter must not clear the selection of a replacement modal.
             if surface.modal.wrappedValue?.id == modal.id { surface.modal.wrappedValue = next }
         })
     }
@@ -77,15 +81,17 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
     @ViewBuilder
     private func modalContent(_ selection: ModalSelection) -> some View {
         if let modal = surface.target?.modal, modal.id == selection.id {
-            sheet(modal)
+            modalStack(modal)
         }
     }
 
     @ViewBuilder
-    private func sheet(_ modal: ModalProjection) -> some View {
+    private func modalStack(_ modal: ModalProjection) -> some View {
         let key = StackKey.modal(modal.id)
         let content = stack(modal.entries, key: key, presentsRoot: true)
-            .interactiveDismissDisabled(surface.modalTop.map { back?.intercepts($0) == true } ?? false)
+            // While a revision applies, the modal binding refuses dismissal. A swipe that UIKit
+            // completed anyway would leave the surface waiting for a sheet that is gone.
+            .interactiveDismissDisabled(surface.applying || surface.modalTop.map { back?.intercepts($0) == true } ?? false)
         if let root = modal.entries.first, let customization {
             let context = surface.context(for: root, key: key)
             applyTransition(customization.transition(context), to: content, context: context, key: key)
@@ -97,18 +103,24 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
     private func stack(_ entries: [NavigationEntry], key: StackKey, presentsRoot: Bool = false) -> some View {
         NavigationStack(path: surface.path(for: key)) {
             if let root = entries.first {
-                page(root, key: key, appliesTransition: !presentsRoot)
+                page(root, key: key, appliesTransition: !presentsRoot, isBranchRoot: !presentsRoot)
                     .navigationDestination(for: NavigationEntry.self) { page($0, key: key) }
             }
         }
     }
 
-    private func page(_ entry: NavigationEntry, key: StackKey, appliesTransition: Bool = true) -> some View {
-        let intercept = back?.intercepts(entry) == true
+    private func page(_ entry: NavigationEntry, key: StackKey, appliesTransition: Bool = true,
+                      isBranchRoot: Bool = false) -> some View {
+        // A branch root has nothing behind it, so it gets no replacement Back button. A sheet root keeps
+        // it as the managed close affordance.
+        let intercept = !isBranchRoot && back?.intercepts(entry) == true
         let context = surface.context(for: entry, key: key)
         return styledDestination(context, key: key, appliesTransition: appliesTransition)
         .background(PageMarker(surface: surface, key: key, entry: entry))
-        .navigationBarBackButtonHidden(intercept || surface.isWaitingForTab(key))
+        // While a revision applies, the path binding refuses pops and the presenter ignores readings that
+        // don't match the pending target. A Back that UIKit completed anyway would never settle.
+        // Hiding the button also disables the edge swipe and the Back-history menu.
+        .navigationBarBackButtonHidden(intercept || surface.applying || surface.isWaitingForTab(key))
         .toolbar {
             if intercept, let back {
                 ToolbarItem(placement: .topBarLeading) {
@@ -126,9 +138,7 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
 
     @ViewBuilder
     private func styledDestination(_ context: NavigationDestinationContext, key: StackKey, appliesTransition: Bool) -> some View {
-        let content = OahuMountView(id: context.entry.mount) {
-            ContentUnavailableView("Screen unavailable", systemImage: "rectangle.slash")
-        }
+        let content = OahuMountView(id: context.entry.mount) { UnavailableScreen() }
         if let customization {
             let decorated = customization.chrome?(context, AnyView(content)) ?? AnyView(content)
             if appliesTransition {
@@ -146,7 +156,7 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
         _ style: NavigationDestinationTransition, to content: some View,
         context: NavigationDestinationContext, key: StackKey
     ) -> some View {
-        let push = surface.animatedPushContext(for: context.entry, key: key)
+        let push = surface.matchedPushContext(for: context.entry, key: key)
         switch style {
         case .automatic:
             content
@@ -202,12 +212,61 @@ public struct NavigationBackControl {
     }
 }
 
-/// Optional counters for observing native rendering and interactive Back during integration tests.
-public struct NavigationDiagnostics {
-    public internal(set) var lastReading: NavigationReading?
-    public internal(set) var stagedTops: [String] = []
-    public internal(set) var gesturesBegan = 0
-    public internal(set) var gesturesCancelled = 0
-    public internal(set) var gesturesCompleted = 0
-    public internal(set) var gestureReading: NavigationReading?
+/// Stages the projection when the shell appears and again whenever it changes.
+private struct StageProjection: ViewModifier {
+    let projection: NavigationProjection
+    let stage: (NavigationProjection) -> Void
+
+    func body(content: Content) -> some View {
+        if #available(iOS 17, *) {
+            content.onChange(of: projection, initial: true) { _, next in stage(next) }
+        } else {
+            content.modifier(LegacyStageProjection(projection: projection, stage: stage))
+        }
+    }
 }
+
+/// iOS 16 staging. It has no initial change action. A second appearance is harmless: staging a revision that is
+/// already staged only refreshes its metadata.
+/// iOS 16 can run the change action captured by the previous body, so its `stage` would apply the previous
+/// animation policy. Both actions call through `latest`, which each body refreshes.
+private struct LegacyStageProjection: ViewModifier {
+    let projection: NavigationProjection
+    let stage: (NavigationProjection) -> Void
+    // `@StateObject` builds its value once per shell; `@State` would build and discard one on every init.
+    @StateObject private var latest = LatestStage()
+
+    func body(content: Content) -> some View {
+        let latest = latest
+        let _ = latest.stage = stage
+        content
+            .onAppear { latest.stage?(projection) }
+            .onChange(of: projection) { next in latest.stage?(next) }
+    }
+}
+
+/// The stage action from the most recent body, for iOS 16's change action. It publishes nothing, so holding it
+/// never invalidates the view.
+@MainActor
+private final class LatestStage: ObservableObject {
+    var stage: ((NavigationProjection) -> Void)?
+}
+
+/// What a destination shows while its mount is unavailable.
+private struct UnavailableScreen: View {
+    var body: some View {
+        if #available(iOS 17, *) {
+            ContentUnavailableView("Screen unavailable", systemImage: "rectangle.slash")
+        } else {
+            VStack(spacing: 8) {
+                Image(systemName: "rectangle.slash")
+                    .font(.largeTitle)
+                    .foregroundStyle(.secondary)
+                Text("Screen unavailable")
+                    .font(.headline)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+}
+#endif
