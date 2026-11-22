@@ -1,6 +1,8 @@
 # AppNav with SwiftUI and OAHU
 
-The managed host targets .NET 11 for iOS. The Swift package provides an iOS 18+ renderer for one window with either a linear stack or a tab host, plus one sheet with its own stack. The probe builds against AppNav from this checkout and OAHU `0.1.0-preview.g7a56b3ba`.
+The managed host targets .NET 11 for iOS. The Swift package provides an iOS 16+ renderer for one window with either a linear stack or a tab host, plus one sheet with its own stack. The probe builds against AppNav from this checkout and OAHU `0.1.0-preview.g7a56b3ba`.
+
+iOS 16 needs an OAHU build whose `OahuRuntime` declares `.iOS(.v16)`. With an earlier runtime, which requires iOS 17, SwiftPM refuses the package. The zoom and `.native(style)` transitions need iOS 18. On iOS 16 and 17 they fall back to the automatic push. The simulator suite runs at iOS 18 and later. It doesn't cover iOS 16 or 17.
 
 ## Integrate
 

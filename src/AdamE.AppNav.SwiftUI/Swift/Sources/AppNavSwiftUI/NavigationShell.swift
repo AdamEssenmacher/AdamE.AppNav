@@ -57,10 +57,10 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
             }
         }
         .background(FrameObserver(surface: surface, report: report, trace: trace))
-        .onChange(of: projection, initial: true) { _, next in
+        .modifier(StageProjection(projection: projection) { next in
             surface.stage(next, animatesSinglePushes: animatesSinglePushes,
                           transactionAnimation: customization?.transactionAnimation)
-        }
+        })
     }
 
     @ViewBuilder
@@ -108,9 +108,7 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
 
     @ViewBuilder
     private func styledDestination(_ context: NavigationDestinationContext, key: StackKey, appliesTransition: Bool) -> some View {
-        let content = OahuMountView(id: context.entry.mount) {
-            ContentUnavailableView("Screen unavailable", systemImage: "rectangle.slash")
-        }
+        let content = OahuMountView(id: context.entry.mount) { UnavailableScreen() }
         if let customization {
             let decorated = customization.chrome?(context, AnyView(content)) ?? AnyView(content)
             if appliesTransition {
@@ -192,4 +190,40 @@ public struct NavigationDiagnostics {
     public internal(set) var gesturesCancelled = 0
     public internal(set) var gesturesCompleted = 0
     public internal(set) var gestureReading: NavigationReading?
+}
+
+/// Stages the projection when the shell appears and again whenever it changes.
+private struct StageProjection: ViewModifier {
+    let projection: NavigationProjection
+    let stage: (NavigationProjection) -> Void
+
+    func body(content: Content) -> some View {
+        if #available(iOS 17, *) {
+            content.onChange(of: projection, initial: true) { _, next in stage(next) }
+        } else {
+            // iOS 16 has no initial change action. A second appearance is harmless: staging a revision that is
+            // already staged only refreshes its metadata.
+            content
+                .onAppear { stage(projection) }
+                .onChange(of: projection) { next in stage(next) }
+        }
+    }
+}
+
+/// What a destination shows while its mount is unavailable.
+private struct UnavailableScreen: View {
+    var body: some View {
+        if #available(iOS 17, *) {
+            ContentUnavailableView("Screen unavailable", systemImage: "rectangle.slash")
+        } else {
+            VStack(spacing: 8) {
+                Image(systemName: "rectangle.slash")
+                    .font(.largeTitle)
+                    .foregroundStyle(.secondary)
+                Text("Screen unavailable")
+                    .font(.headline)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
 }
