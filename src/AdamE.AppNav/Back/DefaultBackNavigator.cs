@@ -16,6 +16,10 @@ namespace AdamE.AppNav.Back;
 /// <remarks>
 /// The default navigator first gives modal content and selected child hosts a chance to go back,
 /// then falls back to modal dismissal, stack popping, and configured default-branch selection.
+/// A <see cref="SplitNode"/> goes back inside its secondary column while <see cref="SplitNode.CompactColumn"/> is
+/// <see cref="SplitColumn.Secondary"/>, and from that column's root closes it, which removes its content. Otherwise
+/// it goes back inside the primary column, which also closes the secondary column. The plan is the same however
+/// wide the window is.
 /// </remarks>
 public sealed class DefaultBackNavigator(
     BackNavigationOptions? options = null,
@@ -109,6 +113,7 @@ public sealed class DefaultBackNavigator(
         {
             StackNode stack => TryBackStack(stack),
             BranchHostNode branchHost => TryBackBranchHost(branchHost),
+            SplitNode split => TryBackSplit(split),
             // Window-level modal dismissal is handled from WindowNode.Modals. A nested
             // modal node can only delegate back navigation into its content.
             ModalNode { Content: not null } modal => TryBack(modal.Content) is { } result
@@ -146,6 +151,22 @@ public sealed class DefaultBackNavigator(
                 "Back navigation will return to the default branch.");
 
         return null;
+    }
+
+    // The secondary column belongs to what the primary column shows. Back from the secondary column's root closes
+    // that column, so its entries leave the state and their leases end. Back inside the primary column leaves the
+    // context the secondary column belonged to, so it closes the secondary column too. Neither depends on whether
+    // the presenter shows the columns side by side.
+    private NodeBackResult? TryBackSplit(SplitNode split)
+    {
+        if (split.CompactColumn == SplitColumn.Secondary && split.Secondary is { } secondary)
+            return TryBack(secondary) is { } secondaryBack
+                ? secondaryBack with { Node = split with { Secondary = secondaryBack.Node } }
+                : new NodeBackResult(split.ClearSecondary(), "Back navigation will close the secondary column.");
+
+        return TryBack(split.Primary) is { } primaryBack
+            ? primaryBack with { Node = (split with { Primary = primaryBack.Node }).ClearSecondary() }
+            : null;
     }
 
     private static NavigationState ReplaceWindow(BackNavigationContext context, WindowNode window)

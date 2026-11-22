@@ -81,6 +81,17 @@ internal static class TopologyChecks
             Plan(
                 [Entry("refuse-root")],
                 new ModalNode(Sheet, Entry("refuse-sheet"), new StackNode("nested", [Entry("refuse-nested")]))),
+            // A split, which this presenter does not present yet.
+            new NavigationState(
+                [
+                    new WindowNode(
+                        Window,
+                        new SplitNode(
+                            "split",
+                            new StackNode(Stack, [Entry("refuse-root")]),
+                            new StackNode("split-detail", [Entry("refuse-a")])))
+                ],
+                Window),
             // Another stack, and another window.
             new NavigationState([new WindowNode(Window, new StackNode("other", [Entry("refuse-root")]))], Window),
             new NavigationState([new WindowNode("other", new StackNode(Stack, [Entry("refuse-root")]))], "other"),

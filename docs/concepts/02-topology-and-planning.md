@@ -66,6 +66,10 @@ as one particular inventory subgroup or item within a stack.
   discard the inactive branch trees.
 - `ModalNode` owns a modal route and optional nested topology, such as the
   confirmation shown before loading a save.
+- `SplitNode` owns a primary column and an optional secondary column, each with
+  its own navigation tree, and says which column a collapsed presentation shows
+  on top. A split cannot be nested, at any depth, inside a modal or another
+  split; validation rejects such a state. See [split layouts](#split-layouts).
 
 `NavigationNode` is externally non-derivable. Unknown shapes are rejected
 before presentation. A non-null `ActiveWindowId` must identify an existing
@@ -78,6 +82,102 @@ default and can map each host independently to tabs, a direct window-root
 `FlyoutPage`, or an application-owned custom host. A factory advertises its
 supported placements; preflight rejects an incompatible topology before page
 creation or native mutation.
+
+## Split layouts
+
+A wide window, such as a tablet or an opened foldable, can show two columns:
+a primary column beside a secondary column holding the selected item's own
+navigation tree. A narrow window shows the same logical state as one stack.
+A mail app is the usual example: the mailbox list is the primary column, and
+the selected message, with anything pushed from it, is the secondary column.
+
+```text
+WindowNode "main"
+└── SplitNode "mail" (compact column: Secondary)
+    ├── primary -> StackNode "mailboxes"
+    │   └── InboxRoute
+    └── secondary -> StackNode "message-stack"
+        ├── MessageRoute(messageId)
+        └── AttachmentRoute(messageId, attachmentId)
+```
+
+`Secondary` may be null when nothing is selected; a presenter may show a
+placeholder beside the primary column. `CompactColumn` names the column a
+collapsed presentation shows on top: `Primary` shows only the mailbox list,
+and `Secondary` shows the mailbox list with the message stack above it, so the
+user sees the attachment. When the constructor is not given a
+`CompactColumn`, it shows the secondary column if there is one and the primary
+column otherwise. `CompactColumn = Secondary` requires a secondary column.
+Passing `Primary` with a secondary column keeps a default message beside the
+list on wide windows while a collapsed window keeps the list on top:
+
+```csharp
+new SplitNode("mail", mailboxes, messageStack);                      // CompactColumn: Secondary
+new SplitNode("mail", mailboxes);                                    // CompactColumn: Primary
+new SplitNode("mail", mailboxes, welcomeStack, SplitColumn.Primary); // list on top when collapsed
+```
+
+Change the selection with `split.Select(messageStack)` and
+`split.ClearSecondary()`. `Select` resolves `CompactColumn` as the constructor
+does unless you pass one, and `ClearSecondary` also shows the primary column.
+A `with { Secondary = ... }` expression does not apply that default again: it
+keeps the current `CompactColumn`, so selecting a message that way on a split
+showing its list leaves the list on top. Clearing the selection with
+`with { Secondary = null }` on a split showing its message keeps
+`CompactColumn = Secondary`, which validation rejects; use `ClearSecondary()`.
+
+What a column shows is its tree's presented content. A column holding a branch
+host shows its selected branch's content, so a collapsed split stacks that
+content.
+
+Width changes never change the logical state. Collapsing a two-column window
+to one column, or expanding it again, is purely presentation: the split, both
+columns and `CompactColumn` stay as they are. Route entries in both columns are
+committed state whichever column is shown, so their [route-entry
+leases](../advanced/entry-leases.md) stay open and entry IDs must be unique
+across both columns.
+
+Back does not depend on the layout either, so `BackAsync()` plans the same
+change in a narrow window and a wide one. While `CompactColumn` is
+`Secondary`, Back first goes back inside the secondary column. From that
+column's root, Back closes it: `Secondary` becomes null and `CompactColumn`
+becomes `Primary`, so the message's entries leave the state and their leases
+end. A narrow window pops back to the list, and a wide window shows the list
+beside an empty secondary column. Otherwise Back goes back inside the primary
+column.
+
+Back inside the primary column, whether a stack pop or a branch host's
+default-branch fallback, also closes the secondary column: the selected
+message belonged to the mailbox that was just left. A default message shown
+beside the list with `CompactColumn = Primary` is closed the same way.
+
+No Back a split plans only changes `CompactColumn`. Each one changes what a
+column shows: it pops an entry, closes the secondary column, or returns a
+branch host inside a column to its default branch. So no Back is invisible at
+any width.
+
+The route a navigation result and its history entry report is the top of the
+column `CompactColumn` names: the message stack's top while a message is
+selected, and the list's top otherwise.
+
+### Splits and branch hosts
+
+Both nodes own several navigation trees, but they mean different things:
+
+| | `BranchHostNode` | `SplitNode` |
+| --- | --- | --- |
+| Shown at once | One branch: the selected one. That choice is logical state. | Both columns when there is room. How many fit is presentation. |
+| Relationship | Independent peers. Back in one never changes another. | Ordered. The secondary column belongs to what the primary column shows, so Back in the primary column closes it. |
+| Children | A fixed set the app declares, each with a title for the host's tabs or menu. | A primary tree and an optional secondary tree that comes and goes with the selection. |
+
+They compose: a split can be a branch's content, and a column can hold a
+branch host. A sidebar that switches between sections is a branch host; the
+list and detail inside one section is a split.
+
+Apps build splits through `IAppNavigationPlanner`; the standard models do not
+produce them. The MAUI, UIKit, Android and OAHU presenters do not present
+splits yet and refuse a plan containing one with `NotSupportedException`
+before any native change.
 
 ## Standard models
 
@@ -120,8 +220,8 @@ has domain-specific topology rules.
 
 ## Back and reconciliation
 
-Logical Back first handles modal content, then modal dismissal, stack pop, and
-configured branch fallback. In Glyphmere that means Back dismisses the load
+Logical Back first handles modal content, then modal dismissal, stack pop,
+[split columns](#split-layouts), and configured branch fallback. In Glyphmere that means Back dismisses the load
 confirmation before leaving its save slot, pops an item back to Inventory, and
 can finally apply the pause menu's configured branch fallback.
 

@@ -676,6 +676,12 @@ public sealed class RouteEntryLeaseRegistry
                 foreach (NavigationBranch branch in branchHost.Branches)
                     AddEntryIds(branch.Content, ids);
                 break;
+            // Both columns are committed state, shown side by side or not, so both keep their leases.
+            case SplitNode split:
+                AddEntryIds(split.Primary, ids);
+                if (split.Secondary is not null)
+                    AddEntryIds(split.Secondary, ids);
+                break;
             case ModalNode modal:
                 ids.Add(modal.RouteEntry.Id);
                 if (modal.Content is not null)

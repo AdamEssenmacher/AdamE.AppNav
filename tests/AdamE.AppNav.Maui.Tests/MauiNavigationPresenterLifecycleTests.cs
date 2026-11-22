@@ -538,6 +538,32 @@ public sealed class MauiNavigationPresenterLifecycleTests
     }
 
     [Fact]
+    public async Task SplitIsRejectedBeforePageCreation()
+    {
+        var fixture = new PresenterFixture();
+        var split = new SplitNode(
+            "mail",
+            Stack("mailboxes", Entry("inbox")),
+            Stack("message", Entry("message")),
+            SplitColumn.Secondary);
+        var tabs = new BranchHostNode(
+            "tabs",
+            new[] { new NavigationBranch("mail", "Mail", split) },
+            "mail");
+
+        NotSupportedException root = await Assert.ThrowsAsync<NotSupportedException>(() =>
+            fixture.Presenter.ApplyAsync(Plan(split), Context(new TestPageRoute("message"))).AsTask());
+        NotSupportedException nested = await Assert.ThrowsAsync<NotSupportedException>(() =>
+            fixture.Presenter.ApplyAsync(Plan(tabs), Context(new TestPageRoute("message"))).AsTask());
+
+        Assert.Contains("does not support split nodes yet; found split 'mail' at window root", root.Message, StringComparison.Ordinal);
+        Assert.Contains("at window root branch 'mail'", nested.Message, StringComparison.Ordinal);
+        Assert.Empty(fixture.Factory.CreatedPages);
+        Assert.Null(fixture.Presenter.CurrentPage);
+        _ = fixture.Presenter.StartShutdown();
+    }
+
+    [Fact]
     public async Task BranchHostCapabilityFailureOccursBeforeFactoryCreation()
     {
         var factory = new RecordingBranchHostFactory(MauiBranchHostPlacement.Nested);

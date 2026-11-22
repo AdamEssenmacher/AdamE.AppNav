@@ -4,6 +4,8 @@ using AdamE.AppNav.State;
 namespace AdamE.AppNav.Oahu;
 
 /// <summary>A projection of one window, a stack or branch host, and an optional modal stack.</summary>
+/// <remarks>Other shapes are refused with <see cref="NotSupportedException"/> before anything is staged. That includes
+/// a <see cref="SplitNode"/> anywhere in the window, which OAHU surfaces do not present yet.</remarks>
 public sealed record OahuNavigationTarget
 {
     internal OahuNavigationTarget(NavigationState state, long revision)
@@ -17,6 +19,12 @@ public sealed record OahuNavigationTarget
         if (state.Windows.Count != 1 || state.ActiveWindow is not { } window)
             throw new NotSupportedException("An OAHU surface presents one active window.");
         WindowId = window.Id;
+        // Split renderers come later; refuse a split anywhere before staging anything for it.
+        SplitNode? split = FindSplit(window.Root);
+        for (var i = 0; split is null && i < window.Modals.Count; ++i)
+            split = FindSplit(window.Modals[i]);
+        if (split is not null)
+            throw new NotSupportedException($"An OAHU surface does not present split nodes yet; found split '{split.Id}'.");
         switch (window.Root)
         {
             case StackNode stack:
@@ -61,6 +69,24 @@ public sealed record OahuNavigationTarget
         foreach (var entry in all)
             if (!ids.Add(entry.Id))
                 throw new NotSupportedException($"Duplicate route entry occurrence '{entry.Id}'.");
+    }
+
+    private static SplitNode? FindSplit(NavigationNode? node)
+    {
+        switch (node)
+        {
+            case SplitNode split:
+                return split;
+            case BranchHostNode host:
+                for (var i = 0; i < host.Branches.Count; ++i)
+                    if (FindSplit(host.Branches[i].Content) is { } nested)
+                        return nested;
+                return null;
+            case ModalNode modal:
+                return FindSplit(modal.Content);
+            default:
+                return null;
+        }
     }
 
     private static IReadOnlyList<RouteEntry> StackEntries(StackNode stack) => stack.Entries.Count != 0

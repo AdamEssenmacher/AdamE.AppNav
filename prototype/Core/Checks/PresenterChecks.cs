@@ -318,7 +318,13 @@ internal static class PresenterChecks
         {
             new NavigationState([window, new WindowNode("other", root)]),
             new NavigationState([window with { Modals = [new ModalNode("sheet", root.Entries[0])] }]),
-            new NavigationState([window with { Root = new StackNode("empty", []) }])
+            new NavigationState([window with { Root = new StackNode("empty", []) }]),
+            // Split renderers come later: a split is refused wherever it is.
+            new NavigationState([window with { Root = new SplitNode("split", root) }]),
+            new NavigationState([window with { Root = new BranchHostNode(
+                "tabs", [new NavigationBranch("tab", "Tab", new SplitNode("split", root))], "tab") }]),
+            new NavigationState([window with { Modals = [new ModalNode("sheet", new("sheet-entry", route),
+                new SplitNode("split", new StackNode("sheet-stack", [new("sheet-root", route)])))] }])
         })
         {
             try
@@ -326,8 +332,16 @@ internal static class PresenterChecks
                 await presenter.ApplyAsync(new(unsupported), context);
                 throw new Exception("Invalid plan reached native");
             }
-            catch (NotSupportedException) { }
+            catch (NotSupportedException failure)
+            {
+                Assert(!ContainsSplit(unsupported) || failure.Message.Contains("split 'split'", StringComparison.Ordinal),
+                    "A split is refused as a split");
+            }
             await host.NextFailsIfPublished();
         }
+
+        static bool ContainsSplit(NavigationState state) => state.Windows.Any(window =>
+            window.Root is SplitNode or BranchHostNode { Branches: [{ Content: SplitNode }] } ||
+            window.Modals.Any(modal => modal.Content is SplitNode));
     }
 }

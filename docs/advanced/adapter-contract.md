@@ -32,6 +32,13 @@ using only public core APIs and is created with the router through
 ## Adapter owns
 
 - UI artifacts and mapping from `RouteEntry` to them;
+- how it lays out any `SplitNode` it presents: side by side when there is
+  room, or as one stack with the column `CompactColumn` names on top. Core
+  never learns which, and no plan depends on it. When the host closes the
+  secondary column itself, such as a native Back from its root in a
+  single-column window, the adapter reconciles to a state whose split has no
+  secondary column. An adapter that cannot present splits refuses them with
+  `NotSupportedException` before it builds anything;
 - attaching each native artifact to its entry's lease, and detaching it once
   the artifact no longer uses the lease, including during rollback and
   shutdown, and finishing rollback before `ApplyAsync` throws;
@@ -113,7 +120,7 @@ structural verification and release, including inactive branches.
 
 The public adapter-contract test assembly exercises successful apply,
 failure/cancellation without commit, reconciliation, shutdown/event detachment,
-and Stack/BranchHost/Modal topology. A future Blazor adapter should satisfy the
+and Stack/BranchHost/Split/Modal topology. A future Blazor adapter should satisfy the
 same contract while owning browser history, component mapping, lifecycle, and
 storage rather than MAUI artifacts.
 

@@ -81,7 +81,7 @@ public sealed class NavigationTopology
     /// <remarks>This version matches at most one modal, with no topology nested in it: what a placement means over
     /// another modal, or inside one, is not defined yet, so such plans are refused rather than passed unchecked.</remarks>
     /// <exception cref="NotSupportedException">The plan has another shape, or one the presenter cannot show; the
-    /// message names which.</exception>
+    /// message names which. A <see cref="SplitNode"/> root is refused with a message that names the split.</exception>
     public NavigationTopologyMatch? Match(NavigationState state, NavigationTopologySupport support)
     {
         ArgumentNullException.ThrowIfNull(state);
@@ -91,6 +91,9 @@ public sealed class NavigationTopology
         if (state.Windows.Count != 1 || state.ActiveWindow is not { } window || window.Id != WindowId)
             throw new NotSupportedException(
                 $"The topology declares the one window '{WindowId}'; the plan has {state.Windows.Count} window(s).");
+        if (window.Root is SplitNode split)
+            throw new NotSupportedException(
+                $"This presenter does not present split nodes; the window's root is the split '{split.Id}'.");
         if (window.Root is not StackNode stack || stack.Id != StackId)
             throw new NotSupportedException($"The window's root must be the stack '{StackId}'.");
         if (stack.Entries.Count < 1)

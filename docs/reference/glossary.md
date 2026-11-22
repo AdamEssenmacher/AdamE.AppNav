@@ -363,6 +363,18 @@ A description of where the user wants to go in application terms, independent
 of the UI operations needed to render it. "Show inventory item 42" is semantic;
 "select tab 1 and push `ItemPage`" is presentation procedure.
 
+### Split
+
+A `SplitNode` with a primary column beside an optional secondary column, each
+holding its own navigation tree, such as a mailbox list beside the selected
+message. `CompactColumn` says which column a collapsed, single-column
+presentation shows on top. Window width changes only the presentation, never
+the logical state or what Back does. Unlike a branch host, whose branches are
+independent and shown one at a time, a split's columns are shown together
+when there is room, and the secondary column belongs to what the primary
+column shows. See [Topology and
+planning](../concepts/02-topology-and-planning.md#split-layouts).
+
 ### Stack
 
 A `StackNode` containing ordered `RouteEntry` values from root to top. It is a
@@ -372,7 +384,7 @@ navigation stack, but the core does not store native pages.
 ### Topology
 
 The shape of the logical navigation tree: windows, roots, branch hosts,
-branches, stacks, route entries, and modals. Routes express destination
+branches, splits, stacks, route entries, and modals. Routes express destination
 meaning; topology expresses the structure required to reach and retain it.
 
 ### Transformer

@@ -1046,6 +1046,51 @@ public sealed class RouteEntryLeaseTests
         Assert.Equal(0, presenter.ApplyCount);
     }
 
+    [Fact]
+    public async Task ASplitKeepsTheLeaseOfAHiddenColumnAndBackFromTheSecondaryRootDropsIt()
+    {
+        // A mailbox list beside a message. StoreRoute("none") selects nothing; "welcome" is a default message that a
+        // single-column presentation keeps under the list.
+        var planner = new TestNavigationPlanner((context, _) =>
+        {
+            var route = (TestRoutes.StoreRoute)context.Route;
+            StackNode mailboxes = TestNavigationState.Stack(
+                "mailboxes",
+                TestNavigationState.Entry("inbox", new TestRoutes.StoreRoute("inbox")));
+            SplitNode split = route.StoreId == "none"
+                ? new SplitNode("mail", mailboxes)
+                : new SplitNode(
+                    "mail",
+                    mailboxes,
+                    TestNavigationState.Stack("message", TestNavigationState.Entry(route.StoreId, route)),
+                    route.StoreId == "welcome" ? SplitColumn.Primary : SplitColumn.Secondary);
+            return ValueTask.FromResult(new NavigationPlan(
+                TestNavigationState.State("main", TestNavigationState.Window("main", split))));
+        });
+        var leases = new RouteEntryLeaseRegistry(new RecordingLeaseHost());
+        await using IRouterNavigator router = RouterNavigatorFactory.Create(
+            TestRoutes.CreateTable(),
+            planner,
+            new RecordingNavigationPresenter(),
+            new RouterNavigatorFactoryOptions { EntryLeases = leases });
+
+        // The column that is not on top is still committed state.
+        RouteEntryLease welcome = await OpenSentClosedAsync(router, leases, "welcome");
+        Assert.True(welcome.IsCommitted);
+        Assert.False(welcome.IsRetired);
+
+        RouteEntryLease message = await OpenSentClosedAsync(router, leases, "m1");
+        Assert.Equal(RouteEntryLeaseRetirement.Dropped, welcome.Retirement);
+        Assert.True(message.IsCommitted);
+
+        // Back from the message's root closes the secondary column, which ends the message's lease.
+        BackNavigationResult back = await router.BackAsync();
+        Assert.Equal(BackNavigationStatus.Completed, back.Status);
+        Assert.Null(Assert.IsType<SplitNode>(router.CurrentState.ActiveWindow?.Root).Secondary);
+        Assert.Equal(RouteEntryLeaseRetirement.Dropped, message.Retirement);
+        Assert.False(message.IsCommitted);
+    }
+
     // Deterministic: once the lease's retirement has been delivered, release starts synchronously with whichever call
     // meets its last condition, so a lease that has not started releasing by then is held.
     private static async Task AssertHeldAsync(RouteEntryLease lease)
