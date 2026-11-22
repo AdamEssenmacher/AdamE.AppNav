@@ -165,7 +165,8 @@ final class NativeSurface: ObservableObject {
     }
 
     // Every reading must name a rendered branch. An unknown selection would leave no branch top to witness,
-    // so the surface would never settle and would withhold Back indefinitely. TabView shows the first branch.
+    // so the surface would never settle and would withhold Back indefinitely. TabView shows the first branch,
+    // and a stack root renders whichever branch this leaves selected.
     private func selectingKnownBranch(_ projection: NavigationProjection) -> NavigationProjection {
         guard let first = projection.branches.first,
               !projection.branches.contains(where: { $0.id == projection.selectedBranch }) else { return projection }

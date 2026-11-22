@@ -41,8 +41,11 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
                                 .tag(branch.id)
                         }
                     }
-                } else if let branch = target.branches.first {
+                } else if let branch = target.branches.first(where: { $0.id == target.selectedBranch }) {
+                    // The surface only witnesses the selected branch, so a stack root renders that branch.
+                    // Its id gives each branch its own NavigationStack instead of rebinding one in place.
                     stack(branch.entries, key: .branch(branch.id))
+                        .id(branch.id)
                 } else {
                     emptyContent()
                 }
