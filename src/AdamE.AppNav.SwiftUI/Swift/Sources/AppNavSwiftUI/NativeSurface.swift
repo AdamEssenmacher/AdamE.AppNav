@@ -125,6 +125,9 @@ final class NativeSurface: ObservableObject {
     private var pushWitnessed = false
     // Whether the last settled frame still showed the taken-back page on top.
     private var takenBackKept = false
+    // The stack whose animated push can take a Back while it applies: its page has been seen and no Back has taken
+    // it back yet. Every other stack withholds Back until the revision settles.
+    @Published private(set) var backDuringPush: StackKey?
 
     private struct TakenBack {
         let key: StackKey
@@ -162,6 +165,7 @@ final class NativeSurface: ObservableObject {
         takenBack = nil
         takenBackKept = false
         pushWitnessed = false
+        backDuringPush = nil
         applying = next.revision > 0
         nextDiagnostic = CACurrentMediaTime() + 1
         candidate = nil
@@ -318,6 +322,13 @@ final class NativeSurface: ObservableObject {
         })
     }
 
+    /// Whether native Back is withheld on `key` while a revision applies. The path binding refuses other pops then,
+    /// and the presenter ignores readings that don't match the pending target, so such a Back would never settle.
+    /// An animated one-entry push whose page has been seen is the exception: the shell can take it back.
+    func withholdsBack(_ key: StackKey) -> Bool {
+        applying && backDuringPush != key
+    }
+
     func isWaitingForTab(_ key: StackKey) -> Bool {
         !applying && target?.isBranchHost == true && key == .branch(selectedBranch) &&
             (lastReading?.branch != selectedBranch || target?.selectedBranch != selectedBranch)
@@ -356,6 +367,8 @@ final class NativeSurface: ObservableObject {
                 self.takenBack = TakenBack(key: key, staged: staged, shorter: staged.replacing(key, with: next),
                                            shorterEntries: shorterEntries, restored: current, removed: push.new[push.new.count - 1])
                 self.takenBackKept = false
+                // A further Back before UIKit settles would leave no reading that can settle.
+                self.backDuringPush = nil
                 self.paths[key] = next
                 return
             }
@@ -374,6 +387,7 @@ final class NativeSurface: ObservableObject {
         if let push = animatedPush, !pushWitnessed,
            attached.contains(where: { $0.entry == push.new.last && $0.key == push.key }) {
             pushWitnessed = true
+            backDuringPush = push.key
         }
         if target.branches.isEmpty {
             guard attached.isEmpty else { return }
@@ -544,6 +558,7 @@ final class NativeSurface: ObservableObject {
         takenBack = nil
         takenBackKept = false
         diagnostics.pushesRestored += 1
+        backDuringPush = taken.key
         guard paths[taken.key] != taken.restored else { return }
         var transaction = Transaction(animation: nil)
         transaction.disablesAnimations = true
@@ -571,6 +586,7 @@ final class NativeSurface: ObservableObject {
         takenBack = nil
         takenBackKept = false
         pushWitnessed = false
+        backDuringPush = nil
         lastReading = reading
         if applying, let target {
             diagnostics.stagedTops = stagedTops

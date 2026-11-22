@@ -92,7 +92,8 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
         let context = surface.context(for: entry, key: key)
         return styledDestination(context, key: key, appliesTransition: appliesTransition)
         .background(PageMarker(surface: surface, key: key, entry: entry))
-        .navigationBarBackButtonHidden(intercept || surface.isWaitingForTab(key))
+        // Hiding the button also disables the edge swipe and the Back-history menu.
+        .navigationBarBackButtonHidden(intercept || surface.withholdsBack(key) || surface.isWaitingForTab(key))
         .toolbar {
             if intercept, let back {
                 ToolbarItem(placement: .topBarLeading) {
