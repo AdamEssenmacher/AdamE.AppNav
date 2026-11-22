@@ -38,9 +38,13 @@ using only public core APIs and is created with the router through
   the layout reported when it runs; a result and its history entry use the
   layout reported when the operation was planned, which for a navigation or
   reconciliation is before `ApplyAsync`. Application code does not call it.
-  A layout is forgotten once a commit no longer has its window, but a report
-  racing that commit can carry over to a window re-added with the same ID, so
-  an adapter reports again whenever it attaches to a window. It can also call
+  A layout is forgotten once a commit no longer has its window, and a layout
+  reported before its window exists is forgotten by any commit that does not
+  add it, so an adapter reports again when it attaches to a window and after
+  the commit that adds the window. The first navigation that creates a window
+  records its route collapsed unless a report made before it is still kept. A report racing the commit that removes a window
+  can carry over to a window re-added with the same ID; the report on attach
+  replaces it. It can also call
   `IBackNavigator.CreateBackPlan` with a `BackNavigationContext` whose
   `SplitLayout` is set to learn whether to offer a system Back. An adapter
   that cannot present splits refuses them with `NotSupportedException` before

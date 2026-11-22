@@ -61,14 +61,18 @@ public interface IRouterNavigator : IDisposable, IAsyncDisposable
     /// <see cref="History"/> and is not queued behind navigation. A Back planned after this call returns, including
     /// one already queued, uses it unless its <see cref="BackNavigationRequest.SplitLayout"/> overrides it. A result
     /// and its history entry report the route shown in the layout reported when the operation was planned, which for
-    /// a navigation or reconciliation is before the presenter applies it.
+    /// a navigation or reconciliation is before the presenter applies it, or in a Back request's
+    /// <see cref="BackNavigationRequest.SplitLayout"/> override.
     /// </para>
     /// <para>
     /// A layout may be reported for a window the state does not have yet, such as before the first navigation; it is
-    /// kept until the next commit, and forgotten then unless the committed state has the window. A layout is also
-    /// forgotten once a commit removes its window, so a later window with the same ID starts collapsed until it is
-    /// reported again. A report that races the commit removing its window can survive that commit and carry over to a
-    /// window the next commit adds with the same ID; a presenter that reports when it attaches to a window replaces it.
+    /// kept until the next commit, and forgotten by any commit that does not add the window. Report a window's layout
+    /// again after the commit that adds the window, as well as when attaching to it. The first navigation that creates
+    /// a window plans before that report, so it records its route collapsed unless an earlier report survived. A layout
+    /// is also forgotten once a commit removes its window, so a later window with the same ID starts collapsed until it
+    /// is reported again. A report that races the commit removing its window can survive that commit and carry over to
+    /// a window the next commit adds with the same ID; a presenter that reports when it attaches to a window replaces
+    /// it.
     /// </para>
     /// <para>
     /// It is safe to call from any thread. A report admitted before shutdown starts applies, and writes its

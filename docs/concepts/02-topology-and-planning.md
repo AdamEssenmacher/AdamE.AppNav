@@ -140,12 +140,16 @@ presenter that shows splits calls `IRouterNavigator.ReportSplitLayout(windowId,
 layout)` before its first apply to a window and whenever its layout there
 changes, with `SplitLayout.Collapsed` or `SplitLayout.SideBySide`; application
 code does not call it. A window never reported is collapsed, and a layout is
-forgotten once a commit no longer has its window. A report racing that commit
-can carry over to a window re-added with the same ID, which the presenter's
-report on attaching replaces. Reporting is presentation only: it changes neither `CurrentState` nor history, is not
-queued behind navigation, and writes a `SplitLayoutReported` diagnostic when
-the layout changes. App code then calls `BackAsync()` as usual and gets the
-Back that matches what the user sees.
+forgotten once a commit no longer has its window. A layout reported before its
+window exists is forgotten by any commit that does not add the window, so the
+presenter reports again after the commit that adds it, as well as when it
+attaches. The first navigation that creates a window therefore records its
+route collapsed, unless a report made before it is still kept. A report racing the commit that removes a window can carry
+over to a window re-added with the same ID, which the presenter's report on
+attaching replaces. Reporting is presentation only: it changes neither
+`CurrentState` nor history, is not queued behind navigation, and writes a
+`SplitLayoutReported` diagnostic when the layout changes. App code then calls
+`BackAsync()` as usual and gets the Back that matches what the user sees.
 
 Collapsed, Back treats every split as one stack. While `CompactColumn` is
 `Secondary`, Back first goes back inside the secondary column; from its root,
@@ -154,13 +158,13 @@ Otherwise Back goes back inside the primary column. Side by side, Back goes
 back inside the secondary column, then inside the primary column, and never
 plans a Back that only changes `CompactColumn`. A
 `BackNavigationRequest.SplitLayout` overrides the reported layout for one
-request. The router resolves the layout into `BackNavigationContext.SplitLayout`
-and, when the window holds a split, records it as `splitLayout` on
-`BackEvaluated`, so an adapter can also ask
-`IBackNavigator.CreateBackPlan` with a context of its own whether Back would do
-anything in its layout, for example to decide whether to enable a system Back
-callback. `DefaultBackNavigator.CreateBackPlan(state, windowId)` always plans
-collapsed.
+request. The router resolves the layout into
+`BackNavigationContext.SplitLayout`, and the default Back navigator, when the
+window holds a split, records it as `splitLayout` on `BackEvaluated`. An
+adapter can also ask `IBackNavigator.CreateBackPlan` with a context of its own
+whether Back would do anything in its layout, for example to decide whether to
+enable a system Back callback. `DefaultBackNavigator.CreateBackPlan(state,
+windowId)` always plans collapsed.
 
 In both layouts, Back inside the primary column, whether a stack pop or a
 branch host's default-branch fallback, clears the secondary column and shows
@@ -169,9 +173,10 @@ left. A default message shown beside the list with `CompactColumn = Primary`
 is cleared the same way.
 
 The route a navigation result and its history entry report follows the layout
-reported when the operation was planned. Collapsed, it is the route on top of the collapsed stack. Side by side,
-it is the secondary column's top whenever the split has a secondary column,
-since that column has the focus, and the primary column's top otherwise.
+reported when the operation was planned. Collapsed, it is the route on top of
+the collapsed stack. Side by side, it is the secondary column's top whenever
+the split has a secondary column, since that column has the focus, and the
+primary column's top otherwise.
 
 Apps build splits through `IAppNavigationPlanner`; the standard models do not
 produce them. The MAUI, UIKit, Android and OAHU presenters do not present

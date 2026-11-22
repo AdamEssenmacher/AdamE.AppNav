@@ -561,6 +561,35 @@ public sealed class SplitNodeTests
     }
 
     [Fact]
+    public async Task TheLayoutSurvivesTheDefaultSafeDiagnosticsMode()
+    {
+        // Default options: Safe data mode, which keeps only structural values.
+        var diagnostics = new NavigationDiagnostics();
+        var events = new List<NavigationDiagnosticEvent>();
+        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+        await using IRouterNavigator router = RouterNavigatorFactory.Create(
+            TestRoutes.CreateTable(),
+            TestNavigationPlanner.EchoStack(),
+            new RecordingNavigationPresenter(),
+            new RouterNavigatorFactoryOptions
+            {
+                InitialState = Root(Split(SplitColumn.Secondary, Message("m1", "attachment"))),
+                Diagnostics = diagnostics
+            });
+
+        router.ReportSplitLayout("main", SplitLayout.SideBySide);
+        await router.BackAsync();
+
+        NavigationDiagnosticEvent reported =
+            Assert.Single(events, static e => e.Kind == NavigationDiagnosticEventKind.SplitLayoutReported);
+        NavigationDiagnosticEvent evaluated =
+            Assert.Single(events, static e => e.Kind == NavigationDiagnosticEventKind.BackEvaluated);
+        Assert.Equal("SideBySide", reported.Data[NavigationDiagnosticDataKeys.SplitLayout]);
+        Assert.Equal("SideBySide", evaluated.Data[NavigationDiagnosticDataKeys.SplitLayout]);
+        Assert.DoesNotContain(NavigationDiagnosticDataKeys.WindowId, reported.Data.Keys);
+    }
+
+    [Fact]
     public void BackPopsTheSecondaryColumnWhileItIsShown()
     {
         NavigationState state = Root(Split(SplitColumn.Secondary, Message("m1", "attachment")));
