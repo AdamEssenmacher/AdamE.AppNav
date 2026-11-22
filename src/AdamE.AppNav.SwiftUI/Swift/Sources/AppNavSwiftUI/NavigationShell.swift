@@ -67,7 +67,9 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
     private func sheet(_ modal: ModalProjection) -> some View {
         let key = StackKey.modal(modal.id)
         let content = stack(modal.entries, key: key, presentsRoot: true)
-            .interactiveDismissDisabled(surface.modalTop.map { back?.intercepts($0) == true } ?? false)
+            // While a revision applies, the modal binding refuses dismissal. A swipe that UIKit
+            // completed anyway would leave the surface waiting for a sheet that is gone.
+            .interactiveDismissDisabled(surface.applying || surface.modalTop.map { back?.intercepts($0) == true } ?? false)
         if let root = modal.entries.first, let customization {
             let context = surface.context(for: root, key: key)
             applyTransition(customization.transition(context), to: content, context: context, key: key)
@@ -192,4 +194,14 @@ public struct NavigationDiagnostics {
     public internal(set) var gesturesCancelled = 0
     public internal(set) var gesturesCompleted = 0
     public internal(set) var gestureReading: NavigationReading?
+
+    public init(lastReading: NavigationReading? = nil, stagedTops: [String] = [], gesturesBegan: Int = 0,
+                gesturesCancelled: Int = 0, gesturesCompleted: Int = 0, gestureReading: NavigationReading? = nil) {
+        self.lastReading = lastReading
+        self.stagedTops = stagedTops
+        self.gesturesBegan = gesturesBegan
+        self.gesturesCancelled = gesturesCancelled
+        self.gesturesCompleted = gesturesCompleted
+        self.gestureReading = gestureReading
+    }
 }

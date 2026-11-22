@@ -108,7 +108,8 @@ final class NativeSurface: ObservableObject {
     private var trace: ((String) -> Void)?
     private let markers = NSHashTable<MarkerView>.weakObjects()
     private let identities = NSMapTable<UIViewController, NSString>.weakToStrongObjects()
-    private var applying = false
+    // Published so gesture gates in the shell re-render as soon as an apply starts or settles.
+    @Published private(set) var applying = false
     private var stagedTops: [String] = []
     private var lastReading: NavigationReading?
     private var candidate: NavigationReading?

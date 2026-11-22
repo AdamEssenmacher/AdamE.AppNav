@@ -58,6 +58,14 @@ public struct NavigationReading: Equatable, Sendable {
     public let entries: [String]
     public let modalID: String?
     public let modalEntries: [String]
+
+    public init(revision: Int64, branch: String, entries: [String], modalID: String?, modalEntries: [String]) {
+        self.revision = revision
+        self.branch = branch
+        self.entries = entries
+        self.modalID = modalID
+        self.modalEntries = modalEntries
+    }
 }
 
 
@@ -91,4 +99,12 @@ public struct NavigationDestinationContext {
     public let branchID: String?
     public let modalID: String?
     public let transition: NavigationTransitionContext?
+
+    public init(entry: NavigationEntry, branchID: String?, modalID: String?,
+                transition: NavigationTransitionContext? = nil) {
+        self.entry = entry
+        self.branchID = branchID
+        self.modalID = modalID
+        self.transition = transition
+    }
 }
