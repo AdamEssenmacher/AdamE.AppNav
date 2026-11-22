@@ -11,6 +11,12 @@ final class NavigationTests: XCTestCase {
         if name.contains("testHomeGameCrossFadeCancelAndReturn") || name.contains("testNativeFadeSheetPreservesHistory") {
             app.launchArguments.append("--probe-animation-style")
         }
+        if name.contains("testNonanimatedGamePushKeepsNativeBackZoom") {
+            app.launchArguments.append("--probe-disable-game-push-animation")
+        }
+        if name.contains("testCallbackReplacementWithUnchangedProjection") {
+            app.launchArguments.append("--probe-replace-callbacks")
+        }
         app.launch()
     }
 
@@ -79,6 +85,36 @@ final class NavigationTests: XCTestCase {
         XCTAssertTrue(app.buttons["probe-open-game"].exists)
         capture("AppNav Home after return")
         verifyAnimation()
+    }
+
+    func testNonanimatedGamePushKeepsNativeBackZoom() {
+        awaitLabel("probe-status") { $0 == self.home }
+        app.buttons["probe-open-game"].tap()
+        awaitLabel("probe-status") { $0 == self.game }
+        XCTAssertTrue(app.staticTexts["page-game"].exists)
+
+        // SwiftUI's zoom transition supports a vertical dismissal from inside the page.
+        // The default slide transition only supports a horizontal Back gesture.
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.34))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.81))
+        start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .fast, thenHoldForDuration: 0)
+        awaitLabel("probe-status") { $0 == self.returned }
+        awaitLabel("probe-native") { $0.hasSuffix("home [home,home-detail]") }
+    }
+
+    func testCallbackReplacementWithUnchangedProjection() {
+        awaitLabel("probe-status") { $0 == self.home }
+        awaitLabel("probe-callback-generations") { $0 == "callbacks=0 report=0 trace=0" }
+        let initial = awaitLabel("probe-native") { $0.hasSuffix("home [home,home-detail]") }
+
+        app.buttons["probe-replace-callbacks"].tap()
+        awaitLabel("probe-callback-generations") { $0 == "callbacks=1 report=0 trace=0" }
+        XCTAssertEqual(app.staticTexts["probe-native"].label, initial)
+        XCTAssertEqual(app.staticTexts["probe-status"].label, home)
+
+        app.tabBars.buttons["catalog"].tap()
+        awaitLabel("probe-status") { $0.hasPrefix("catalog[catalog] history=2 ") }
+        awaitLabel("probe-callback-generations") { $0 == "callbacks=1 report=1 trace=1" }
     }
 
     func testNativeHomeGameZoomReference() {
