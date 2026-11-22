@@ -11,7 +11,7 @@ final class NavigationTests: XCTestCase {
         if name.contains("testHomeGameCrossFadeCancelAndReturn") || name.contains("testNativeFadeSheetPreservesHistory") {
             app.launchArguments.append("--probe-animation-style")
         }
-        if name.contains("testNonanimatedGamePushKeepsNativeBackZoom") {
+        if name.contains("testNonanimatedGamePushRetainsMatchedSourceForNativeBack") {
             app.launchArguments.append("--probe-disable-game-push-animation")
         }
         if name.contains("testCallbackReplacementWithUnchangedProjection") {
@@ -87,17 +87,18 @@ final class NavigationTests: XCTestCase {
         verifyAnimation()
     }
 
-    func testNonanimatedGamePushKeepsNativeBackZoom() {
+    func testNonanimatedGamePushRetainsMatchedSourceForNativeBack() {
         awaitLabel("probe-status") { $0 == self.home }
         app.buttons["probe-open-game"].tap()
         awaitLabel("probe-status") { $0 == self.game }
         XCTAssertTrue(app.staticTexts["page-game"].exists)
 
-        // SwiftUI's zoom transition supports a vertical dismissal from inside the page.
-        // The default slide transition only supports a horizontal Back gesture.
-        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.34))
-        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.81))
-        start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .fast, thenHoldForDuration: 0)
+        let installed = awaitLabel("probe-native") { $0.hasSuffix("home [home,home-detail,game]") }
+        app.buttons["probe-clear-push-metadata"].tap()
+        awaitLabel("probe-retained-push-source") { $0 == "game-cover" }
+        XCTAssertEqual(app.staticTexts["probe-native"].label, installed)
+
+        app.navigationBars["Game"].buttons.firstMatch.tap()
         awaitLabel("probe-status") { $0 == self.returned }
         awaitLabel("probe-native") { $0.hasSuffix("home [home,home-detail]") }
     }

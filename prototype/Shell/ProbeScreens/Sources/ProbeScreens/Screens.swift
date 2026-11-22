@@ -69,6 +69,11 @@ public struct ShellScreen: View {
     @State private var callbackGeneration = 0
     @State private var reportGeneration = -1
     @State private var traceGeneration = -1
+    @State private var clearsPushTransition = false
+
+    private var testsImmediatePush: Bool {
+        ProcessInfo.processInfo.arguments.contains("--probe-disable-game-push-animation")
+    }
 
     private var testsCallbackReplacement: Bool {
         ProcessInfo.processInfo.arguments.contains("--probe-replace-callbacks")
@@ -83,9 +88,17 @@ public struct ShellScreen: View {
 
     public init(model: ShellModel) { self.model = model }
 
+    private var projection: NavigationProjection {
+        let target = model.target.projection
+        guard clearsPushTransition else { return target }
+        // Drop the transient metadata while preserving the staged revision and all mounts.
+        return NavigationProjection(revision: target.revision, selectedBranch: target.selectedBranch,
+                                    isBranchHost: target.isBranchHost, branches: target.branches, modal: target.modal)
+    }
+
     public var body: some View {
         let generation = callbackGeneration
-        NavigationShell(projection: model.target.projection, report: { reading in
+        NavigationShell(projection: projection, report: { reading in
             if testsCallbackReplacement { reportGeneration = generation }
             report(reading)
         }, trace: { message in
@@ -116,6 +129,10 @@ public struct ShellScreen: View {
                         .accessibilityIdentifier("probe-callback-generations")
                     Button("Replace callbacks") { callbackGeneration += 1 }
                         .accessibilityIdentifier("probe-replace-callbacks")
+                }
+                if testsImmediatePush && !clearsPushTransition {
+                    Button("Clear push metadata") { clearsPushTransition = true }
+                        .accessibilityIdentifier("probe-clear-push-metadata")
                 }
                 HStack {
                     Button("Branch deep link") { model.runCommand("deep-link") }
@@ -161,8 +178,7 @@ public struct ShellScreen: View {
     private var customization: NavigationCustomization {
         NavigationCustomization(
             transactionAnimation: { context in
-                if ProcessInfo.processInfo.arguments.contains("--probe-disable-game-push-animation"),
-                   coverKey(for: context) == "game-cover" { return nil }
+                if testsImmediatePush && coverKey(for: context) == "game-cover" { return nil }
                 guard context.operation == .pop || coverKey(for: context) != nil || isCrossFadePush(context) ||
                       (context.operation == .modalPresent && context.destinationEntryID == "fade-sheet")
                 else { return nil }
@@ -194,7 +210,14 @@ public struct ShellScreen: View {
             },
             chrome: { destination, content in
                 guard destination.entry.id == "game" else { return content }
-                return AnyView(content.modifier(GameChrome(kind: .managed, trace: { model.recordTrace($0) })))
+                return AnyView(content
+                    .modifier(GameChrome(kind: .managed, trace: { model.recordTrace($0) }))
+                    .overlay(alignment: .bottom) {
+                        if testsImmediatePush && clearsPushTransition {
+                            Text(destination.transition?.sourceKey ?? "no matched source")
+                                .accessibilityIdentifier("probe-retained-push-source")
+                        }
+                    })
             }
         )
     }
