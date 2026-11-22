@@ -82,6 +82,16 @@ and throws `StaleNavigationReconciliationException` before calling the
 presenter, leaving state and history unchanged. A queued event-path rejection
 is reported only through that diagnostic.
 
+A reconciliation counts as waiting from the moment it is raised or
+`ReconcileAsync` is called. Navigation, Back and refresh operations that are
+still queued give way to every waiting reconciliation, even ones that arrived
+after them, because the host already shows that state: a queued operation
+planned first would plan against state the host has left, and the
+reconciliation would then be rejected. A reconciliation never starts inline in
+its caller. To rely on this, submit the reconciliation before the operation it
+observed can release the lock, for example while that operation is still
+waiting for the host to accept its presentation.
+
 `BaseState` is compared by reference. An adapter tracks the state the router
 will hold when its reconciliation is admitted: the plan target of its last
 successful non-reconcile presentation, then the target of each reconciliation

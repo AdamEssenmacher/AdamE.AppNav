@@ -66,6 +66,7 @@ public struct ShellScreen: View {
     let model: ShellModel
     @Namespace private var gameZoom
     @State private var animationEvidence = "Waiting for native animation"
+    @State private var gesturesBegan = 0
     @State private var callbackGeneration = 0
     @State private var reportGeneration = -1
     @State private var traceGeneration = -1
@@ -134,6 +135,10 @@ public struct ShellScreen: View {
                     Button("Clear push metadata") { clearsPushTransition = true }
                         .accessibilityIdentifier("probe-clear-push-metadata")
                 }
+                if Self.holdsGameSettlement {
+                    Text("taken back=\(diagnostics.pushesTakenBack) restored=\(diagnostics.pushesRestored)").accessibilityIdentifier("probe-taken-back")
+                        .onChange(of: diagnostics.gesturesBegan, initial: true) { _, count in gesturesBegan = count }
+                }
                 HStack {
                     Button("Branch deep link") { model.runCommand("deep-link") }
                         .accessibilityIdentifier("probe-link")
@@ -153,6 +158,20 @@ public struct ShellScreen: View {
             }
             .font(.caption)
         }
+        .overlay {
+            // The shell settles a page only once the centre of its navigation controller hit-tests into it. This band
+            // covers that point while Game is on top, so the push stays applying until a Back gesture begins. It
+            // leaves the leading edge free for that swipe.
+            if Self.holdsGameSettlement, gesturesBegan == 0,
+               model.target.branches.contains(where: { $0.entries.last?.entryId == "game" }) {
+                GeometryReader { geometry in
+                    Color.black.opacity(0.02)
+                        .frame(width: geometry.size.width - 60, height: geometry.size.height * 0.5)
+                        .position(x: 30 + (geometry.size.width - 60) / 2, y: geometry.size.height * 0.4)
+                        .accessibilityHidden(true)
+                }
+            }
+        }
         .environment(\.gameProbe, GameProbeContext(
             namespace: gameZoom, revision: model.target.revision,
             hasGame: model.target.branches.contains { $0.entries.contains { $0.entryId == "game" } },
@@ -160,6 +179,9 @@ public struct ShellScreen: View {
             openCrossFade: { model.runCommand("open-game-crossfade") },
             pushReview: { model.runCommand("push-review") }, trace: gameTrace))
     }
+
+    /// Keeps a Game push applying, so a UI test can go Back before the shell settles it.
+    static let holdsGameSettlement = ProcessInfo.processInfo.arguments.contains("--probe-hold-game-settlement")
 
     private func gameTrace(_ message: String) {
         model.recordTrace(message)

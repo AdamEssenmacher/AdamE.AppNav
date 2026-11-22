@@ -52,7 +52,6 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, INavigationP
     private Presentation? observed;
     private readonly Dictionary<string, Presentation> awaitingSettlement = new(StringComparer.Ordinal);
     private readonly Dictionary<NavigationState, Presentation> witnessedReconciliations = new(ReferenceEqualityComparer.Instance);
-    private Task reconciliationTail = Task.CompletedTask;
     private long nextEpoch;
     private long nextRevision;
     private bool disposed;
@@ -71,6 +70,11 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, INavigationP
     /// <summary>Raised after a native reconciliation commits. UI subscribers must dispatch to their UI thread.</summary>
     public event Action? Reconciled;
 
+    /// <summary>Binds the navigator that native reconciliations are submitted to.</summary>
+    /// <remarks>
+    /// The presenter calls <see cref="IRouterNavigator.ReconcileAsync"/> while holding its own lock, so the navigator
+    /// must queue the reconciliation and never start it inline, as the router does.
+    /// </remarks>
     public void Bind(IRouterNavigator navigator)
     {
         ArgumentNullException.ThrowIfNull(navigator);
@@ -323,16 +327,26 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, INavigationP
         observed = next;
         witnessedReconciliations.Add(next.State, next);
 
-        // A native callback can arrive in the router's execution context. Start a new router
-        // operation after the preceding report finishes, including when that report faulted.
-        Task Schedule() => reconciliationTail.ContinueWith(_ => ReconcileAsync(navigator, change),
-            CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default).Unwrap();
+        // Ask the router now, under the gate and so in report order: it counts the reconciliation before the
+        // operation that staged the observed revision releases its lock, so a navigation queued behind that operation
+        // can't plan against the state this report replaces. A native callback can arrive in the router's execution
+        // context, so the call starts from a clean one. The router queues it and never runs it inline.
+        Task reconciliation = null!;
+        ExecutionContext.Run(CleanContext, _ => reconciliation = ReconcileAsync(navigator, change), null);
+        return reconciliation;
+    }
 
-        if (ExecutionContext.IsFlowSuppressed())
-            return reconciliationTail = Schedule();
+    private static readonly ExecutionContext CleanContext = CaptureCleanContext();
 
-        using (ExecutionContext.SuppressFlow())
-            return reconciliationTail = Schedule();
+    // A thread started without the caller's context has the empty one. Waiting on a task instead could run it inline
+    // in the caller's context.
+    private static ExecutionContext CaptureCleanContext()
+    {
+        ExecutionContext? clean = null;
+        var thread = new Thread(() => clean = ExecutionContext.Capture()) { IsBackground = true };
+        thread.UnsafeStart();
+        thread.Join();
+        return clean ?? throw new InvalidOperationException("Could not capture an empty execution context.");
     }
 
     private sealed class SupersededObservationException : Exception;
