@@ -1,12 +1,21 @@
 package com.adamessenmacher.appnav.compose
 
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.window.Dialog
 import org.junit.Assert.assertEquals
@@ -70,6 +79,43 @@ class NavigationModalHostTests {
         compose.onNodeWithText("first-entry").assertExists()
     }
 
+    @OptIn(ExperimentalMaterial3Api::class)
+    @Test
+    fun sheetHostThatVetoesHidingRequestsManagedBack() {
+        val observations = mutableListOf<NavigationObservation>()
+        var requested = 0
+        compose.setContent {
+            AppNavNavigationShell(
+                target(),
+                observations::add,
+                modalHost = { presentation, content ->
+                    val current by rememberUpdatedState(presentation)
+                    val sheet = rememberModalBottomSheetState(confirmValueChange = { value ->
+                        if (value == SheetValue.Hidden) current.onDismissRequest()
+                        value != SheetValue.Hidden
+                    })
+                    ModalBottomSheet(onDismissRequest = presentation.onDismissRequest, sheetState = sheet) { content() }
+                },
+                requestBack = { requested++ },
+                unavailableContent = { Text(it.entryId) },
+            )
+        }
+
+        compose.onNodeWithText("first-entry").assertExists()
+        compose.runOnIdle {
+            @Suppress("DEPRECATION")
+            ShadowDialog.getLatestDialog().onBackPressed()
+        }
+        compose.runOnIdle { assertEquals(1, requested) }
+        // A vetoed scrim tap never reaches the sheet's own onDismissRequest, so only the veto can ask.
+        compose.onNodeWithContentDescription("Close sheet").performSemanticsAction(SemanticsActions.OnClick)
+        compose.runOnIdle {
+            assertEquals(2, requested)
+            assertEquals(listOf("first-entry"), observations.last().modalEntries)
+        }
+        compose.onNodeWithText("first-entry").assertExists()
+    }
+
     @Test
     fun retiredOccurrenceCannotDismissItsReplacement() {
         val current = mutableStateOf(target())
@@ -91,6 +137,31 @@ class NavigationModalHostTests {
         compose.onNodeWithText("first-entry").assertExists()
         compose.runOnIdle { current.value = target("second", revision = 2) }
         compose.onNodeWithText("second-entry").assertExists()
+        compose.runOnIdle { checkNotNull(oldDismiss).invoke() }
+        compose.runOnIdle { assertEquals(0, requested) }
+    }
+
+    @Test
+    fun retiredOccurrenceCannotDismissSameModalReplacement() {
+        val current = mutableStateOf(target())
+        var oldDismiss: (() -> Unit)? = null
+        var requested = 0
+        compose.setContent {
+            AppNavNavigationShell(
+                current.value,
+                report = {},
+                modalHost = { presentation, content ->
+                    if (oldDismiss == null) oldDismiss = presentation.onDismissRequest
+                    content()
+                },
+                requestBack = { requested++ },
+                unavailableContent = { Text(it.entryId) },
+            )
+        }
+
+        compose.onNodeWithText("first-entry").assertExists()
+        compose.runOnIdle { current.value = target(revision = 2, modalRoot = "first-replacement") }
+        compose.onNodeWithText("first-replacement").assertExists()
         compose.runOnIdle { checkNotNull(oldDismiss).invoke() }
         compose.runOnIdle { assertEquals(0, requested) }
     }
@@ -144,12 +215,13 @@ class NavigationModalHostTests {
         modalId: String = "first",
         revision: Long = 1L,
         primary: List<String> = listOf("home-entry"),
+        modalRoot: String = "$modalId-entry",
     ) = NavigationProjection(
         revision,
         "home",
         false,
         listOf(NavigationBranch("home", "Home", primary.mapIndexed { i, id -> MountedEntry(id, i.toLong()) })),
         modalId,
-        listOf(MountedEntry("$modalId-entry", 0)),
+        listOf(MountedEntry(modalRoot, 0)),
     )
 }

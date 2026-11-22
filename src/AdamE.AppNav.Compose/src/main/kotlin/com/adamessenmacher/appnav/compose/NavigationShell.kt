@@ -132,8 +132,9 @@ public fun AppNavNavigationShell(
  * The shell owns the modal's lifetime: the occurrence is presented for exactly as long as the shell
  * composes the host for it. [onDismissRequest] only asks; AppNav can ignore it while a transition
  * is pending or refuse it through managed Back policy. A host must therefore never hide itself.
- * Keep the window shown until the shell stops composing it. For a sheet, veto the hidden state
- * (for example `confirmValueChange = { it != SheetValue.Hidden }`) and call [onDismissRequest] instead.
+ * Keep the window shown until the shell stops composing it. A Material sheet calls its own dismiss
+ * callback only after hiding, so in `confirmValueChange` call [onDismissRequest] and return false
+ * for `SheetValue.Hidden`.
  */
 public class NavigationModalPresentation internal constructor(
     public val id: String,
@@ -281,8 +282,12 @@ public fun AppNavNavigationShell(
                 mounted = true
                 onDispose { mounted = false }
             }
+            // A modal ID names the declared modal, so a revision can replace its occurrence in place.
+            // The root entry ID identifies the occurrence, which keeps a retired callback inert.
+            val occurrence = modal.first().entryId
+            val currentOccurrence by rememberUpdatedState(occurrence)
             modalHost(NavigationModalPresentation(modalId, modal.size, canNavigate()) {
-                if (mounted) dismiss()
+                if (mounted && currentOccurrence == occurrence) dismiss()
             }) {
                 MountedStack(expectedModal, target.transition, animations, origins, allowModalPreview,
                     { back(modalBack = true) }, unavailableContent) {

@@ -1,6 +1,6 @@
 # AppNav for Jetpack Compose
 
-Android hosts can render AppNav's one-window projection with `AppNavNavigationShell`. It supports a single primary stack or a selected stack within a branch host, plus an optional dialog with its own stack. Every destination draws an OAHU mount supplied by the managed host. Android Back edits the displayed stack and reports the settled result to AppNav. A replacement Activity starts from the projection sent to its new attachment.
+Android hosts can render AppNav's one-window projection with `AppNavNavigationShell`. It supports a single primary stack or a selected stack within a branch host, plus an optional modal with its own stack, shown in a dialog by default or in a window the app supplies. Every destination draws an OAHU mount supplied by the managed host. Android Back edits the displayed stack and reports the settled result to AppNav. A replacement Activity starts from the projection sent to its new attachment.
 
 Include this directory's `src/main/kotlin` in the Android screen library's Kotlin source set. When consuming the NuGet package, use its `native/src/main/kotlin` directory. The [probe Gradle project](../../prototype/Android/Native/screens/build.gradle.kts) shows how to compile against the same OAHU runtime and Compose versions packaged by the .NET app. It uses Navigation 3 runtime and UI 1.2.1. The managed package supplies the matching Compose dependencies and includes the two unbound Nav3 AARs in the app build. The probe's [host project](../../prototype/Android/Host/Host.csproj) shows the OAHU code generation and Gradle integration.
 
@@ -25,7 +25,24 @@ Pass `requestBack` if your app evaluates Back policy in AppNav. For a stack pop 
 
 The optional `branchLabel` and `unavailableContent` slots customize the branch label and the placeholder for a destination whose mount is unavailable.
 
-The host renders one window and one optional dialog stack. Shared elements require both destinations to register in the same stack's shared scope. Retained-router reattachment restores the current projection during same-process Activity recreation. The app owns navigation persistence across process death. Predictive Back progress comes from the default native path. Supplying `requestBack` routes the decision through managed policy and applies the projection that the router publishes.
+To present the modal stack in your own native window, such as a full-screen dialog or a bottom sheet, use the overload that takes `modalHost`. The shell calls it with a `NavigationModalPresentation` and the mounted content, which the host must compose. The shell owns the modal's lifetime: it composes the host for exactly as long as the occurrence is presented. Route every dismissal gesture through `onDismissRequest`. AppNav ignores the request while a transition is pending, which `canDismiss` reports as `false`, and managed Back policy can refuse it. A host must therefore never hide itself. A Material sheet only calls its own `onDismissRequest` after it has hidden, so veto the hidden state and ask AppNav from that veto instead:
+
+```kotlin
+AppNavNavigationShell(projection, report, modalHost = { presentation, content ->
+    val current by rememberUpdatedState(presentation)
+    val sheet = rememberModalBottomSheetState(confirmValueChange = { value ->
+        if (value == SheetValue.Hidden) current.onDismissRequest()
+        value != SheetValue.Hidden
+    })
+    ModalBottomSheet(onDismissRequest = presentation.onDismissRequest, sheetState = sheet) { content() }
+}, requestBack = requestBack)
+```
+
+Repeated requests are harmless: the shell ignores them while one is pending.
+
+A host that draws in the Activity window instead of its own still receives system Back: the shell routes it to the modal while one is shown. A callback from a retired modal occurrence does nothing, so a host can't dismiss the modal's replacement.
+
+The host renders one window and one optional modal stack. Shared elements require both destinations to register in the same stack's shared scope. Retained-router reattachment restores the current projection during same-process Activity recreation. The app owns navigation persistence across process death. Predictive Back progress comes from the default native path. Supplying `requestBack` routes the decision through managed policy and applies the projection that the router publishes.
 
 ## Nav3 transitions and shared elements
 
