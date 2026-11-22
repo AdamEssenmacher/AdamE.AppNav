@@ -38,7 +38,7 @@ public sealed class BackNavigationRequest
     /// changing to. Side by side, Back goes back inside the secondary column, then inside the primary column, and
     /// never plans a Back that only changes <see cref="State.SplitNode.CompactColumn"/>.
     /// </remarks>
-    public State.SplitLayout? SplitLayout
+    public Presentation.SplitLayout? SplitLayout
     {
         get;
         init => field = value is not { } layout || Enum.IsDefined(layout)

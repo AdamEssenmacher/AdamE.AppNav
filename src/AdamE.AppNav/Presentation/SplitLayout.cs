@@ -1,4 +1,6 @@
-namespace AdamE.AppNav.State;
+using AdamE.AppNav.State;
+
+namespace AdamE.AppNav.Presentation;
 
 /// <summary>
 /// Describes how a presenter currently shows the <see cref="SplitNode"/> columns of one window.

@@ -51,15 +51,17 @@ public interface IRouterNavigator : IDisposable, IAsyncDisposable
     /// <summary>Records how the presenter now shows the split columns of window <paramref name="windowId"/>.</summary>
     /// <remarks>
     /// <para>
-    /// Presenters call this, not application code. A presenter that shows <see cref="SplitNode"/> columns reports a
-    /// window's layout when it attaches to the window and whenever the layout changes, such as when the window is
-    /// resized or a foldable opens. A window never reported is <see cref="SplitLayout.Collapsed"/>.
+    /// This is for presenters and adapters, not application code. A presenter that shows <see cref="SplitNode"/>
+    /// columns reports a window's layout before its first apply to that window and whenever the layout changes, such
+    /// as when the window is resized or a foldable opens. A window never reported is
+    /// <see cref="SplitLayout.Collapsed"/>.
     /// </para>
     /// <para>
     /// The layout is presentation, not logical state: it never changes <see cref="CurrentState"/> or
     /// <see cref="History"/> and is not queued behind navigation. A Back planned after this call returns, including
-    /// one already queued, uses it unless its <see cref="BackNavigationRequest.SplitLayout"/> overrides it, and an
-    /// operation planned after it reports, in its result and history, the route that layout shows.
+    /// one already queued, uses it unless its <see cref="BackNavigationRequest.SplitLayout"/> overrides it. A result
+    /// and its history entry report the route shown in the layout reported when the operation was planned, which for
+    /// a navigation or reconciliation is before the presenter applies it.
     /// </para>
     /// <para>
     /// A layout may be reported for a window the state does not have yet, such as before the first navigation; it is
@@ -70,7 +72,9 @@ public interface IRouterNavigator : IDisposable, IAsyncDisposable
     /// <para>
     /// It is safe to call from any thread. A report admitted before shutdown starts applies, and writes its
     /// <see cref="Diagnostics.NavigationDiagnosticEventKind.SplitLayoutReported"/> diagnostic when the layout changed,
-    /// before disposal completes; a report after shutdown starts is ignored.
+    /// before disposal completes; a report after shutdown starts is ignored. Diagnostics are written outside the
+    /// router's locks, so reports from different threads may produce their diagnostics in either order; report from
+    /// one thread, normally the UI thread.
     /// </para>
     /// </remarks>
     /// <param name="windowId">The <see cref="WindowNode"/> ID of the window whose layout changed.</param>

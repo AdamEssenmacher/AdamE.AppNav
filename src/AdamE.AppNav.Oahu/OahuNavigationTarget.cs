@@ -20,8 +20,9 @@ public sealed record OahuNavigationTarget
             throw new NotSupportedException("An OAHU surface presents one active window.");
         WindowId = window.Id;
         // Split renderers come later; refuse a split anywhere before staging anything for it.
-        SplitNode? split = FindSplit(window.Root) ?? window.Modals.Select(static modal => FindSplit(modal))
-            .FirstOrDefault(static candidate => candidate is not null);
+        SplitNode? split = FindSplit(window.Root);
+        for (var i = 0; split is null && i < window.Modals.Count; ++i)
+            split = FindSplit(window.Modals[i]);
         if (split is not null)
             throw new NotSupportedException($"An OAHU surface does not present split nodes yet; found split '{split.Id}'.");
         switch (window.Root)
@@ -70,14 +71,23 @@ public sealed record OahuNavigationTarget
                 throw new NotSupportedException($"Duplicate route entry occurrence '{entry.Id}'.");
     }
 
-    private static SplitNode? FindSplit(NavigationNode? node) => node switch
+    private static SplitNode? FindSplit(NavigationNode? node)
     {
-        SplitNode split => split,
-        BranchHostNode host => host.Branches.Select(static branch => FindSplit(branch.Content))
-            .FirstOrDefault(static candidate => candidate is not null),
-        ModalNode modal => FindSplit(modal.Content),
-        _ => null
-    };
+        switch (node)
+        {
+            case SplitNode split:
+                return split;
+            case BranchHostNode host:
+                for (var i = 0; i < host.Branches.Count; ++i)
+                    if (FindSplit(host.Branches[i].Content) is { } nested)
+                        return nested;
+                return null;
+            case ModalNode modal:
+                return FindSplit(modal.Content);
+            default:
+                return null;
+        }
+    }
 
     private static IReadOnlyList<RouteEntry> StackEntries(StackNode stack) => stack.Entries.Count != 0
         ? Array.AsReadOnly(stack.Entries.ToArray()) : throw new NotSupportedException($"Stack '{stack.Id}' needs a root entry.");

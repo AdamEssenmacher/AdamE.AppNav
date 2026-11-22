@@ -96,6 +96,7 @@ public sealed class PublicApiContractTests
                 "AdamE.AppNav.Presentation.NavigationTopologyMatch",
                 "AdamE.AppNav.Presentation.NavigationTopologyModal",
                 "AdamE.AppNav.Presentation.NavigationTopologySupport",
+                "AdamE.AppNav.Presentation.SplitLayout",
                 "AdamE.AppNav.Requests.DeferredNavigationReplayResult",
                 "AdamE.AppNav.Requests.DeferredNavigationRequestPersistenceOptions",
                 "AdamE.AppNav.Requests.DeferredNavigationRequestReplayer",
@@ -140,7 +141,6 @@ public sealed class PublicApiContractTests
                 "AdamE.AppNav.State.NavigationState",
                 "AdamE.AppNav.State.RouteEntry",
                 "AdamE.AppNav.State.SplitColumn",
-                "AdamE.AppNav.State.SplitLayout",
                 "AdamE.AppNav.State.SplitNode",
                 "AdamE.AppNav.State.StackNode",
                 "AdamE.AppNav.State.WindowNode"

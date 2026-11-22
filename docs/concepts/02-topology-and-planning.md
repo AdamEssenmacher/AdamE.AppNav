@@ -137,7 +137,8 @@ across both columns.
 
 Core does not know the presented layout, so the presenter reports it. A
 presenter that shows splits calls `IRouterNavigator.ReportSplitLayout(windowId,
-layout)` when it attaches to a window and whenever its layout there changes, with `SplitLayout.Collapsed`
+layout)` before its first apply to a window and whenever its layout there
+changes, with `SplitLayout.Collapsed`
 or `SplitLayout.SideBySide`; application code does not call it. A window
 never reported is collapsed, and a layout is forgotten once a commit no longer
 has its window. Reporting is
@@ -167,8 +168,8 @@ the primary column: the selected message belonged to the mailbox that was just
 left. A default message shown beside the list with `CompactColumn = Primary`
 is cleared the same way.
 
-The route a navigation result and its history entry report follows the same
-layout. Collapsed, it is the route on top of the collapsed stack. Side by side,
+The route a navigation result and its history entry report follows the layout
+reported when the operation was planned. Collapsed, it is the route on top of the collapsed stack. Side by side,
 it is the secondary column's top whenever the split has a secondary column,
 since that column has the focus, and the primary column's top otherwise.
 

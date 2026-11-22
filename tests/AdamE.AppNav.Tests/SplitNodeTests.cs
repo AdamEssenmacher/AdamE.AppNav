@@ -452,6 +452,75 @@ public sealed class SplitNodeTests
     }
 
     [Fact]
+    public async Task AFlipOnlyCollapsedBackReportsThePrimaryColumnsTop()
+    {
+        await using IRouterNavigator router = Router(Root(Split(SplitColumn.Secondary, Message("m1"))));
+
+        BackNavigationResult result = await router.BackAsync();
+
+        Assert.Equal(BackNavigationStatus.Completed, result.Status);
+        Assert.Equal(new MailRoute("inbox"), result.NavigationResult?.Route);
+        Assert.Equal(new MailRoute("inbox"), router.History.Current?.Route);
+    }
+
+    [Fact]
+    public async Task ABackThatLeavesItsWindowReportsTheRouteInTheOtherWindowsLayout()
+    {
+        var other = new WindowNode("other", Split(SplitColumn.Primary, Message("o1")));
+        var state = new NavigationState(
+            [new WindowNode("main", new StackNode("main-stack", [Entry("home")])), other],
+            "main");
+        // A custom navigator that closes the window and activates the other one.
+        var closing = new ClosingBackNavigator(new NavigationState([other], "other"));
+        await using IRouterNavigator router = RouterNavigatorFactory.Create(
+            TestRoutes.CreateTable(),
+            TestNavigationPlanner.EchoStack(),
+            new RecordingNavigationPresenter(),
+            new RouterNavigatorFactoryOptions { InitialState = state, BackNavigator = closing });
+        router.ReportSplitLayout("main", SplitLayout.Collapsed);
+        router.ReportSplitLayout("other", SplitLayout.SideBySide);
+
+        BackNavigationResult result = await router.BackAsync("main");
+
+        Assert.Equal(new MailRoute("o1"), result.NavigationResult?.Route);
+    }
+
+    [Fact]
+    public async Task AReportAdmittedBeforeShutdownWritesItsDiagnosticBeforeDisposalCompletes()
+    {
+        var diagnostics = new NavigationDiagnostics(
+            options: new NavigationDiagnosticsOptions { DataMode = NavigationDiagnosticDataMode.Full });
+        var inObserver = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseObserver = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reported = 0;
+        diagnostics.EventWritten += (_, diagnosticEvent) =>
+        {
+            if (diagnosticEvent.Kind != NavigationDiagnosticEventKind.SplitLayoutReported)
+                return;
+            inObserver.TrySetResult();
+            releaseObserver.Task.Wait(TimeSpan.FromSeconds(10));
+            Interlocked.Increment(ref reported);
+        };
+        IRouterNavigator router = RouterNavigatorFactory.Create(
+            TestRoutes.CreateTable(),
+            TestNavigationPlanner.EchoStack(),
+            new RecordingNavigationPresenter(),
+            new RouterNavigatorFactoryOptions { Diagnostics = diagnostics });
+
+        // The report is admitted, then held inside its diagnostic while disposal starts.
+        Task report = Task.Run(() => router.ReportSplitLayout("main", SplitLayout.SideBySide));
+        await inObserver.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Task disposal = router.DisposeAsync().AsTask();
+        await Task.Delay(50);
+        Assert.False(disposal.IsCompleted);
+
+        releaseObserver.SetResult();
+        await report.WaitAsync(TimeSpan.FromSeconds(10));
+        await disposal.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(1, Volatile.Read(ref reported));
+    }
+
+    [Fact]
     public void BackPopsTheSecondaryColumnWhileItIsShown()
     {
         NavigationState state = Root(Split(SplitColumn.Secondary, Message("m1", "attachment")));
@@ -761,4 +830,10 @@ public sealed class SplitNodeTests
     private static RouteEntry Entry(string id) => new(id, new MailRoute(id));
 
     private sealed record MailRoute(string Value) : AppRoute;
+
+    private sealed class ClosingBackNavigator(NavigationState target) : IBackNavigator
+    {
+        public NavigationPlan? CreateBackPlan(BackNavigationContext context) =>
+            new(target, NavigationPlanKind.Back, "Close the window.");
+    }
 }
