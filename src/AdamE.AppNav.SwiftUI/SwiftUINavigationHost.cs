@@ -71,8 +71,8 @@ public sealed class SwiftUINavigationHost : IDisposable
     /// <summary>Disposes the shell and mounted destinations after the hosting controller is removed.</summary>
     public void Dispose()
     {
-        EnsureMainThread();
         if (disposed) return;
+        EnsureMainThread();
         disposed = true;
         try { navigation.Detach(); }
         finally

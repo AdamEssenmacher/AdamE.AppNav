@@ -122,8 +122,9 @@ final class NativeSurface: ObservableObject {
         self.trace = trace
     }
 
-    func stage(_ next: NavigationProjection, animatesSinglePushes: Bool,
+    func stage(_ proposed: NavigationProjection, animatesSinglePushes: Bool,
                transactionAnimation: ((NavigationTransitionContext) -> Animation?)?) {
+        let next = selectingKnownBranch(proposed)
         if next.revision == target?.revision {
             prunePushOrigins(next)
             target = next
@@ -136,7 +137,8 @@ final class NativeSurface: ObservableObject {
             if canAnimate(next, operation: context.operation, step: step) {
                 animation = transactionAnimation(context)
             }
-        } else if singlePush && animatesSinglePushes {
+        } else if transactionAnimation == nil, singlePush && animatesSinglePushes {
+            // A supplied policy replaces this default, including for projections without transition metadata.
             animation = .default
         }
         stagePushOrigins(next, push: singlePush ? step : nil)
@@ -160,6 +162,17 @@ final class NativeSurface: ObservableObject {
             selectedModal = next.modal.map { ModalSelection(id: $0.id) }
             target = next
         }
+    }
+
+    // Every reading must name a rendered branch. An unknown selection would leave no branch top to witness,
+    // so the surface would never settle and would withhold Back indefinitely. TabView shows the first branch.
+    private func selectingKnownBranch(_ projection: NavigationProjection) -> NavigationProjection {
+        guard let first = projection.branches.first,
+              !projection.branches.contains(where: { $0.id == projection.selectedBranch }) else { return projection }
+        trace?("unknown selected branch \(projection.selectedBranch) rev=\(projection.revision); using \(first.id)")
+        return NavigationProjection(revision: projection.revision, selectedBranch: first.id,
+                                    isBranchHost: projection.isBranchHost, branches: projection.branches,
+                                    modal: projection.modal, transition: projection.transition)
     }
 
     func context(for entry: NavigationEntry, key: StackKey) -> NavigationDestinationContext {
