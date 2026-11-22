@@ -20,6 +20,7 @@ loop.Run(async () =>
         return done.Task;
     }
 
+    await ObservationChecks.RunAsync();
     await AcceptanceChecks.RunAsync(loop, Dispatch);
 
     var leases = new RouteEntryLeaseRegistry(new LeaseHost(Dispatch));

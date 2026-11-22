@@ -1,9 +1,11 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="../src/AdamE.AppNav/AdamE.AppNav.csproj" />
+    <Project Path="../src/AdamE.AppNav.Compose/AdamE.AppNav.Compose.csproj" />
     <Project Path="../src/AdamE.AppNav.Generators/AdamE.AppNav.Generators.csproj" />
     <Project Path="../src/AdamE.AppNav.Oahu/AdamE.AppNav.Oahu.csproj" />
     <Project Path="../src/AdamE.AppNav.Oahu.Hosting/AdamE.AppNav.Oahu.Hosting.csproj" />
+    <Project Path="../src/AdamE.AppNav.SwiftUI/AdamE.AppNav.SwiftUI.csproj" />
   </Folder>
   <Folder Name="/checks/">
     <Project Path="Core/Core.csproj" />

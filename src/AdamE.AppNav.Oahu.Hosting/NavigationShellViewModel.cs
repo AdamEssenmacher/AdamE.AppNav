@@ -32,6 +32,7 @@ public sealed class NavigationShellViewModel(
 {
     private readonly MountedNavigationSurface surface = new(leases, mount, reportFailure);
     private volatile bool disposed;
+    private int disposing;
     private Task? teardown;
     private Action? detach;
 
@@ -87,7 +88,9 @@ public sealed class NavigationShellViewModel(
     public Task AcceptAsync(OahuNavigationTarget accepted, Func<Action, bool> applyIfCurrent, CancellationToken cancellationToken) => dispatch(() =>
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (disposed) return;
+        // Returning without applying would report a false acceptance: the presenter treats a completed
+        // AcceptAsync as proof that the target was published.
+        ObjectDisposedException.ThrowIf(disposed, this);
         surface.Accept(accepted, applyIfCurrent);
     });
 
@@ -112,14 +115,14 @@ public sealed class NavigationShellViewModel(
         }
         catch (Exception error)
         {
-            reportFailure(error);
+            ReportFailure(error);
         }
     }
 
     /// <summary>Disconnects immediately and releases remaining mounts on a fresh UI turn.</summary>
     public void Dispose()
     {
-        if (!disposed)
+        if (Volatile.Read(ref disposing) == 0)
             _ = ObserveTeardownAsync(DisposeAsync().AsTask());
     }
 
@@ -128,19 +131,30 @@ public sealed class NavigationShellViewModel(
         try { await task.ConfigureAwait(false); }
         catch (Exception error)
         {
-            try { reportFailure(error); }
-            catch (Exception reportingFailure) { System.Diagnostics.Trace.TraceError("{0}", reportingFailure); }
+            ReportFailure(error);
         }
+    }
+
+    private void ReportFailure(Exception error)
+    {
+        try { reportFailure(error); }
+        catch (Exception reportingFailure) { System.Diagnostics.Trace.TraceError("{0}", reportingFailure); }
     }
 
     /// <summary>Waits for final screen cleanup after the native hosting view has been removed.</summary>
     public ValueTask DisposeAsync()
     {
-        if (!disposed)
+        if (Interlocked.Exchange(ref disposing, 1) == 0)
         {
-            disposed = true;
+            // Detach before marking this shell disposed: once the presenter has dropped the attachment, an
+            // in-flight presentation sees a detached host and replays on the next one instead of failing
+            // against a disposed shell.
             try { Detach(); }
-            finally { teardown = dispatch(surface.ReleaseAll); }
+            finally
+            {
+                disposed = true;
+                teardown = dispatch(surface.ReleaseAll);
+            }
         }
         else if (teardown is { IsFaulted: true })
             teardown = dispatch(surface.ReleaseAll);
