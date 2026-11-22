@@ -29,9 +29,11 @@ android {
     }
 }
 
+val appNavComposeKotlin = providers.gradleProperty("appNavComposeKotlin")
+
 kotlin {
     sourceSets.named("main") {
-        kotlin.srcDir(rootProject.file("../../../src/AdamE.AppNav.Compose/src/main/kotlin"))
+        kotlin.srcDir(rootProject.file(appNavComposeKotlin.get()))
     }
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)

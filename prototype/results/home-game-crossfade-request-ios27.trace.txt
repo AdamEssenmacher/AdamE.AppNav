@@ -1,0 +1,41 @@
+iPhone 18 Pro simulator, iOS 27.0, Xcode 27.2
+Selected native and router observations from the Game push and host replacement runs.
+
+Managed Game push with SwiftUI .crossFade selected
+settled rev=1 home ["home", "home-detail"] modal=- []
+home[home,home-detail] history=1 [InAppCommand@home[home,home-detail]]
+game crossFade tapped
+native transition crossFade game
+Game push frame 1  incoming full-width layer x=402 pt, opacity=1.0
+Game push frame 2  incoming full-width layer x=303 pt, opacity=1.0
+Game push frame 3  incoming full-width layer x=246 pt, opacity=1.0
+Game push frame 4  incoming full-width layer x=197 pt, opacity=1.0
+game managed content completed t=129258.76225579169 cancelled=false
+settled rev=2 home ["home", "home-detail", "game"] modal=- []
+home[home,home-detail,game] history=2 [InAppCommand@home[home,home-detail];InAppCommand@home[home,home-detail,game]]
+settled rev=2 home ["home", "home-detail"] modal=- []
+home[home,home-detail] history=3 [InAppCommand@home[home,home-detail];InAppCommand@home[home,home-detail,game];HostReconciliation@home[home,home-detail]]
+
+After the canceled native edge swipe, XCTest read the following gesture status and verified that the Game page, native revision, and full history were unchanged.
+began=1 cancelled=1 completed=0 settled=1 [home,home-detail,game]
+The subsequent native Back button produced the sole HostReconciliation entry shown above.
+
+Direct SwiftUI NavigationLink control with .navigationTransition(.crossFade)
+Native Game frame 1–4 incoming full-width layer x=402, 285, 230, 183 pt; opacity=1.0.
+Both stack presentations slid. The SwiftUI sheet case is recorded separately.
+
+Root hosting controller replaced during the pending animated Game push
+settled rev=1 home ["home", "home-detail"] modal=- []
+home[home,home-detail] history=1 [InAppCommand@home[home,home-detail]]
+game crossFade tapped
+game managed content frame=1 tick=129291.48841400002 t=129291.50481087503 bounds=(0.0, 116.0, 402.0, 529.0) animated=true interactive=false
+replaced root controller during animated push epoch=1->2 revision=2
+settled rev=2 home ["home", "home-detail", "game"] modal=- []
+after injected stale observation rev=2 operation=reattach home[home,home-detail] history=1 [InAppCommand@home[home,home-detail]] replacement=held epoch=1->2
+Retired controller's content transition completion arrived 411 ms after replacement (GameProbe display-link completion trace).
+releasing actual replacement-host observation rev=2
+home[home,home-detail,game] history=2 [InAppCommand@home[home,home-detail];InAppCommand@home[home,home-detail,game]]
+settled rev=2 home ["home", "home-detail"] modal=- []
+home[home,home-detail] history=3 [InAppCommand@home[home,home-detail];InAppCommand@home[home,home-detail,game];HostReconciliation@home[home,home-detail]]
+
+The replacement occurred inside the same UIWindowScene. The test injected a matching revision with the previous epoch while it held the actual replacement-host observation.

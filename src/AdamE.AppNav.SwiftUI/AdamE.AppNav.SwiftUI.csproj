@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0-ios</TargetFramework>
+    <SupportedOSPlatformVersion>17.0</SupportedOSPlatformVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Description>iOS scene hosting and SwiftUI rendering for AppNav and OAHU.</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../AdamE.AppNav.Oahu.Hosting/AdamE.AppNav.Oahu.Hosting.csproj" />
+    <PackageReference Include="Oahu.iOS" Version="0.1.0-preview.g7a56b3ba" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="Swift/Package.swift;Swift/Sources/**/*.swift;Swift/Tests/**/*.swift" Pack="true" PackagePath="native/%(Identity)" />
+    <None Update="README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+</Project>
