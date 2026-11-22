@@ -17,8 +17,8 @@ namespace AdamE.AppNav.Back;
 /// The default navigator first gives modal content and selected child hosts a chance to go back,
 /// then falls back to modal dismissal, stack popping, and configured default-branch selection.
 /// A <see cref="SplitNode"/> goes back as its presenter shows it, which
-/// <see cref="BackNavigationContext.SplitLayout"/> says, and every evaluation records that layout as
-/// <see cref="NavigationDiagnosticDataKeys.SplitLayout"/>. Collapsed (the default), Back goes back
+/// <see cref="BackNavigationContext.SplitLayout"/> says, and an evaluation in a window holding a split records that
+/// layout as <see cref="NavigationDiagnosticDataKeys.SplitLayout"/>. Collapsed (the default), Back goes back
 /// inside the secondary column while <see cref="SplitNode.CompactColumn"/> is <see cref="SplitColumn.Secondary"/>,
 /// then returns to the primary column, and otherwise goes back inside the primary column. Side by side, Back goes
 /// back inside the secondary column, then inside the primary column, and never only changes
@@ -184,12 +184,7 @@ public sealed class DefaultBackNavigator(
         return TryBack(split.Primary, sideBySide) is { } primaryBack
             ? primaryBack with
             {
-                Node = split with
-                {
-                    Primary = primaryBack.Node,
-                    CompactColumn = SplitColumn.Primary,
-                    Secondary = null
-                }
+                Node = (split with { Primary = primaryBack.Node }).ClearSecondary()
             }
             : null;
     }
@@ -213,15 +208,49 @@ public sealed class DefaultBackNavigator(
         return result;
     }
 
-    // Shared, so recording the layout on every BackEvaluated allocates nothing.
+    // Shared, so recording the layout on BackEvaluated allocates nothing.
     private static readonly IReadOnlyDictionary<string, object?> CollapsedData =
         new Dictionary<string, object?> { [NavigationDiagnosticDataKeys.SplitLayout] = nameof(SplitLayout.Collapsed) };
 
     private static readonly IReadOnlyDictionary<string, object?> SideBySideData =
         new Dictionary<string, object?> { [NavigationDiagnosticDataKeys.SplitLayout] = nameof(SplitLayout.SideBySide) };
 
-    private static IReadOnlyDictionary<string, object?> LayoutData(BackNavigationContext context) =>
-        context.SplitLayout == SplitLayout.SideBySide ? SideBySideData : CollapsedData;
+    // The layout is recorded only when the window holds a split, since it changes nothing otherwise.
+    private static IReadOnlyDictionary<string, object?>? LayoutData(BackNavigationContext context) =>
+        context.Window is not { } window || !ContainsSplit(window)
+            ? null
+            : context.SplitLayout == SplitLayout.SideBySide ? SideBySideData : CollapsedData;
+
+    // Indexed loops: interface enumerators would allocate on every Back.
+    private static bool ContainsSplit(WindowNode window)
+    {
+        if (window.Root is not null && ContainsSplit(window.Root))
+            return true;
+
+        for (var i = 0; i < window.Modals.Count; i++)
+            if (ContainsSplit(window.Modals[i]))
+                return true;
+
+        return false;
+    }
+
+    private static bool ContainsSplit(NavigationNode? node)
+    {
+        switch (node)
+        {
+            case SplitNode:
+                return true;
+            case BranchHostNode branchHost:
+                for (var i = 0; i < branchHost.Branches.Count; i++)
+                    if (ContainsSplit(branchHost.Branches[i].Content))
+                        return true;
+                return false;
+            case ModalNode modal:
+                return ContainsSplit(modal.Content);
+            default:
+                return false;
+        }
+    }
 
     private readonly record struct NodeBackResult(NavigationNode Node, string Reason);
 }

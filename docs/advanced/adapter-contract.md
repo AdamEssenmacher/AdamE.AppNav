@@ -33,8 +33,11 @@ using only public core APIs and is created with the router through
 
 - UI artifacts and mapping from `RouteEntry` to them;
 - the layout of any `SplitNode` it presents: it reports each window's layout
-  with `IRouterNavigator.ReportSplitLayout` whenever it changes, so every Back
-  and navigation result matches what the user sees, and it can call
+  with `IRouterNavigator.ReportSplitLayout` when it attaches and whenever the
+  layout changes, so every Back and navigation result matches what the user
+  sees. Application code does not call it. A layout is forgotten once a commit
+  no longer has its window, so an adapter reports again when it attaches to a
+  recreated window, and it can call
   `IBackNavigator.CreateBackPlan` with a `BackNavigationContext` whose
   `SplitLayout` is set to learn whether to offer a system Back. An adapter
   that cannot present splits refuses them with `NotSupportedException` before

@@ -404,6 +404,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             }
 
             CurrentState = plan.TargetState;
+            ForgetRemovedSplitLayouts();
             _entryLeases?.Commit(CurrentState);
             History = History.Push(
                 CreateHistoryEntry(finalizedRequest, finalRoute, CurrentState),
@@ -581,6 +582,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             }
 
             CurrentState = plan.TargetState;
+            ForgetRemovedSplitLayouts();
             _entryLeases?.Commit(CurrentState);
             History = History.Push(CreateHistoryEntry(request, route, CurrentState),
                 _maxHistoryEntries);
@@ -685,6 +687,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             }
 
             CurrentState = plan.TargetState;
+            ForgetRemovedSplitLayouts();
             _entryLeases?.Commit(CurrentState);
             History = History.Push(
                 CreateHistoryEntry(finalizedRequest, finalRoute, CurrentState),
@@ -845,29 +848,58 @@ internal sealed class RouterNavigator : IRouterNavigator
         if (!Enum.IsDefined(layout))
             throw new ArgumentOutOfRangeException(nameof(layout), layout, "Unknown split layout.");
 
-        lock (_lifetimeGate)
-        {
-            if (_shutdownStarted)
-                return;
-        }
+        // Admitted like an operation: a report that wins the race with shutdown applies and writes its diagnostic
+        // before disposal completes, and one that loses is ignored. The diagnostic is not written under the lifetime
+        // gate, because observers run synchronously and must not hold up shutdown or other admissions.
+        if (!TryBeginOperation())
+            return;
 
-        bool changed;
+        try
+        {
+            bool changed;
+            lock (_splitLayoutGate)
+            {
+                // Collapsed is the default, so only side-by-side windows are kept.
+                changed = layout == SplitLayout.Collapsed
+                    ? _splitLayouts.Remove(windowId)
+                    : _splitLayouts.TryAdd(windowId, layout);
+            }
+
+            if (changed)
+                _diagnostics.Write(
+                    NavigationDiagnosticEventKind.SplitLayoutReported,
+                    Guid.NewGuid().ToString("N"),
+                    layout.ToString(),
+                    RouterNavigationDiagnostics.Data(
+                        (NavigationDiagnosticDataKeys.WindowId, windowId),
+                        (NavigationDiagnosticDataKeys.SplitLayout, layout.ToString())));
+        }
+        finally
+        {
+            EndOperation();
+        }
+    }
+
+    // A window's layout is forgotten once a committed state no longer has the window, so a later window with the same
+    // ID starts collapsed until its presenter reports it.
+    private void ForgetRemovedSplitLayouts()
+    {
         lock (_splitLayoutGate)
         {
-            // Collapsed is the default, so only side-by-side windows are kept.
-            changed = layout == SplitLayout.Collapsed
-                ? _splitLayouts.Remove(windowId)
-                : _splitLayouts.TryAdd(windowId, layout);
-        }
+            if (_splitLayouts.Count == 0)
+                return;
 
-        if (changed)
-            _diagnostics.Write(
-                NavigationDiagnosticEventKind.SplitLayoutReported,
-                Guid.NewGuid().ToString("N"),
-                layout.ToString(),
-                RouterNavigationDiagnostics.Data(
-                    (NavigationDiagnosticDataKeys.WindowId, windowId),
-                    (NavigationDiagnosticDataKeys.SplitLayout, layout.ToString())));
+            List<string>? removed = null;
+            foreach (string windowId in _splitLayouts.Keys)
+                if (CurrentState.FindWindow(windowId) is null)
+                    (removed ??= []).Add(windowId);
+
+            if (removed is null)
+                return;
+
+            foreach (string windowId in removed)
+                _splitLayouts.Remove(windowId);
+        }
     }
 
     private SplitLayout SplitLayoutOf(string? windowId)

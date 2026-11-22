@@ -117,6 +117,13 @@ new SplitNode("mail", mailboxes);                                    // CompactC
 new SplitNode("mail", mailboxes, welcomeStack, SplitColumn.Primary); // list on top when collapsed
 ```
 
+Change the selection with `split.Select(messageStack)` and
+`split.ClearSecondary()`. `Select` resolves `CompactColumn` as the constructor
+does unless you pass one, and `ClearSecondary` also shows the primary column.
+A `with { Secondary = ... }` expression does not apply that default again: it
+keeps the current `CompactColumn`, so selecting a message that way on a split
+showing its list leaves the list on top.
+
 What a column shows is its tree's presented content. A column holding a branch
 host shows its selected branch's content, so a collapsed split stacks that
 content.
@@ -130,8 +137,10 @@ across both columns.
 
 Core does not know the presented layout, so the presenter reports it. A
 presenter that shows splits calls `IRouterNavigator.ReportSplitLayout(windowId,
-layout)` whenever its layout for a window changes, with `SplitLayout.Collapsed`
-or `SplitLayout.SideBySide`. A window never reported is collapsed. Reporting is
+layout)` when it attaches to a window and whenever its layout there changes, with `SplitLayout.Collapsed`
+or `SplitLayout.SideBySide`; application code does not call it. A window
+never reported is collapsed, and a layout is forgotten once a commit no longer
+has its window. Reporting is
 presentation only: it changes neither `CurrentState` nor history, is not
 queued behind navigation, and writes a `SplitLayoutReported` diagnostic when
 the layout changes. App code then calls `BackAsync()` as usual and gets the
@@ -145,7 +154,8 @@ back inside the secondary column, then inside the primary column, and never
 plans a Back that only changes `CompactColumn`. A
 `BackNavigationRequest.SplitLayout` overrides the reported layout for one
 request. The router resolves the layout into `BackNavigationContext.SplitLayout`
-and records it as `splitLayout` on `BackEvaluated`, so an adapter can also ask
+and, when the window holds a split, records it as `splitLayout` on
+`BackEvaluated`, so an adapter can also ask
 `IBackNavigator.CreateBackPlan` with a context of its own whether Back would do
 anything in its layout, for example to decide whether to enable a system Back
 callback. `DefaultBackNavigator.CreateBackPlan(state, windowId)` always plans

@@ -215,7 +215,13 @@ public sealed record BranchHostNode : NavigationNode
 /// one, since that column has the focus.
 /// </para>
 /// <para>
-/// A split cannot be nested, at any depth, inside a modal or another split; router validation rejects such a state. Every route entry in both trees is part of the committed state, so entry IDs must be
+/// A split cannot be nested, at any depth, inside a modal or another split; router validation rejects such a state.
+/// </para>
+/// <para>
+/// Planners change the selection with <see cref="Select"/> and <see cref="ClearSecondary"/>. A
+/// <c>with { Secondary = ... }</c> expression does not apply the constructor's <see cref="CompactColumn"/> default
+/// again: it keeps the current column, so selecting an item that way on a split showing its primary column leaves the
+/// list on top. Every route entry in both trees is part of the committed state, so entry IDs must be
 /// unique across both columns, as they are across branches.
 /// </para>
 /// </remarks>
@@ -247,7 +253,7 @@ public sealed record SplitNode : NavigationNode
     {
         this.Primary = Primary;
         this.Secondary = Secondary;
-        this.CompactColumn = CompactColumn ?? (Secondary is null ? SplitColumn.Primary : SplitColumn.Secondary);
+        this.CompactColumn = CompactColumn ?? DefaultCompactColumn(Secondary);
         ValidateCompactColumn();
     }
 
@@ -279,6 +285,36 @@ public sealed record SplitNode : NavigationNode
             ? value
             : throw new ArgumentOutOfRangeException(nameof(CompactColumn), value, "Unknown split column.");
     }
+
+    /// <summary>
+    /// Returns a copy of the split that shows <paramref name="secondary"/> in its secondary column.
+    /// </summary>
+    /// <param name="secondary">The navigation tree of the selected item.</param>
+    /// <param name="compactColumn">
+    /// The column a collapsed presentation shows on top, or <see langword="null"/> for
+    /// <see cref="SplitColumn.Secondary"/>, as the constructor resolves it.
+    /// </param>
+    /// <returns>A copy of this split with the selection and compact column set.</returns>
+    /// <remarks>
+    /// Prefer this to <c>with { Secondary = ... }</c>, which keeps the current <see cref="CompactColumn"/> rather
+    /// than resolving it again.
+    /// </remarks>
+    public SplitNode Select(NavigationNode secondary, SplitColumn? compactColumn = null)
+    {
+        ArgumentNullException.ThrowIfNull(secondary);
+        return this with { Secondary = secondary, CompactColumn = compactColumn ?? DefaultCompactColumn(secondary) };
+    }
+
+    /// <summary>
+    /// Returns a copy of the split with nothing selected: no secondary column, and the primary column shown.
+    /// </summary>
+    /// <returns>A copy of this split with <see cref="Secondary"/> null and <see cref="CompactColumn"/>
+    /// <see cref="SplitColumn.Primary"/>.</returns>
+    public SplitNode ClearSecondary() =>
+        this with { Secondary = null, CompactColumn = SplitColumn.Primary };
+
+    private static SplitColumn DefaultCompactColumn(NavigationNode? secondary) =>
+        secondary is null ? SplitColumn.Primary : SplitColumn.Secondary;
 
     private void ValidateCompactColumn()
     {
