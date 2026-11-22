@@ -162,6 +162,11 @@ final class NativeSurface: ObservableObject {
         }
         stagePushOrigins(next, push: singlePush ? step : nil)
         animatedPush = singlePush && animation != nil ? step : nil
+        // A pending take-back can be dropped here. The presenter stages a new revision only after the router
+        // operation that staged the old one has ended, and that operation can't end while a take-back is pending: the
+        // take-back holds back the staged reading the operation waits for. So a new revision here is the rollback
+        // after that operation timed out or was cancelled, or a reattach. Neither recorded the push, and each installs
+        // the router's committed stack.
         takenBack = nil
         takenBackKept = false
         pushWitnessed = false
