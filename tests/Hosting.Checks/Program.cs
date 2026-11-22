@@ -126,21 +126,27 @@ loop.Run(async () =>
         Check(created["group"].Count == 4 && !created["group"].Last().IsDisposed, "Retry reused a disconnected mount");
         var detail = created["detail"].Last();
         detailLease!.Retire();
+        // Release is asynchronous, so give a wrongful release time to land before asserting it did not.
+        await Task.WhenAny(detailLease.Released, Task.Delay(TimeSpan.FromMilliseconds(250)));
         Check(!detail.IsDisposed && !detailLease.Released.IsCompleted,
             "Retiring a visible entry released its mount");
+        var showsBeforeRefresh = surface.Shows;
         await router.Navigator.RefreshPresentationAsync();
         await surface.WaitForSettlementAsync("refresh");
         var catalog = shell.Target.Current.Branches.Single(b => b.Branch == "catalog");
         Check(catalog.Entries.Last() == new ScreenEntry("detail", 0), "Retired entry was remounted");
         Check(detail.IsDisposed && router.HistoryCount == 2, "Refresh retained the old mount or added history");
+        Check(surface.Shows > showsBeforeRefresh, "Refresh did not present, so the presentation count proves nothing");
 
         var item = created["item"].Last();
+        var showsBeforePop = surface.Shows;
         await presenter.ObserveAsync(epoch, shell.Target.Current.Revision, "catalog", ["catalog", "group"]);
         Check(router.HistoryCount == 3 && router.CurrentEntryIds.SequenceEqual(["catalog", "group"]),
             "Native multi-pop did not commit");
         await itemLease!.Released.WaitAsync(TimeSpan.FromSeconds(5));
         Check(item.IsDisposed && released.Count(id => id == item.Id) == 1,
-            "Native multi-pop must release its removed mount without another presentation");
+            "Native multi-pop must release its removed mount");
+        Check(surface.Shows == showsBeforePop, "Native multi-pop released its mount only after another presentation");
         Check(!created["group"].Last().IsDisposed, "Native multi-pop released the still visible mount");
         presenter.Detach(epoch);
         Task shutdown;
@@ -254,8 +260,14 @@ sealed class Witness(NavigationShellViewModel shell, Func<ShellTarget, Task> rep
         while ((await settlements.Reader.ReadAsync(timeout.Token)).Transition.Operation != operation) { }
     }
 
+    private int shows;
+
+    /// <summary>The number of presentations the presenter has asked this surface to show.</summary>
+    public int Shows => Volatile.Read(ref shows);
+
     public async Task ShowAsync(OahuNavigationTarget target, CancellationToken token)
     {
+        Interlocked.Increment(ref shows);
         try { await shell.ShowAsync(target, token); }
         catch when (onShowFailure is not null)
         {
