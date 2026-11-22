@@ -120,6 +120,49 @@ public fun AppNavNavigationShell(
     onBackFailure: (Throwable) -> Unit,
     controls: @Composable () -> Unit = {},
 ) {
+    AppNavNavigationShell(
+        target, report, modalHost = { presentation, content -> DefaultModalHost(presentation, content) },
+        requestBack, branchLabel, unavailableContent, animations, onBackFailure, controls,
+    )
+}
+
+/**
+ * State and actions for the active modal occurrence's native presentation.
+ *
+ * The shell owns the modal's lifetime: the occurrence is presented for exactly as long as the shell
+ * composes the host for it. [onDismissRequest] only asks; AppNav can ignore it while a transition
+ * is pending or refuse it through managed Back policy. A host must therefore never hide itself.
+ * Keep the window shown until the shell stops composing it. A Material sheet calls its own dismiss
+ * callback only after hiding, so in `confirmValueChange` call [onDismissRequest] and return false
+ * for `SheetValue.Hidden`.
+ */
+public class NavigationModalPresentation internal constructor(
+    public val id: String,
+    public val entryCount: Int,
+    /** False while AppNav ignores dismissal requests. True does not promise Back policy will allow it. */
+    public val canDismiss: Boolean,
+    public val onDismissRequest: () -> Unit,
+)
+
+/**
+ * Renders the shell with a caller-provided modal window. The [modalHost] must compose its
+ * mounted content and route dismissal requests through [NavigationModalPresentation.onDismissRequest].
+ * That callback preserves AppNav's transition gate and managed Back policy. A host that draws in
+ * the Activity window instead of its own still gets system Back: the shell routes it to the modal.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+public fun AppNavNavigationShell(
+    target: NavigationProjection,
+    report: (NavigationObservation) -> Unit,
+    modalHost: @Composable (NavigationModalPresentation, @Composable () -> Unit) -> Unit,
+    requestBack: (suspend () -> Unit)? = null,
+    branchLabel: @Composable (NavigationBranch) -> Unit = { Text(it.title) },
+    unavailableContent: @Composable (MountedEntry) -> Unit = { UnavailableContent() },
+    animations: NavigationAnimations = DefaultAnimations,
+    onBackFailure: (Throwable) -> Unit = { Log.e("AppNav", "Managed Back failed", it) },
+    controls: @Composable () -> Unit = {},
+) {
     val surface = remember(target.revision) { DisplayedSurface(target) }
     val origins = remember { NavigationOrigins() }
     val backScope = rememberCoroutineScope()
@@ -186,11 +229,16 @@ public fun AppNavNavigationShell(
         }
     }
 
+    val modalShown = modal.isNotEmpty()
     val primaryHasBack = surface.hasBack(modalBack = false)
-    val allowPrimaryPreview = primaryHasBack && canNavigate() && requestBack == null
-    // Consume Back within the shell while a managed request or a presentation is pending.
-    BackHandler(enabled = modal.isEmpty() && !allowPrimaryPreview && (primaryHasBack || !canNavigate())) {
-        back(modalBack = false)
+    val allowPrimaryPreview = !modalShown && primaryHasBack && canNavigate() && requestBack == null
+    val allowModalPreview = modalShown && canNavigate() && requestBack == null && modal.size > 1
+    // Consume Back within the shell while a managed request or a presentation is pending. A modal
+    // host need not have its own window, so while a modal is shown the shell takes Back for it.
+    BackHandler(
+        enabled = if (modalShown) !allowModalPreview else !allowPrimaryPreview && (primaryHasBack || !canNavigate()),
+    ) {
+        back(modalBack = modalShown)
     }
 
     Scaffold(
@@ -228,26 +276,47 @@ public fun AppNavNavigationShell(
         SideEffect { renderedModal = null }
     } else {
         key(modalId) {
-            Dialog(
-                onDismissRequest = { back(modalBack = true) },
-                properties = DialogProperties(dismissOnClickOutside = false),
-            ) {
-                Surface(shape = MaterialTheme.shapes.large) {
-                    Column(Modifier.fillMaxWidth()) {
-                        TextButton(
-                            onClick = { back(modalBack = true) },
-                            enabled = canNavigate(),
-                        ) {
-                            Text(if (modal.size > 1) "Back" else "Dismiss")
-                        }
-                        Box(Modifier.fillMaxWidth().fillMaxHeight(0.8f)) {
-                            MountedStack(expectedModal, target.transition, animations, origins,
-                                canNavigate() && requestBack == null && modal.size > 1,
-                                { back(modalBack = true) }, unavailableContent) {
-                                renderedModal = it
-                            }
-                        }
-                    }
+            val dismiss by rememberUpdatedState({ back(modalBack = true) })
+            var mounted by remember { mutableStateOf(false) }
+            DisposableEffect(Unit) {
+                mounted = true
+                onDispose { mounted = false }
+            }
+            // A modal ID names the declared modal, so a revision can replace its occurrence in place.
+            // The root entry ID identifies the occurrence, which keeps a retired callback inert.
+            val occurrence = modal.first().entryId
+            val currentOccurrence by rememberUpdatedState(occurrence)
+            modalHost(NavigationModalPresentation(modalId, modal.size, canNavigate()) {
+                if (mounted && currentOccurrence == occurrence) dismiss()
+            }) {
+                MountedStack(expectedModal, target.transition, animations, origins, allowModalPreview,
+                    { back(modalBack = true) }, unavailableContent) {
+                    renderedModal = it
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DefaultModalHost(
+    presentation: NavigationModalPresentation,
+    content: @Composable () -> Unit,
+) {
+    Dialog(
+        onDismissRequest = presentation.onDismissRequest,
+        properties = DialogProperties(dismissOnClickOutside = false),
+    ) {
+        Surface(shape = MaterialTheme.shapes.large) {
+            Column(Modifier.fillMaxWidth()) {
+                TextButton(
+                    onClick = presentation.onDismissRequest,
+                    enabled = presentation.canDismiss,
+                ) {
+                    Text(if (presentation.entryCount > 1) "Back" else "Dismiss")
+                }
+                Box(Modifier.fillMaxWidth().fillMaxHeight(0.8f)) {
+                    content()
                 }
             }
         }
