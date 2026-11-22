@@ -880,6 +880,21 @@ internal sealed class RouterNavigator : IRouterNavigator
                     EndOperation();
             }
         }
+
+        if (operationContext?.Settlement is { } settlement)
+        {
+            operationContext.Settlement = null;
+            // Cleanup runs independently of router admission. Do not flow an active operation
+            // context into arbitrary presenter code.
+            if (ExecutionContext.IsFlowSuppressed())
+                _ = Task.Run(SettleAsync);
+            else
+                using (ExecutionContext.SuppressFlow())
+                    _ = Task.Run(SettleAsync);
+
+            Task SettleAsync() => NotifyPresentationSettledAsync(
+                settlement.Presenter, settlement.State, settlement.Kind, settlement.OperationId);
+        }
     }
 
     private void StartPresentationSettlement(RouterOperationContext? operationContext)
