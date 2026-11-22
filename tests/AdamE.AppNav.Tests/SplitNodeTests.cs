@@ -1,0 +1,285 @@
+using AdamE.AppNav.Back;
+using AdamE.AppNav.Internal;
+using AdamE.AppNav.Leases;
+using AdamE.AppNav.Navigation;
+using AdamE.AppNav.Plans;
+using AdamE.AppNav.Presentation;
+using AdamE.AppNav.State;
+
+namespace AdamE.AppNav.Tests;
+
+// A mail app: the mailbox list in the primary column beside the selected message's own stack.
+public sealed class SplitNodeTests
+{
+    [Fact]
+    public void ConstructionDefaultsToThePrimaryColumnWithNothingSelected()
+    {
+        var split = new SplitNode("mail", Mailboxes());
+
+        Assert.Equal("mail", split.Id);
+        Assert.Equal("mailboxes", split.Primary.Id);
+        Assert.Null(split.Secondary);
+        Assert.Equal(SplitColumn.Primary, split.CompactColumn);
+    }
+
+    [Fact]
+    public void ConstructionRejectsMissingAndInconsistentValues()
+    {
+        // Nulls on purpose: the null checks are what is tested.
+        Assert.Throws<ArgumentNullException>(() => new SplitNode("mail", null!));
+        Assert.Throws<ArgumentException>(() => new SplitNode(" ", Mailboxes()));
+        Assert.Throws<ArgumentException>(() => new SplitNode("mail", Mailboxes(), null, SplitColumn.Secondary));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new SplitNode("mail", Mailboxes(), Message("m1"), (SplitColumn)7));
+
+        SplitNode split = Split(SplitColumn.Secondary, Message("m1"));
+        Assert.Throws<ArgumentNullException>(() => split with { Primary = null! });
+        Assert.Throws<ArgumentOutOfRangeException>(() => split with { CompactColumn = (SplitColumn)(-1) });
+    }
+
+    [Fact]
+    public void SplitsCompareByValueAndCopyWithChanges()
+    {
+        // Stack entries compare by reference, as for every node, so equal splits share their column trees.
+        StackNode mailboxes = Mailboxes();
+        StackNode message = Message("m1", "attachment");
+        var split = new SplitNode("mail", mailboxes, message, SplitColumn.Secondary);
+        var same = new SplitNode("mail", mailboxes, message, SplitColumn.Secondary);
+
+        Assert.Equal(split, same);
+        Assert.Equal(split.GetHashCode(), same.GetHashCode());
+        Assert.NotEqual(split, split with { CompactColumn = SplitColumn.Primary });
+        Assert.NotEqual(split, split with { Secondary = Message("m2") });
+
+        SplitNode collapsedToList = split with { CompactColumn = SplitColumn.Primary };
+        Assert.Equal(split.Secondary, collapsedToList.Secondary);
+        Assert.Equal(SplitColumn.Primary, collapsedToList.CompactColumn);
+    }
+
+    [Fact]
+    public void ValidatorAcceptsSplitsAsWindowRootsAndBranchContent()
+    {
+        NavigationStateValidator.ValidateState(Root(Split(SplitColumn.Secondary, Message("m1"))), "Test");
+        NavigationStateValidator.ValidateState(Root(Split(SplitColumn.Primary)), "Test");
+        NavigationStateValidator.ValidateState(
+            Root(new BranchHostNode(
+                "tabs",
+                [new NavigationBranch("mail", "Mail", Split(SplitColumn.Secondary, Message("m1")))],
+                "mail")),
+            "Test");
+    }
+
+    [Fact]
+    public void ValidatorRecursesIntoBothColumns()
+    {
+        var invalidHost = new BranchHostNode(
+            "folders",
+            [new NavigationBranch("inbox", "Inbox", Mailboxes())],
+            "inbox") with { SelectedBranchId = "missing" };
+
+        AppNavigationConfigurationException primary = Assert.Throws<AppNavigationConfigurationException>(() =>
+            NavigationStateValidator.ValidateState(Root(new SplitNode("mail", invalidHost)), "Test"));
+        Assert.Contains("Root.Primary", primary.Message, StringComparison.Ordinal);
+
+        AppNavigationConfigurationException secondary = Assert.Throws<AppNavigationConfigurationException>(() =>
+            NavigationStateValidator.ValidateState(Root(new SplitNode("mail", Mailboxes(), invalidHost)), "Test"));
+        Assert.Contains("Root.Secondary", secondary.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ValidatorRejectsASecondaryColumnShownWithoutContent()
+    {
+        // A copy can drop the secondary content after construction; validation catches it before presentation.
+        SplitNode split = Split(SplitColumn.Secondary, Message("m1")) with { Secondary = null };
+
+        AppNavigationConfigurationException exception = Assert.Throws<AppNavigationConfigurationException>(() =>
+            NavigationStateValidator.ValidateState(Root(split), "Test"));
+        Assert.Contains("no secondary content", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ValidatorRejectsSplitsInsideModalsAndOtherSplits()
+    {
+        var modalState = new NavigationState(
+            [
+                new WindowNode(
+                    "main",
+                    Mailboxes(),
+                    [new ModalNode("compose", Entry("compose"), Split(SplitColumn.Primary))])
+            ],
+            "main");
+        AppNavigationConfigurationException modal = Assert.Throws<AppNavigationConfigurationException>(() =>
+            NavigationStateValidator.ValidateState(modalState, "Test"));
+        Assert.Contains("inside a modal", modal.Message, StringComparison.Ordinal);
+
+        var nestedModalBranch = new ModalNode(
+            "sheet",
+            Entry("sheet"),
+            new BranchHostNode("tabs", [new NavigationBranch("mail", "Mail", Split(SplitColumn.Primary))], "mail"));
+        Assert.Throws<AppNavigationConfigurationException>(() =>
+            NavigationStateValidator.ValidateState(Root(nestedModalBranch), "Test"));
+
+        var nestedSplit = new SplitNode("outer", Mailboxes(), Split(SplitColumn.Primary));
+        AppNavigationConfigurationException nested = Assert.Throws<AppNavigationConfigurationException>(() =>
+            NavigationStateValidator.ValidateState(Root(nestedSplit), "Test"));
+        Assert.Contains("inside another split", nested.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BackPopsTheSecondaryColumnWhileItIsShown()
+    {
+        NavigationState state = Root(Split(SplitColumn.Secondary, Message("m1", "attachment")));
+
+        NavigationPlan plan = Back(state);
+
+        SplitNode split = RootSplit(plan);
+        Assert.Equal(SplitColumn.Secondary, split.CompactColumn);
+        Assert.Equal(["m1"], EntryIds(split.Secondary));
+        Assert.Equal("Back navigation will pop the selected stack.", plan.Reason);
+    }
+
+    [Fact]
+    public void BackFromTheSecondaryRootReturnsToThePrimaryColumn()
+    {
+        NavigationState state = Root(Split(SplitColumn.Secondary, Message("m1")));
+
+        NavigationPlan plan = Back(state);
+
+        SplitNode split = RootSplit(plan);
+        Assert.Equal(SplitColumn.Primary, split.CompactColumn);
+        Assert.Equal(["m1"], EntryIds(split.Secondary));
+        Assert.Equal("Back navigation will return to the primary column.", plan.Reason);
+    }
+
+    [Fact]
+    public void BackPopsThePrimaryColumnWhileItIsShown()
+    {
+        NavigationState state = Root(new SplitNode(
+            "mail",
+            new StackNode("mailboxes", [Entry("accounts"), Entry("inbox")]),
+            Message("m1")));
+
+        NavigationPlan plan = Back(state);
+
+        SplitNode split = RootSplit(plan);
+        Assert.Equal(["accounts"], EntryIds(split.Primary));
+        Assert.Equal(["m1"], EntryIds(split.Secondary));
+        Assert.Equal(SplitColumn.Primary, split.CompactColumn);
+    }
+
+    [Fact]
+    public void BackHasNothingToDoAtThePrimaryRoot()
+    {
+        Assert.Null(new DefaultBackNavigator().CreateBackPlan(Root(Split(SplitColumn.Primary, Message("m1")))));
+        Assert.Null(new DefaultBackNavigator().CreateBackPlan(Root(Split(SplitColumn.Primary))));
+    }
+
+    [Fact]
+    public void BackReachesASplitInsideTheSelectedBranch()
+    {
+        var host = new BranchHostNode(
+            "tabs",
+            [
+                new NavigationBranch("mail", "Mail", Split(SplitColumn.Secondary, Message("m1"))),
+                new NavigationBranch("settings", "Settings", new StackNode("settings", [Entry("settings")]))
+            ],
+            "mail");
+
+        NavigationPlan plan = Back(Root(host));
+
+        BranchHostNode backHost = Assert.IsType<BranchHostNode>(RootOf(plan));
+        NavigationBranch mail = Assert.Single(backHost.Branches, static branch => branch.Id == "mail");
+        Assert.Equal(SplitColumn.Primary, Assert.IsType<SplitNode>(mail.Content).CompactColumn);
+    }
+
+    [Fact]
+    public void BackDismissesAModalOverASplitFirst()
+    {
+        SplitNode split = Split(SplitColumn.Secondary, Message("m1", "attachment"));
+        var state = new NavigationState(
+            [new WindowNode("main", split, [new ModalNode("compose", Entry("compose"))])],
+            "main");
+
+        NavigationPlan plan = Back(state);
+
+        WindowNode window = plan.TargetState.ActiveWindow ?? throw new InvalidOperationException("No window.");
+        Assert.Empty(window.Modals);
+        Assert.Equal(split, window.Root);
+    }
+
+    [Fact]
+    public void TopRouteIsWhatTheCollapsedSplitShowsOnTop()
+    {
+        SplitNode split = Split(SplitColumn.Secondary, Message("m1", "attachment"));
+
+        Assert.Equal(new MailRoute("attachment"), PresentedRouteTraversal.FindTopRoute(split));
+        Assert.Equal(
+            new MailRoute("inbox"),
+            PresentedRouteTraversal.FindTopRoute(split with { CompactColumn = SplitColumn.Primary }));
+        Assert.Equal(new MailRoute("inbox"), PresentedRouteTraversal.FindTopRoute(Split(SplitColumn.Primary)));
+        Assert.Equal(
+            new MailRoute("inbox"),
+            PresentedRouteTraversal.FindTopRoute(Split(SplitColumn.Secondary, new StackNode("message", []))));
+    }
+
+    [Fact]
+    public void LeasesSeeEntriesInBothColumnsWhicheverIsShown()
+    {
+        NavigationState state = Root(Split(SplitColumn.Primary, Message("m1", "attachment")));
+
+        Assert.Equal(
+            new HashSet<string>(["inbox", "m1", "attachment"], StringComparer.Ordinal),
+            RouteEntryLeaseRegistry.EntryIds(state));
+    }
+
+    [Fact]
+    public void LeasesRejectAnEntryIdRepeatedAcrossColumns()
+    {
+        NavigationState state = Root(Split(SplitColumn.Primary, Message("inbox")));
+
+        AppNavigationConfigurationException exception = Assert.Throws<AppNavigationConfigurationException>(() =>
+            RouteEntryLeaseRegistry.ValidateUniqueEntryIds(state, "Test"));
+        Assert.Contains("'inbox'", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NativeTopologyRefusesASplitRoot()
+    {
+        var topology = new NavigationTopology("main", "mailboxes");
+
+        NotSupportedException exception = Assert.Throws<NotSupportedException>(() =>
+            topology.Match(Root(Split(SplitColumn.Primary)), new NavigationTopologySupport(maxStackEntries: 4)));
+        Assert.Contains("split 'mail'", exception.Message, StringComparison.Ordinal);
+    }
+
+    private static NavigationPlan Back(NavigationState state)
+    {
+        NavigationPlan? plan = new DefaultBackNavigator().CreateBackPlan(state);
+        Assert.NotNull(plan);
+        Assert.Equal(NavigationPlanKind.Back, plan.Kind);
+        NavigationStateValidator.ValidatePlan(plan, "Back");
+        return plan;
+    }
+
+    private static NavigationNode? RootOf(NavigationPlan plan) => plan.TargetState.ActiveWindow?.Root;
+
+    private static SplitNode RootSplit(NavigationPlan plan) => Assert.IsType<SplitNode>(RootOf(plan));
+
+    private static string[] EntryIds(NavigationNode? node) =>
+        Assert.IsType<StackNode>(node).Entries.Select(static entry => entry.Id).ToArray();
+
+    private static NavigationState Root(NavigationNode root) =>
+        new([new WindowNode("main", root)], "main");
+
+    private static SplitNode Split(SplitColumn compactColumn, NavigationNode? secondary = null) =>
+        new("mail", Mailboxes(), secondary, compactColumn);
+
+    private static StackNode Mailboxes() => new("mailboxes", [Entry("inbox")]);
+
+    private static StackNode Message(params string[] entryIds) =>
+        new("message", entryIds.Select(Entry).ToArray());
+
+    private static RouteEntry Entry(string id) => new(id, new MailRoute(id));
+
+    private sealed record MailRoute(string Value) : AppRoute;
+}

@@ -41,7 +41,7 @@ internal static class NavigationStateValidator
     private static void ValidateWindow(WindowNode window, string path)
     {
         if (window.Root is not null)
-            ValidateNode(window.Root, $"{path}.Root");
+            ValidateNode(window.Root, $"{path}.Root", SplitPlacement.Allowed);
 
         var modalIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (ModalNode modal in RequireListItems(window.Modals, $"{path}.Modals"))
@@ -54,7 +54,7 @@ internal static class NavigationStateValidator
         }
     }
 
-    private static void ValidateNode(NavigationNode? node, string path)
+    private static void ValidateNode(NavigationNode? node, string path, SplitPlacement splitPlacement)
     {
         if (node is null)
             throw Invalid($"{path} cannot be null.");
@@ -67,7 +67,10 @@ internal static class NavigationStateValidator
                 ValidateStack(stack, path);
                 break;
             case BranchHostNode branchHost:
-                ValidateBranchHost(branchHost, path);
+                ValidateBranchHost(branchHost, path, splitPlacement);
+                break;
+            case SplitNode split:
+                ValidateSplit(split, path, splitPlacement);
                 break;
             case ModalNode modal:
                 ValidateModal(modal, path);
@@ -88,7 +91,7 @@ internal static class NavigationStateValidator
         }
     }
 
-    private static void ValidateBranchHost(BranchHostNode branchHost, string path)
+    private static void ValidateBranchHost(BranchHostNode branchHost, string path, SplitPlacement splitPlacement)
     {
         IReadOnlyList<NavigationBranch> branches = RequireListItems(branchHost.Branches, $"{path}.Branches");
         if (branches.Count == 0)
@@ -104,7 +107,7 @@ internal static class NavigationStateValidator
             if (string.IsNullOrWhiteSpace(branch.Title))
                 throw Invalid($"{path}.Branch('{branch.Id}').Title cannot be null, empty, or whitespace.");
 
-            ValidateNode(branch.Content, $"{path}.Branch('{branch.Id}').Content");
+            ValidateNode(branch.Content, $"{path}.Branch('{branch.Id}').Content", splitPlacement);
         }
 
         RequireId(branchHost.SelectedBranchId, $"{path}.SelectedBranchId");
@@ -121,11 +124,34 @@ internal static class NavigationStateValidator
                 $"{path} default branch id '{branchHost.DefaultBranchId}' does not reference an existing branch.");
     }
 
+    // A split is a window root or a branch's content. Inside a modal or another split's column, what collapsing
+    // means is not defined, so such placements are rejected rather than left to each presenter.
+    private static void ValidateSplit(SplitNode split, string path, SplitPlacement splitPlacement)
+    {
+        switch (splitPlacement)
+        {
+            case SplitPlacement.InsideModal:
+                throw Invalid($"{path} is a split inside a modal; a split must be a window root or a branch's content.");
+            case SplitPlacement.InsideSplit:
+                throw Invalid(
+                    $"{path} is a split inside another split's column; a split must be a window root or a branch's content.");
+        }
+
+        if (!Enum.IsDefined(split.CompactColumn))
+            throw Invalid($"{path}.CompactColumn has unknown value '{split.CompactColumn}'.");
+
+        ValidateNode(split.Primary, $"{path}.Primary", SplitPlacement.InsideSplit);
+        if (split.Secondary is not null)
+            ValidateNode(split.Secondary, $"{path}.Secondary", SplitPlacement.InsideSplit);
+        else if (split.CompactColumn == SplitColumn.Secondary)
+            throw Invalid($"{path} shows its secondary column but has no secondary content.");
+    }
+
     private static void ValidateModal(ModalNode modal, string path)
     {
         ValidateRouteEntry(modal.RouteEntry, $"{path}.RouteEntry");
         if (modal.Content is not null)
-            ValidateNode(modal.Content, $"{path}.Content");
+            ValidateNode(modal.Content, $"{path}.Content", SplitPlacement.InsideModal);
     }
 
     private static void ValidateRouteEntry(RouteEntry? entry, string path)
@@ -160,5 +186,12 @@ internal static class NavigationStateValidator
     private static AppNavigationConfigurationException Invalid(string message)
     {
         return new AppNavigationConfigurationException($"Invalid navigation state: {message}");
+    }
+
+    private enum SplitPlacement
+    {
+        Allowed,
+        InsideModal,
+        InsideSplit
     }
 }

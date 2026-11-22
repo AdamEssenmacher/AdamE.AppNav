@@ -139,6 +139,8 @@ public sealed class PublicApiContractTests
                 "AdamE.AppNav.State.NavigationNode",
                 "AdamE.AppNav.State.NavigationState",
                 "AdamE.AppNav.State.RouteEntry",
+                "AdamE.AppNav.State.SplitColumn",
+                "AdamE.AppNav.State.SplitNode",
                 "AdamE.AppNav.State.StackNode",
                 "AdamE.AppNav.State.WindowNode"
             ]);

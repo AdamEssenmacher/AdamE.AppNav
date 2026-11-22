@@ -12,6 +12,10 @@ internal static class PresentedRouteTraversal
         {
             StackNode stack => stack.Top?.Route,
             BranchHostNode { SelectedBranch: not null } branchHost => FindTopRoute(branchHost.SelectedBranch.Content),
+            // A split reports what its collapsed presentation shows on top, whatever the presented layout.
+            SplitNode { CompactColumn: SplitColumn.Secondary, Secondary: { } secondary } split =>
+                FindTopRoute(secondary) ?? FindTopRoute(split.Primary),
+            SplitNode split => FindTopRoute(split.Primary),
             ModalNode modal => modal.Content is null
                 ? modal.RouteEntry.Route
                 : FindTopRoute(modal.Content) ?? modal.RouteEntry.Route,

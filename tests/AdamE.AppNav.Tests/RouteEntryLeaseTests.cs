@@ -1046,6 +1046,49 @@ public sealed class RouteEntryLeaseTests
         Assert.Equal(0, presenter.ApplyCount);
     }
 
+    [Fact]
+    public async Task ASplitKeepsTheLeaseOfItsHiddenColumnUntilTheEntryIsDropped()
+    {
+        // A mailbox list beside the selected message: StoreRoute("none") selects nothing.
+        var planner = new TestNavigationPlanner((context, _) =>
+        {
+            var route = (TestRoutes.StoreRoute)context.Route;
+            StackNode mailboxes = TestNavigationState.Stack(
+                "mailboxes",
+                TestNavigationState.Entry("inbox", new TestRoutes.StoreRoute("inbox")));
+            SplitNode split = route.StoreId == "none"
+                ? new SplitNode("mail", mailboxes)
+                : new SplitNode(
+                    "mail",
+                    mailboxes,
+                    TestNavigationState.Stack("message", TestNavigationState.Entry(route.StoreId, route)),
+                    SplitColumn.Secondary);
+            return ValueTask.FromResult(new NavigationPlan(
+                TestNavigationState.State("main", TestNavigationState.Window("main", split))));
+        });
+        var leases = new RouteEntryLeaseRegistry(new RecordingLeaseHost());
+        await using IRouterNavigator router = RouterNavigatorFactory.Create(
+            TestRoutes.CreateTable(),
+            planner,
+            new RecordingNavigationPresenter(),
+            new RouterNavigatorFactoryOptions { EntryLeases = leases });
+        RouteEntryLease message = await OpenSentClosedAsync(router, leases, "m1");
+        Assert.True(message.IsCommitted);
+
+        // Back from the message's root only shows the list again: the message stays committed state.
+        BackNavigationResult back = await router.BackAsync();
+        Assert.Equal(BackNavigationStatus.Completed, back.Status);
+        var split = Assert.IsType<SplitNode>(router.CurrentState.ActiveWindow?.Root);
+        Assert.Equal(SplitColumn.Primary, split.CompactColumn);
+        Assert.True(message.IsCommitted);
+        Assert.False(message.IsRetired);
+
+        await router.NavigateAsync(new TestRoutes.StoreRoute("none"));
+
+        Assert.Equal(RouteEntryLeaseRetirement.Dropped, message.Retirement);
+        Assert.False(message.IsCommitted);
+    }
+
     // Deterministic: once the lease's retirement has been delivered, release starts synchronously with whichever call
     // meets its last condition, so a lease that has not started releasing by then is held.
     private static async Task AssertHeldAsync(RouteEntryLease lease)

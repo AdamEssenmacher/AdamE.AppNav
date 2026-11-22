@@ -4,6 +4,8 @@ using AdamE.AppNav.State;
 namespace AdamE.AppNav.Oahu;
 
 /// <summary>A projection of one window, a stack or branch host, and an optional modal stack.</summary>
+/// <remarks>Other shapes are refused with <see cref="NotSupportedException"/> before anything is staged. That includes
+/// a <see cref="SplitNode"/> anywhere in the window, which OAHU surfaces do not present yet.</remarks>
 public sealed record OahuNavigationTarget
 {
     internal OahuNavigationTarget(NavigationState state, long revision)
@@ -17,6 +19,11 @@ public sealed record OahuNavigationTarget
         if (state.Windows.Count != 1 || state.ActiveWindow is not { } window)
             throw new NotSupportedException("An OAHU surface presents one active window.");
         WindowId = window.Id;
+        // Split renderers come later; refuse a split anywhere before staging anything for it.
+        SplitNode? split = FindSplit(window.Root) ?? window.Modals.Select(static modal => FindSplit(modal))
+            .FirstOrDefault(static candidate => candidate is not null);
+        if (split is not null)
+            throw new NotSupportedException($"An OAHU surface does not present split nodes yet; found split '{split.Id}'.");
         switch (window.Root)
         {
             case StackNode stack:
@@ -62,6 +69,15 @@ public sealed record OahuNavigationTarget
             if (!ids.Add(entry.Id))
                 throw new NotSupportedException($"Duplicate route entry occurrence '{entry.Id}'.");
     }
+
+    private static SplitNode? FindSplit(NavigationNode? node) => node switch
+    {
+        SplitNode split => split,
+        BranchHostNode host => host.Branches.Select(static branch => FindSplit(branch.Content))
+            .FirstOrDefault(static candidate => candidate is not null),
+        ModalNode modal => FindSplit(modal.Content),
+        _ => null
+    };
 
     private static IReadOnlyList<RouteEntry> StackEntries(StackNode stack) => stack.Entries.Count != 0
         ? Array.AsReadOnly(stack.Entries.ToArray()) : throw new NotSupportedException($"Stack '{stack.Id}' needs a root entry.");

@@ -16,6 +16,9 @@ namespace AdamE.AppNav.Back;
 /// <remarks>
 /// The default navigator first gives modal content and selected child hosts a chance to go back,
 /// then falls back to modal dismissal, stack popping, and configured default-branch selection.
+/// A <see cref="SplitNode"/> goes back as if collapsed to one column: inside its secondary column while
+/// <see cref="SplitNode.CompactColumn"/> is <see cref="SplitColumn.Secondary"/>, then to the primary column,
+/// and otherwise inside its primary column.
 /// </remarks>
 public sealed class DefaultBackNavigator(
     BackNavigationOptions? options = null,
@@ -109,6 +112,7 @@ public sealed class DefaultBackNavigator(
         {
             StackNode stack => TryBackStack(stack),
             BranchHostNode branchHost => TryBackBranchHost(branchHost),
+            SplitNode split => TryBackSplit(split),
             // Window-level modal dismissal is handled from WindowNode.Modals. A nested
             // modal node can only delegate back navigation into its content.
             ModalNode { Content: not null } modal => TryBack(modal.Content) is { } result
@@ -146,6 +150,22 @@ public sealed class DefaultBackNavigator(
                 "Back navigation will return to the default branch.");
 
         return null;
+    }
+
+    // A split goes back as if collapsed, whatever its presented layout: the secondary column first while it is the
+    // one shown, then back to the primary column, otherwise inside the primary column.
+    private NodeBackResult? TryBackSplit(SplitNode split)
+    {
+        if (split is { CompactColumn: SplitColumn.Secondary, Secondary: { } secondary })
+            return TryBack(secondary) is { } secondaryBack
+                ? secondaryBack with { Node = split with { Secondary = secondaryBack.Node } }
+                : new NodeBackResult(
+                    split with { CompactColumn = SplitColumn.Primary },
+                    "Back navigation will return to the primary column.");
+
+        return TryBack(split.Primary) is { } primaryBack
+            ? primaryBack with { Node = split with { Primary = primaryBack.Node } }
+            : null;
     }
 
     private static NavigationState ReplaceWindow(BackNavigationContext context, WindowNode window)

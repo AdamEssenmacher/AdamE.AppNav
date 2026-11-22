@@ -223,6 +223,14 @@ public sealed class PublicAdapterContractTests
         {
             ModalState(new ContractRoute("modal")),
             new[] { typeof(WindowNode), typeof(StackNode), typeof(ModalNode) }
+        },
+        {
+            SplitState(new ContractRoute("split")),
+            new[] { typeof(WindowNode), typeof(SplitNode), typeof(StackNode), typeof(StackNode) }
+        },
+        {
+            SplitState(null),
+            new[] { typeof(WindowNode), typeof(SplitNode), typeof(StackNode) }
         }
     };
 
@@ -268,6 +276,19 @@ public sealed class PublicAdapterContractTests
             "catalog",
             "home");
         return new NavigationState([new WindowNode("main", branchHost)], "main");
+    }
+
+    private static NavigationState SplitState(ContractRoute? selectedRoute)
+    {
+        var list = new StackNode("list-stack", [new RouteEntry("list", new ContractRoute("list"))]);
+        SplitNode split = selectedRoute is null
+            ? new SplitNode("split", list)
+            : new SplitNode(
+                "split",
+                list,
+                new StackNode("detail-stack", [new RouteEntry("detail", selectedRoute)]),
+                SplitColumn.Secondary);
+        return new NavigationState([new WindowNode("main", split)], "main");
     }
 
     private static NavigationState ModalState(ContractRoute modalRoute, ContractRoute? contentRoute = null)
@@ -412,6 +433,11 @@ public sealed class PublicAdapterContractTests
                 case BranchHostNode branchHost:
                     foreach (NavigationBranch branch in branchHost.Branches)
                         Visit(branch.Content);
+                    return;
+                case SplitNode split:
+                    Visit(split.Primary);
+                    if (split.Secondary is not null)
+                        Visit(split.Secondary);
                     return;
                 case ModalNode modal when modal.Content is not null:
                     Visit(modal.Content);

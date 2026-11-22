@@ -184,6 +184,104 @@ public sealed record BranchHostNode : NavigationNode
 }
 
 /// <summary>
+/// Represents a platform-neutral two-column layout: a primary column beside an optional secondary column, each with
+/// its own navigation tree.
+/// </summary>
+/// <remarks>
+/// <para>
+/// A split describes logical state only. A presenter with room for both columns shows them side by side; a presenter
+/// that is too narrow collapses them into one stack, made of the primary column with the secondary column's tree
+/// above it when <see cref="CompactColumn"/> is <see cref="SplitColumn.Secondary"/>. A change of window width
+/// changes only how the split is presented, never its logical state, so collapsing and expanding again shows the
+/// same columns.
+/// </para>
+/// <para>
+/// For example, a mail app keeps its mailbox list in the primary column and the selected message's stack in the
+/// secondary column. A null <see cref="Secondary"/> means nothing is selected; a presenter may show a placeholder
+/// in its place.
+/// </para>
+/// <para>
+/// Logical Back treats the split as collapsed, whatever the presented layout: it goes back inside the secondary
+/// column while that column is the one shown, then returns to the primary column, and otherwise goes back inside the
+/// primary column. A presenter that shows both columns side by side decides itself whether to offer a system Back
+/// that would only change <see cref="CompactColumn"/>; core does not know the layout.
+/// </para>
+/// <para>
+/// A split is a window root or the content of a branch. Router validation rejects a split inside a modal or inside
+/// another split's column. Every route entry in both columns is part of the committed state, so entry IDs must be
+/// unique across both columns, as they are across branches.
+/// </para>
+/// </remarks>
+public sealed record SplitNode : NavigationNode
+{
+    private protected override void SealNodeType()
+    {
+    }
+
+    /// <summary>
+    /// Creates a split.
+    /// </summary>
+    /// <param name="Id">The stable structural identifier of the split.</param>
+    /// <param name="Primary">The navigation tree of the primary column.</param>
+    /// <param name="Secondary">
+    /// The navigation tree of the secondary column, or <see langword="null"/> when nothing is selected.
+    /// </param>
+    /// <param name="CompactColumn">
+    /// The column a collapsed presentation shows on top. <see cref="SplitColumn.Secondary"/> requires a non-null
+    /// <paramref name="Secondary"/>.
+    /// </param>
+    public SplitNode(
+        string Id,
+        NavigationNode Primary,
+        NavigationNode? Secondary = null,
+        SplitColumn CompactColumn = SplitColumn.Primary)
+        : base(Id)
+    {
+        this.Primary = Primary;
+        this.Secondary = Secondary;
+        this.CompactColumn = CompactColumn;
+        ValidateCompactColumn();
+    }
+
+    /// <summary>
+    /// Gets the navigation tree of the primary column.
+    /// </summary>
+    public NavigationNode Primary
+    {
+        get;
+        init => field = NavigationIdentity.Required(value, nameof(Primary));
+    }
+
+    /// <summary>
+    /// Gets the navigation tree of the secondary column, or <see langword="null"/> when nothing is selected.
+    /// </summary>
+    public NavigationNode? Secondary { get; init; }
+
+    /// <summary>
+    /// Gets the column a collapsed, single-column presentation shows on top.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="SplitColumn.Primary"/> shows only the primary column. <see cref="SplitColumn.Secondary"/> shows the
+    /// primary column with the secondary column's tree above it.
+    /// </remarks>
+    public SplitColumn CompactColumn
+    {
+        get;
+        init => field = Enum.IsDefined(value)
+            ? value
+            : throw new ArgumentOutOfRangeException(nameof(CompactColumn), value, "Unknown split column.");
+    }
+
+    private void ValidateCompactColumn()
+    {
+        if (CompactColumn == SplitColumn.Secondary && Secondary is null)
+            throw new ArgumentException(
+                "A split can show its secondary column only when it has secondary content.",
+                nameof(CompactColumn));
+    }
+}
+
+/// <summary>
 /// Represents a modal route entry with optional nested navigation content.
 /// </summary>
 /// <param name="Id">The stable identifier of the modal node.</param>
