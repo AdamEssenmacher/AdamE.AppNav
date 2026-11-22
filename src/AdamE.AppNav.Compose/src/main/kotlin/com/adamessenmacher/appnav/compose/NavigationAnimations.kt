@@ -14,7 +14,13 @@ import androidx.navigation3.scene.Scene
 import androidx.navigation3.ui.NavDisplay
 import androidx.navigationevent.NavigationEvent
 
-/** Optional native Nav3 animations. Returning null uses Nav3's normal animation. */
+/**
+ * Optional native Nav3 animations. Returning null uses Nav3's normal animation.
+ *
+ * Use [remember][androidx.compose.runtime.remember] when creating this configuration in a composable.
+ * Key it on the inputs that affect the animation. The shell uses the configuration instance to remember
+ * Nav3 entries and their transition metadata across recompositions.
+ */
 public class NavigationAnimations(
     /** Nav3's display-wide size animation. A non-null value lets the display measure each scene at its preferred size. */
     public val sizeTransform: SizeTransform?,

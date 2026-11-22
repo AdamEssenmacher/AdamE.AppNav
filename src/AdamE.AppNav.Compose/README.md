@@ -6,13 +6,13 @@ Include this directory's `src/main/kotlin` in the Android screen library's Kotli
 
 For offline builds, set the MSBuild property `AppNavNavigation3AarDirectory` to the directory containing the two pinned AARs. When using a project reference, import the [transitive targets](buildTransitive/AdamE.AppNav.Compose.targets) in the Android app as shown in the probe. NuGet imports them automatically for package references.
 
-Use a Gradle property to point the screen library at either source directory.
+Set `appNavComposeKotlin` in `gradle.properties` to either source directory. Relative paths resolve from the Gradle root project, as in the [probe's Gradle properties](../../prototype/Android/Native/gradle.properties).
 
 ```kotlin
 val appNavComposeKotlin = providers.gradleProperty("appNavComposeKotlin")
 kotlin {
     sourceSets.named("main") {
-        kotlin.srcDir(appNavComposeKotlin)
+        kotlin.srcDir(rootProject.file(appNavComposeKotlin.get()))
     }
 }
 ```
@@ -31,7 +31,15 @@ The host renders one window and one optional dialog stack. Shared elements requi
 
 Map the managed target's `transition` into `NavigationPresentationTransition`. It describes the operation, the two route occurrence IDs, an optional source key supplied by the UI action, and optional screen names provided by the managed presenter. Pass `NavigationAnimations` to select native `ContentTransform` values for forward transitions, ordinary pops, and predictive pops. Each callback receives Nav3's animation scope and the context for its actual pair of scenes. The predictive callback also receives the swipe edge. Return `null` for Nav3's standard transform. Use `entryMetadata` to supply native `NavEntry` metadata, which follows Nav3's normal precedence.
 
-Pass `NavigationAnimations(sizeTransform = SizeTransform(clip = false) { _, _ -> tween(500) })` to animate changes in scene size. The shell supplies the transform to Nav3's `NavDisplay` for the primary and dialog stacks. With a size transform, the display allows each scene to measure at its own size within the available area. Screens that fill the available area have matching endpoints. Nav3 takes the size spec from this display-wide hook. The forward, pop and predictive-pop callbacks and the entry metadata still select the scene's enter and exit animations.
+When creating `NavigationAnimations` in a composable, use `remember` and key it on any inputs that affect the callbacks. Reusing the instance lets the shell retain Nav3 entries and their transition metadata across recompositions. To animate changes in scene size, pass the remembered configuration as the shell's `animations` argument.
+
+```kotlin
+val animations = remember {
+    NavigationAnimations(sizeTransform = SizeTransform(clip = false) { _, _ -> tween(500) })
+}
+```
+
+The shell supplies the transform to Nav3's `NavDisplay` for the primary and dialog stacks. With a size transform, the display allows each scene to measure at its own size within the available area. Screens that fill the available area have matching endpoints. Nav3 takes the size spec from this display-wide hook. The forward, pop and predictive-pop callbacks and the entry metadata still select the scene's enter and exit animations.
 
 Mounted screens can read `LocalNavigationEntryScope` to get the current projection, the push origin of their mounted occurrence, and Compose's shared and animated visibility scopes. Register matching elements with `Modifier.sharedElement` or `sharedBounds` inside those scopes. The [Game probe](../../prototype/Android/Native/screens/src/main/kotlin/com/adamessenmacher/appnav/probe/GameScreen.kt) registers the expanded cover only when the destination has the matching `game-cover` origin. Each branch stack and each dialog stack has its own shared scope.
 

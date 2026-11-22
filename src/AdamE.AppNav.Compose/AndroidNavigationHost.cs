@@ -24,8 +24,17 @@ public sealed class AndroidNavigationHost : IDisposable
         this.shell = shell;
         this.screen = screen;
         this.reportFailure = reportFailure;
-        AndroidPortHost.Main.Faulted += reportFailure;
-        AndroidPortHost.Main.MethodFailed += reportFailure;
+        var port = AndroidPortHost.Main;
+        port.Faulted += reportFailure;
+        try
+        {
+            port.MethodFailed += reportFailure;
+        }
+        catch
+        {
+            port.Faulted -= reportFailure;
+            throw;
+        }
     }
 
     public View View => screen.View;
@@ -59,14 +68,23 @@ public sealed class AndroidNavigationHost : IDisposable
     {
         EnsureMainThread();
         var shell = NavigationShellViewModel.Attach(presenter, leases, mount, DispatchAsync, reportFailure);
+        OahuScreen? screen = null;
         try
         {
-            var screen = OahuScreens.Create(activity, createContract(shell));
+            screen = OahuScreens.Create(activity, createContract(shell));
             return new AndroidNavigationHost(shell, screen, reportFailure);
         }
         catch
         {
-            shell.Dispose();
+            try
+            {
+                screen?.Dispose();
+            }
+            finally
+            {
+                shell.Dispose();
+            }
+
             throw;
         }
     }
