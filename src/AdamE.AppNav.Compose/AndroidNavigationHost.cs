@@ -24,8 +24,19 @@ public sealed class AndroidNavigationHost : IDisposable
         this.shell = shell;
         this.screen = screen;
         this.reportFailure = reportFailure;
-        AndroidPortHost.Main.Faulted += reportFailure;
-        AndroidPortHost.Main.MethodFailed += reportFailure;
+        try
+        {
+            AndroidPortHost.Main.Faulted += reportFailure;
+            AndroidPortHost.Main.MethodFailed += reportFailure;
+        }
+        catch
+        {
+            // Leave no half-subscribed host behind: detaching a handler that was never
+            // attached is a no-op, so this restores the port host either way.
+            AndroidPortHost.Main.Faulted -= reportFailure;
+            AndroidPortHost.Main.MethodFailed -= reportFailure;
+            throw;
+        }
     }
 
     public View View => screen.View;
@@ -59,13 +70,16 @@ public sealed class AndroidNavigationHost : IDisposable
     {
         EnsureMainThread();
         var shell = NavigationShellViewModel.Attach(presenter, leases, mount, DispatchAsync, reportFailure);
+        OahuScreen? screen = null;
         try
         {
-            var screen = OahuScreens.Create(activity, createContract(shell));
+            screen = OahuScreens.Create(activity, createContract(shell));
             return new AndroidNavigationHost(shell, screen, reportFailure);
         }
         catch
         {
+            // A failed attachment owns the screen it created: only a returned host can close it.
+            screen?.Dispose();
             shell.Dispose();
             throw;
         }
