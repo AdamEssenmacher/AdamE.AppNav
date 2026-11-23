@@ -347,6 +347,84 @@ class NavigationSplitTests {
     }
 
     @Test
+    fun unfoldingDuringAManagedBackGestureStillAsksTheRouter() {
+        window.value = Folded
+        var requested = 0
+        compose.setContent { FakeWindow { Shell(split(listOf("game-a")), requestBack = { requested++ }) } }
+        compose.onNodeWithText("game-a").assertExists()
+        val dispatcher = compose.activity.onBackPressedDispatcher
+
+        compose.runOnIdle {
+            dispatcher.dispatchOnBackStarted(BackEventCompat(10f, 500f, 0f, BackEventCompat.EDGE_LEFT))
+            dispatcher.dispatchOnBackProgressed(BackEventCompat(200f, 500f, 0.4f, BackEventCompat.EDGE_LEFT))
+        }
+        compose.runOnIdle { window.value = Unfolded }
+        compose.runOnIdle {
+            assertTrue(dispatcher.hasEnabledCallbacks())
+            dispatcher.onBackPressed()
+        }
+        compose.runOnIdle {
+            assertEquals(1, requested)
+            assertFalse(compose.activity.isFinishing)
+        }
+    }
+
+    @Test
+    fun splitOriginsDropSideBySideButAModalKeepsItsOwn() {
+        val origins = NavigationOrigins()
+        val home = MountedEntry("home", 1)
+        val game = MountedEntry("game-a", 2)
+        val edit = MountedEntry("edit", 3)
+        val review = MountedEntry("review", 4)
+        val selection = NavigationProjection(1, "home-stack", false,
+            listOf(NavigationBranch("home-stack", "home-stack", listOf(home))), "", emptyList(),
+            NavigationPresentationTransition("push", "home", "game-a", "cover", "home", "game-a"),
+            NavigationSplit("games", "game-a-stack", listOf(game), NavigationSplitColumn.Secondary))
+        origins.stage(selection)
+        val zoom = origins.pushFor(game, selection.transition, listOf(home, game))
+        assertEquals("cover", zoom?.sourceKey)
+
+        // Unfolded: the selection shows beside its source, so neither now nor after a fold does it zoom.
+        origins.dropSplit(selection)
+        origins.stage(selection)
+        assertNull(origins.pushFor(game, selection.transition, listOf(home, game)))
+
+        // A sheet over the unfolded split keeps its own push's origin.
+        val sheet = selection.copy(revision = 2, modalId = "sheet", modalEntries = listOf(edit, review),
+            transition = NavigationPresentationTransition("push", "edit", "review", "review-cover", "edit", "review"))
+        origins.dropSplit(sheet)
+        origins.stage(sheet)
+        assertEquals("review-cover", origins.pushFor(review, sheet.transition, listOf(edit, review))?.sourceKey)
+        assertNull(origins.pushFor(game, sheet.transition, listOf(home, game)))
+    }
+
+    @Test
+    fun backLeavesAppMarksTheEntryWhoseBackGoesPastTheShell() {
+        val scopes = mutableMapOf<String, NavigationEntryScope>()
+        val target = mutableStateOf(split(listOf("game-a")))
+        compose.setContent {
+            FakeWindow {
+                AppNavNavigationShell(target.value, observations::add, unavailableContent = {
+                    scopes[it.entryId] = checkNotNull(LocalNavigationEntryScope.current)
+                    Text(it.entryId)
+                })
+            }
+        }
+        compose.runOnIdle {
+            assertTrue(scopes.getValue("game-a").backLeavesApp)
+            assertFalse(scopes.getValue("home").backLeavesApp)
+            window.value = Folded
+        }
+        compose.runOnIdle { assertFalse(scopes.getValue("game-a").backLeavesApp) }
+        compose.runOnIdle {
+            window.value = Unfolded
+            target.value = split(listOf("game-a"), primary = listOf("home", "more"), revision = 2)
+        }
+        compose.onNodeWithText("more").assertExists()
+        compose.runOnIdle { assertFalse(scopes.getValue("game-a").backLeavesApp) }
+    }
+
+    @Test
     fun twoPanesNeedExpandedWidthAndMediumHeight() {
         window.value = DpSize(839.dp, 900.dp)
         compose.setContent { FakeWindow { Shell(split(listOf("game-a"))) } }

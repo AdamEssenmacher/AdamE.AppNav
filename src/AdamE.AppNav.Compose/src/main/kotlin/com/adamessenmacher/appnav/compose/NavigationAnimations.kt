@@ -102,12 +102,16 @@ public class NavigationEntryScope internal constructor(
     /** The split column that holds this entry, or null outside a split. */
     public val splitColumn: NavigationSplitColumn? = null,
     /**
-     * Whether the window shows the split's columns side by side. While the primary column is at its root,
-     * system Back from the secondary column's root then leaves the app, as from the primary column's root,
-     * so give that root no Up or Back affordance. With the primary column deeper, Back there closes the
-     * secondary column, as AppNav plans it.
+     * Whether the window shows the split's columns side by side. Use [backLeavesApp] to decide whether an
+     * entry shows an Up or Back affordance.
      */
     public val isSplitExpanded: Boolean = false,
+    /**
+     * Whether system Back while this entry is on top leaves the app, because the shell has nothing to pop or
+     * close: a stack's root, the primary column's root, or a split's secondary root beside a primary column
+     * at its root. Give such an entry no Up or Back affordance. False inside a modal.
+     */
+    public val backLeavesApp: Boolean = false,
 ) {
     /** 0–1 while Android is dispatching predictive Back. The route remains committed during a preview. */
     public val predictiveBackProgress: Float? get() = backProgress()
@@ -129,7 +133,7 @@ internal class NavigationOrigins {
     private data class Origin(val source: MountedEntry, val push: NavigationPresentationTransition)
     private val origins = mutableStateMapOf<MountedEntry, Origin>()
     private var resetRevision = Long.MIN_VALUE
-    private var droppedRevision = Long.MIN_VALUE
+    private var dropped = emptySet<MountedEntry>()
 
     fun stage(target: NavigationProjection) {
         val transition = target.transition
@@ -143,16 +147,22 @@ internal class NavigationOrigins {
         origins.entries.removeAll { (entry, origin) ->
             entry in predecessors && predecessors[entry] != origin.source
         }
-        if (transition.operation != "push" || target.revision == droppedRevision) return
+        if (transition.operation != "push") return
         val stack = target.modalEntries.takeIf { it.isNotEmpty() } ?: target.presentedStack()
         val (source, destination) = transition.matchingPush(stack) ?: return
-        origins[destination] = Origin(source, transition)
+        if (destination !in dropped) origins[destination] = Origin(source, transition)
     }
 
-    /** Drops every origin, and the push of [target]'s revision, so a later layout cannot replay its zoom. */
-    fun drop(target: NavigationProjection) {
-        origins.clear()
-        droppedRevision = target.revision
+    /**
+     * Drops the origins of a split's entries, which show side by side, so a later fold cannot replay a zoom
+     * into them. A modal's own pushes keep their origins.
+     */
+    fun dropSplit(target: NavigationProjection) {
+        val split = target.split ?: return
+        val columns = target.branches.firstOrNull { it.branch == target.selectedBranch }?.entries.orEmpty() +
+            split.secondaryEntries
+        dropped = columns.toSet()
+        origins.keys.removeAll(dropped)
     }
 
     fun prune(target: NavigationProjection) {
@@ -164,9 +174,8 @@ internal class NavigationOrigins {
         destination: MountedEntry,
         projection: NavigationPresentationTransition,
         stack: List<MountedEntry>,
-        revision: Long,
     ): NavigationPresentationTransition? {
-        if (projection.resetsOrigins || revision == droppedRevision) return null
+        if (projection.resetsOrigins || destination in dropped) return null
         if (projection.matchingPush(stack)?.second == destination) return projection
         val origin = origins[destination] ?: return null
         val index = stack.indexOf(destination)
