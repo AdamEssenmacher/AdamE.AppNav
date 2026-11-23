@@ -44,6 +44,7 @@ final class FrameView: UIView {
     override func didMoveToWindow() {
         super.didMoveToWindow()
         stop()
+        if window == nil { surface?.releaseBackGuard() }
         if window != nil {
             let link = CADisplayLink(target: self, selector: #selector(displayTick))
             link.add(to: .main, forMode: .common)
@@ -75,7 +76,10 @@ struct FrameObserver: UIViewRepresentable {
         surface.updateCallbacks(report: report, trace: trace)
         surface.guardsBack = guardsBack
     }
-    static func dismantleUIView(_ view: FrameView, coordinator: Void) { view.stop() }
+    static func dismantleUIView(_ view: FrameView, coordinator: Void) {
+        view.stop()
+        view.surface?.releaseBackGuard()
+    }
 }
 
 // Adapts UIKit and SwiftUI to SurfaceState. It samples the native stacks on each display frame, forwards
@@ -93,6 +97,18 @@ final class NativeSurface: ObservableObject {
     /// that root's system Back and edge swipe however the page hides its Back button, so the surface enforces it.
     var guardsBack: ((NavigationEntry) -> Bool)?
     private var backGuard: BackGuard?
+
+    /// Puts back what the Back guard changed. The frame observer calls it when it leaves the window, so the swipes never
+    /// stay off once display ticks stop.
+    func releaseBackGuard() {
+        guard let current = backGuard else { return }
+        current.release()
+        backGuard = nil
+    }
+
+    deinit {
+        if let current = backGuard { Task { @MainActor in current.release() } }
+    }
 
     var target: NavigationProjection? { state.target }
     /// The secondary column the detail column renders: the staged one, or one a staged revision is closing.
@@ -176,7 +192,11 @@ final class NativeSurface: ObservableObject {
             identities.setObject(entry.id as NSString, forKey: controller)
             pages.append((marker, nav, controller, key, entry))
         }
-        guardCollapsedSecondaryRoot(pages.map { ($0.nav, $0.controller, $0.key, $0.entry) })
+        // A gesture or transition in flight keeps the guard as it is: turning a recognizer off mid-gesture cancels
+        // it, and UIKit still names the page being left as the top. The guard engages on the first quiet frame.
+        if !isTransitioning, state.interaction == nil {
+            guardCollapsedSecondaryRoot(pages.map { ($0.nav, $0.controller, $0.key, $0.entry) })
+        }
         let tops = pages.compactMap { page -> StackSample? in
             guard page.nav.topViewController === page.controller, !page.marker.isHidden else { return nil }
             return StackSample(
@@ -394,40 +414,51 @@ final class NativeSurface: ObservableObject {
         }
     }
 }
-/// What a guard on a collapsed secondary root changed, so releasing it puts back exactly what it found. The edge swipe,
-/// and from iOS 26 the swipe anywhere on the content, pop the navigation stack. A guarded page never zooms in (see
-/// NavigationShell.page), so it carries no zoom-dismiss gestures of its own.
+/// The guard on a collapsed secondary root. While it holds, the page hides its system Back and the stack's edge swipe,
+/// and from iOS 26 its content swipe, stay off; it asserts that again on each quiet frame. Releasing it undoes only what
+/// the guard itself changed, and only where the guard's value still stands, so a newer change by SwiftUI or the app
+/// survives. A guarded page never zooms in (see NavigationShell.page), so it carries no zoom-dismiss gestures.
 @MainActor
-private final class BackGuard {
+final class BackGuard {
     weak var stack: UINavigationController?
     weak var page: UIViewController?
-    private let hidesBackButton: Bool
-    private let edgeSwipe: Bool?
-    private let contentSwipe: Bool?
+    private var hidBackButton = false
+    private var disabledEdgeSwipe = false
+    private var disabledContentSwipe = false
 
     init(stack: UINavigationController, page: UIViewController) {
         self.stack = stack
         self.page = page
-        hidesBackButton = page.navigationItem.hidesBackButton
-        edgeSwipe = stack.interactivePopGestureRecognizer?.isEnabled
-        if #available(iOS 26, *) {
-            contentSwipe = stack.interactiveContentPopGestureRecognizer?.isEnabled
-        } else {
-            contentSwipe = nil
-        }
-        page.navigationItem.hidesBackButton = true
-        stack.interactivePopGestureRecognizer?.isEnabled = false
-        if #available(iOS 26, *) { stack.interactiveContentPopGestureRecognizer?.isEnabled = false }
+        reassert()
+    }
+
+    private var contentSwipe: UIGestureRecognizer? {
+        if #available(iOS 26, *) { return stack?.interactiveContentPopGestureRecognizer }
+        return nil
     }
 
     func reassert() {
-        if page?.navigationItem.hidesBackButton == false { page?.navigationItem.hidesBackButton = true }
+        if let item = page?.navigationItem, !item.hidesBackButton {
+            item.hidesBackButton = true
+            hidBackButton = true
+        }
+        if let edge = stack?.interactivePopGestureRecognizer, edge.isEnabled {
+            edge.isEnabled = false
+            disabledEdgeSwipe = true
+        }
+        if let content = contentSwipe, content.isEnabled {
+            content.isEnabled = false
+            disabledContentSwipe = true
+        }
     }
 
     func release() {
-        page?.navigationItem.hidesBackButton = hidesBackButton
-        if let edgeSwipe { stack?.interactivePopGestureRecognizer?.isEnabled = edgeSwipe }
-        if #available(iOS 26, *), let contentSwipe { stack?.interactiveContentPopGestureRecognizer?.isEnabled = contentSwipe }
+        if hidBackButton, let item = page?.navigationItem, item.hidesBackButton { item.hidesBackButton = false }
+        if disabledEdgeSwipe, let edge = stack?.interactivePopGestureRecognizer, !edge.isEnabled { edge.isEnabled = true }
+        if disabledContentSwipe, let content = contentSwipe, !content.isEnabled { content.isEnabled = true }
+        hidBackButton = false
+        disabledEdgeSwipe = false
+        disabledContentSwipe = false
     }
 }
 #endif

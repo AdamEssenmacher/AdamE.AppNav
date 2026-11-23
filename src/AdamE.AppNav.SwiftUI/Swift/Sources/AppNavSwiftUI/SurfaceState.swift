@@ -747,7 +747,8 @@ struct SurfaceState {
         }
         if undo == nil {
             undo = applying ? .target : .snapshot(Authority(paths: paths, selectedBranch: selectedBranch,
-                                                             selectedModal: selectedModal, compactColumn: nil))
+                                                             selectedModal: selectedModal,
+                                                             compactColumn: target?.split == nil ? nil : compactColumn))
             out.traces.append("native \(what) is not accepted rev=\(target?.revision ?? 0); restoring on the next quiet frame")
         }
     }

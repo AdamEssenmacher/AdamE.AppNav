@@ -413,6 +413,21 @@ final class SplitSurfaceStateTests: XCTestCase {
         XCTAssertFalse(h.readings.contains { $0.revision == 2 })
     }
 
+    // Review finding: the undo snapshot for a refused native write left out the compact column, so a binding SwiftUI
+    // changed before the quiet frame stayed changed.
+    func testRefusedNativeWriteRestoresTheCompactColumn() {
+        var h = SplitHarness()
+        h.stage(split(1, game: ["game"], compact: .primary))
+        h.frames()
+        XCTAssertEqual(h.state.collapsedTop, .primary)
+        // A write the shell refuses arms the undo; SwiftUI then moves the binding before the next quiet frame.
+        h.absorb(h.state.setPath([entry("stray")], for: .branch("home-stack")))
+        h.absorb(h.state.setCompactColumn(.secondary))
+        h.frame(h.faithfulSample(secondaryOnTop: true))
+        XCTAssertEqual(h.state.compactColumn, .primary)
+        XCTAssertEqual(h.state.paths[.branch("home-stack")], [])
+    }
+
     func testBackPlanClosingTheColumnSetsTheBinding() {
         var h = SplitHarness()
         h.stage(split(1, game: ["game"]))

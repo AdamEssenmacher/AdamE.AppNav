@@ -664,4 +664,28 @@ final class NavigationTests: XCTestCase {
             self.status(3, "split[home]@primary")($0) && $0.hasSuffix(";HostReconciliation@split[home]@primary]")
         }
     }
+
+    // A Back swipe from a page above the guarded root lands on the root: the guard waits for the swipe to settle
+    // instead of turning the recognizer off under it, then holds against both the edge and the content swipe.
+    func testSplitGuardedGameRootSwipeOntoRoot() throws {
+        try requireSplit("collapsed")
+        awaitLabel("probe-status") { $0 == self.splitHome }
+        app.buttons["probe-select-game-a"].tap()
+        awaitLabel("probe-native") { $0 == "rev=2 home-stack [home] + [game-a] @secondary" }
+        app.buttons["probe-push-game-page"].tap()
+        awaitLabel("probe-native") { $0 == "rev=3 home-stack [home] + [game-a,game-a-page-1] @secondary" }
+        edgeSwipe(to: 0.9)
+        awaitLabel("probe-gesture") { $0.hasPrefix("began=1 cancelled=0 completed=1") }
+        awaitLabel("probe-status", matching: status(4, "split[home]+game-a-stack[game-a]@secondary"))
+        awaitLabel("probe-native") { $0 == "rev=3 home-stack [home] + [game-a] @secondary" }
+        XCTAssertTrue(app.buttons["appnav-request-back"].waitForExistence(timeout: 5))
+
+        edgeSwipe(to: 0.9)
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.3))
+        start.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.3)),
+                    withVelocity: .slow, thenHoldForDuration: 0.4)
+        Thread.sleep(forTimeInterval: 1)
+        XCTAssertTrue(app.staticTexts["page-game-a"].exists, "A swipe popped the guarded root")
+        awaitLabel("probe-status", matching: status(4, "split[home]+game-a-stack[game-a]@secondary"))
+    }
 }
