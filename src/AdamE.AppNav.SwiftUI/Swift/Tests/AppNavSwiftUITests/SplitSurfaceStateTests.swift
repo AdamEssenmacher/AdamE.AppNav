@@ -499,6 +499,40 @@ final class SplitSurfaceStateTests: XCTestCase {
         XCTAssertNil(h.state.nativePop)
     }
 
+    // Review finding: one frame without the split controller forgot that the game had shown on top, so a Back that
+    // closed it right after was taken for a selection that never showed, and the column was pushed again.
+    func testFrameWithoutTheSplitKeepsTheGameSeenOnTop() {
+        var h = SplitHarness()
+        h.stage(split(1, game: ["game"]))
+        h.frames()
+        var missing = h.faithfulSample(secondaryOnTop: true)
+        missing.split = nil
+        h.frame(missing)
+        // A native Back closes the game; UIKit shows Home and SwiftUI writes the primary column.
+        h.absorb(h.state.setCompactColumn(.primary))
+        h.frames(secondaryOnTop: false)
+        XCTAssertEqual(h.state.compactColumn, .primary, "the closed column is not shown again")
+        XCTAssertEqual(h.state.diagnostics.compactColumnRepairs, 0)
+        XCTAssertEqual(h.readings.last, NavigationReading(revision: 1, branch: "home-stack", entries: ["home"], modalID: nil,
+                                                          modalEntries: [], secondaryEntries: [], compactColumn: .primary))
+    }
+
+    // Review finding: a different split kept the old split's stray binding and collapsed top, but the new split view
+    // starts from its binding, so it showed Home instead of the staged game and the revision never settled.
+    func testADifferentSplitTakesTheStagedCompactColumn() {
+        var h = SplitHarness()
+        strayCollapsedGame(&h, "game")
+        h.stage(split(2, game: ["game"], id: "levels"))
+        XCTAssertEqual(h.state.compactColumn, .secondary)
+        XCTAssertNil(h.state.nativePop, "the old split's stack is gone, so there is nothing to pop")
+        XCTAssertNil(h.state.heldCollapsed, "no layout has held for the new split")
+        XCTAssertNil(h.state.collapsedTop)
+        h.frames()
+        XCTAssertEqual(h.readings.last?.revision, 2)
+        XCTAssertEqual(h.readings.last?.secondaryEntries, ["game"])
+        XCTAssertEqual(h.readings.last?.compactColumn, .secondary)
+    }
+
     func testBackPlanClosingTheColumnSetsTheBinding() {
         var h = SplitHarness()
         h.stage(split(1, game: ["game"]))

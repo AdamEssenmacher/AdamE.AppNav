@@ -278,6 +278,9 @@ struct SurfaceState {
         } else {
             departingSecondary = nil
         }
+        // A different split is a new NavigationSplitView, which starts from the binding with nothing on its stacks. The
+        // old split's layout and top say nothing about it, and there is no stray column left to pop.
+        if let split = next.split, target?.split?.id != split.id { forgetSplitLayout() }
         // While collapsed, SwiftUI can leave the binding on the primary column with the secondary root still on top.
         // It then neither pops that column for a staged primary column, nor shows a different secondary column, so
         // UIKit pops it first, as a native Back would.
@@ -828,16 +831,17 @@ struct SurfaceState {
         // A window without a split has no layout to hold, so a later split starts from scratch. A split whose controller
         // a frame happens not to find keeps its last held layout.
         if target?.split == nil {
-            splitLayout = nil
-            splitLayoutHeld = false
-            heldCollapsed = nil
-            collapsedTop = nil
-            secondarySeenOnTop = false
-            diagnostics.splitCollapsed = nil
+            forgetSplitLayout()
             return
         }
-        splitLayoutHeld = sample.split != nil && sample.split == splitLayout
-        if sample.split != splitLayout { secondarySeenOnTop = false }
+        // A frame without the controller says nothing about the layout: it neither holds one nor changes it, so the
+        // last layout and whether the secondary column showed on it both stand.
+        guard let layout = sample.split else {
+            splitLayoutHeld = false
+            return
+        }
+        splitLayoutHeld = layout == splitLayout
+        if layout != splitLayout { secondarySeenOnTop = false }
         splitLayout = sample.split
         diagnostics.splitCollapsed = target?.split == nil ? nil : sample.split?.isCollapsed
         if splitLayoutHeld, sample.split?.isCollapsed == false {
@@ -856,6 +860,16 @@ struct SurfaceState {
             collapsedTop = top.key.isSecondary ? .secondary : .primary
             if top.key.isSecondary, !top.isTransitioning { secondarySeenOnTop = true }
         }
+    }
+
+    // No split, or a different one: nothing has held for the split the shell renders next.
+    private mutating func forgetSplitLayout() {
+        splitLayout = nil
+        splitLayoutHeld = false
+        heldCollapsed = nil
+        collapsedTop = nil
+        secondarySeenOnTop = false
+        diagnostics.splitCollapsed = nil
     }
 
     // SwiftUI can change the compact column while the secondary root stays on top. A window that later collapses would
