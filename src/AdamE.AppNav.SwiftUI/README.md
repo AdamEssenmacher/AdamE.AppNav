@@ -2,7 +2,7 @@
 
 The managed host targets .NET 11 for iOS. The Swift package provides an iOS 17+ renderer for one window with a linear stack, a tab host or a [split](#splits), plus one sheet with its own stack. The probe builds against AppNav from this checkout and OAHU `0.1.0-preview.g7a56b3ba`.
 
-The floor follows the pinned OAHU runtime, which requires iOS 17. The sources also build for iOS 16, and the floor drops to 16 with the move to an OAHU runtime that declares `.iOS(.v16)`. The zoom and `.native(style)` transitions need iOS 18. On earlier releases they fall back to the automatic push. Splits use `NavigationSplitView(preferredCompactColumn:)`, which needs iOS 17, the package's floor. The simulator suite runs at iOS 18 and later. It doesn't cover iOS 16 or 17.
+The floor follows the pinned OAHU runtime, which requires iOS 17. The sources also build for iOS 16, and the floor drops to 16 with the move to an OAHU runtime that declares `.iOS(.v16)`. The zoom and `.native(style)` transitions need iOS 18. On earlier releases they fall back to the automatic push. Splits use `NavigationSplitView(preferredCompactColumn:)` and need iOS 17 whatever the package floor: on an earlier release the host does not report `PresentsSplits`, so the presenter refuses a split before it stages anything. The simulator suite runs at iOS 18 and later. It doesn't cover iOS 16 or 17.
 
 ## Integrate
 
@@ -33,6 +33,7 @@ The split tests run with `--probe-split`.
   - a guarded game root that shows the app's Back and resists the edge swipe;
   - a guard released while its root shows, which brings back the system Back and the swipe.
   - a swipe back from a page above a guarded root, which completes, after which the guard holds against the edge and content swipes.
+  - an AppNav Back from a guarded root over SwiftUI's stray compact column, which closes the column through the native pop.
 - **Side by side, on the open Duo sideways:**
   - a game switch, a system Back inside the game, and an AppNav Back;
   - a guarded game root with no Back of either kind.
@@ -52,7 +53,7 @@ Column visibility is the system's: `NavigationSplitView` keeps its automatic vis
 Rows in the primary column are app navigation. Make them plain buttons that ask the router to select, with `SplitNode.Select`. A `List(selection:)` writes the selection natively and pushes the detail on a collapsed window regardless of `preferredCompactColumn`, so it fights the shell.
 
 - Selecting over a collapsed primary column is a one-entry push. The transaction policy and destination transition apply as for a stack push, so a selection can zoom from a matched source on the row. A selection made side by side does not zoom, because SwiftUI hides a matched source while its destination shows. When a window that zoomed into a game unfolds, the shell drops the zoom, so Back no longer zooms. SwiftUI still keeps that row's cover hidden while the game it opened stays on screen.
-- Back inside either column, and a collapsed window's Back from the secondary root, are native Back. The presenter reconciles them, closing the secondary column with `ClearSecondary` in the second case. A pop in the primary column beside a shown secondary column keeps that column, exactly as shown.
+- Back inside either column, and a collapsed window's Back from the secondary root, are native Back. The presenter reconciles them, closing the secondary column with `ClearSecondary` in the second case. A pop in the primary column beside a shown secondary column keeps that column, exactly as shown. A Back-history multi-pop from the secondary column into an earlier page of the primary column closes the column and pops the primary column in one reconciliation. A reading whose compact column is neither `primary` nor `secondary` is reported to the host's failure handler and is not reconciled.
 - On a collapsed window the secondary root sits over the primary column with the system Back. A root that `NavigationBackControl` intercepts gets the app's Back button there instead. The surface also turns off the navigation stack's edge and content swipes while the guarded root is on top. It hides the system Back on every frame the root is on top, transitions included, but turns the swipes off only when the transition onto the root completes, or on the next quiet frame, so a swipe already under way, such as one returning to the root, finishes. It undoes only what it changed, when the root leaves the top, the app stops intercepting it, the window unfolds, or the shell leaves the window. Side by side, the root has no Back of either kind.
 - A Back that catches an animated selection before it settles is taken back like a stack push: AppNav records the selection and then a Back that closes the column.
 - Selecting another item replaces the detail column with a new `NavigationStack`.

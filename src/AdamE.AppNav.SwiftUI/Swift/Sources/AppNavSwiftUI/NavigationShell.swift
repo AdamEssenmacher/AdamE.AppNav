@@ -130,7 +130,8 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
         }
     }
 
-    // Splits need iOS 17, the package floor; the managed host refuses them earlier.
+    // NavigationSplitView(preferredCompactColumn:) needs iOS 17. The host reports split support only from iOS 17, so on
+    // an earlier release the presenter refuses a split before this view is reached.
     @ViewBuilder
     private func splitView(_ split: SplitProjection, primary: NavigationBranchProjection) -> some View {
         if #available(iOS 17, *) {

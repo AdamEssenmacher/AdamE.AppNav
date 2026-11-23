@@ -688,4 +688,24 @@ final class NavigationTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["page-game-a"].exists, "A swipe popped the guarded root")
         awaitLabel("probe-status", matching: status(4, "split[home]+game-a-stack[game-a]@secondary"))
     }
+
+    // An AppNav Back from a guarded root, after a pop that left SwiftUI's stray compact column, closes the column
+    // through the native pop; the guard holds until the root has left the top.
+    func testSplitGuardedGameRootAppNavBackAfterPop() throws {
+        try requireSplit("collapsed")
+        awaitLabel("probe-status") { $0 == self.splitHome }
+        app.buttons["probe-select-game-a"].tap()
+        awaitLabel("probe-native") { $0 == "rev=2 home-stack [home] + [game-a] @secondary" }
+        app.buttons["probe-push-game-page"].tap()
+        awaitLabel("probe-native") { $0 == "rev=3 home-stack [home] + [game-a,game-a-page-1] @secondary" }
+        edgeSwipe(to: 0.9)
+        awaitLabel("probe-native") { $0 == "rev=3 home-stack [home] + [game-a] @secondary" }
+        let back = app.buttons["appnav-request-back"]
+        XCTAssertTrue(back.waitForExistence(timeout: 5))
+        app.buttons["probe-allow-back"].tap()
+        back.tap()
+        awaitLabel("probe-status") { $0.hasPrefix("split[home]@primary history=5 ") && $0.hasSuffix("back=Completed") }
+        awaitLabel("probe-native") { $0 == "rev=4 home-stack [home] + [] @primary" }
+        XCTAssertTrue(app.buttons["probe-select-game-a"].waitForExistence(timeout: 5))
+    }
 }

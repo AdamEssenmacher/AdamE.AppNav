@@ -200,8 +200,13 @@ final class NativeSurface: ObservableObject {
             identities.setObject(entry.id as NSString, forKey: controller)
             pages.append((marker, nav, controller, key, entry))
         }
+        // A hidden sidebar beside an empty detail column has no page in the window, so look from the root too.
+        let split = state.target?.split == nil ? nil :
+            pages.lazy.compactMap { $0.nav.splitViewController }.first ?? Self.split(in: window.rootViewController)
+        // A fold or rotation moves the split itself; it counts as busy like a navigation transition.
+        let splitTransitioning = split?.transitionCoordinator != nil
         guardCollapsedSecondaryRoot(pages.map { ($0.nav, $0.controller, $0.key, $0.entry) },
-                                    quiet: !isTransitioning && state.interaction == nil)
+                                    quiet: !isTransitioning && !splitTransitioning && state.interaction == nil)
         let tops = pages.compactMap { page -> StackSample? in
             guard page.nav.topViewController === page.controller, !page.marker.isHidden else { return nil }
             return StackSample(
@@ -215,13 +220,9 @@ final class NativeSurface: ObservableObject {
         var sample = NativeSample(time: CACurrentMediaTime(), markerKeys: attached.map(\.key), tops: tops,
                                   isTransitioning: isTransitioning,
                                   mounted: pages.map { MountedPage(key: $0.key, entry: $0.entry) })
-        if state.target?.split != nil {
-            // A hidden sidebar beside an empty detail column has no page in the window, so look from the root too.
-            let split = pages.lazy.compactMap { $0.nav.splitViewController }.first ?? Self.split(in: window.rootViewController)
-            if let split {
-                if split.transitionCoordinator != nil { sample.isTransitioning = true }
-                sample.split = SplitSample(isCollapsed: split.isCollapsed)
-            }
+        if let split {
+            if splitTransitioning { sample.isTransitioning = true }
+            sample.split = SplitSample(isCollapsed: split.isCollapsed)
         }
         apply { $0.sample(sample) }
     }
@@ -234,7 +235,9 @@ final class NativeSurface: ObservableObject {
     private func guardCollapsedSecondaryRoot(_ pages: [(UINavigationController, UIViewController, StackKey, NavigationEntry)],
                                              quiet: Bool) {
         var guarded: (UINavigationController, UIViewController)?
-        if let guardsBack, let root = state.target?.split?.secondary?.entries.first, state.heldCollapsed == true {
+        // The rendered secondary column includes one a staged Back is closing, so the guard holds until its root has
+        // actually left the top rather than one stage early.
+        if let guardsBack, let root = renderedSecondary?.entries.first, state.heldCollapsed == true {
             for (nav, controller, key, entry) in pages where key.isSecondary && entry == root &&
                 nav.topViewController === controller && nav.splitViewController?.isCollapsed == true && guardsBack(entry) {
                 guarded = (nav, controller)
@@ -258,9 +261,10 @@ final class NativeSurface: ObservableObject {
         current.hideBackButton()
         if quiet {
             current.disableSwipes()
-        } else if let transition = nav.transitionCoordinator, current.awaitedTransition != ObjectIdentifier(transition) {
+        } else if let transition = nav.transitionCoordinator ?? controller.transitionCoordinator,
+                  current.awaitedTransition !== transition {
             // Close the gap between the transition's end and the next display frame, where a new swipe could start.
-            current.awaitedTransition = ObjectIdentifier(transition)
+            current.awaitedTransition = transition
             transition.animate(alongsideTransition: nil) { [weak self, weak current] context in
                 guard !context.isCancelled, let self, let current, self.backGuard === current,
                       current.stack?.topViewController === current.page else { return }
@@ -444,7 +448,7 @@ final class BackGuard {
     weak var stack: UINavigationController?
     weak var page: UIViewController?
     /// The transition whose completion will turn the swipes off.
-    var awaitedTransition: ObjectIdentifier?
+    weak var awaitedTransition: (any UIViewControllerTransitionCoordinator)?
     private var hidBackButton = false
     private var disabledEdgeSwipe = false
     private var disabledContentSwipe = false

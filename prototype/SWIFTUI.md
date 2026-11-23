@@ -53,6 +53,7 @@ The `--probe-split` launch argument starts the probe on a `SplitNode`: Home in t
 | `testGuardedZoomedGameKeepsItsPolicy` | Plain stack | With `--probe-guard-game`, Game, which would otherwise zoom from its cover, has the app's Back and pushes without the zoom, so an edge swipe cannot pop it past the policy. |
 | `testSplitGuardedGameRootReleased` | Collapsed | Stopping the guard while Game A's root shows removes the app's Back. The system Back returns, the guard puts back the swipe settings it found, and an edge swipe closes the column. |
 | `testSplitGuardedGameRootSwipeOntoRoot` | Collapsed | A Back swipe from a page above the guarded root completes, with no cancelled gesture, because the guard waits for a quiet frame. The guard then holds against both an edge swipe and a content swipe. |
+| `testSplitGuardedGameRootAppNavBackAfterPop` | Collapsed | After a pop leaves SwiftUI's stray compact column on the guarded root, an allowed AppNav Back closes the column through the native pop. The guard is released only once the root leaves the top. |
 | `testSplitGuardedGameRootExpanded` | Expanded, sideways | The guarded root has no Back of either kind beside Home. |
 | `testSplitExpandedSwitchAndBack` | Expanded, sideways | The Show Sidebar button reveals Home. Selecting the other game replaces the detail column. The system Back inside the game's stack and an AppNav Back both reconcile, the second one closing the column. |
 | `testSplitFoldKeepsGameAfterPop` | Fold and unfold | After the stray `.sidebar` write, unfolding repairs the compact column once. Folding again keeps the game on top with nothing new in history, and one Back reaches Home. |
@@ -76,11 +77,11 @@ Further checks by hand on the Duo simulator:
 - **Back button on a guarded root.** A screen recording of `testSplitGuardedGameRootSwipeOntoRoot` on the closed Duo, sampled at 6 frames a second, shows the Back control in the outer display's side rail without a gap or flicker. That covers the selection onto Game A, the swipe back from its page, and the two refused swipes. On that rail the app's Back and the system Back look alike, so the recording shows no flicker but cannot tell which one is drawn.
 - **First selection side by side.** On the open Duo held sideways, SwiftUI wrote no compact column for the first selection: no `SwiftUI set the compact column` trace appeared.
 
-On 2026-11-22, at the head that hides a guarded root's Back on every frame, the whole suite passed on an iPhone 17 Pro simulator with iOS 27.2: 28 tests, 25 passed and 3 skipped.
-- **Passed:** the 17 existing tests, the plain-stack guarded Game test, and the seven split tests that run collapsed: select and swipe back, game switch, taken-back selection, sheet over a game, guarded root, guard released, and swipe onto a guarded root.
+On 2026-11-22, at the head that keeps the guard until a departing root leaves the top, the whole suite passed on an iPhone 17 Pro simulator with iOS 27.2: 29 tests, 26 passed and 3 skipped.
+- **Passed:** the 17 existing tests, the plain-stack guarded Game test, and the eight split tests that run collapsed: select and swipe back, game switch, taken-back selection, sheet over a game, guarded root, guard released, swipe onto a guarded root, and AppNav Back from a guarded root after a pop.
 - **Skipped:** the two expanded tests and the fold test.
 
-On the Duo the same day, all nine collapsed tests passed on the closed device, including the plain-stack guard test and the posture-driven fold test, and three passed on the open device held sideways: the expanded switch, the guarded root, and the sheet.
+On the Duo the same day, all ten collapsed tests passed on the closed device, including the plain-stack guard test and the posture-driven fold test, and three passed on the open device held sideways: the expanded switch, the guarded root, and the sheet.
 
 A screen recording of `testSplitCollapsedSelectAndSwipeBack` on that phone shows Game A open with the zoom from its Home cover, and the swipe back shrinking the card into the cover. That is the Home → Game zoom, now going through a collapsed split.
 

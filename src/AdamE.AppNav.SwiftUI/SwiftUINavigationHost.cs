@@ -48,9 +48,10 @@ public sealed class SwiftUINavigationHost : IDisposable
         Func<NavigationShellViewModel, TContract> createShell, Action<Exception> reportFailure) where TContract : class
     {
         EnsureMainThread();
-        // The SwiftUI shell presents a split at the window root with NavigationSplitView.
+        // The SwiftUI shell presents a split at the window root with NavigationSplitView, whose compact-column binding
+        // needs iOS 17. Earlier releases refuse splits before anything is staged, whatever the package floor.
         var navigation = NavigationShellViewModel.Attach(presenter, leases, mountEntry, PostAsync, reportFailure,
-            presentsSplits: true);
+            presentsSplits: OperatingSystem.IsIOSVersionAtLeast(17));
         try
         {
             var screen = OahuScreens.Create<TContract>(createShell(navigation));

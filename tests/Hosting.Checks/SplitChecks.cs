@@ -14,13 +14,14 @@ internal static class SplitChecks
         await using var router = new ProbeRouter(presenter, leases, split: true);
         Dictionary<string, Oahu.OahuMount> mounts = [];
         NavigationShellViewModel? attached = null;
+        List<Exception> reported = [];
         var shell = NavigationShellViewModel.Attach(presenter, leases, (entry, _, _) =>
         {
             var owner = attached ?? throw new InvalidOperationException("The shell mounted a screen before it attached.");
             var mount = loop.Mount<INavigationShellViewModel>(owner);
             mounts[entry.Id] = mount;
             return new(mount);
-        }, dispatch, failure => throw failure, presentsSplits: true);
+        }, dispatch, reported.Add, presentsSplits: true);
         attached = shell;
         Check(shell.PresentsSplits, "The SwiftUI-style shell must declare split support");
         try
@@ -60,6 +61,33 @@ internal static class SplitChecks
             await WaitUntilAsync(() => mounts["game-b"].IsDisposed && shell.Target.Current.Split.SecondaryEntries.Count == 0,
                 () => "The closed column's mount stayed attached");
             Check(!mounts["home"].IsDisposed, "Closing the secondary column released Home");
+
+            // A reading with a compact column the contract does not know is reported, not reconciled.
+            var history = router.HistoryCount;
+            var closed = shell.Target.Current;
+            using (loop.NativeCall())
+                shell.Report(new(closed.Revision, closed.SelectedBranch, ["home"], "", [], [], "sideways"));
+            await WaitUntilAsync(() => reported.Count == 1, () => "An unknown compact column was not reported");
+            Check(reported[0] is ArgumentException && router.HistoryCount == history,
+                $"An unknown compact column must fail the reading: {reported[0]}");
+            reported.Clear();
+
+            // A Back-history multi-pop from the game's root to the first Home page closes the column and pops Home too.
+            // The presenter accepts it as one native gesture: the state the window shows.
+            var more = router.PushHomePageAsync();
+            var homeMore = await StagedAsync(shell, closed.Revision);
+            Report(loop, shell, homeMore, ["home", "home-more"], [], "primary");
+            await more.WaitAsync(TimeSpan.FromSeconds(5));
+            var reselect = router.SelectGameAsync("game-a", "", default);
+            var gameAgain = await StagedAsync(shell, homeMore.Revision);
+            Report(loop, shell, gameAgain, ["home", "home-more"], ["game-a"], "secondary");
+            await reselect.WaitAsync(TimeSpan.FromSeconds(5));
+            Report(loop, shell, gameAgain, ["home"], [], "primary");
+            await WaitUntilAsync(() => router.Status.StartsWith("split[home]@primary history=7", StringComparison.Ordinal),
+                () => $"The multi-pop did not reconcile: {router.Status}");
+            await WaitUntilAsync(() => mounts["home-more"].IsDisposed && mounts["game-a"].IsDisposed,
+                () => "The multi-pop left popped screens attached");
+            Check(reported.Count == 0, $"Unexpected failures: {string.Join("; ", reported)}");
         }
         finally
         {

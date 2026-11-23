@@ -198,6 +198,9 @@ public interface IOahuNavigationSurface
 {
     /// <summary>Whether this surface presents a <see cref="SplitNode"/> at the window root. The presenter refuses a
     /// split with <see cref="NotSupportedException"/> before staging anything when the attached surface does not.</summary>
+    /// <remarks>A surface that does not present splits cannot roll back to a committed state that holds one: if a
+    /// navigation away from such a state fails on it, the rollback is refused too and the host is marked failed, as for
+    /// any failed rollback. Attach a surface that presents splits to a router whose state can hold one.</remarks>
     bool PresentsSplits => false;
 
     /// <summary>Stage resources and publish the target. The native renderer reports completion separately.</summary>
