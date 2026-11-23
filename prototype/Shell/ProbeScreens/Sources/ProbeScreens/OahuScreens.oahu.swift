@@ -3,7 +3,7 @@
 // The screen provider the .NET host finds by its Objective-C name, OAHUGeneratedScreens (docs/runtime.md). Each
 // contract's screen is found by convention (P1-D11): a SwiftUI view {Name}Screen with init(model: {Name}Model).
 //   Page (hash -7512465206015465397): PageScreen(model: PageModel)
-//   Shell (hash -2420384417317189295): ShellScreen(model: ShellModel)
+//   Shell (hash 7471922517835331832): ShellScreen(model: ShellModel)
 
 import Foundation
 import OahuRuntime

@@ -57,6 +57,8 @@ public fun DemoShellScreen(model: DemoShellModel) {
                 report = { observed ->
                     model.report(NativeObservation(
                         observed.revision, observed.branch, observed.entries, observed.modalId, observed.modalEntries,
+                        // The Compose shell presents no splits, so it reports no split columns.
+                        emptyList(), "",
                     ))
                 },
                 requestBack = if (managedBack) {

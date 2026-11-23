@@ -39,6 +39,33 @@ prototype/UITests/run.sh "$DEVICE" \
   -only-testing:NavigationTests/NavigationTests/testReplaceHostDuringGamePush
 ```
 
+## Split: Home beside the selected game
+
+The `--probe-split` launch argument starts the probe on a `SplitNode`: Home in the primary column and, once a row is selected, that game's own stack in the secondary column. Home's rows are plain buttons that ask AppNav to select, and the game screens can push a page, switch to the other game, or send an AppNav Back. The footer adds `probe-split-layout`, which shows the split's layout, how often the shell repaired the compact column, and how many selections were taken back. The split tests run on any simulator. On a phone, or on the iPhone Duo simulator while it is closed, they cover the collapsed split. The expanded test needs the Duo open, and the fold test needs its posture driven from outside, so it skips unless the runner sees `APPNAV_POSTURE=1`.
+
+| Test | Layout | What it proves |
+| --- | --- | --- |
+| `testSplitCollapsedSelectAndSwipeBack` | Collapsed | Selecting from Home pushes the game's root over Home. An edge swipe from that root closes the column as one `HostReconciliation`, and a later selection opens the other game. |
+| `testSplitCollapsedSwitchGames` | Collapsed | A pop to the game's root leaves SwiftUI's stray `.sidebar` binding. Switching games then pops the old game natively before SwiftUI shows the new one. One Back still reaches Home, so no duplicate root is left underneath. |
+| `testSplitSelectionTakenBack` | Collapsed | A Back during the animated selection, held applying by `--probe-hold-game-settlement`, records the selection and a Back that closes the column. The game does not come back. |
+| `testSplitSheetOverGame` | Any | A sheet over the split, dismissed natively, keeps both columns. |
+| `testSplitExpandedSwitchAndBack` | Expanded, sideways | The Show Sidebar button reveals Home. Selecting the other game replaces the detail column. The system Back inside the game's stack and an AppNav Back both reconcile, the second one closing the column. |
+| `testSplitFoldKeepsGameAfterPop` | Fold and unfold | After the stray `.sidebar` write, unfolding repairs the compact column once. Folding again keeps the game on top with nothing new in history, and one Back reaches Home. |
+
+Run the collapsed tests on the closed Duo, or on a phone, and the expanded test on the open Duo:
+
+```sh
+prototype/UITests/run.sh "$DUO" -only-testing:NavigationTests/NavigationTests/testSplitCollapsedSelectAndSwipeBack
+TEST_RUNNER_APPNAV_POSTURE=1 prototype/UITests/run.sh "$DUO" \
+  -only-testing:NavigationTests/NavigationTests/testSplitFoldKeepsGameAfterPop
+```
+
+While the fold test runs, open the device when the log prints `SPLIT-POSTURE: open the device`, and close it at `SPLIT-POSTURE: close the device`, for example with the simulator controls' posture action.
+
+On Xcode 27.2, XCUITest's taps on the detail column of the upright Duo inner display never reach the app, though the same taps from the simulator do, so the expanded test skips upright. The upright run was checked by hand on the Duo simulator: Show Sidebar overlays Home on the dimmed game, a selection keeps the overlay open, Hide Sidebar closes it, and then a push, a system Back and an AppNav Back reconcile as in the sideways test. The system Back left the stray binding, and the shell repaired it on the next quiet frame.
+
+On an iPhone 17 Pro simulator with iOS 27.2, the whole suite passes: 17 existing tests and the four split tests that run collapsed, with the expanded and fold tests skipped. A screen recording of `testSplitCollapsedSelectAndSwipeBack` on that phone shows Game A open with the zoom from its Home cover, and the swipe back shrinking the card into the cover. That is the Home → Game zoom, now going through a collapsed split.
+
 ## Earlier SwiftUI prototype recordings
 
 The initial direct-path prototype passed 6/6 UI test runs on the iPhone 16 Pro simulator (iOS 18.6, 22G86) and 6/6 on the iPhone 18 Pro simulator (iOS 27.0, 24A434). Each simulator ran the canceled-swipe and Back-menu scenario three times and the ordinary Back traversal three times. Both recordings show the direct visible jump. The managed checks passed again after the native change. The host was built for the arm64 simulator with .NET 11 CoreCLR JIT and Xcode 27.2.

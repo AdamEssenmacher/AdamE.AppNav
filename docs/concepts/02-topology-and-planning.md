@@ -175,9 +175,10 @@ branch host. A sidebar that switches between sections is a branch host; the
 list and detail inside one section is a split.
 
 Apps build splits through `IAppNavigationPlanner`; the standard models do not
-produce them. The MAUI, UIKit, Android and OAHU presenters do not present
-splits yet and refuse a plan containing one with `NotSupportedException`
-before any native change.
+produce them. The [SwiftUI renderer](../../src/AdamE.AppNav.SwiftUI/README.md#splits)
+presents a split at the window root whose columns are stacks. The MAUI,
+UIKit, Android and Compose presenters do not present splits yet and refuse a
+plan containing one with `NotSupportedException` before any native change.
 
 ## Standard models
 

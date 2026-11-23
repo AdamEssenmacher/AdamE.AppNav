@@ -52,7 +52,9 @@ public sealed class SceneDelegate : UIWindowSceneDelegate
         leases = new RouteEntryLeaseRegistry(new SwiftUIRouteEntryLeaseHost(OnFault, OnFault));
         presenter = ProbeRouter.CreatePresenter();
         homeBack = new HomeBackPolicy();
-        var currentRouter = new ProbeRouter(presenter, leases, [homeBack]);
+        // The split probe shows Home beside the selected game's own stack.
+        var split = NSProcessInfo.ProcessInfo.Arguments.Contains("--probe-split");
+        var currentRouter = new ProbeRouter(presenter, leases, [homeBack], split: split);
         router = currentRouter;
         currentRouter.Committed += OnCommit;
 
@@ -99,6 +101,12 @@ public sealed class SceneDelegate : UIWindowSceneDelegate
                     }
                     break;
                 case "deep-link": Run(() => current.DeepLinkAsync(token)); break;
+                case "select-game-a": Run(() => current.SelectGameAsync("game-a", "split-cover-game-a", token)); break;
+                case "select-game-b": Run(() => current.SelectGameAsync("game-b", "split-cover-game-b", token)); break;
+                case "switch-game-a": Run(() => current.SelectGameAsync("game-a", "", token)); break;
+                case "switch-game-b": Run(() => current.SelectGameAsync("game-b", "", token)); break;
+                case "push-game-page": Run(() => current.PushGamePageAsync(token)); break;
+                case "push-home-page": Run(() => current.PushHomePageAsync(token)); break;
                 case "open-modal": Run(() => current.ModalAsync(token)); break;
                 case "push-review": Run(() => current.PushReviewAsync(token)); break;
                 case "allow-back": homeBack?.Allow(); break;

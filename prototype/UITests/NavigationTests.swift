@@ -23,6 +23,12 @@ final class NavigationTests: XCTestCase {
         if name.contains("testCallbackReplacementWithUnchangedProjection") {
             app.launchArguments.append("--probe-replace-callbacks")
         }
+        if name.contains("testSplit") {
+            app.launchArguments.append("--probe-split")
+        }
+        if name.contains("testSplitSelectionTakenBack") {
+            app.launchArguments.append("--probe-hold-game-settlement")
+        }
         app.launch()
     }
 
@@ -377,11 +383,11 @@ final class NavigationTests: XCTestCase {
     }
 
     @discardableResult
-    private func awaitLabel(_ identifier: String, matching condition: @escaping (String) -> Bool,
+    private func awaitLabel(_ identifier: String, timeout: TimeInterval = 12, matching condition: @escaping (String) -> Bool,
                             file: StaticString = #filePath, line: UInt = #line) -> String {
         let element = app.staticTexts[identifier].firstMatch
         let predicate = NSPredicate { _, _ in element.exists && condition(element.label) }
-        let result = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: nil)], timeout: 12)
+        let result = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: nil)], timeout: timeout)
         XCTAssertEqual(result, .completed, "Expected \(identifier); got \(element.exists ? element.label : "<absent>")\n\(app.debugDescription)", file: file, line: line)
         return element.label
     }
@@ -397,5 +403,193 @@ final class NavigationTests: XCTestCase {
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    // MARK: Split: Home beside the selected game's stack
+
+    // Phones and a closed iPhone Duo collapse the split into one stack. An open Duo shows both columns; the posture
+    // tests wait for the device to fold or unfold, which the simulator controls drive from outside the test.
+    private let splitHome = "split[home]@primary history=1 [InAppCommand@split[home]@primary]"
+
+    private func splitLayout() -> String {
+        awaitLabel("probe-split-layout") { $0.hasPrefix("collapsed") || $0.hasPrefix("expanded") }
+    }
+
+    private func requireSplit(_ layout: String) throws {
+        let current = splitLayout()
+        guard current.hasPrefix(layout) else { throw XCTSkip("Needs a \(layout) split; this window is \(current)") }
+    }
+
+    private func status(_ history: Int, _ state: String) -> (String) -> Bool {
+        { $0.hasPrefix("\(state) history=\(history) ") }
+    }
+
+    /// Shows the primary column of an expanded split whose automatic visibility hid it.
+    private func revealHome() {
+        let row = app.buttons["probe-select-game-a"]
+        guard !(row.exists && row.isHittable) else { return }
+        let toggle = app.buttons.matching(NSPredicate(format: "identifier CONTAINS[c] 'sidebar' OR label CONTAINS[c] 'sidebar'")).firstMatch
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5), "Expected the system Show Sidebar button\n\(app.debugDescription)")
+        toggle.tap()
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+    }
+
+    // Selecting from Home pushes the game's root over Home, and the edge swipe from that root closes the column.
+    func testSplitCollapsedSelectAndSwipeBack() throws {
+        try requireSplit("collapsed")
+        awaitLabel("probe-status") { $0 == self.splitHome }
+        app.buttons["probe-select-game-a"].tap()
+        awaitLabel("probe-status", matching: status(2, "split[home]+game-a-stack[game-a]@secondary"))
+        awaitLabel("probe-native") { $0 == "rev=2 home-stack [home] + [game-a] @secondary" }
+        XCTAssertTrue(app.staticTexts["page-game-a"].exists)
+        capture("Split collapsed Game A")
+
+        edgeSwipe(to: 0.9)
+        awaitLabel("probe-status") {
+            self.status(3, "split[home]@primary")($0) && $0.hasSuffix(";HostReconciliation@split[home]@primary]")
+        }
+        awaitLabel("probe-native") { $0 == "rev=2 home-stack [home] + [] @primary" }
+        XCTAssertTrue(app.buttons["probe-select-game-b"].waitForExistence(timeout: 5))
+        app.buttons["probe-select-game-b"].tap()
+        awaitLabel("probe-status", matching: status(4, "split[home]+game-b-stack[game-b]@secondary"))
+        XCTAssertTrue(app.staticTexts["page-game-b"].waitForExistence(timeout: 5))
+    }
+
+    // Switching from one game to another while collapsed replaces the game; one Back still reaches Home.
+    func testSplitCollapsedSwitchGames() throws {
+        try requireSplit("collapsed")
+        awaitLabel("probe-status") { $0 == self.splitHome }
+        app.buttons["probe-select-game-a"].tap()
+        awaitLabel("probe-native") { $0 == "rev=2 home-stack [home] + [game-a] @secondary" }
+        app.buttons["probe-push-game-page"].tap()
+        awaitLabel("probe-native") { $0 == "rev=3 home-stack [home] + [game-a,game-a-page-1] @secondary" }
+        edgeSwipe(to: 0.9)
+        awaitLabel("probe-native") { $0 == "rev=3 home-stack [home] + [game-a] @secondary" }
+        app.buttons["probe-switch-game"].tap()
+        awaitLabel("probe-status", matching: status(5, "split[home]+game-b-stack[game-b]@secondary"))
+        awaitLabel("probe-native") { $0 == "rev=4 home-stack [home] + [game-b] @secondary" }
+        XCTAssertTrue(app.staticTexts["page-game-b"].exists)
+        XCTAssertFalse(app.staticTexts["page-game-a"].exists)
+
+        edgeSwipe(to: 0.9)
+        awaitLabel("probe-status", matching: status(6, "split[home]@primary"))
+        awaitLabel("probe-native") { $0 == "rev=4 home-stack [home] + [] @primary" }
+        XCTAssertTrue(app.buttons["probe-select-game-a"].waitForExistence(timeout: 5),
+                      "One Back from the game must reach Home; a duplicate game root would stay on top")
+    }
+
+    // A Back that catches the animated selection before it settles takes it back: AppNav records the selection and a
+    // native Back that closes the column, and the game does not come back.
+    func testSplitSelectionTakenBack() throws {
+        try requireSplit("collapsed")
+        awaitLabel("probe-status") { $0 == self.splitHome }
+        app.buttons["probe-select-game-a"].tap()
+        XCTAssertTrue(app.staticTexts["page-game-a"].waitForExistence(timeout: 10))
+        XCTAssertEqual(app.staticTexts["probe-native"].label, "rev=1 home-stack [home] + [] @primary",
+                       "The shell settled the selection before Back")
+        edgeSwipe(to: 0.9)
+        awaitLabel("probe-split-layout") { $0.hasSuffix("taken back=1 restored=0") }
+        awaitLabel("probe-status") {
+            self.status(3, "split[home]@primary")($0) &&
+                $0.hasSuffix("InAppCommand@split[home]+game-a-stack[game-a]@secondary;HostReconciliation@split[home]@primary]")
+        }
+        XCTAssertTrue(app.staticTexts["page-game-a"].waitForNonExistence(timeout: 10))
+        let reappeared = expectation(for: NSPredicate(format: "exists == true"), evaluatedWith: app.staticTexts["page-game-a"])
+        reappeared.isInverted = true
+        wait(for: [reappeared], timeout: 3)
+    }
+
+    func testSplitSheetOverGame() throws {
+        awaitLabel("probe-status") { $0 == self.splitHome }
+        revealHome()
+        app.buttons["probe-select-game-a"].tap()
+        awaitLabel("probe-native") { $0 == "rev=2 home-stack [home] + [game-a] @secondary" }
+        openModal()
+        awaitLabel("probe-native") { $0 == "rev=3 home-stack [home] + [game-a] @secondary editor [edit]" }
+        app.navigationBars["edit"].buttons["Done"].tap()
+        awaitLabel("probe-status") {
+            self.status(4, "split[home]+game-a-stack[game-a]@secondary")($0) &&
+                $0.hasSuffix("HostReconciliation@split[home]+game-a-stack[game-a]@secondary]")
+        }
+        awaitLabel("probe-native") { $0 == "rev=3 home-stack [home] + [game-a] @secondary" }
+    }
+
+    // Side by side, a selection shows the game beside Home; selecting another replaces it, and Back works inside it.
+    func testSplitExpandedSwitchAndBack() throws {
+        try requireSplit("expanded")
+        let window = app.windows.firstMatch.frame
+        if window.height > window.width {
+            // On Xcode 27.2, XCUITest's synthesized taps on the game column of the upright Duo inner display never
+            // reach the app, though the same taps from the simulator do. SWIFTUI.md records the manual upright run.
+            throw XCTSkip("XCUITest cannot tap the detail column of an upright Duo inner display")
+        }
+        awaitLabel("probe-status") { $0 == self.splitHome }
+        revealHome()
+        app.buttons["probe-select-game-a"].tap()
+        awaitLabel("probe-native") { $0 == "rev=2 home-stack [home] + [game-a] @secondary" }
+        revealHome()
+        app.buttons["probe-select-game-b"].tap()
+        awaitLabel("probe-status", matching: status(3, "split[home]+game-b-stack[game-b]@secondary"))
+        awaitLabel("probe-native") { $0 == "rev=3 home-stack [home] + [game-b] @secondary" }
+        XCTAssertTrue(app.staticTexts["page-game-b"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["page-game-a"].exists)
+        capture("Split expanded Game B")
+        // Upright, Home overlays the game and stays open after a selection, as the system does. Close it with the
+        // system button; side by side this hides the tiled column, which the game's own Back does not need.
+        let hide = app.buttons["Hide Sidebar"].firstMatch
+        if hide.exists { hide.tap() }
+        // XCUITest reports the game's buttons hittable under the dimming view, so let the column finish closing.
+        Thread.sleep(forTimeInterval: 1)
+
+        app.buttons["probe-push-game-page"].tap()
+        awaitLabel("probe-native") { $0 == "rev=4 home-stack [home] + [game-b,game-b-page-1] @secondary" }
+        // The system Back button of the game's column; the only one while Home sits at its root beside it.
+        let back = app.buttons["BackButton"].firstMatch
+        XCTAssertTrue(back.waitForExistence(timeout: 5), "Expected the game column's Back button\n\(app.debugDescription)")
+        back.tap()
+        awaitLabel("probe-status", matching: status(5, "split[home]+game-b-stack[game-b]@secondary"))
+        awaitLabel("probe-native") { $0 == "rev=4 home-stack [home] + [game-b] @secondary" }
+        app.buttons["probe-split-back"].tap()
+        awaitLabel("probe-status", matching: status(6, "split[home]@primary"))
+        awaitLabel("probe-native") { $0 == "rev=5 home-stack [home] + [] @primary" }
+    }
+
+    // SwiftUI sets the compact column to the primary one when the game's path empties, though the game stays on top.
+    // Unfolding repairs it, so folding again keeps the game on top with no duplicate under it.
+    func testSplitFoldKeepsGameAfterPop() throws {
+        // The device must be folded and unfolded from outside the test: run with TEST_RUNNER_APPNAV_POSTURE=1 and
+        // change the posture when the test prints SPLIT-POSTURE.
+        guard ProcessInfo.processInfo.environment["APPNAV_POSTURE"] == "1" else {
+            throw XCTSkip("Set TEST_RUNNER_APPNAV_POSTURE=1 and drive the Duo's posture to run this test")
+        }
+        try requireSplit("collapsed")
+        awaitLabel("probe-status") { $0 == self.splitHome }
+        app.buttons["probe-select-game-a"].tap()
+        awaitLabel("probe-native") { $0 == "rev=2 home-stack [home] + [game-a] @secondary" }
+        app.buttons["probe-push-game-page"].tap()
+        awaitLabel("probe-native") { $0 == "rev=3 home-stack [home] + [game-a,game-a-page-1] @secondary" }
+        edgeSwipe(to: 0.9)
+        awaitLabel("probe-status", matching: status(4, "split[home]+game-a-stack[game-a]@secondary"))
+        awaitLabel("probe-native") { $0 == "rev=3 home-stack [home] + [game-a] @secondary" }
+        XCTAssertTrue(app.staticTexts["page-game-a"].exists)
+
+        print("SPLIT-POSTURE: open the device")
+        awaitLabel("probe-split-layout", timeout: 120) { $0.hasPrefix("expanded") }
+        awaitLabel("probe-split-layout") { $0.hasPrefix("expanded repairs=1 ") }
+        XCTAssertTrue(app.staticTexts["page-game-a"].exists)
+        XCTAssertEqual(app.staticTexts["probe-native"].label, "rev=3 home-stack [home] + [game-a] @secondary")
+        capture("Split unfolded after pop")
+
+        print("SPLIT-POSTURE: close the device")
+        awaitLabel("probe-split-layout", timeout: 120) { $0.hasPrefix("collapsed") }
+        XCTAssertTrue(app.staticTexts["page-game-a"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["probe-native"].label, "rev=3 home-stack [home] + [game-a] @secondary")
+        awaitLabel("probe-status", matching: status(4, "split[home]+game-a-stack[game-a]@secondary"))
+        capture("Split folded again")
+
+        edgeSwipe(to: 0.9)
+        awaitLabel("probe-status", matching: status(5, "split[home]@primary"))
+        XCTAssertTrue(app.buttons["probe-select-game-a"].waitForExistence(timeout: 5),
+                      "One Back from the game must reach Home")
     }
 }
