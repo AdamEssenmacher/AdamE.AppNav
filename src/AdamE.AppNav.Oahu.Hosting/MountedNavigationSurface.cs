@@ -42,7 +42,8 @@ internal sealed class MountedNavigationSurface(RouteEntryLeaseRegistry leases, O
     // They cannot safely retry and have already reported their failure.
     private readonly List<ScreenMount> uncertifiedCloses = [];
 
-    private readonly StateSource<ShellTarget> target = new(new(0, "", false, [], "", [], new("initial", "", "", "", "", "")));
+    private readonly StateSource<ShellTarget> target = new(new(0, "", false, [], "", [], new("initial", "", "", "", "", ""),
+        new("", "", [], "")));
 
     private long settledRevision;
 
@@ -210,11 +211,14 @@ internal sealed class MountedNavigationSurface(RouteEntryLeaseRegistry leases, O
             new AggregateException("Navigation mount teardown failed. Affected lease attachments remain held.", failures);
     }
 
+    internal static string CompactColumnName(SplitColumn column) =>
+        column == SplitColumn.Secondary ? "secondary" : "primary";
+
     private static IEnumerable<ScreenEntry> ScreenEntries(ShellTarget value) =>
-        value.Branches.SelectMany(stack => stack.Entries).Concat(value.ModalEntries);
+        value.Branches.SelectMany(stack => stack.Entries).Concat(value.Split.SecondaryEntries).Concat(value.ModalEntries);
 
     private static IEnumerable<RouteEntry> DisplayedEntries(OahuNavigationTarget value) =>
-        value.Branches.Values.SelectMany(stack => stack).Concat(value.ModalEntries);
+        value.Branches.Values.SelectMany(stack => stack).Concat(value.SecondaryEntries).Concat(value.ModalEntries);
 
     private static ShellTarget ToWire(OahuNavigationTarget value, Func<RouteEntry, long> mountId)
     {
@@ -225,6 +229,8 @@ internal sealed class MountedNavigationSurface(RouteEntryLeaseRegistry leases, O
                 branch.Key, value.BranchTitles[branch.Key], branch.Value.Select(Entry).ToArray())).ToArray(),
             value.ModalId ?? "", value.ModalEntries.Select(Entry).ToArray(),
             new(context.Operation, context.SourceEntryId, context.DestinationEntryId, context.SourceKey,
-                context.SourceScreen, context.DestinationScreen));
+                context.SourceScreen, context.DestinationScreen),
+            new(value.SplitId ?? "", value.SecondaryId ?? "", value.SecondaryEntries.Select(Entry).ToArray(),
+                value.SplitId is null ? "" : CompactColumnName(value.CompactColumn)));
     }
 }

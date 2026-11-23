@@ -48,7 +48,9 @@ public sealed class SwiftUINavigationHost : IDisposable
         Func<NavigationShellViewModel, TContract> createShell, Action<Exception> reportFailure) where TContract : class
     {
         EnsureMainThread();
-        var navigation = NavigationShellViewModel.Attach(presenter, leases, mountEntry, PostAsync, reportFailure);
+        // The SwiftUI shell presents a split at the window root with NavigationSplitView.
+        var navigation = NavigationShellViewModel.Attach(presenter, leases, mountEntry, PostAsync, reportFailure,
+            presentsSplits: true);
         try
         {
             var screen = OahuScreens.Create<TContract>(createShell(navigation));
