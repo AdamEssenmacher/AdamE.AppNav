@@ -29,4 +29,17 @@ Keep the device animator duration scale at 1× for the Game checks. The driver c
 | Game push and Back | App-supplied resize sees different scene sizes and settles before commit. A canceled edge swipe keeps Game, and a completed swipe reconciles Back once. |
 | Game recreation | Replacement Activity witnesses the pending push without spending the original cover key |
 
+The split scenarios run the probe with `--ez split true`: Home in the primary column and the selected game's own stack in the secondary column. They need a foldable emulator, such as one made from the `pixel_9_pro_fold` device profile, with its keyguard disabled (`adb shell locksettings set-disabled true`) so a fold does not leave the task behind a lock screen. Run them with `--split`, or name one with `--case`.
+
+| Scenario | Checks |
+| --- | --- |
+| `split-unfolded` | List beside detail, in-pane push, predictive Back cancel and pop inside the detail pane, Back at the detail root leaves the app |
+| `split-switch` | Selecting another game replaces the detail pane beside Home |
+| `split-fold` | Folding mid-navigation keeps the game page and its saved state without a reading; folded Back pops, then closes the column |
+| `split-folded` | A folded selection stacks the game; predictive Back cancels, then closes the column from its root |
+| `split-default` | A default game shows beside Home but not over it folded; Back pops Home and closes the default |
+| `split-modal` | A modal covers the split and Back dismisses it |
+| `split-sideways` | An unfolded window turned sideways keeps two panes |
+| `split-recreate` | A fold that recreates `MainActivity` reattaches the split; `HandledActivity`, used by the other scenarios, handles size changes itself |
+
 The [earlier API 36 recording](../results/home-game-predictive-android.mp4) and [accompanying trace](../results/home-game-predictive-android.trace.txt) capture the Game push, predictive Back and same-process recreation.

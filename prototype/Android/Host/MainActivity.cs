@@ -4,6 +4,7 @@ using AdamE.AppNav.Leases;
 using AdamE.AppNav.Oahu;
 using AdamE.AppNav.Oahu.Hosting;
 using Android.App;
+using Android.Content.PM;
 using Android.OS;
 using Android.Util;
 using AndroidX.Activity;
@@ -13,9 +14,17 @@ using Oahu.Android;
 
 namespace PresenterProbe.Android;
 
+// Handles window size changes itself, as the Scavos host does, so a fold or unfold keeps the activity and its
+// composition. MainActivity is recreated instead.
+[Activity(Name = "com.adamessenmacher.appnav.probe.HandledActivity", Exported = true,
+    Theme = "@android:style/Theme.Material.Light.NoActionBar",
+    ConfigurationChanges = ConfigChanges.ScreenSize | ConfigChanges.SmallestScreenSize | ConfigChanges.ScreenLayout |
+        ConfigChanges.Orientation | ConfigChanges.Density | ConfigChanges.KeyboardHidden)]
+public sealed class HandledActivity : MainActivity;
+
 [Activity(Name = "com.adamessenmacher.appnav.probe.MainActivity", MainLauncher = true, Exported = true,
     Theme = "@android:style/Theme.Material.Light.NoActionBar")]
-public sealed class MainActivity : ComponentActivity
+public class MainActivity : ComponentActivity
 {
     private static Session? retained;
     private Session? session;
@@ -25,7 +34,8 @@ public sealed class MainActivity : ComponentActivity
     {
         base.OnCreate(savedInstanceState);
         var fresh = retained is null;
-        var current = retained ??= new Session();
+        // The split probe shows Home beside the selected game's own stack.
+        var current = retained ??= new Session(Intent?.GetBooleanExtra("split", false) == true);
         session = current;
 
         var attached = AndroidNavigationHost.Attach<IDemoShellViewModel>(this, current.Presenter, current.Leases,
@@ -47,9 +57,11 @@ public sealed class MainActivity : ComponentActivity
         var target = shell.Target.Current;
         if (target.Revision == observation.Revision && observation is { Branch: "home", Entries: [.., "game"] })
             Trace($"game surface epoch={epoch} rev={observation.Revision} operation={target.Transition.Operation} sourceKey='{target.Transition.SourceKey}'");
+        var columns = observation.CompactColumn.Length == 0 ? "" :
+            $" secondary=[{string.Join(",", observation.SecondaryEntries)}] compact={observation.CompactColumn}";
         Trace($"surface epoch={epoch} rev={observation.Revision} {observation.Branch} " +
             $"[{string.Join(",", observation.Entries)}] modal={observation.ModalId} " +
-            $"[{string.Join(",", observation.ModalEntries)}]");
+            $"[{string.Join(",", observation.ModalEntries)}]{columns}");
         if (current.Withheld is { } withheld && withheld.Epoch != epoch &&
             withheld.Observation.Revision == observation.Revision)
         {
@@ -113,6 +125,28 @@ public sealed class MainActivity : ComponentActivity
             case "open-modal":
                 Run(() => current.Router.ModalAsync());
                 break;
+            case "select-game-a":
+                Run(() => current.Router.SelectGameAsync("game-a", "split-cover-game-a", default));
+                break;
+            case "select-game-b":
+                Run(() => current.Router.SelectGameAsync("game-b", "split-cover-game-b", default));
+                break;
+            case "select-default-a":
+                Run(() => current.Router.SelectDefaultGameAsync("game-a"));
+                break;
+            case "push-game-page":
+                Run(() => current.Router.PushGamePageAsync());
+                break;
+            case "push-home-page":
+                Run(() => current.Router.PushHomePageAsync());
+                break;
+            case "up":
+                Run(async () =>
+                {
+                    var result = await current.Router.Navigator.BackAsync(new BackNavigationRequest("main", BackNavigationSource.ApplicationCommand));
+                    Trace($"up {result.Status} history={current.Router.HistoryCount}");
+                });
+                break;
             case "deny-next-back":
                 current.Policy.DenyNext();
                 break;
@@ -154,6 +188,12 @@ public sealed class MainActivity : ComponentActivity
         catch (Exception error) { Fault(error); }
     }
 
+    public override void OnConfigurationChanged(global::Android.Content.Res.Configuration newConfig)
+    {
+        base.OnConfigurationChanged(newConfig);
+        Trace($"configuration w={newConfig.ScreenWidthDp} h={newConfig.ScreenHeightDp}");
+    }
+
     private static void Fault(Exception error) => Trace($"FAULT {error}");
     private static void Trace(string message) => Log.Info("AppNavProbe", message);
 
@@ -164,10 +204,10 @@ public sealed class MainActivity : ComponentActivity
         private int dropNextBackCompletion;
         private long activeBackRequest;
 
-        public Session()
+        public Session(bool split)
         {
             Policy = new DenyNextBackPolicy(token => stepPolicyBack ? policySteps.WaitAsync(token) : Task.CompletedTask);
-            Router = new ProbeRouter(Presenter, Leases, [Policy]);
+            Router = new ProbeRouter(Presenter, Leases, [Policy], split: split);
             Router.Committed += OnCommit;
         }
 

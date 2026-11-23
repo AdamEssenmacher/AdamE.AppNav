@@ -321,7 +321,7 @@ internal static class PresenterChecks
             new NavigationState([window, new WindowNode("other", root)]),
             new NavigationState([window with { Modals = [new ModalNode("sheet", root.Entries[0])] }]),
             new NavigationState([window with { Root = new StackNode("empty", []) }]),
-            // This surface does not present splits, as a Compose host does not: a split is refused wherever it is.
+            // This surface does not present splits, as an iOS 16 SwiftUI host does not: a split is refused wherever it is.
             new NavigationState([window with { Root = new SplitNode("split", root) }]),
             new NavigationState([window with { Root = new BranchHostNode(
                 "tabs", [new NavigationBranch("tab", "Tab", new SplitNode("split", root))], "tab") }]),
@@ -354,7 +354,7 @@ internal static class PresenterChecks
 
     private static async Task CheckSplits()
     {
-        // A surface that does not present splits, such as the Compose host, refuses one before staging anything.
+        // A surface that does not present splits, such as a SwiftUI host before iOS 17, refuses one before staging anything.
         {
             var refusing = ProbeRouter.CreatePresenter();
             await using var refused = new ProbeRouter(refusing, split: true);
@@ -467,6 +467,23 @@ internal static class PresenterChecks
             "Sheet dismissal over the split: " + router.Status);
         Assert(router.CurrentRoute == "game-b", "Sheet dismissal recorded the route " + router.CurrentRoute);
 
+        // The Compose shell's native Back follows the planned Back. Over a default game with Home on top, a pop in
+        // the primary column also closes the default, which one reading reports.
+        var pushMore = router.PushHomePageAsync();
+        var deeper = await splits.Next();
+        await AckSplit(presenter, epoch, deeper);
+        await pushMore;
+        var selectDefault = router.SelectDefaultGameAsync("game-a");
+        var byDefault = await splits.Next();
+        Assert(byDefault.SecondaryId == "game-a-stack" && byDefault.CompactColumn == SplitColumn.Primary,
+            "Default game projection");
+        await AckSplit(presenter, epoch, byDefault);
+        await selectDefault;
+        await presenter.ObserveAsync(epoch, byDefault.Revision, "home-stack", ["home"], null, null, [], SplitColumn.Primary);
+        Assert(router.Status.StartsWith("split[home]@primary history=", StringComparison.Ordinal),
+            "Primary pop over a default game: " + router.Status);
+        Assert(router.CurrentRoute == "home", "Primary pop over a default game recorded " + router.CurrentRoute);
+
         // Shapes no surface presents fail before the presenter waits for a host.
         {
             using var hostless = new OahuNavigationPresenter();
@@ -522,6 +539,6 @@ internal static class PresenterChecks
             }
             await host.NextFailsIfPublished();
         }
-        Console.WriteLine("PASS: split projection, column reconciliation, collapsed close, primary pop, game switch, Back, sheet and refusals");
+        Console.WriteLine("PASS: split projection, column reconciliation, collapsed close, primary pop, game switch, Back, sheet, default game and refusals");
     }
 }
