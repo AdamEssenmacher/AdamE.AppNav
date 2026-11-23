@@ -484,6 +484,18 @@ internal static class PresenterChecks
             "Primary pop over a default game: " + router.Status);
         Assert(router.CurrentRoute == "home", "Primary pop over a default game recorded " + router.CurrentRoute);
 
+        // A page pushed onto a default game puts the game's column on top, so one pane shows the page.
+        var selectAgain = router.SelectDefaultGameAsync("game-a");
+        var defaultAgain = await splits.Next();
+        await AckSplit(presenter, epoch, defaultAgain);
+        await selectAgain;
+        var pagePush = router.PushGamePageAsync();
+        var defaultPage = await splits.Next();
+        Assert(defaultPage.CompactColumn == SplitColumn.Secondary && defaultPage.SecondaryEntries.Count == 2,
+            "A page pushed onto a default game stays under Home");
+        await AckSplit(presenter, epoch, defaultPage);
+        await pagePush;
+
         // Shapes no surface presents fail before the presenter waits for a host.
         {
             using var hostless = new OahuNavigationPresenter();

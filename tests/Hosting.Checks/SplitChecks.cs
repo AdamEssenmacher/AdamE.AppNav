@@ -72,6 +72,16 @@ internal static class SplitChecks
                 $"An unknown compact column must fail the reading: {reported[0]}");
             reported.Clear();
 
+            // A screen that does not map the split wire reports a split reading without its columns. The shell
+            // names the gap instead of letting the presentation stall.
+            using (loop.NativeCall())
+                shell.Report(new(closed.Revision, closed.SelectedBranch, ["home"], "", [], [], ""));
+            await WaitUntilAsync(() => reported.Count == 1, () => "A split reading without its columns was not reported");
+            Check(reported[0] is InvalidOperationException missing && missing.Message.Contains("split 'games'", StringComparison.Ordinal) &&
+                missing.Message.Contains("CompactColumn", StringComparison.Ordinal) && router.HistoryCount == history,
+                $"A split reading without its columns must fail clearly: {reported[0]}");
+            reported.Clear();
+
             // A Back-history multi-pop from the game's root to the first Home page closes the column and pops Home too.
             // The presenter accepts it as one native gesture: the state the window shows.
             var more = router.PushHomePageAsync();

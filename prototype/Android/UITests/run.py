@@ -473,8 +473,7 @@ def verify_split_fold_mid_navigation(probe):
     probe.fold(True)
     probe.wait_for_texts("Page: game-a-page-1", "Local count 1", "Up")
     probe.missing("Page: home")
-    probe.unfolded_readings = len(re.findall(r"surface epoch=", probe.logs()))
-    assert probe.unfolded_readings == readings, "A fold sent a reading"
+    assert len(re.findall(r"surface epoch=", probe.logs())) == readings, "A fold sent a reading"
     before = len(probe.logs())
     probe.predictive_back(0.70)
     probe.wait_for_log(r"split\[home\]\+game-a-stack\[game-a\]@secondary history=4\b", after=before)
@@ -494,8 +493,17 @@ def verify_split_folded_selection(probe):
     probe.wait_for_texts("Page: home")
     probe.tap("Game A")
     probe.wait_for_log(GAME_A)
+    probe.wait_for_log(r"split zoom active game=game-a")
     probe.wait_for_texts("Page: game-a", "Up")
     probe.missing("Page: home")
+    # A fold or unfold is not navigation: the game keeps its place without another zoom.
+    probe.fold(False)
+    probe.wait_for_texts("Page: home", "Page: game-a")
+    probe.fold(True)
+    probe.wait_for_texts("Page: game-a", "Up")
+    time.sleep(1.5)
+    zooms = re.findall(r"split zoom active", probe.logs())
+    assert len(zooms) == 1, probe.logs()
     before = len(probe.logs())
     probe.predictive_back(0.12, cancel=True)
     time.sleep(1.5)
@@ -505,7 +513,8 @@ def verify_split_folded_selection(probe):
     probe.wait_for_log(r"split\[home\]@primary history=3\b[^\n]*HostReconciliation", after=before)
     probe.wait_for_texts("Page: home")
     probe.fold(False)
-    print("PASS one pane: selection stacks the game, predictive cancel keeps it, Back at its root closes the column")
+    print("PASS one pane: selection zooms the game over Home once, folds replay no zoom, predictive cancel keeps it, "
+          "and Back at its root closes the column")
 
 
 def verify_split_display_default(probe):

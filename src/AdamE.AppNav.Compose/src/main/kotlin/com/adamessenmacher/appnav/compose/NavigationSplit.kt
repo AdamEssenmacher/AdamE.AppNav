@@ -4,11 +4,9 @@ import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -16,9 +14,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.ProvidableCompositionLocal
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.unit.DpSize
@@ -31,6 +28,13 @@ import androidx.navigation3.scene.SceneStrategyScope
 import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import androidx.navigation3.ui.NavDisplay
 import androidx.navigationevent.NavigationEvent
+
+/**
+ * What a split's detail pane shows while nothing is selected, in two panes. Provide it around
+ * [AppNavNavigationShell]. It is not a navigation entry, and it can compose twice while a pane animates.
+ */
+public val LocalNavigationSplitPlaceholder: ProvidableCompositionLocal<@Composable () -> Unit> =
+    staticCompositionLocalOf { {} }
 
 /** The list pane's width when a split shows both columns. The detail pane takes the rest. */
 internal val SplitListPaneWidth = 360.dp
@@ -66,31 +70,12 @@ internal fun splitBack(primary: Int, secondary: Int, compact: NavigationSplitCol
         else -> SplitBack.None
     }
 
-/** Which panes change between two two-pane scenes, and whether the change is a predictive Back preview. */
-internal class SplitMotion {
-    var listChanges by mutableStateOf(false)
-    var detailChanges by mutableStateOf(false)
-    var predictive by mutableStateOf(false)
-
-    fun update(from: SplitTops?, to: SplitTops?, inPredictiveBack: Boolean) {
-        val lists = from?.list != to?.list
-        val details = from?.detail != to?.detail
-        if (listChanges != lists) listChanges = lists
-        if (detailChanges != details) detailChanges = details
-        if (predictive != inPredictiveBack) predictive = inPredictiveBack
-    }
-}
-
 internal data class SplitTops(val list: Any, val detail: Any?)
-
-internal val Scene<MountedEntry>.splitTops: SplitTops?
-    get() = (this as? TwoPaneSplitScene)?.let { SplitTops(it.list.contentKey, it.detail?.contentKey) }
 
 /** The flattened back stack's arrangement: the primary column's entries, then the secondary column's. */
 internal class SplitSceneStrategy(
     private val twoPanes: Boolean,
     private val compactColumn: NavigationSplitColumn,
-    private val motion: SplitMotion,
     private val placeholder: @Composable () -> Unit,
 ) : SceneStrategy<MountedEntry> {
     override fun SceneStrategyScope<MountedEntry>.calculateScene(entries: List<NavEntry<MountedEntry>>): Scene<MountedEntry>? {
@@ -104,7 +89,7 @@ internal class SplitSceneStrategy(
             SplitBack.PopPrimary -> primary.dropLast(1)
             SplitBack.None -> emptyList()
         }
-        if (twoPanes) return TwoPaneSplitScene(primary.last(), secondary.lastOrNull(), previous, motion, placeholder)
+        if (twoPanes) return TwoPaneSplitScene(primary.last(), secondary.lastOrNull(), previous, placeholder)
         val top = if (compact == NavigationSplitColumn.Secondary) secondary.last() else primary.last()
         // A default secondary column under a primary column on top stays in the stack, unrendered, so its saved
         // state survives until the window shows it again.
@@ -128,7 +113,6 @@ internal class TwoPaneSplitScene(
     val list: NavEntry<MountedEntry>,
     val detail: NavEntry<MountedEntry>?,
     override val previousEntries: List<NavEntry<MountedEntry>>,
-    private val motion: SplitMotion,
     private val placeholder: @Composable () -> Unit,
 ) : Scene<MountedEntry> {
     override val key: Any = SplitTops(list.contentKey, detail?.contentKey)
@@ -136,26 +120,31 @@ internal class TwoPaneSplitScene(
     // Navigation 3 swaps whole scenes. Panes animate themselves, so the scene itself neither enters nor leaves.
     override val metadata: Map<String, Any> = PaneTransitions
     override val content: @Composable () -> Unit = {
+        // The scene Nav3 is moving to or from. Only a pane whose top differs between two two-pane scenes
+        // animates; a fold or unfold, which swaps to or from a one-pane scene, animates neither pane.
+        val transition = LocalNavAnimatedContentScope.current.transition.parentTransition
+        val other = when {
+            transition == null -> this
+            transition.targetState == this -> transition.currentState
+            else -> transition.targetState
+        } as? TwoPaneSplitScene
         Row(Modifier.fillMaxSize()) {
-            Pane(Modifier.width(SplitListPaneWidth), motion.listChanges) { list.Content() }
+            Pane(Modifier.width(SplitListPaneWidth), other != null && other.list.contentKey != list.contentKey) {
+                list.Content()
+            }
             VerticalDivider()
-            Pane(Modifier.weight(1f), motion.detailChanges) { detail?.Content() ?: placeholder() }
+            Pane(Modifier.weight(1f), other != null && other.detail?.contentKey != detail?.contentKey) {
+                detail?.Content() ?: placeholder()
+            }
         }
     }
 
+    /** A changing pane cross-fades with Navigation 3's default motion; a predictive Back scrubs the same fade. */
     @Composable
     private fun Pane(modifier: Modifier, changes: Boolean, content: @Composable () -> Unit) {
         val scope = LocalNavAnimatedContentScope.current
-        val enter = when {
-            !changes -> EnterTransition.None
-            motion.predictive -> fadeIn(spring(dampingRatio = 1f, stiffness = 1600f))
-            else -> fadeIn(tween(PaneMotionMillis))
-        }
-        val exit = when {
-            !changes -> ExitTransition.None
-            motion.predictive -> scaleOut(targetScale = 0.7f)
-            else -> fadeOut(tween(PaneMotionMillis))
-        }
+        val enter = if (changes) fadeIn(tween(PaneMotionMillis)) else EnterTransition.None
+        val exit = if (changes) fadeOut(tween(PaneMotionMillis)) else ExitTransition.None
         Box(modifier.fillMaxHeight().clipToBounds()) {
             Box(with(scope) { Modifier.fillMaxSize().animateEnterExit(enter, exit) }) { content() }
         }

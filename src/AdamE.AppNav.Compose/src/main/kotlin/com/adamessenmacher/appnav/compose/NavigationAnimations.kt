@@ -102,8 +102,10 @@ public class NavigationEntryScope internal constructor(
     /** The split column that holds this entry, or null outside a split. */
     public val splitColumn: NavigationSplitColumn? = null,
     /**
-     * Whether the window shows the split's columns side by side. The secondary column's root then has no
-     * Up or Back affordance: system Back from it leaves the app, as from the primary column's root.
+     * Whether the window shows the split's columns side by side. While the primary column is at its root,
+     * system Back from the secondary column's root then leaves the app, as from the primary column's root,
+     * so give that root no Up or Back affordance. With the primary column deeper, Back there closes the
+     * secondary column, as AppNav plans it.
      */
     public val isSplitExpanded: Boolean = false,
 ) {
@@ -127,6 +129,7 @@ internal class NavigationOrigins {
     private data class Origin(val source: MountedEntry, val push: NavigationPresentationTransition)
     private val origins = mutableStateMapOf<MountedEntry, Origin>()
     private var resetRevision = Long.MIN_VALUE
+    private var droppedRevision = Long.MIN_VALUE
 
     fun stage(target: NavigationProjection) {
         val transition = target.transition
@@ -140,10 +143,16 @@ internal class NavigationOrigins {
         origins.entries.removeAll { (entry, origin) ->
             entry in predecessors && predecessors[entry] != origin.source
         }
-        if (transition.operation != "push") return
+        if (transition.operation != "push" || target.revision == droppedRevision) return
         val stack = target.modalEntries.takeIf { it.isNotEmpty() } ?: target.presentedStack()
         val (source, destination) = transition.matchingPush(stack) ?: return
         origins[destination] = Origin(source, transition)
+    }
+
+    /** Drops every origin, and the push of [target]'s revision, so a later layout cannot replay its zoom. */
+    fun drop(target: NavigationProjection) {
+        origins.clear()
+        droppedRevision = target.revision
     }
 
     fun prune(target: NavigationProjection) {
@@ -155,8 +164,9 @@ internal class NavigationOrigins {
         destination: MountedEntry,
         projection: NavigationPresentationTransition,
         stack: List<MountedEntry>,
+        revision: Long,
     ): NavigationPresentationTransition? {
-        if (projection.resetsOrigins) return null
+        if (projection.resetsOrigins || revision == droppedRevision) return null
         if (projection.matchingPush(stack)?.second == destination) return projection
         val origin = origins[destination] ?: return null
         val index = stack.indexOf(destination)

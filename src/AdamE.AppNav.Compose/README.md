@@ -46,14 +46,14 @@ The host renders one window, which can be a split, and one optional modal stack.
 
 ## Splits
 
-A window whose root is a `SplitNode` with a stack in each column renders as Material's list-detail layout through a custom Navigation 3 scene strategy. Map the wire's `ShellTarget.Split` into `NavigationProjection.split` with `NavigationSplitColumn.fromWireName`, and report the observation's `secondaryEntries` and `compactColumn.wireName`, as [the probe screen](../../prototype/Android/Native/screens/src/main/kotlin/com/adamessenmacher/appnav/probe/DemoScreens.kt) does. The projection's only branch is the primary column. `AndroidNavigationHost` reports `PresentsSplits`, so the OAHU presenter projects splits to it. Splits inside branches or modals, and branch hosts inside a column, are refused with `NotSupportedException` before anything is staged.
+A window whose root is a `SplitNode` with a stack in each column renders as Material's list-detail layout through a custom Navigation 3 scene strategy. Map the wire's `ShellTarget.Split` into `NavigationProjection.split` with `NavigationSplitColumn.fromWireName`, and report the observation's `secondaryEntries` and `compactColumn.wireName`. A screen that reports a split reading without them gets an `InvalidOperationException` through the host's failure handler naming the missing fields, rather than a presentation that waits for a matching reading. See [the probe screen](../../prototype/Android/Native/screens/src/main/kotlin/com/adamessenmacher/appnav/probe/DemoScreens.kt) for the mapping. The projection's only branch is the primary column. `AndroidNavigationHost` reports `PresentsSplits`, so the OAHU presenter projects splits to it. Splits inside branches or modals, and branch hosts inside a column, are refused with `NotSupportedException` before anything is staged.
 
 The shell hands Navigation 3 one flattened back stack: the primary column's entries, then the secondary column's. Each entry renders from exactly one scene:
 
-- When the window is at least 840 dp wide and at least 480 dp tall (expanded width, not compact height), the two-pane scene shows the primary column's top in a 360 dp list pane, a divider, and the secondary column's top in the detail pane. With nothing selected the detail pane shows the shell's `splitPlaceholder`. A phone turned sideways keeps one pane.
+- When the window is at least 840 dp wide and at least 480 dp tall (expanded width, not compact height), the two-pane scene shows the primary column's top in a 360 dp list pane, a divider, and the secondary column's top in the detail pane. With nothing selected the detail pane shows the composable the app provides as `LocalNavigationSplitPlaceholder` around the shell. A phone turned sideways keeps one pane.
 - Otherwise the one-pane scene shows the phone stack: the primary column, with the secondary column on top while `compactColumn` is `Secondary`. A default secondary column under a primary column on top stays in the stack unrendered, so its saved state survives until a wider window shows it.
 
-Folding, unfolding and resizing never change the logical state or send a reading, and they swap layouts without an animation. Entries keep their saved state across the swap because they stay in the same `NavDisplay`. With the Activity handling its own size changes, the composition survives; a recreated Activity starts from the projection as usual.
+Folding, unfolding and resizing never change the logical state or send a reading, and they swap layouts without an animation: neither the scenes nor their panes animate, and no shared element is matched across the swap. Entries keep their saved state across the swap because they stay in the same `NavDisplay`. A window that changes size during a predictive Back gesture keeps the gesture's layout, and the Back it completes, until the gesture ends. With the Activity handling its own size changes, the composition survives; a recreated Activity starts from the projection as usual.
 
 Back follows the column on top, as AppNav plans it:
 
@@ -61,14 +61,15 @@ Back follows the column on top, as AppNav plans it:
 | --- | --- | --- |
 | One pane | Secondary column deeper than its root | Pops inside the secondary column |
 | One pane | Secondary root | Closes the column, as `ClearSecondary` does; the reading reports no secondary column and the primary column on top |
-| Two panes | Detail deeper than its root | Pops inside the detail pane, with predictive Back confined to that pane |
-| Two panes | Detail root, primary column at its root | Not intercepted, so the system leaves the app, as from Home on a phone |
-| Two panes | Detail root, primary column deeper | Closes the detail, as AppNav plans it |
-| Either | Primary column on top | Pops the primary column and closes a default secondary column, as AppNav plans it |
+| Two panes | Secondary column on top, deeper than its root | Pops inside the detail pane, with predictive Back confined to that pane |
+| Two panes | Secondary column on top at its root, primary column at its root | Not intercepted, so the system leaves the app, as from Home on a phone |
+| Two panes | Secondary column on top at its root, primary column deeper | Closes the detail, as AppNav plans it |
+| Either | Primary column on top, deeper than its root | Pops the primary column and closes a default secondary column, as AppNav plans it, even when the default shows a deeper page beside it |
+| Either | Primary column on top at its root | Not intercepted |
 
 This deviates from Material's recommended default, `PopUntilScaffoldValueChange`, which leaves the app from any detail screen while both panes show; here Back first goes back inside the detail pane. At the detail root both leave the app. Not intercepting there also deviates from AppNav core, whose planned Back would close the column: the press never reaches the router, so managed Back policy is not asked. With `requestBack`, the shell asks the router only when it would intercept, and the router's projection drives the change.
 
-In two panes, a pane whose top changes cross-fades with Navigation 3's default motion, and a predictive Back scales the outgoing pane. The other pane stays still. Entries can read `LocalNavigationEntryScope`'s `splitColumn` and `isSplitExpanded`. Hide an Up affordance on the secondary root while the columns are side by side. A selection shown beside its source has no `origin`, so a shared-element zoom from a list row applies only when one pane stacks the selection over the list, and an unfold drops a zoom already shown.
+In two panes, a pane whose top changes cross-fades with Navigation 3's default 700 ms fade, and a predictive Back scrubs that fade. The other pane stays still. Entries can read `LocalNavigationEntryScope`'s `splitColumn` and `isSplitExpanded`. Hide an Up affordance on the secondary root while the columns are side by side and the primary column is at its root, since Back there leaves the app; with the primary column deeper, Back closes the secondary column. A selection shown beside its source has no `origin`, so a shared-element zoom from a list row applies only when one pane stacks the selection over the list, and an unfold drops a zoom already shown.
 
 A modal covers the whole split. Route entries in both columns stay mounted, and their leases stay open, in both layouts. The placeholder is not an entry; it can compose twice while a pane animates. Hinge-aware and tabletop layouts are not supported: a half-open book posture shows the same 360 dp list pane.
 

@@ -18,6 +18,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -33,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import com.adamessenmacher.appnav.compose.AppNavNavigationShell
 import com.adamessenmacher.appnav.compose.MountedEntry
 import com.adamessenmacher.appnav.compose.LocalNavigationEntryScope
+import com.adamessenmacher.appnav.compose.LocalNavigationSplitPlaceholder
 import com.adamessenmacher.appnav.compose.NavigationBranch
 import com.adamessenmacher.appnav.compose.NavigationEntryScope
 import com.adamessenmacher.appnav.compose.NavigationSplit
@@ -61,7 +64,12 @@ public fun DemoShellScreen(model: DemoShellModel) {
     var throwOnBack by remember { mutableStateOf(false) }
     var shortBackTimeout by remember { mutableStateOf(false) }
     MaterialTheme {
-        CompositionLocalProvider(LocalGameActions provides actions) {
+        CompositionLocalProvider(
+            LocalGameActions provides actions,
+            LocalNavigationSplitPlaceholder provides {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Pick a game") }
+            },
+        ) {
             AppNavNavigationShell(
                 projection,
                 report = { observed ->
@@ -101,9 +109,6 @@ public fun DemoShellScreen(model: DemoShellModel) {
                 onBackFailure = { failure ->
                     val reason = if (failure is TimeoutCancellationException) "timeout" else failure.message
                     Log.i("AppNavProbe", "policy back failed: $reason")
-                },
-                splitPlaceholder = {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Pick a game") }
                 },
             ) {
                 Column(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp)) {
@@ -210,8 +215,18 @@ private fun SplitCover(game: String, entry: NavigationEntryScope, expanded: Bool
     val key = "split-cover-$game"
     val shared = !expanded || entry.origin?.sourceKey == key
     val size = Modifier.size(if (expanded) 160.dp else 40.dp)
+    val actions = LocalGameActions.current
     val modifier = if (!shared) size else with(entry.sharedTransitionScope) {
-        Modifier.sharedElement(rememberSharedContentState(key), entry.animatedVisibilityScope).then(size)
+        val cover = rememberSharedContentState(key)
+        if (expanded && actions != null) {
+            // The UI checks count zooms: one for a one-pane selection, none for a fold or unfold.
+            LaunchedEffect(cover) {
+                snapshotFlow { isTransitionActive && cover.isMatchFound }.collect { zooming ->
+                    if (zooming) actions.trace("split zoom active game=$game revision=${entry.revision}")
+                }
+            }
+        }
+        Modifier.sharedElement(cover, entry.animatedVisibilityScope).then(size)
     }
     Box(modifier.clip(RoundedCornerShape(12.dp)).background(Color(0xFF2C7BFF)))
 }

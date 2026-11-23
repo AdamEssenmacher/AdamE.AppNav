@@ -269,8 +269,9 @@ public sealed class ProbeRouter : IAsyncDisposable
                     return Plan(current.Select(new StackNode(game.Id + "-stack", [new RouteEntry(game.Id, game)]),
                         SplitColumn.Primary));
                 case PushGamePage when current.Secondary is StackNode stack:
+                    // Select puts the game on top, so a page pushed onto a default game shows in one pane too.
                     var page = new RouteEntry($"{stack.Entries[0].Id}-page-{stack.Entries.Count}", context.Route);
-                    return Plan(current with { Secondary = stack with { Entries = [.. stack.Entries, page] } });
+                    return Plan(current.Select(stack with { Entries = [.. stack.Entries, page] }));
                 case Screen { Name: "home-more" } when current.Primary is StackNode primary:
                     return Plan(current with { Primary = primary with { Entries = [.. primary.Entries, new RouteEntry("home-more", context.Route)] } });
                 case OpenModal:

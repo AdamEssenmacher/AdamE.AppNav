@@ -1,5 +1,6 @@
 package com.adamessenmacher.appnav.compose
 
+import androidx.activity.BackEventCompat
 import androidx.activity.ComponentActivity
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -13,6 +14,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.WindowInfo
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.DpSize
@@ -268,6 +271,142 @@ class NavigationSplitTests {
         }
     }
 
+    @Test
+    fun foldSwapsLayoutsWithoutAnimating() {
+        compose.setContent { FakeWindow { Shell(split(listOf("game-a"))) } }
+        compose.onNodeWithText("home").assertExists()
+        compose.mainClock.autoAdvance = false
+
+        // Nav3's default fade lasts 700 ms (about 44 frames); a swap takes the few frames a scene change needs.
+        compose.runOnIdle { window.value = Folded }
+        val folded = framesUntil { compose.onAllNodesWithText("home").fetchSemanticsNodes().isEmpty() }
+        assertTrue("The fold took $folded frames", folded <= 6)
+        compose.onNodeWithText("game-a").assertExists()
+
+        compose.runOnIdle { window.value = Unfolded }
+        val unfolded = framesUntil {
+            compose.onAllNodesWithText("home").fetchSemanticsNodes().size == 1 &&
+                compose.onAllNodesWithText("game-a").fetchSemanticsNodes().size == 1
+        }
+        assertTrue("The unfold took $unfolded frames", unfolded <= 6)
+        compose.mainClock.autoAdvance = true
+        compose.runOnIdle { assertEquals(1, observations.size) }
+    }
+
+    private fun framesUntil(done: () -> Boolean): Int {
+        var frames = 0
+        while (!done() && frames < 120) {
+            compose.mainClock.advanceTimeByFrame()
+            frames++
+        }
+        return frames
+    }
+
+    @Test
+    fun foldDuringAPaneAnimationSettlesOnce() {
+        val target = mutableStateOf(split(listOf("game-a")))
+        compose.setContent { FakeWindow { Shell(target.value) } }
+        compose.onNodeWithText("game-a").assertExists()
+        compose.mainClock.autoAdvance = false
+
+        compose.runOnIdle { target.value = split(listOf("game-a", "page"), revision = 2) }
+        compose.mainClock.advanceTimeBy(150)
+        compose.runOnIdle { window.value = Folded }
+        compose.mainClock.autoAdvance = true
+        compose.onNodeWithText("page").assertExists()
+        compose.onNodeWithText("home").assertDoesNotExist()
+        compose.runOnIdle {
+            assertEquals(1, observations.count { it.revision == 2L })
+            assertEquals(listOf("game-a", "page"), observations.last().secondaryEntries)
+        }
+    }
+
+    @Test
+    fun unfoldingDuringAPredictiveBackKeepsTheGestureAndItsBack() {
+        window.value = Folded
+        compose.setContent { FakeWindow { Shell(split(listOf("game-a"))) } }
+        compose.onNodeWithText("game-a").assertExists()
+        val dispatcher = compose.activity.onBackPressedDispatcher
+
+        compose.runOnIdle {
+            dispatcher.dispatchOnBackStarted(BackEventCompat(10f, 500f, 0f, BackEventCompat.EDGE_LEFT))
+            dispatcher.dispatchOnBackProgressed(BackEventCompat(200f, 500f, 0.4f, BackEventCompat.EDGE_LEFT))
+        }
+        compose.runOnIdle { window.value = Unfolded }
+        compose.runOnIdle {
+            assertTrue(dispatcher.hasEnabledCallbacks())
+            dispatcher.onBackPressed()
+        }
+        compose.onNodeWithText("Pick a game").assertExists()
+        compose.onNodeWithText("home").assertExists()
+        compose.runOnIdle {
+            assertEquals(emptyList<String>(), observations.last().secondaryEntries)
+            assertEquals(NavigationSplitColumn.Primary, observations.last().compactColumn)
+            assertFalse(compose.activity.isFinishing)
+        }
+    }
+
+    @Test
+    fun twoPanesNeedExpandedWidthAndMediumHeight() {
+        window.value = DpSize(839.dp, 900.dp)
+        compose.setContent { FakeWindow { Shell(split(listOf("game-a"))) } }
+        compose.onNodeWithText("home").assertDoesNotExist()
+        compose.runOnIdle { window.value = DpSize(840.dp, 900.dp) }
+        compose.onNodeWithText("home").assertExists()
+        compose.runOnIdle { window.value = DpSize(900.dp, 479.dp) }
+        compose.onNodeWithText("home").assertDoesNotExist()
+        compose.runOnIdle { window.value = DpSize(900.dp, 480.dp) }
+        compose.onNodeWithText("home").assertExists()
+        compose.runOnIdle { assertEquals(1, observations.size) }
+    }
+
+    @Test
+    fun aStackWithoutSplitIgnoresTheWindowSize() {
+        window.value = Folded
+        val stack = NavigationProjection(1L, "home", false,
+            listOf(NavigationBranch("home", "Home", listOf(MountedEntry("home", 0), MountedEntry("detail", 0)))), "", emptyList())
+        compose.setContent { FakeWindow { Shell(stack) } }
+        compose.onNodeWithText("detail").assertExists()
+        compose.runOnIdle { window.value = Unfolded }
+        compose.onNodeWithText("detail").assertExists()
+        compose.onNodeWithText("home").assertDoesNotExist()
+        compose.runOnIdle { window.value = Folded }
+        compose.onNodeWithText("detail").assertExists()
+        compose.runOnIdle {
+            assertEquals(1, observations.size)
+            assertNull(observations.last().compactColumn)
+        }
+    }
+
+    @Test
+    fun aDeeperDefaultSecondaryShowsBesideAPrimaryOnTop() {
+        compose.setContent {
+            FakeWindow { Shell(split(listOf("game-a", "page"), compact = NavigationSplitColumn.Primary)) }
+        }
+        compose.onNodeWithText("home").assertExists()
+        compose.onNodeWithText("page").assertExists()
+        // The primary column on top is at its root, so Back leaves the app.
+        compose.runOnIdle { assertFalse(compose.activity.onBackPressedDispatcher.hasEnabledCallbacks()) }
+    }
+
+    @Test
+    fun aDeeperPrimaryOnTopPopsAndClosesADeeperDefault() {
+        compose.setContent {
+            FakeWindow {
+                Shell(split(listOf("game-a", "page"), primary = listOf("home", "more"), compact = NavigationSplitColumn.Primary))
+            }
+        }
+        compose.onNodeWithText("page").assertExists()
+
+        compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        compose.onNodeWithText("Pick a game").assertExists()
+        compose.runOnIdle {
+            assertEquals(listOf("home"), observations.last().entries)
+            assertEquals(emptyList<String>(), observations.last().secondaryEntries)
+            assertEquals(NavigationSplitColumn.Primary, observations.last().compactColumn)
+        }
+    }
+
     @Composable
     private fun FakeWindow(content: @Composable () -> Unit) {
         val real = LocalWindowInfo.current
@@ -294,12 +433,14 @@ class NavigationSplitTests {
                 Text(entry.entryId)
             }
         }
-        if (modalHost == null) {
-            AppNavNavigationShell(target, observations::add, requestBack = requestBack, unavailableContent = content,
-                onBackFailure = {}, splitPlaceholder = { Text("Pick a game") })
-        } else {
-            AppNavNavigationShell(target, observations::add, modalHost, requestBack = requestBack,
-                unavailableContent = content, splitPlaceholder = { Text("Pick a game") })
+        CompositionLocalProvider(LocalNavigationSplitPlaceholder provides { Text("Pick a game") }) {
+            if (modalHost == null) {
+                AppNavNavigationShell(target, observations::add, requestBack = requestBack, unavailableContent = content,
+                    onBackFailure = {})
+            } else {
+                AppNavNavigationShell(target, observations::add, modalHost, requestBack = requestBack,
+                    unavailableContent = content)
+            }
         }
     }
 

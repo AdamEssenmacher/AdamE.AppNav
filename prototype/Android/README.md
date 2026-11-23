@@ -36,7 +36,7 @@ The split scenarios run the probe with `--ez split true`: Home in the primary co
 | `split-unfolded` | List beside detail, in-pane push, predictive Back cancel and pop inside the detail pane, Back at the detail root leaves the app |
 | `split-switch` | Selecting another game replaces the detail pane beside Home |
 | `split-fold` | Folding mid-navigation keeps the game page and its saved state without a reading; folded Back pops, then closes the column |
-| `split-folded` | A folded selection stacks the game; predictive Back cancels, then closes the column from its root |
+| `split-folded` | A folded selection zooms the game over Home once, an unfold and fold replay no zoom, and predictive Back cancels, then closes the column from its root |
 | `split-default` | A default game shows beside Home but not over it folded; Back pops Home and closes the default |
 | `split-modal` | A modal covers the split and Back dismisses it |
 | `split-sideways` | An unfolded window turned sideways keeps two panes |
