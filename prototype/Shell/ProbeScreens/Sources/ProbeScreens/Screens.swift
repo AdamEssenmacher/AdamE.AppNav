@@ -133,7 +133,7 @@ public struct ShellScreen: View {
             if testsCallbackReplacement && message.hasPrefix("settled ") { traceGeneration = generation }
             model.recordTrace(message)
         },
-                        back: NavigationBackControl(intercepts: { $0.id == "home-detail" },
+                        back: NavigationBackControl(intercepts: { $0.id == "home-detail" || (SplitProbeContext.guardsGame && $0.id == "game-a") },
                                                     request: { model.runCommand("request-back") }),
                         customization: customization) {
             VStack {

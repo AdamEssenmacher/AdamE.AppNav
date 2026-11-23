@@ -49,6 +49,8 @@ The `--probe-split` launch argument starts the probe on a `SplitNode`: Home in t
 | `testSplitCollapsedSwitchGames` | Collapsed | A pop to the game's root leaves SwiftUI's stray `.sidebar` binding. Switching games then pops the old game natively before SwiftUI shows the new one. One Back still reaches Home, so no duplicate root is left underneath. |
 | `testSplitSelectionTakenBack` | Collapsed | A Back during the animated selection, held applying by `--probe-hold-game-settlement`, records the selection and a Back that closes the column. The game does not come back. |
 | `testSplitSheetOverGame` | Any | A sheet over the split, dismissed natively, keeps both columns. |
+| `testSplitGuardedGameRootCollapsed` | Collapsed | With `--probe-guard-game`, Game A's root shows the app's Back. The edge swipe leaves it in place, the policy cancels the app's Back, and after Allow Back the column closes. |
+| `testSplitGuardedGameRootExpanded` | Expanded, sideways | The guarded root has no Back of either kind beside Home. |
 | `testSplitExpandedSwitchAndBack` | Expanded, sideways | The Show Sidebar button reveals Home. Selecting the other game replaces the detail column. The system Back inside the game's stack and an AppNav Back both reconcile, the second one closing the column. |
 | `testSplitFoldKeepsGameAfterPop` | Fold and unfold | After the stray `.sidebar` write, unfolding repairs the compact column once. Folding again keeps the game on top with nothing new in history, and one Back reaches Home. |
 
@@ -67,6 +69,7 @@ On Xcode 27.2, XCUITest's taps on the detail column of the upright Duo inner dis
 Further checks by hand on the Duo simulator:
 - **AppNav Back over a stray binding, collapsed.** The game pushes a page, and the system Back returns to the game's root, leaving SwiftUI's stray `.sidebar` binding. An AppNav Back then traced `popping the collapsed secondary column to home`. UIKit showed Home on the next quiet frame, and the revision settled with the column closed after one pop request.
 - **Fold race.** The simulator's posture change could not unfold and fold faster than the quiet expanded frame that repairs the binding, so the race is covered by `SurfaceState` tests only. A half-open-then-closed fold kept the game on top and added nothing to history.
+- **Guarded root through a fold.** With the guarded Game A root on top, unfolding restored the swipes, and the root showed no Back beside Home. Folding again turned the swipes off, and an edge swipe left the root in place. Before the fix, UIKit's zoom-dismiss edge pan on the zoomed root popped it past the policy.
 - **First selection side by side.** On the open Duo held sideways, SwiftUI wrote no compact column for the first selection: no `SwiftUI set the compact column` trace appeared.
 
 On an iPhone 17 Pro simulator with iOS 27.2, the whole suite passes: 17 existing tests and the four split tests that run collapsed, with the expanded and fold tests skipped. A screen recording of `testSplitCollapsedSelectAndSwipeBack` on that phone shows Game A open with the zoom from its Home cover, and the swipe back shrinking the card into the cover. That is the Home → Game zoom, now going through a collapsed split.

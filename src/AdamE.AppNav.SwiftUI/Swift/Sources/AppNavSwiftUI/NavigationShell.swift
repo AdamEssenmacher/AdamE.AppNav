@@ -65,7 +65,7 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
                          onDismiss: { modalDidDismiss(.fullScreenCover) }) {
             modalContent($0, style: .fullScreenCover)
         }
-        .background(FrameObserver(surface: surface, report: report, trace: trace))
+        .background(FrameObserver(surface: surface, report: report, trace: trace, guardsBack: back?.intercepts))
         .modifier(StageProjection(projection: projection) { next in
             surface.stage(next, animatesSinglePushes: animatesSinglePushes,
                           transactionAnimation: customization?.transactionAnimation)
@@ -174,7 +174,9 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
         let path = surface.path(for: key)
         return NavigationStack(path: Binding(get: { path.wrappedValue.map(SecondaryPage.init) },
                                              set: { path.wrappedValue = $0.map(\.entry) })) {
-            page(root, key: key, isBranchRoot: true)
+            // Collapsed, the root sits over the primary column with the system Back, so a guarded root replaces it
+            // like any guarded page. Side by side it has nothing behind it.
+            page(root, key: key, isBranchRoot: !surface.secondaryRootHasBack)
                 .navigationDestination(for: SecondaryPage.self) { page($0.entry, key: key) }
         }
     }

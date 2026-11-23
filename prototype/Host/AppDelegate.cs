@@ -51,7 +51,7 @@ public sealed class SceneDelegate : UIWindowSceneDelegate
         var lifetime = sceneLifetime.Token;
         leases = new RouteEntryLeaseRegistry(new SwiftUIRouteEntryLeaseHost(OnFault, OnFault));
         presenter = ProbeRouter.CreatePresenter();
-        homeBack = new HomeBackPolicy();
+        homeBack = new HomeBackPolicy(NSProcessInfo.ProcessInfo.Arguments.Contains("--probe-guard-game"));
         // The split probe shows Home beside the selected game's own stack.
         var split = NSProcessInfo.ProcessInfo.Arguments.Contains("--probe-split");
         var currentRouter = new ProbeRouter(presenter, leases, [homeBack], split: split);
@@ -234,7 +234,8 @@ public sealed class SceneDelegate : UIWindowSceneDelegate
         sceneLifetime = null;
     }
 
-    private sealed class HomeBackPolicy : IBackNavigationPolicy
+    // Guards Back from Home detail, and from Game A's root in the split probe when asked to.
+    private sealed class HomeBackPolicy(bool guardsGame) : IBackNavigationPolicy
     {
         private volatile bool allowed;
 
@@ -245,7 +246,9 @@ public sealed class SceneDelegate : UIWindowSceneDelegate
         {
             cancellationToken.ThrowIfCancellationRequested();
             var guarded = context.NavigationContext.Window is
-                { Modals.Count: 0, Root: BranchHostNode { SelectedBranch.Content: StackNode { Top.Id: "home-detail" } } };
+                { Modals.Count: 0, Root: BranchHostNode { SelectedBranch.Content: StackNode { Top.Id: "home-detail" } } } ||
+                (guardsGame && context.NavigationContext.Window is
+                    { Modals.Count: 0, Root: SplitNode { Secondary: StackNode { Entries.Count: 1, Top.Id: "game-a" } } });
             return ValueTask.FromResult(guarded && !allowed
                 ? BackNavigationPolicyDecision.Cancel : BackNavigationPolicyDecision.Continue);
         }

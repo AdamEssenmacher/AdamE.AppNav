@@ -63,6 +63,7 @@ struct FrameObserver: UIViewRepresentable {
     let surface: NativeSurface
     let report: (NavigationReading) -> Void
     let trace: (String) -> Void
+    var guardsBack: ((NavigationEntry) -> Bool)? = nil
 
     func makeUIView(context: Context) -> FrameView {
         let view = FrameView()
@@ -72,6 +73,7 @@ struct FrameObserver: UIViewRepresentable {
     func updateUIView(_ view: FrameView, context: Context) {
         view.surface = surface
         surface.updateCallbacks(report: report, trace: trace)
+        surface.guardsBack = guardsBack
     }
     static func dismantleUIView(_ view: FrameView, coordinator: Void) { view.stop() }
 }
@@ -87,9 +89,16 @@ final class NativeSurface: ObservableObject {
     private var policy: ((NavigationTransitionContext) -> Animation?)?
     private let markers = NSHashTable<MarkerView>.weakObjects()
     private let identities = NSMapTable<UIViewController, NSString>.weakToStrongObjects()
+    /// The app's Back guard. A collapsed split shows its secondary root over the primary column, and SwiftUI keeps
+    /// that root's system Back and edge swipe however the page hides its Back button, so the surface enforces it.
+    var guardsBack: ((NavigationEntry) -> Bool)?
+    private weak var guardedStack: UINavigationController?
+    private weak var guardedPage: UIViewController?
 
     var target: NavigationProjection? { state.target }
     /// The secondary column the detail column renders: the staged one, or one a staged revision is closing.
+    /// Whether the secondary root has a page behind it: the split is collapsed on its last held layout.
+    var secondaryRootHasBack: Bool { state.heldCollapsed == true }
     var renderedSecondary: NavigationBranchProjection? { state.target?.split?.secondary ?? state.departingSecondary }
     var diagnostics: NavigationDiagnostics { state.diagnostics }
     var applying: Bool { state.applying }
@@ -168,6 +177,7 @@ final class NativeSurface: ObservableObject {
             identities.setObject(entry.id as NSString, forKey: controller)
             pages.append((marker, nav, controller, key, entry))
         }
+        guardCollapsedSecondaryRoot(pages.map { ($0.nav, $0.controller, $0.key, $0.entry) })
         let tops = pages.compactMap { page -> StackSample? in
             guard page.nav.topViewController === page.controller, !page.marker.isHidden else { return nil }
             return StackSample(
@@ -190,6 +200,44 @@ final class NativeSurface: ObservableObject {
             }
         }
         apply { $0.sample(sample) }
+    }
+
+    // Hides the system Back and turns off the edge swipe of a collapsed split's navigation stack while its top is a
+    // guarded secondary root, so only the app's Back, which asks AppNav, leaves it. Restores the swipe otherwise.
+    private func guardCollapsedSecondaryRoot(_ pages: [(UINavigationController, UIViewController, StackKey, NavigationEntry)]) {
+        var guarded: (UINavigationController, UIViewController)?
+        if let guardsBack, let root = state.target?.split?.secondary?.entries.first, state.heldCollapsed == true {
+            for (nav, controller, key, entry) in pages where key.isSecondary && entry == root &&
+                nav.topViewController === controller && nav.splitViewController?.isCollapsed == true && guardsBack(entry) {
+                guarded = (nav, controller)
+            }
+        }
+        if let previous = guardedStack, previous !== guarded?.0 || guardedPage !== guarded?.1 {
+            Self.setBackGestures(of: previous, page: guardedPage, enabled: true)
+            guardedStack = nil
+            guardedPage = nil
+            trace?("restored the native Back gestures of the collapsed split")
+        }
+        guard let (nav, controller) = guarded else { return }
+        if !controller.navigationItem.hidesBackButton { controller.navigationItem.hidesBackButton = true }
+        if guardedStack !== nav {
+            Self.setBackGestures(of: nav, page: controller, enabled: false)
+            guardedStack = nav
+            guardedPage = controller
+            trace?("guarding the collapsed secondary root: native Back gestures off")
+        }
+    }
+
+    // The edge swipe, and from iOS 26 the swipe anywhere on the content, pop the navigation stack. A root that arrived
+    // with a zoom transition also carries UIKit's interactive zoom dismissal (edge pan, swipe down, pinch) on its own
+    // view, which pops it too; UIKit names those recognizers, and the public zoom options are out of SwiftUI's reach.
+    private static func setBackGestures(of nav: UINavigationController, page: UIViewController?, enabled: Bool) {
+        nav.interactivePopGestureRecognizer?.isEnabled = enabled
+        if #available(iOS 26, *) { nav.interactiveContentPopGestureRecognizer?.isEnabled = enabled }
+        for recognizer in page?.viewIfLoaded?.gestureRecognizers ?? []
+        where recognizer.name?.hasPrefix("com.apple.UIKit.ZoomInteractiveDismiss") == true {
+            recognizer.isEnabled = enabled
+        }
     }
 
     private static func split(in root: UIViewController?) -> UISplitViewController? {
@@ -270,6 +318,7 @@ final class NativeSurface: ObservableObject {
         let backDuringPush: StackKey?
         let splitCollapsed: Bool?
         let compactColumnRepairs: Int
+        let heldCollapsed: Bool?
 
         init(_ state: SurfaceState) {
             target = state.target
@@ -289,6 +338,7 @@ final class NativeSurface: ObservableObject {
             backDuringPush = state.backDuringPush
             splitCollapsed = state.diagnostics.splitCollapsed
             compactColumnRepairs = state.diagnostics.compactColumnRepairs
+            heldCollapsed = state.heldCollapsed
             gestureReading = state.diagnostics.gestureReading
         }
     }

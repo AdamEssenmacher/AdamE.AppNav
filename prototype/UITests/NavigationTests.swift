@@ -26,6 +26,9 @@ final class NavigationTests: XCTestCase {
         if name.contains("testSplit") {
             app.launchArguments.append("--probe-split")
         }
+        if name.contains("testSplitGuardedGame") {
+            app.launchArguments.append("--probe-guard-game")
+        }
         if name.contains("testSplitSelectionTakenBack") {
             app.launchArguments.append("--probe-hold-game-settlement")
         }
@@ -591,5 +594,44 @@ final class NavigationTests: XCTestCase {
         awaitLabel("probe-status", matching: status(5, "split[home]@primary"))
         XCTAssertTrue(app.buttons["probe-select-game-a"].waitForExistence(timeout: 5),
                       "One Back from the game must reach Home")
+    }
+
+    // A guarded game root stacked over Home on a collapsed window has the app's Back instead of the system Back, so
+    // neither the edge swipe nor the Back button gets past the policy.
+    func testSplitGuardedGameRootCollapsed() throws {
+        try requireSplit("collapsed")
+        awaitLabel("probe-status") { $0 == self.splitHome }
+        app.buttons["probe-select-game-a"].tap()
+        awaitLabel("probe-native") { $0 == "rev=2 home-stack [home] + [game-a] @secondary" }
+        let back = app.buttons["appnav-request-back"]
+        XCTAssertTrue(back.waitForExistence(timeout: 5), "The guarded root needs the app's Back")
+        XCTAssertFalse(app.buttons["BackButton"].exists, "The system Back would skip the policy")
+        edgeSwipe(to: 0.9)
+        XCTAssertTrue(app.staticTexts["page-game-a"].exists)
+        awaitLabel("probe-native") { $0 == "rev=2 home-stack [home] + [game-a] @secondary" }
+        XCTAssertTrue(app.staticTexts["probe-status"].label.hasPrefix("split[home]+game-a-stack[game-a]@secondary history=2 "))
+        back.tap()
+        awaitLabel("probe-status") { $0.hasPrefix("split[home]+game-a-stack[game-a]@secondary history=2 ") && $0.hasSuffix("back=Canceled") }
+        XCTAssertTrue(app.staticTexts["page-game-a"].exists)
+
+        app.buttons["probe-allow-back"].tap()
+        back.tap()
+        awaitLabel("probe-status") { $0.hasPrefix("split[home]@primary history=3 ") && $0.hasSuffix("back=Completed") }
+        awaitLabel("probe-native") { $0 == "rev=3 home-stack [home] + [] @primary" }
+    }
+
+    // Side by side the guarded root has nothing behind it, so it gets no Back of either kind.
+    func testSplitGuardedGameRootExpanded() throws {
+        try requireSplit("expanded")
+        let window = app.windows.firstMatch.frame
+        if window.height > window.width {
+            throw XCTSkip("XCUITest cannot tap the detail column of an upright Duo inner display")
+        }
+        awaitLabel("probe-status") { $0 == self.splitHome }
+        revealHome()
+        app.buttons["probe-select-game-a"].tap()
+        awaitLabel("probe-native") { $0 == "rev=2 home-stack [home] + [game-a] @secondary" }
+        XCTAssertFalse(app.buttons["appnav-request-back"].exists)
+        XCTAssertFalse(app.buttons["BackButton"].exists)
     }
 }

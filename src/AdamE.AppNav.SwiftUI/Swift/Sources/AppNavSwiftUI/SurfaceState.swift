@@ -165,6 +165,11 @@ struct SurfaceState {
     private(set) var departingSecondary: NavigationBranchProjection?
     /// The split's layout on the last frame.
     private(set) var splitLayout: SplitSample?
+    /// Whether the window's split was collapsed on the last held layout, or nil before one held. A collapsed split
+    /// stacks the secondary root over the primary column, so that root gets the system Back, and a guarded root gets
+    /// the app's Back instead.
+    private(set) var heldCollapsed: Bool?
+
     /// A compact column to write once UIKit has popped a stale secondary column.
     private(set) var pendingCompactColumn: NavigationSplitColumn?
     /// While collapsed, SwiftUI can leave the binding on the primary column with the secondary root still on top. It
@@ -276,6 +281,11 @@ struct SurfaceState {
         let strayOnTop = compactColumn == .primary && splitLayoutHeld && splitLayout?.isCollapsed == true &&
             collapsedTop == .secondary
         let previousSecondary = target?.split?.secondary
+        // A different secondary column has not been seen on top yet, so no Back can have closed it.
+        if previousSecondary?.id != next.split?.secondary?.id ||
+            previousSecondary?.entries.first != next.split?.secondary?.entries.first {
+            secondarySeenOnTop = false
+        }
         adoptCompactColumn(authority.compactColumn)
         pendingCompactColumn = nil
         nativePop = nil
@@ -749,6 +759,9 @@ struct SurfaceState {
         candidate = nil
         animatedPush = nil
         departingSecondary = nil
+        // A native pop that never took effect must not keep asking UIKit, nor write a held-back column over it.
+        nativePop = nil
+        pendingCompactColumn = nil
         clearTakeBack()
     }
 
@@ -814,12 +827,13 @@ struct SurfaceState {
         splitLayout = sample.split
         diagnostics.splitCollapsed = target?.split == nil ? nil : sample.split?.isCollapsed
         if splitLayoutHeld, sample.split?.isCollapsed == false {
-            // Unfolded, the selected row is on screen beside its game. Drop the selection's zoom so SwiftUI shows the
-            // row's cover again; Back from the game no longer zooms into a row the user can already see.
+            // Unfolded, the selected row is on screen beside its game, so Back from the game no longer zooms into it.
+            // SwiftUI still hides the row's cover while the zoomed game shows.
             pushOrigins = pushOrigins.filter { _, origin in !(origin.key.isSecondary && origin.sourceKey != origin.key) }
         }
         // The top column of a collapsed split is read on held layouts only; a passing layout keeps the last one.
         guard splitLayoutHeld else { return }
+        heldCollapsed = sample.split?.isCollapsed
         guard sample.split?.isCollapsed == true, let primary = target?.branches.first, target?.split != nil else {
             collapsedTop = nil
             return

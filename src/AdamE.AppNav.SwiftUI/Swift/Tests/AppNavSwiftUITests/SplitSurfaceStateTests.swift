@@ -359,6 +359,60 @@ final class SplitSurfaceStateTests: XCTestCase {
         XCTAssertEqual(h.state.compactColumn, .secondary, "the repair puts the staged column back")
     }
 
+    // Review finding: a guarded secondary root kept the system Back on a collapsed window, where it sits over Home.
+    func testSecondaryRootHasBackOnlyOnHeldCollapsedLayouts() {
+        var h = SplitHarness()
+        h.stage(split(1, game: ["game"]))
+        XCTAssertNil(h.state.heldCollapsed)
+        h.frames()
+        XCTAssertEqual(h.state.heldCollapsed, true)
+        h.collapsed = false
+        h.frame()
+        XCTAssertEqual(h.state.heldCollapsed, true, "a passing layout keeps the guard")
+        h.frame()
+        XCTAssertEqual(h.state.heldCollapsed, false, "side by side the root has nothing behind it")
+        h.collapsed = true
+        h.frame()
+        XCTAssertEqual(h.state.heldCollapsed, false)
+        h.frame()
+        XCTAssertEqual(h.state.heldCollapsed, true)
+    }
+
+    // Review finding: a Back that closed Game A left Game B, never shown, counted as seen on top.
+    func testSeenOnTopBelongsToTheShownSecondaryColumn() {
+        var h = SplitHarness()
+        h.stage(split(1, game: ["a"]))
+        h.frames()
+        h.absorb(h.state.setCompactColumn(.primary))
+        h.frames(secondaryOnTop: false)
+        XCTAssertEqual(h.readings.last?.secondaryEntries, [], "the Back that closed Game A")
+        h.stage(split(1))
+        h.stage(split(2, game: ["b"]))
+        // UIKit never shows Game B: the selection stalls past the quiet limit.
+        for _ in 0..<3 { h.frame(h.faithfulSample(secondaryOnTop: false)) }
+        h.time += 3
+        for _ in 0..<6 { h.frame(h.faithfulSample(secondaryOnTop: false)) }
+        XCTAssertFalse(h.state.applying)
+        XCTAssertFalse(h.readings.contains { $0.revision == 2 }, "no phantom Back closed Game B")
+    }
+
+    func testNativePopWithoutAPrimaryPageReleasesAtTheStallLimit() {
+        var h = SplitHarness()
+        strayCollapsedGame(&h, "game")
+        h.stage(split(2))
+        // The adapter never finds Home's page, so UIKit keeps the game on top whatever the shell asks.
+        for _ in 0..<3 { h.frame(h.staleSample("game")) }
+        h.time += 3
+        h.frame(h.staleSample("game"))
+        XCTAssertFalse(h.state.applying, "the revision is released at the stall limit")
+        XCTAssertNil(h.state.nativePop)
+        XCTAssertNil(h.state.pendingCompactColumn)
+        let pops = h.nativePops
+        for _ in 0..<5 { h.frame(h.staleSample("game")) }
+        XCTAssertEqual(h.nativePops, pops, "it stops asking once released")
+        XCTAssertFalse(h.readings.contains { $0.revision == 2 })
+    }
+
     func testBackPlanClosingTheColumnSetsTheBinding() {
         var h = SplitHarness()
         h.stage(split(1, game: ["game"]))
