@@ -107,6 +107,7 @@ public sealed class SceneDelegate : UIWindowSceneDelegate
                 case "switch-game-b": Run(() => current.SelectGameAsync("game-b", "", token)); break;
                 case "push-game-page": Run(() => current.PushGamePageAsync(token)); break;
                 case "push-home-page": Run(() => current.PushHomePageAsync(token)); break;
+                case "regroup-split": Run(() => current.RegroupSplitAsync(token)); break;
                 case "open-modal": Run(() => current.ModalAsync(token)); break;
                 case "push-review": Run(() => current.PushReviewAsync(token)); break;
                 case "allow-back": homeBack?.Allow(); break;

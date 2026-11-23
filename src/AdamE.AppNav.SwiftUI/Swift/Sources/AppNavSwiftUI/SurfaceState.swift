@@ -279,8 +279,13 @@ struct SurfaceState {
             departingSecondary = nil
         }
         // A different split is a new NavigationSplitView, which starts from the binding with nothing on its stacks. The
-        // old split's layout and top say nothing about it, and there is no stray column left to pop.
-        if let split = next.split, target?.split?.id != split.id { forgetSplitLayout() }
+        // old split's layout and top say nothing about it, and there is no stray column left to pop. Its columns mount
+        // already in place, so nothing zooms into its secondary column: a kept zoom would decorate that root with a
+        // zoom dismissal, which keeps the edge swipe from starting.
+        if let split = next.split, target?.split?.id != split.id {
+            forgetSplitLayout()
+            pushOrigins = pushOrigins.filter { _, origin in !origin.key.isSecondary }
+        }
         // While collapsed, SwiftUI can leave the binding on the primary column with the secondary root still on top.
         // It then neither pops that column for a staged primary column, nor shows a different secondary column, so
         // UIKit pops it first, as a native Back would.

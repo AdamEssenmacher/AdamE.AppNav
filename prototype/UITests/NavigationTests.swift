@@ -708,4 +708,25 @@ final class NavigationTests: XCTestCase {
         awaitLabel("probe-native") { $0 == "rev=4 home-stack [home] + [] @primary" }
         XCTAssertTrue(app.buttons["probe-select-game-a"].waitForExistence(timeout: 5))
     }
+
+    // Replacing the split with a new id over SwiftUI's stray compact column builds a new NavigationSplitView. It must
+    // start on the staged game, not Home, and one Back still reaches Home.
+    func testSplitNewSplitIdKeepsGameAfterPop() throws {
+        try requireSplit("collapsed")
+        awaitLabel("probe-status") { $0 == self.splitHome }
+        app.buttons["probe-select-game-a"].tap()
+        awaitLabel("probe-native") { $0 == "rev=2 home-stack [home] + [game-a] @secondary" }
+        app.buttons["probe-push-game-page"].tap()
+        awaitLabel("probe-native") { $0 == "rev=3 home-stack [home] + [game-a,game-a-page-1] @secondary" }
+        edgeSwipe(to: 0.9)
+        awaitLabel("probe-native") { $0 == "rev=3 home-stack [home] + [game-a] @secondary" }
+        app.buttons["probe-regroup-split"].tap()
+        awaitLabel("probe-status", matching: status(5, "split[home]+game-a-stack[game-a]@secondary"))
+        awaitLabel("probe-native") { $0 == "rev=4 home-stack [home] + [game-a] @secondary" }
+        XCTAssertTrue(app.staticTexts["page-game-a"].exists)
+        // The new view mounted the game in place, so it carries no zoom and the edge swipe goes Back.
+        edgeSwipe(to: 0.9)
+        awaitLabel("probe-status", matching: status(6, "split[home]@primary"))
+        XCTAssertTrue(app.buttons["probe-select-game-a"].waitForExistence(timeout: 5))
+    }
 }

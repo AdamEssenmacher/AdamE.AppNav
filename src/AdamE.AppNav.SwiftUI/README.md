@@ -34,6 +34,7 @@ The split tests run with `--probe-split`.
   - a guard released while its root shows, which brings back the system Back and the swipe.
   - a swipe back from a page above a guarded root, which completes, after which the guard holds against the edge and content swipes.
   - an AppNav Back from a guarded root over SwiftUI's stray compact column, which closes the column through the native pop.
+  - a new split id over SwiftUI's stray compact column, which builds a new split view that starts on the staged game.
 - **Side by side, on the open Duo sideways:**
   - a game switch, a system Back inside the game, and an AppNav Back;
   - a guarded game root with no Back of either kind.

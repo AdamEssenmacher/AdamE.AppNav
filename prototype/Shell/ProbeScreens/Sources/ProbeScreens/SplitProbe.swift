@@ -75,6 +75,8 @@ struct SplitGame: View {
             .accessibilityIdentifier("probe-switch-game")
             Button("AppNav Back") { context.command("request-back") }
                 .accessibilityIdentifier("probe-split-back")
+            Button("New split id") { context.command("regroup-split") }
+                .accessibilityIdentifier("probe-regroup-split")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(title == "game-a" ? Color.orange.opacity(0.2) : Color.teal.opacity(0.2))
