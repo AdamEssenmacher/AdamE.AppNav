@@ -109,8 +109,8 @@ public class NavigationEntryScope internal constructor(
     /**
      * Whether this entry has no Up within the shell, so system Back from it leaves the app: a plain stack's
      * root, a split's primary root in either layout, or, side by side, the secondary root beside a primary
-     * column at its root. Show an Up or Back affordance only when this is false. Always false inside a modal
-     * and for entries a modal covers.
+     * column at its root. Show an Up or Back affordance only when this is false. Always false inside a modal;
+     * a modal over an entry does not change its value.
      */
     public val isNavigationRoot: Boolean = false,
 ) {

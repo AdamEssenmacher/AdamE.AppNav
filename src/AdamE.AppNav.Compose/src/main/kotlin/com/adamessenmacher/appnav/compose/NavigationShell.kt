@@ -303,7 +303,7 @@ public fun AppNavNavigationShell(
             } else {
                 branchStates.SaveableStateProvider(branch) {
                     MountedStack(expectedPrimary, target.transition, animations, origins, allowPrimaryPreview,
-                        { back(modalBack = false) }, unavailableContent, twoPanes, splitPlaceholder, rootsHaveNoUp = modal.isEmpty()) {
+                        { back(modalBack = false) }, unavailableContent, twoPanes, splitPlaceholder, rootsHaveNoUp = true) {
                         renderedPrimary = it
                     }
                 }
@@ -578,8 +578,8 @@ private fun StackScene(
                         backCancellations = { backCancellations },
                         splitColumn = column,
                         isSplitExpanded = expanded,
-                        isNavigationRoot = currentRootsHaveNoUp &&
-                            expected.isNavigationRoot(expected.entries.indexOf(entry), currentTwoPanes),
+                        // The stack this entry was built in, so an entry animating out keeps its value.
+                        isNavigationRoot = currentRootsHaveNoUp && stack.isNavigationRoot(index, currentTwoPanes),
                     )
                     CompositionLocalProvider(LocalNavigationEntryScope provides scope) {
                         if (entry.mount == 0L) currentUnavailable(entry) else OahuMount(entry.mount)

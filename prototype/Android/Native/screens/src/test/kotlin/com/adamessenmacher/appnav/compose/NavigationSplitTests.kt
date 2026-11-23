@@ -9,6 +9,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalWindowInfo
@@ -443,12 +445,61 @@ class NavigationSplitTests {
         }
         compose.onNodeWithText("home").assertExists()
         compose.runOnIdle { assertTrue(scopes.getValue("home").isNavigationRoot) }
-        // A modal covers Home: inside the modal and under it, nothing is a navigation root.
+        // A modal's own root is never a navigation root, and a modal over Home does not change Home's value.
         compose.runOnIdle { target.value = split(listOf("game-a"), compact = NavigationSplitColumn.Primary, revision = 5, modal = "sheet") }
         compose.onNodeWithText("sheet-root").assertExists()
         compose.runOnIdle {
             assertFalse(scopes.getValue("sheet-root").isNavigationRoot)
-            assertFalse(scopes.getValue("home").isNavigationRoot)
+            assertTrue(scopes.getValue("home").isNavigationRoot)
+        }
+    }
+
+    @Test
+    fun anOutgoingEntryKeepsItsNavigationRootWhileItAnimatesOut() {
+        val seen = mutableListOf<Pair<String, Boolean>>()
+        val target = mutableStateOf(split(listOf("game-a")))
+        compose.setContent {
+            FakeWindow {
+                AppNavNavigationShell(target.value, observations::add, unavailableContent = {
+                    seen += it.entryId to checkNotNull(LocalNavigationEntryScope.current).isNavigationRoot
+                    Text(it.entryId)
+                })
+            }
+        }
+        compose.onNodeWithText("game-a").assertExists()
+        compose.mainClock.autoAdvance = false
+        compose.runOnIdle { target.value = split(listOf("game-b"), revision = 2) }
+        repeat(50) { compose.mainClock.advanceTimeByFrame() }
+        compose.mainClock.autoAdvance = true
+        compose.onNodeWithText("game-a").assertDoesNotExist()
+        compose.runOnIdle {
+            assertTrue(seen.any { it.first == "game-b" })
+            assertEquals(listOf(true), seen.filter { it.first == "game-a" }.map { it.second }.distinct())
+            assertEquals(listOf(true), seen.filter { it.first == "game-b" }.map { it.second }.distinct())
+        }
+    }
+
+    @Test
+    fun aPlainRootSwapKeepsBothRootsWithoutUp() {
+        val seen = mutableListOf<Pair<String, Boolean>>()
+        fun stack(root: String, revision: Long) = NavigationProjection(revision, "home", false,
+            listOf(NavigationBranch("home", "Home", listOf(MountedEntry(root, 0)))), "", emptyList())
+        val target = mutableStateOf(stack("first", 1))
+        compose.setContent {
+            AppNavNavigationShell(target.value, observations::add, unavailableContent = {
+                seen += it.entryId to checkNotNull(LocalNavigationEntryScope.current).isNavigationRoot
+                Text(it.entryId)
+            })
+        }
+        compose.onNodeWithText("first").assertExists()
+        compose.mainClock.autoAdvance = false
+        compose.runOnIdle { target.value = stack("second", 2) }
+        repeat(50) { compose.mainClock.advanceTimeByFrame() }
+        compose.mainClock.autoAdvance = true
+        compose.onNodeWithText("first").assertDoesNotExist()
+        compose.runOnIdle {
+            assertTrue(seen.any { it.first == "second" })
+            assertEquals(listOf(true), seen.map { it.second }.distinct())
         }
     }
 
@@ -561,11 +612,13 @@ class NavigationSplitTests {
 
     @Composable
     private fun FakeWindow(content: @Composable () -> Unit) {
-        val real = LocalWindowInfo.current
-        val size by window
-        val info = object : WindowInfo {
-            override val isWindowFocused: Boolean get() = real.isWindowFocused
-            override val containerDpSize: DpSize get() = size
+        // One WindowInfo whose size is read lazily from state, as the platform's is.
+        val real by rememberUpdatedState(LocalWindowInfo.current)
+        val info = remember {
+            object : WindowInfo {
+                override val isWindowFocused: Boolean get() = real.isWindowFocused
+                override val containerDpSize: DpSize get() = window.value
+            }
         }
         CompositionLocalProvider(LocalWindowInfo provides info, content = content)
     }
