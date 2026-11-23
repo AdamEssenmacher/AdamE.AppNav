@@ -76,6 +76,15 @@ private struct SplitHarness {
                             split: SplitSample(isCollapsed: collapsed))
     }
 
+    /// A collapsed frame in which UIKit still shows `game`'s root over Home, whatever the shell staged.
+    func staleSample(_ game: String) -> NativeSample {
+        let entries = primary + [entry(game)]
+        let top = StackSample(key: .secondary("\(game)-stack"), top: entries[entries.count - 1], depth: entries.count,
+                              identities: entries.map { Optional($0.id) })
+        return NativeSample(time: time, markerKeys: [top.key], tops: [top],
+                            mounted: [MountedPage(key: top.key, entry: top.top)], split: SplitSample(isCollapsed: true))
+    }
+
     mutating func frame(_ sample: NativeSample? = nil) {
         time += 1.0 / 60
         var next = sample ?? faithfulSample()
@@ -212,19 +221,36 @@ final class SplitSurfaceStateTests: XCTestCase {
         XCTAssertEqual(h.installs.count, installs, "the restage leaves the native stacks alone")
     }
 
-    func testClosingTheColumnOverAStrayBindingPopsNatively() {
-        var h = SplitHarness()
-        h.stage(split(1, game: ["game", "page"]))
+    /// Leaves the shell stuck on SwiftUI's stray primary binding with `game`'s root on top of a collapsed window.
+    private func strayCollapsedGame(_ h: inout SplitHarness, _ game: String) {
+        h.stage(split(1, game: [game, "page"]))
         h.frames()
         h.absorb(h.state.setCompactColumn(.primary))
-        h.absorb(h.state.setPath([], for: .secondary("game-stack")))
+        h.absorb(h.state.setPath([], for: .secondary("\(game)-stack")))
         h.frames(secondaryOnTop: true)
-        h.stage(split(1, game: ["game"]))
+        h.stage(split(1, game: [game]))
+        XCTAssertEqual(h.state.compactColumn, .primary)
+        XCTAssertEqual(h.state.collapsedTop, .secondary)
+    }
+
+    func testClosingTheColumnOverAStrayBindingPopsNativelyUntilUIKitShowsHome() {
+        var h = SplitHarness()
+        strayCollapsedGame(&h, "game")
         h.stage(split(2))
-        XCTAssertEqual(h.nativePops, 1)
+        XCTAssertEqual(h.nativePops, 0, "the pop waits for a frame")
         XCTAssertEqual(h.state.departingSecondary?.id, "game-stack", "the detail keeps the game while it pops")
-        h.frame(h.faithfulSample(secondaryOnTop: true))
+        // A transition in flight is not a quiet frame.
+        var busy = h.staleSample("game")
+        busy.isTransitioning = true
+        h.frame(busy)
+        XCTAssertEqual(h.nativePops, 0)
+        // UIKit ignores the first request; the shell asks again on the next quiet frame.
+        h.frame(h.staleSample("game"))
+        h.frame(h.staleSample("game"))
+        XCTAssertEqual(h.nativePops, 2)
+        XCTAssertTrue(h.state.applying)
         h.frames()
+        XCTAssertNil(h.state.nativePop)
         XCTAssertEqual(h.readings.last?.revision, 2)
         XCTAssertEqual(h.readings.last?.secondaryEntries, [])
         XCTAssertNil(h.state.departingSecondary)
@@ -232,23 +258,105 @@ final class SplitSurfaceStateTests: XCTestCase {
 
     func testSwitchingGamesOverAStrayBindingPopsThenShowsTheNewGame() {
         var h = SplitHarness()
-        h.stage(split(1, game: ["a", "page"]))
-        h.frames()
-        h.absorb(h.state.setCompactColumn(.primary))
-        h.absorb(h.state.setPath([], for: .secondary("a-stack")))
-        h.frames(secondaryOnTop: true)
-        h.stage(split(1, game: ["a"]))
-        var outcome = h.state.stage(split(2, game: ["b"]), animatesSinglePushes: false, hasPolicy: false, now: h.time)
-        XCTAssertTrue(outcome.popsCollapsedSecondary && outcome.resumesCompactColumn)
+        strayCollapsedGame(&h, "a")
+        h.stage(split(2, game: ["b"]))
+        XCTAssertNotNil(h.state.nativePop)
         XCTAssertEqual(h.state.compactColumn, .primary, "the binding waits until UIKit has popped Game A")
-        // UIKit pops Game A; the binding then asks SwiftUI for Game B.
+        h.frame(h.staleSample("a"))
+        XCTAssertEqual(h.nativePops, 1)
+        XCTAssertEqual(h.state.compactColumn, .primary, "no secondary write while Game A is still on top")
+        // UIKit shows Home; only then does the binding ask SwiftUI for Game B.
         h.frame(h.faithfulSample(secondaryOnTop: false))
-        outcome = h.state.resumeCompactColumn()
-        XCTAssertEqual(outcome.install, InstallAnimation.none)
         XCTAssertEqual(h.state.compactColumn, .secondary)
+        XCTAssertEqual(h.installs.last, InstallAnimation.none)
         h.frames()
         XCTAssertEqual(h.readings.last?.revision, 2)
         XCTAssertEqual(h.readings.last?.secondaryEntries, ["b"])
+    }
+
+    func testUnfoldingBeforeTheNativePopWritesTheBindingInstead() {
+        var h = SplitHarness()
+        strayCollapsedGame(&h, "a")
+        h.stage(split(2, game: ["b"]))
+        h.collapsed = false
+        h.frames()
+        XCTAssertEqual(h.nativePops, 0)
+        XCTAssertNil(h.state.nativePop)
+        XCTAssertEqual(h.state.compactColumn, .secondary)
+        XCTAssertEqual(h.readings.last?.secondaryEntries, ["b"])
+    }
+
+    // Review finding: an unfold and a fold before the expanded repair left the stray binding, so the collapsed window
+    // showed Home alone and the shell reported a Back that closed the game.
+    func testQuickFoldBeforeTheRepairShowsTheGameAgain() {
+        var h = SplitHarness()
+        h.collapsed = false
+        h.stage(split(1, game: ["game", "page"]))
+        h.frames()
+        h.absorb(h.state.setCompactColumn(.primary))
+        h.absorb(h.state.setPath([], for: .secondary("game-stack")))
+        // The device folds again while the pop still animates, so no quiet expanded frame repairs the binding.
+        var moving = h.faithfulSample()
+        moving.isTransitioning = true
+        h.frame(moving)
+        XCTAssertEqual(h.state.compactColumn, .primary)
+        h.collapsed = true
+        h.frame()
+        let readings = h.readings.count
+        h.frames(2)
+        XCTAssertEqual(h.state.compactColumn, .secondary, "the column is shown again")
+        XCTAssertEqual(h.state.diagnostics.compactColumnRepairs, 1)
+        h.frames()
+        XCTAssertEqual(h.readings.count, readings + 1, "only the pop to the game's root is reported")
+        XCTAssertFalse(h.readings.contains { $0.secondaryEntries.isEmpty }, "no Back closed the game")
+        XCTAssertEqual(h.readings.last?.secondaryEntries, ["game"])
+        XCTAssertEqual(h.readings.last?.compactColumn, .secondary)
+    }
+
+    func testCollapsedTopFollowsHeldLayoutsOnly() {
+        var h = SplitHarness()
+        h.stage(split(1, game: ["game"]))
+        h.frames()
+        XCTAssertEqual(h.state.collapsedTop, .secondary)
+        h.collapsed = false
+        h.frame()
+        XCTAssertEqual(h.state.collapsedTop, .secondary, "one unfolded frame is not a layout yet")
+        h.frame()
+        XCTAssertNil(h.state.collapsedTop)
+        h.collapsed = true
+        h.frame(h.faithfulSample(secondaryOnTop: false))
+        XCTAssertNil(h.state.collapsedTop, "one folded frame is not a layout yet")
+        h.frame(h.faithfulSample(secondaryOnTop: true))
+        XCTAssertEqual(h.state.collapsedTop, .secondary)
+    }
+
+    func testCancelledTakeBackKeepsTheBindingWhileTheGameIsOnTop() {
+        var h = SplitHarness()
+        h.stage(split(1))
+        h.frames()
+        h.stage(split(2, game: ["game"], transition: selection), hasPolicy: true)
+        h.frame(h.faithfulSample(hittable: false))
+        h.absorb(h.state.setCompactColumn(.primary))
+        // The Back was cancelled and UIKit settles with the game still on top; SwiftUI keeps its primary binding.
+        h.frames(4, secondaryOnTop: true)
+        XCTAssertEqual(h.state.diagnostics.pushesRestored, 1)
+        XCTAssertEqual(h.state.compactColumn, .primary, "writing the shown column back would push it twice")
+        XCTAssertEqual(h.readings.last?.revision, 2)
+        XCTAssertEqual(h.readings.last?.secondaryEntries, ["game"])
+    }
+
+    func testPrimaryWriteBesideTheGameIsNotATakeBack() {
+        var h = SplitHarness()
+        h.collapsed = false
+        h.stage(split(1))
+        h.frames()
+        h.stage(split(2, game: ["game"], transition: selection), hasPolicy: true)
+        h.frame(h.faithfulSample(hittable: false))
+        h.absorb(h.state.setCompactColumn(.primary))
+        h.frames()
+        XCTAssertEqual(h.state.diagnostics.pushesTakenBack, 0)
+        XCTAssertEqual(h.readings.last?.secondaryEntries, ["game"])
+        XCTAssertEqual(h.state.compactColumn, .secondary, "the repair puts the staged column back")
     }
 
     func testBackPlanClosingTheColumnSetsTheBinding() {

@@ -230,32 +230,27 @@ final class NativeSurface: ObservableObject {
         }
         outcome.traces.forEach { trace?($0) }
         outcome.readings.forEach { report?($0) }
-        if outcome.popsCollapsedSecondary {
-            popCollapsedSecondary(animated: !outcome.resumesCompactColumn && animation != nil,
-                                  resumes: outcome.resumesCompactColumn)
-        }
+        if outcome.popsCollapsedSecondary { popCollapsedSecondary(animated: outcome.animatesNativePop) }
     }
 
     // SwiftUI already holds the primary column as the compact column, so only UIKit can pop the secondary column of a
-    // collapsed split. Pop the one navigation stack to the primary column's top page, as a native Back would.
-    private func popCollapsedSecondary(animated: Bool, resumes: Bool) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            defer {
-                // Let SwiftUI see the pop before the binding asks for the new secondary column.
-                if resumes { DispatchQueue.main.async { [weak self] in self?.apply { $0.resumeCompactColumn() } } }
-            }
-            guard let target = self.state.target, target.split != nil,
-                  let primary = target.branches.first, let top = ([primary.entries.first].compactMap { $0 } +
-                    (self.state.paths[.branch(primary.id)] ?? [])).last else { return }
-            for marker in self.markers.allObjects where marker.key == .branch(primary.id) && marker.entry == top {
-                guard let (nav, controller) = self.owner(of: marker), nav.splitViewController?.isCollapsed == true,
-                      nav.topViewController !== controller else { continue }
-                self.trace?("popping the collapsed secondary column to \(top.id)")
-                nav.popToViewController(controller, animated: animated)
-                return
-            }
+    // collapsed split. Pop the one navigation stack to the topmost controller it holds for the primary column, as a
+    // native Back would. SurfaceState asks again on later quiet frames until UIKit shows the primary column.
+    private func popCollapsedSecondary(animated: Bool) {
+        guard let primary = state.target?.branches.first, state.target?.split != nil else { return }
+        var stack: UINavigationController?
+        var destination: (index: Int, controller: UIViewController)?
+        for marker in markers.allObjects where marker.key == .branch(primary.id) {
+            guard let (nav, controller) = owner(of: marker), nav.splitViewController?.isCollapsed == true,
+                  let index = nav.viewControllers.firstIndex(where: { $0 === controller }) else { continue }
+            if stack == nil { stack = nav }
+            guard nav === stack else { continue }
+            if index > destination?.index ?? -1 { destination = (index, controller) }
         }
+        guard let nav = stack, let destination, nav.transitionCoordinator == nil,
+              nav.topViewController !== destination.controller else { return }
+        trace?("popping the collapsed secondary column to \(identities.object(forKey: destination.controller) ?? "?")")
+        nav.popToViewController(destination.controller, animated: animated)
     }
 
     private struct Rendered: Equatable {

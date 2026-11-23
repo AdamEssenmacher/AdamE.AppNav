@@ -64,6 +64,11 @@ While the fold test runs, open the device when the log prints `SPLIT-POSTURE: op
 
 On Xcode 27.2, XCUITest's taps on the detail column of the upright Duo inner display never reach the app, though the same taps from the simulator do, so the expanded test skips upright. The upright run was checked by hand on the Duo simulator: Show Sidebar overlays Home on the dimmed game, a selection keeps the overlay open, Hide Sidebar closes it, and then a push, a system Back and an AppNav Back reconcile as in the sideways test. The system Back left the stray binding, and the shell repaired it on the next quiet frame.
 
+Further checks by hand on the Duo simulator:
+- **AppNav Back over a stray binding, collapsed.** The game pushes a page, and the system Back returns to the game's root, leaving SwiftUI's stray `.sidebar` binding. An AppNav Back then traced `popping the collapsed secondary column to home`. UIKit showed Home on the next quiet frame, and the revision settled with the column closed after one pop request.
+- **Fold race.** The simulator's posture change could not unfold and fold faster than the quiet expanded frame that repairs the binding, so the race is covered by `SurfaceState` tests only. A half-open-then-closed fold kept the game on top and added nothing to history.
+- **First selection side by side.** On the open Duo held sideways, SwiftUI wrote no compact column for the first selection: no `SwiftUI set the compact column` trace appeared.
+
 On an iPhone 17 Pro simulator with iOS 27.2, the whole suite passes: 17 existing tests and the four split tests that run collapsed, with the expanded and fold tests skipped. A screen recording of `testSplitCollapsedSelectAndSwipeBack` on that phone shows Game A open with the zoom from its Home cover, and the swipe back shrinking the card into the cover. That is the Home → Game zoom, now going through a collapsed split.
 
 ## Earlier SwiftUI prototype recordings

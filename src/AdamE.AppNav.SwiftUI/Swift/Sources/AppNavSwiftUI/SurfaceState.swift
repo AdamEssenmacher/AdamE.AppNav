@@ -81,13 +81,10 @@ struct SurfaceOutcome {
     var install: InstallAnimation?
     var readings: [NavigationReading] = []
     var traces: [String] = []
-    /// A collapsed split must leave its secondary column although the compact column binding already names the
-    /// primary one, so changing the binding would not pop it. The adapter pops the compact navigation stack to the
-    /// primary column's top, as a native Back would.
+    /// Pop a collapsed split's navigation stack to the topmost page of its primary column now, as a native Back would.
+    /// SurfaceState asks on quiet frames until UIKit shows the primary column; see `NativePop`.
     var popsCollapsedSecondary = false
-    /// After that pop, write the staged compact column again: SwiftUI then shows the staged secondary column, which
-    /// it would not do while the binding names the primary column. See `resumeCompactColumn()`.
-    var resumesCompactColumn = false
+    var animatesNativePop = false
 }
 
 struct SurfaceState {
@@ -170,6 +167,17 @@ struct SurfaceState {
     private(set) var splitLayout: SplitSample?
     /// A compact column to write once UIKit has popped a stale secondary column.
     private(set) var pendingCompactColumn: NavigationSplitColumn?
+    /// While collapsed, SwiftUI can leave the binding on the primary column with the secondary root still on top. It
+    /// then neither pops that column for a staged primary column nor shows a different secondary column, so UIKit
+    /// pops it first, as a native Back would. Set at staging; `sample` asks for the pop on quiet frames until UIKit
+    /// shows the primary column, then writes `pendingCompactColumn`.
+    struct NativePop: Equatable {
+        let animated: Bool
+    }
+    private(set) var nativePop: NativePop?
+    // Whether a held collapsed layout has shown the secondary column on top since the layout last changed. Only then
+    // can a collapsed window showing the primary column alone mean that a native Back closed the secondary column.
+    private var secondarySeenOnTop = false
     /// The column on top of a collapsed split on the last frame, or nil when it is not collapsed.
     private(set) var collapsedTop: NavigationSplitColumn?
 
@@ -265,18 +273,19 @@ struct SurfaceState {
         // While collapsed, SwiftUI can leave the binding on the primary column with the secondary root still on top.
         // It then neither pops that column for a staged primary column, nor shows a different secondary column, so
         // UIKit pops it first, as a native Back would.
-        let strayOnTop = compactColumn == .primary && splitLayout?.isCollapsed == true && collapsedTop == .secondary
+        let strayOnTop = compactColumn == .primary && splitLayoutHeld && splitLayout?.isCollapsed == true &&
+            collapsedTop == .secondary
         let previousSecondary = target?.split?.secondary
         adoptCompactColumn(authority.compactColumn)
         pendingCompactColumn = nil
+        nativePop = nil
         if strayOnTop, let split = next.split {
             if split.compactColumn == .primary {
-                out.popsCollapsedSecondary = true
+                nativePop = NativePop(animated: animation != .none)
                 out.traces.append("rev=\(next.revision) closes the collapsed secondary column the binding already left; popping it natively")
             } else if let secondary = split.secondary, previousSecondary?.id != secondary.id ||
                         previousSecondary?.entries.first != secondary.entries.first {
-                out.popsCollapsedSecondary = true
-                out.resumesCompactColumn = true
+                nativePop = NativePop(animated: false)
                 pendingCompactColumn = .secondary
                 out.traces.append("rev=\(next.revision) replaces a collapsed secondary column the binding already left; popping it natively before showing \(secondary.id)")
             }
@@ -286,17 +295,27 @@ struct SurfaceState {
         return out
     }
 
-    /// Writes the compact column a stage held back until UIKit popped the old secondary column.
-    mutating func resumeCompactColumn() -> SurfaceOutcome {
-        var out = SurfaceOutcome()
-        guard let pending = pendingCompactColumn, target?.split?.compactColumn == pending else {
-            pendingCompactColumn = nil
-            return out
+    // Asks for the native pop on a quiet frame of a held collapsed layout, again on each quiet frame until UIKit shows
+    // the primary column on top, and only then writes the compact column the stage held back. If the window unfolds
+    // first there is no merged stack to pop, and writing the binding is safe.
+    private mutating func driveNativePop(quiet: Bool, _ out: inout SurfaceOutcome) {
+        guard let pop = nativePop, let layout = splitLayout, splitLayoutHeld else { return }
+        if layout.isCollapsed {
+            guard quiet, undo == nil else { return }
+            if collapsedTop == .secondary {
+                out.popsCollapsedSecondary = true
+                out.animatesNativePop = pop.animated
+                return
+            }
+            guard collapsedTop == .primary else { return }
+            out.traces.append("UIKit shows the primary column after the native pop rev=\(target?.revision ?? 0)")
         }
+        nativePop = nil
+        guard let pending = pendingCompactColumn else { return }
         pendingCompactColumn = nil
+        guard target?.split?.compactColumn == pending, compactColumn != pending else { return }
         compactColumn = pending
-        out.install = InstallAnimation.none
-        return out
+        if out.install == nil { out.install = InstallAnimation.none }
     }
 
     // Writing the compact column SwiftUI already shows on top of a collapsed split makes it push that column's root a
@@ -666,7 +685,9 @@ struct SurfaceState {
     mutating func setCompactColumn(_ next: NavigationSplitColumn) -> SurfaceOutcome {
         var out = SurfaceOutcome()
         guard next != compactColumn else { return out }
-        if next == .primary, applying, takenBack == nil, undo == nil, let push = animatedPush, push.changesColumn,
+        // Only a collapsed window stacks the selection over the primary column; side by side the write is not a Back.
+        if next == .primary, applying, splitLayout?.isCollapsed == true, takenBack == nil, undo == nil,
+           let push = animatedPush, push.changesColumn,
            push.new.count > push.old.count, pushWitnessed, let staged = stagedReading() {
             takenBack = TakenBack(key: push.key, staged: staged, shorter: staged.closingSecondary(),
                                   shorterEntries: [], restored: [], removed: push.new[push.new.count - 1],
@@ -756,6 +777,7 @@ struct SurfaceState {
         let quiet = !sample.isTransitioning && interaction == nil
         var qualified = false
         noteSplitLayout(sample)
+        driveNativePop(quiet: quiet, &out)
         if applying, let push = animatedPush, !pushWitnessed,
            sample.mounted.contains(where: { $0.entry == push.new.last && $0.key == push.key }) {
             pushWitnessed = true
@@ -788,6 +810,7 @@ struct SurfaceState {
     // passes through intermediate sizes, and size classes flicker.
     private mutating func noteSplitLayout(_ sample: NativeSample) {
         splitLayoutHeld = sample.split != nil && sample.split == splitLayout
+        if sample.split != splitLayout { secondarySeenOnTop = false }
         splitLayout = sample.split
         diagnostics.splitCollapsed = target?.split == nil ? nil : sample.split?.isCollapsed
         if splitLayoutHeld, sample.split?.isCollapsed == false {
@@ -795,12 +818,15 @@ struct SurfaceState {
             // row's cover again; Back from the game no longer zooms into a row the user can already see.
             pushOrigins = pushOrigins.filter { _, origin in !(origin.key.isSecondary && origin.sourceKey != origin.key) }
         }
+        // The top column of a collapsed split is read on held layouts only; a passing layout keeps the last one.
+        guard splitLayoutHeld else { return }
         guard sample.split?.isCollapsed == true, let primary = target?.branches.first, target?.split != nil else {
             collapsedTop = nil
             return
         }
         if let top = sample.tops.first(where: { $0.key == .branch(primary.id) || $0.key.isSecondary }) {
             collapsedTop = top.key.isSecondary ? .secondary : .primary
+            if top.key.isSecondary, !top.isTransitioning { secondarySeenOnTop = true }
         }
     }
 
@@ -977,9 +1003,20 @@ struct SurfaceState {
                       applying ? primary.entries == primaryEntries : primary.entries.starts(with: primaryEntries)
                 else { return false }
                 if desiredCompact == .secondary {
-                    // The secondary column is staged on top, so it must show before the revision settles. Once
-                    // settled, a collapsed window that shows the primary column alone has closed it natively.
+                    // The secondary column is staged on top, so it must show before the revision settles.
                     if applying { return false }
+                    guard secondarySeenOnTop else {
+                        // This layout never showed the column, so no Back closed it: a fold, say, before the binding
+                        // was repaired. Show the column again rather than report a Back the user never made.
+                        if compactColumn != .secondary {
+                            compactColumn = .secondary
+                            diagnostics.compactColumnRepairs += 1
+                            out.install = InstallAnimation.none
+                            out.traces.append("showing the collapsed secondary column again rev=\(target.revision)")
+                        }
+                        return false
+                    }
+                    // A native Back closed the column the collapsed window showed.
                     (primaryIDs, secondaryIDs, compact) = (primaryEntries.map(\.id), [], .primary)
                 } else {
                     let hidden = secondary.map { [$0.entries[0]] + (paths[.secondary($0.id)] ?? []) } ?? []
@@ -1095,7 +1132,9 @@ struct SurfaceState {
         diagnostics.pushesRestored += 1
         backDuringPush = taken.key
         if taken.closesColumn {
-            guard compactColumn != .secondary else { return }
+            // A collapsed window already showing the secondary root on top would push it a second time.
+            guard compactColumn != .secondary,
+                  !(splitLayout?.isCollapsed == true && collapsedTop == .secondary) else { return }
             compactColumn = .secondary
             if installs { out.install = InstallAnimation.none }
             return
