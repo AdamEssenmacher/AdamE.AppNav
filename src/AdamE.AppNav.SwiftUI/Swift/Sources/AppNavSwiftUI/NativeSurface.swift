@@ -89,6 +89,8 @@ final class NativeSurface: ObservableObject {
     private let identities = NSMapTable<UIViewController, NSString>.weakToStrongObjects()
 
     var target: NavigationProjection? { state.target }
+    /// The secondary column the detail column renders: the staged one, or one a staged revision is closing.
+    var renderedSecondary: NavigationBranchProjection? { state.target?.split?.secondary ?? state.departingSecondary }
     var diagnostics: NavigationDiagnostics { state.diagnostics }
     var applying: Bool { state.applying }
     var modalTop: NavigationEntry? { state.modalTop }
@@ -139,6 +141,11 @@ final class NativeSurface: ObservableObject {
         Binding(get: { self.state.paths[key] ?? [] }, set: { next in self.apply { $0.setPath(next, for: key) } })
     }
 
+    /// The split's `preferredCompactColumn`. Every write is kept; SurfaceState decides what it means.
+    var compactColumn: Binding<NavigationSplitColumn> {
+        Binding(get: { self.state.compactColumn }, set: { next in self.apply { $0.setCompactColumn(next) } })
+    }
+
     func frame(window: UIWindow?) {
         guard let window else { return }
         let attached = markers.allObjects.filter { $0.window === window }
@@ -153,7 +160,8 @@ final class NativeSurface: ObservableObject {
                 isTransitioning = true
                 // During an interactive zoom UIKit can hit-test a transition container and both
                 // pages can be on screen. Report the gesture before any top is read.
-                if key == .branch(state.selectedBranch) || state.selectedModal.map({ key == .modal($0.id) }) == true {
+                if key == .branch(state.selectedBranch) || key.isSecondary ||
+                    state.selectedModal.map({ key == .modal($0.id) }) == true {
                     track(transition)
                 }
             }
@@ -170,10 +178,28 @@ final class NativeSurface: ObservableObject {
                 isHittable: hitTest(page.nav, in: window),
                 isTransitioning: (page.nav.transitionCoordinator ?? page.controller.transitionCoordinator) != nil)
         }
-        let sample = NativeSample(time: CACurrentMediaTime(), markerKeys: attached.map(\.key), tops: tops,
+        var sample = NativeSample(time: CACurrentMediaTime(), markerKeys: attached.map(\.key), tops: tops,
                                   isTransitioning: isTransitioning,
                                   mounted: pages.map { MountedPage(key: $0.key, entry: $0.entry) })
+        if state.target?.split != nil {
+            // A hidden sidebar beside an empty detail column has no page in the window, so look from the root too.
+            let split = pages.lazy.compactMap { $0.nav.splitViewController }.first ?? Self.split(in: window.rootViewController)
+            if let split {
+                if split.transitionCoordinator != nil { sample.isTransitioning = true }
+                sample.split = SplitSample(isCollapsed: split.isCollapsed)
+            }
+        }
         apply { $0.sample(sample) }
+    }
+
+    private static func split(in root: UIViewController?) -> UISplitViewController? {
+        var queue = root.map { [$0] } ?? []
+        while !queue.isEmpty {
+            let controller = queue.removeFirst()
+            if let split = controller as? UISplitViewController { return split }
+            queue += controller.children
+        }
+        return nil
     }
 
     // Runs one state transition and commits it. SwiftUI is told only when something it renders changed,
@@ -204,6 +230,32 @@ final class NativeSurface: ObservableObject {
         }
         outcome.traces.forEach { trace?($0) }
         outcome.readings.forEach { report?($0) }
+        if outcome.popsCollapsedSecondary {
+            popCollapsedSecondary(animated: !outcome.resumesCompactColumn && animation != nil,
+                                  resumes: outcome.resumesCompactColumn)
+        }
+    }
+
+    // SwiftUI already holds the primary column as the compact column, so only UIKit can pop the secondary column of a
+    // collapsed split. Pop the one navigation stack to the primary column's top page, as a native Back would.
+    private func popCollapsedSecondary(animated: Bool, resumes: Bool) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            defer {
+                // Let SwiftUI see the pop before the binding asks for the new secondary column.
+                if resumes { DispatchQueue.main.async { [weak self] in self?.apply { $0.resumeCompactColumn() } } }
+            }
+            guard let target = self.state.target, target.split != nil,
+                  let primary = target.branches.first, let top = ([primary.entries.first].compactMap { $0 } +
+                    (self.state.paths[.branch(primary.id)] ?? [])).last else { return }
+            for marker in self.markers.allObjects where marker.key == .branch(primary.id) && marker.entry == top {
+                guard let (nav, controller) = self.owner(of: marker), nav.splitViewController?.isCollapsed == true,
+                      nav.topViewController !== controller else { continue }
+                self.trace?("popping the collapsed secondary column to \(top.id)")
+                nav.popToViewController(controller, animated: animated)
+                return
+            }
+        }
     }
 
     private struct Rendered: Equatable {
@@ -211,6 +263,8 @@ final class NativeSurface: ObservableObject {
         let paths: [StackKey: [NavigationEntry]]
         let selectedBranch: String
         let selectedModal: ModalSelection?
+        let compactColumn: NavigationSplitColumn
+        let departingSecondary: NavigationBranchProjection?
         let applying: Bool
         let idle: Bool
         let lastReading: NavigationReading?
@@ -219,12 +273,16 @@ final class NativeSurface: ObservableObject {
         let gestures: [Int]
         let gestureReading: NavigationReading?
         let backDuringPush: StackKey?
+        let splitCollapsed: Bool?
+        let compactColumnRepairs: Int
 
         init(_ state: SurfaceState) {
             target = state.target
             paths = state.paths
             selectedBranch = state.selectedBranch
             selectedModal = state.selectedModal
+            compactColumn = state.compactColumn
+            departingSecondary = state.departingSecondary
             applying = state.applying
             idle = state.phase == .idle
             lastReading = state.lastReading
@@ -234,6 +292,8 @@ final class NativeSurface: ObservableObject {
                         state.diagnostics.gesturesCompleted, state.diagnostics.pushesTakenBack,
                         state.diagnostics.pushesRestored]
             backDuringPush = state.backDuringPush
+            splitCollapsed = state.diagnostics.splitCollapsed
+            compactColumnRepairs = state.diagnostics.compactColumnRepairs
             gestureReading = state.diagnostics.gestureReading
         }
     }

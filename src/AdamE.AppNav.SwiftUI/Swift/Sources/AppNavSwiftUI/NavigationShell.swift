@@ -43,6 +43,8 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
                                 .tag(branch.id)
                         }
                     }
+                } else if let split = target.split, let primary = target.branches.first {
+                    splitView(split, primary: primary)
                 } else if let branch = target.branches.first(where: { $0.id == target.selectedBranch }) {
                     // The surface only witnesses the selected branch, so a stack root renders that branch.
                     // Its id gives each branch its own NavigationStack instead of rebinding one in place.
@@ -124,6 +126,56 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
             applyTransition(customization.transition(context), to: content, context: context, key: key)
         } else {
             content
+        }
+    }
+
+    // `preferredCompactColumn` needs iOS 17. An iOS 16 build shows the primary column alone, so a split there never
+    // settles a secondary column on top; splits need iOS 17.
+    @ViewBuilder
+    private func splitView(_ split: SplitProjection, primary: NavigationBranchProjection) -> some View {
+        if #available(iOS 17, *) {
+            systemSplitView(split, primary: primary)
+        } else {
+            stack(primary.entries, key: .branch(primary.id))
+                .id(primary.id)
+        }
+    }
+
+    // A split renders with the system NavigationSplitView and its automatic column visibility. The Show Sidebar button
+    // stays: removing it while the sidebar is hidden leaves no way back to the primary column. The compact column
+    // decides what a collapsed window shows on top.
+    @available(iOS 17, *)
+    private func systemSplitView(_ split: SplitProjection, primary: NavigationBranchProjection) -> some View {
+        NavigationSplitView(preferredCompactColumn: compactColumn) {
+            stack(primary.entries, key: .branch(primary.id))
+        } detail: {
+            if let secondary = surface.renderedSecondary, let root = secondary.entries.first {
+                // A different selection gets its own NavigationStack rather than rebinding one in place.
+                secondaryStack(secondary, root: root)
+                    .id(SecondaryIdentity(stack: secondary.id, root: root.id))
+            } else {
+                emptyContent()
+            }
+        }
+        .id(split.id)
+    }
+
+    @available(iOS 17, *)
+    private var compactColumn: Binding<NavigationSplitViewColumn> {
+        let column = surface.compactColumn
+        return Binding(get: { column.wrappedValue == .secondary ? .detail : .sidebar },
+                       set: { column.wrappedValue = $0 == .sidebar ? .primary : .secondary })
+    }
+
+    // The secondary column's pages use their own destination type. A collapsed split merges both columns into one
+    // navigation stack, and a shared type would let the primary column's destination build a secondary page.
+    private func secondaryStack(_ secondary: NavigationBranchProjection, root: NavigationEntry) -> some View {
+        let key = StackKey.secondary(secondary.id)
+        let path = surface.path(for: key)
+        return NavigationStack(path: Binding(get: { path.wrappedValue.map(SecondaryPage.init) },
+                                             set: { path.wrappedValue = $0.map(\.entry) })) {
+            page(root, key: key, isBranchRoot: true)
+                .navigationDestination(for: SecondaryPage.self) { page($0.entry, key: key) }
         }
     }
 
@@ -223,6 +275,15 @@ extension NavigationShell where EmptyContent == EmptyView, Footer == EmptyView {
         self.init(projection: projection, report: report, animatesSinglePushes: animatesSinglePushes, back: back,
                   customization: customization, emptyContent: { EmptyView() }, footer: { _ in EmptyView() })
     }
+}
+
+private struct SecondaryIdentity: Hashable {
+    let stack: String
+    let root: String
+}
+
+private struct SecondaryPage: Hashable {
+    let entry: NavigationEntry
 }
 
 /// Routes Back on selected screens through the app's AppNav Back request. The app also owns
