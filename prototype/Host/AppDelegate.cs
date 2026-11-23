@@ -51,8 +51,10 @@ public sealed class SceneDelegate : UIWindowSceneDelegate
         var lifetime = sceneLifetime.Token;
         leases = new RouteEntryLeaseRegistry(new SwiftUIRouteEntryLeaseHost(OnFault, OnFault));
         presenter = ProbeRouter.CreatePresenter();
-        homeBack = new HomeBackPolicy();
-        var currentRouter = new ProbeRouter(presenter, leases, [homeBack]);
+        homeBack = new HomeBackPolicy(NSProcessInfo.ProcessInfo.Arguments.Contains("--probe-guard-game"));
+        // The split probe shows Home beside the selected game's own stack.
+        var split = NSProcessInfo.ProcessInfo.Arguments.Contains("--probe-split");
+        var currentRouter = new ProbeRouter(presenter, leases, [homeBack], split: split);
         router = currentRouter;
         currentRouter.Committed += OnCommit;
 
@@ -99,6 +101,12 @@ public sealed class SceneDelegate : UIWindowSceneDelegate
                     }
                     break;
                 case "deep-link": Run(() => current.DeepLinkAsync(token)); break;
+                case "select-game-a": Run(() => current.SelectGameAsync("game-a", "split-cover-game-a", token)); break;
+                case "select-game-b": Run(() => current.SelectGameAsync("game-b", "split-cover-game-b", token)); break;
+                case "switch-game-a": Run(() => current.SelectGameAsync("game-a", "", token)); break;
+                case "switch-game-b": Run(() => current.SelectGameAsync("game-b", "", token)); break;
+                case "push-game-page": Run(() => current.PushGamePageAsync(token)); break;
+                case "push-home-page": Run(() => current.PushHomePageAsync(token)); break;
                 case "open-modal": Run(() => current.ModalAsync(token)); break;
                 case "push-review": Run(() => current.PushReviewAsync(token)); break;
                 case "allow-back": homeBack?.Allow(); break;
@@ -226,7 +234,8 @@ public sealed class SceneDelegate : UIWindowSceneDelegate
         sceneLifetime = null;
     }
 
-    private sealed class HomeBackPolicy : IBackNavigationPolicy
+    // Guards Back from Home detail and, when asked to, from the zoomed Game page and Game A's root in the split probe.
+    private sealed class HomeBackPolicy(bool guardsGame) : IBackNavigationPolicy
     {
         private volatile bool allowed;
 
@@ -237,7 +246,10 @@ public sealed class SceneDelegate : UIWindowSceneDelegate
         {
             cancellationToken.ThrowIfCancellationRequested();
             var guarded = context.NavigationContext.Window is
-                { Modals.Count: 0, Root: BranchHostNode { SelectedBranch.Content: StackNode { Top.Id: "home-detail" } } };
+                { Modals.Count: 0, Root: BranchHostNode { SelectedBranch.Content: StackNode { Top.Id: "home-detail" } } } ||
+                (guardsGame && context.NavigationContext.Window is
+                    { Modals.Count: 0, Root: SplitNode { Secondary: StackNode { Entries.Count: 1, Top.Id: "game-a" } } } or
+                    { Modals.Count: 0, Root: BranchHostNode { SelectedBranch.Content: StackNode { Top.Id: "game" } } });
             return ValueTask.FromResult(guarded && !allowed
                 ? BackNavigationPolicyDecision.Cancel : BackNavigationPolicyDecision.Continue);
         }

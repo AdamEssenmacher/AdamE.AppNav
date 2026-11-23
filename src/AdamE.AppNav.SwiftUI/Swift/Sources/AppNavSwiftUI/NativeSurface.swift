@@ -44,6 +44,7 @@ final class FrameView: UIView {
     override func didMoveToWindow() {
         super.didMoveToWindow()
         stop()
+        if window == nil { surface?.releaseBackGuard() }
         if window != nil {
             let link = CADisplayLink(target: self, selector: #selector(displayTick))
             link.add(to: .main, forMode: .common)
@@ -63,6 +64,7 @@ struct FrameObserver: UIViewRepresentable {
     let surface: NativeSurface
     let report: (NavigationReading) -> Void
     let trace: (String) -> Void
+    var guardsBack: ((NavigationEntry) -> Bool)? = nil
 
     func makeUIView(context: Context) -> FrameView {
         let view = FrameView()
@@ -72,8 +74,12 @@ struct FrameObserver: UIViewRepresentable {
     func updateUIView(_ view: FrameView, context: Context) {
         view.surface = surface
         surface.updateCallbacks(report: report, trace: trace)
+        surface.guardsBack = guardsBack
     }
-    static func dismantleUIView(_ view: FrameView, coordinator: Void) { view.stop() }
+    static func dismantleUIView(_ view: FrameView, coordinator: Void) {
+        view.stop()
+        view.surface?.releaseBackGuard()
+    }
 }
 
 // Adapts UIKit and SwiftUI to SurfaceState. It samples the native stacks on each display frame, forwards
@@ -87,8 +93,38 @@ final class NativeSurface: ObservableObject {
     private var policy: ((NavigationTransitionContext) -> Animation?)?
     private let markers = NSHashTable<MarkerView>.weakObjects()
     private let identities = NSMapTable<UIViewController, NSString>.weakToStrongObjects()
+    /// The app's Back guard. A collapsed split shows its secondary root over the primary column, and SwiftUI keeps
+    /// that root's system Back and edge swipe however the page hides its Back button, so the surface enforces it.
+    var guardsBack: ((NavigationEntry) -> Bool)?
+    private var backGuard: BackGuard?
+    /// The window's split controller as last found; see `splitController(in:pages:)`.
+    private weak var splitControllerCache: UISplitViewController?
+
+    /// Puts back what the Back guard changed. The frame observer calls it when it leaves the window, so the swipes never
+    /// stay off once display ticks stop.
+    func releaseBackGuard() {
+        guard let current = backGuard else { return }
+        current.release()
+        backGuard = nil
+    }
+
+    // Releasing synchronously keeps a replacement surface's guard from recording a state this one is about to undo.
+    // Off the main thread the release waits for the main actor; the next quiet frame of a live surface heals any
+    // overlap.
+    deinit {
+        guard let current = backGuard else { return }
+        if Thread.isMainThread {
+            MainActor.assumeIsolated { current.release() }
+        } else {
+            Task { @MainActor in current.release() }
+        }
+    }
 
     var target: NavigationProjection? { state.target }
+    /// Whether the secondary root has a page behind it: the split is collapsed on its last held layout.
+    var secondaryRootHasBack: Bool { state.heldCollapsed == true }
+    /// The secondary column the detail column renders: the staged one, or one a staged revision is closing.
+    var renderedSecondary: NavigationBranchProjection? { state.target?.split?.secondary ?? state.departingSecondary }
     var diagnostics: NavigationDiagnostics { state.diagnostics }
     var applying: Bool { state.applying }
     var modalTop: NavigationEntry? { state.modalTop }
@@ -139,6 +175,11 @@ final class NativeSurface: ObservableObject {
         Binding(get: { self.state.paths[key] ?? [] }, set: { next in self.apply { $0.setPath(next, for: key) } })
     }
 
+    /// The split's `preferredCompactColumn`. Every write is kept; SurfaceState decides what it means.
+    var compactColumn: Binding<NavigationSplitColumn> {
+        Binding(get: { self.state.compactColumn }, set: { next in self.apply { $0.setCompactColumn(next) } })
+    }
+
     func frame(window: UIWindow?) {
         guard let window else { return }
         let attached = markers.allObjects.filter { $0.window === window }
@@ -153,13 +194,19 @@ final class NativeSurface: ObservableObject {
                 isTransitioning = true
                 // During an interactive zoom UIKit can hit-test a transition container and both
                 // pages can be on screen. Report the gesture before any top is read.
-                if key == .branch(state.selectedBranch) || state.selectedModal.map({ key == .modal($0.id) }) == true {
+                if key == .branch(state.selectedBranch) || key.isSecondary ||
+                    state.selectedModal.map({ key == .modal($0.id) }) == true {
                     track(transition)
                 }
             }
             identities.setObject(entry.id as NSString, forKey: controller)
             pages.append((marker, nav, controller, key, entry))
         }
+        let split = state.target?.split == nil ? nil : splitController(in: window, pages: pages.map(\.nav))
+        // A fold or rotation moves the split itself; it counts as busy like a navigation transition.
+        let splitTransitioning = split?.transitionCoordinator != nil
+        guardCollapsedSecondaryRoot(pages.map { ($0.nav, $0.controller, $0.key, $0.entry) },
+                                    quiet: !isTransitioning && !splitTransitioning && state.interaction == nil)
         let tops = pages.compactMap { page -> StackSample? in
             guard page.nav.topViewController === page.controller, !page.marker.isHidden else { return nil }
             return StackSample(
@@ -170,10 +217,83 @@ final class NativeSurface: ObservableObject {
                 isHittable: hitTest(page.nav, in: window),
                 isTransitioning: (page.nav.transitionCoordinator ?? page.controller.transitionCoordinator) != nil)
         }
-        let sample = NativeSample(time: CACurrentMediaTime(), markerKeys: attached.map(\.key), tops: tops,
+        var sample = NativeSample(time: CACurrentMediaTime(), markerKeys: attached.map(\.key), tops: tops,
                                   isTransitioning: isTransitioning,
                                   mounted: pages.map { MountedPage(key: $0.key, entry: $0.entry) })
+        if let split {
+            if splitTransitioning { sample.isTransitioning = true }
+            sample.split = SplitSample(isCollapsed: split.isCollapsed)
+        }
         apply { $0.sample(sample) }
+    }
+
+    // Guards a guarded secondary root on top of a collapsed split, so only the app's Back, which asks AppNav, leaves
+    // it. Its system Back is hidden on every frame, transitions included, so it never flashes. The swipes are turned
+    // off only when no gesture is under way, since turning a recognizer off mid-gesture cancels it: at the end of the
+    // transition onto the root, or failing that on the first quiet frame. Whatever releases the guard (the root
+    // leaving the top, the app no longer intercepting it, an unfold, or the split going away) undoes its changes.
+    private func guardCollapsedSecondaryRoot(_ pages: [(UINavigationController, UIViewController, StackKey, NavigationEntry)],
+                                             quiet: Bool) {
+        var guarded: (UINavigationController, UIViewController)?
+        // The rendered secondary column includes one a staged Back is closing, so the guard holds until its root has
+        // actually left the top rather than one stage early.
+        if let guardsBack, let root = renderedSecondary?.entries.first, state.heldCollapsed == true {
+            for (nav, controller, key, entry) in pages where key.isSecondary && entry == root &&
+                nav.topViewController === controller && nav.splitViewController?.isCollapsed == true && guardsBack(entry) {
+                guarded = (nav, controller)
+            }
+        }
+        if let current = backGuard, current.stack !== guarded?.0 || current.page !== guarded?.1 {
+            current.release()
+            backGuard = nil
+            trace?("released the guard on the collapsed secondary root")
+        }
+        guard let (nav, controller) = guarded else { return }
+        let current: BackGuard
+        if let existing = backGuard {
+            current = existing
+        } else {
+            current = BackGuard(stack: nav, page: controller)
+            backGuard = current
+            trace?("guarding the collapsed secondary root")
+        }
+        // SwiftUI can rebuild the navigation item while the guard holds.
+        current.hideBackButton()
+        if quiet {
+            current.disableSwipes()
+        } else if let transition = nav.transitionCoordinator ?? controller.transitionCoordinator,
+                  current.awaitedTransition !== transition {
+            // Close the gap between the transition's end and the next display frame, where a new swipe could start.
+            current.awaitedTransition = transition
+            transition.animate(alongsideTransition: nil) { [weak self, weak current] context in
+                guard !context.isCancelled, let self, let current, self.backGuard === current,
+                      current.stack?.topViewController === current.page else { return }
+                current.disableSwipes()
+            }
+        }
+    }
+
+    // A hidden sidebar beside an empty detail column has no page in the window, so the split is looked up from the
+    // window's root then. The result is kept while it stays in the window, so an idle frame does not walk the
+    // controller tree.
+    private func splitController(in window: UIWindow, pages: [UINavigationController]) -> UISplitViewController? {
+        if let found = pages.lazy.compactMap(\.splitViewController).first {
+            splitControllerCache = found
+            return found
+        }
+        if let cached = splitControllerCache, cached.viewIfLoaded?.window === window { return cached }
+        splitControllerCache = Self.split(in: window.rootViewController)
+        return splitControllerCache
+    }
+
+    private static func split(in root: UIViewController?) -> UISplitViewController? {
+        var queue = root.map { [$0] } ?? []
+        while !queue.isEmpty {
+            let controller = queue.removeFirst()
+            if let split = controller as? UISplitViewController { return split }
+            queue += controller.children
+        }
+        return nil
     }
 
     // Runs one state transition and commits it. SwiftUI is told only when something it renders changed,
@@ -204,6 +324,27 @@ final class NativeSurface: ObservableObject {
         }
         outcome.traces.forEach { trace?($0) }
         outcome.readings.forEach { report?($0) }
+        if outcome.popsCollapsedSecondary { popCollapsedSecondary(animated: outcome.animatesNativePop) }
+    }
+
+    // SwiftUI already holds the primary column as the compact column, so only UIKit can pop the secondary column of a
+    // collapsed split. Pop the one navigation stack to the topmost controller it holds for the primary column, as a
+    // native Back would. SurfaceState asks again on later quiet frames until UIKit shows the primary column.
+    private func popCollapsedSecondary(animated: Bool) {
+        guard let primary = state.target?.branches.first, state.target?.split != nil else { return }
+        var stack: UINavigationController?
+        var destination: (index: Int, controller: UIViewController)?
+        for marker in markers.allObjects where marker.key == .branch(primary.id) {
+            guard let (nav, controller) = owner(of: marker), nav.splitViewController?.isCollapsed == true,
+                  let index = nav.viewControllers.firstIndex(where: { $0 === controller }) else { continue }
+            if stack == nil { stack = nav }
+            guard nav === stack else { continue }
+            if index > destination?.index ?? -1 { destination = (index, controller) }
+        }
+        guard let nav = stack, let destination, nav.transitionCoordinator == nil,
+              nav.topViewController !== destination.controller else { return }
+        trace?("popping the collapsed secondary column to \(identities.object(forKey: destination.controller) ?? "?")")
+        nav.popToViewController(destination.controller, animated: animated)
     }
 
     private struct Rendered: Equatable {
@@ -211,6 +352,8 @@ final class NativeSurface: ObservableObject {
         let paths: [StackKey: [NavigationEntry]]
         let selectedBranch: String
         let selectedModal: ModalSelection?
+        let compactColumn: NavigationSplitColumn
+        let departingSecondary: NavigationBranchProjection?
         let applying: Bool
         let idle: Bool
         let lastReading: NavigationReading?
@@ -219,12 +362,17 @@ final class NativeSurface: ObservableObject {
         let gestures: [Int]
         let gestureReading: NavigationReading?
         let backDuringPush: StackKey?
+        let splitCollapsed: Bool?
+        let compactColumnRepairs: Int
+        let heldCollapsed: Bool?
 
         init(_ state: SurfaceState) {
             target = state.target
             paths = state.paths
             selectedBranch = state.selectedBranch
             selectedModal = state.selectedModal
+            compactColumn = state.compactColumn
+            departingSecondary = state.departingSecondary
             applying = state.applying
             idle = state.phase == .idle
             lastReading = state.lastReading
@@ -234,6 +382,9 @@ final class NativeSurface: ObservableObject {
                         state.diagnostics.gesturesCompleted, state.diagnostics.pushesTakenBack,
                         state.diagnostics.pushesRestored]
             backDuringPush = state.backDuringPush
+            splitCollapsed = state.diagnostics.splitCollapsed
+            compactColumnRepairs = state.diagnostics.compactColumnRepairs
+            heldCollapsed = state.heldCollapsed
             gestureReading = state.diagnostics.gestureReading
         }
     }
@@ -299,6 +450,57 @@ final class NativeSurface: ObservableObject {
                       transactionAnimation: held.hasPolicy ? policy : nil)
             }
         }
+    }
+}
+/// The guard on a collapsed secondary root: the page's system Back hidden, and the stack's edge swipe and, from iOS 26,
+/// content swipe turned off. Releasing it undoes only what the guard itself changed, and leaves a value alone when it no
+/// longer holds what the guard set; a later change that happened to set the same value is not detectable. A guarded
+/// page never zooms in (see NavigationShell.page), so it carries no zoom-dismiss gestures.
+@MainActor
+final class BackGuard {
+    weak var stack: UINavigationController?
+    weak var page: UIViewController?
+    /// The transition whose completion will turn the swipes off.
+    weak var awaitedTransition: (any UIViewControllerTransitionCoordinator)?
+    private var hidBackButton = false
+    private var disabledEdgeSwipe = false
+    private var disabledContentSwipe = false
+
+    init(stack: UINavigationController, page: UIViewController) {
+        self.stack = stack
+        self.page = page
+    }
+
+    private var contentSwipe: UIGestureRecognizer? {
+        if #available(iOS 26, *) { return stack?.interactiveContentPopGestureRecognizer }
+        return nil
+    }
+
+    func hideBackButton() {
+        if let item = page?.navigationItem, !item.hidesBackButton {
+            item.hidesBackButton = true
+            hidBackButton = true
+        }
+    }
+
+    func disableSwipes() {
+        if let edge = stack?.interactivePopGestureRecognizer, edge.isEnabled {
+            edge.isEnabled = false
+            disabledEdgeSwipe = true
+        }
+        if let content = contentSwipe, content.isEnabled {
+            content.isEnabled = false
+            disabledContentSwipe = true
+        }
+    }
+
+    func release() {
+        if hidBackButton, let item = page?.navigationItem, item.hidesBackButton { item.hidesBackButton = false }
+        if disabledEdgeSwipe, let edge = stack?.interactivePopGestureRecognizer, !edge.isEnabled { edge.isEnabled = true }
+        if disabledContentSwipe, let content = contentSwipe, !content.isEnabled { content.isEnabled = true }
+        hidBackButton = false
+        disabledEdgeSwipe = false
+        disabledContentSwipe = false
     }
 }
 #endif

@@ -43,6 +43,8 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
                                 .tag(branch.id)
                         }
                     }
+                } else if let split = target.split, let primary = target.branches.first {
+                    splitView(split, primary: primary)
                 } else if let branch = target.branches.first(where: { $0.id == target.selectedBranch }) {
                     // The surface only witnesses the selected branch, so a stack root renders that branch.
                     // Its id gives each branch its own NavigationStack instead of rebinding one in place.
@@ -63,7 +65,7 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
                          onDismiss: { modalDidDismiss(.fullScreenCover) }) {
             modalContent($0, style: .fullScreenCover)
         }
-        .background(FrameObserver(surface: surface, report: report, trace: trace))
+        .background(FrameObserver(surface: surface, report: report, trace: trace, guardsBack: back?.intercepts))
         .modifier(StageProjection(projection: projection) { next in
             surface.stage(next, animatesSinglePushes: animatesSinglePushes,
                           transactionAnimation: customization?.transactionAnimation)
@@ -119,11 +121,61 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
             // While a revision applies, the modal binding refuses dismissal. A swipe that UIKit
             // completed anyway would leave the surface waiting for a sheet that is gone.
             .interactiveDismissDisabled(surface.applying || surface.modalTop.map { back?.intercepts($0) == true } ?? false)
-        if let root = modal.entries.first, let customization {
+        // A guarded root takes no transition, like a guarded stack page.
+        if let root = modal.entries.first, let customization, back?.intercepts(root) != true {
             let context = surface.context(for: root, key: key)
             applyTransition(customization.transition(context), to: content, context: context, key: key)
         } else {
             content
+        }
+    }
+
+    // NavigationSplitView(preferredCompactColumn:) needs iOS 17. The host reports split support only from iOS 17, so on
+    // an earlier release the presenter refuses a split before this view is reached.
+    @ViewBuilder
+    private func splitView(_ split: SplitProjection, primary: NavigationBranchProjection) -> some View {
+        if #available(iOS 17, *) {
+            systemSplitView(split, primary: primary)
+        }
+    }
+
+    // A split renders with the system NavigationSplitView and its automatic column visibility. The Show Sidebar button
+    // stays: removing it while the sidebar is hidden leaves no way back to the primary column. The compact column
+    // decides what a collapsed window shows on top.
+    @available(iOS 17, *)
+    private func systemSplitView(_ split: SplitProjection, primary: NavigationBranchProjection) -> some View {
+        NavigationSplitView(preferredCompactColumn: compactColumn) {
+            stack(primary.entries, key: .branch(primary.id))
+        } detail: {
+            if let secondary = surface.renderedSecondary, let root = secondary.entries.first {
+                // A different selection gets its own NavigationStack rather than rebinding one in place.
+                secondaryStack(secondary, root: root)
+                    .id(SecondaryIdentity(stack: secondary.id, root: root.id))
+            } else {
+                emptyContent()
+            }
+        }
+        .id(split.id)
+    }
+
+    @available(iOS 17, *)
+    private var compactColumn: Binding<NavigationSplitViewColumn> {
+        let column = surface.compactColumn
+        return Binding(get: { column.wrappedValue == .secondary ? .detail : .sidebar },
+                       set: { column.wrappedValue = $0 == .sidebar ? .primary : .secondary })
+    }
+
+    // The secondary column's pages use their own destination type. A collapsed split merges both columns into one
+    // navigation stack, and a shared type would let the primary column's destination build a secondary page.
+    private func secondaryStack(_ secondary: NavigationBranchProjection, root: NavigationEntry) -> some View {
+        let key = StackKey.secondary(secondary.id)
+        let path = surface.path(for: key)
+        return NavigationStack(path: Binding(get: { path.wrappedValue.map(SecondaryPage.init) },
+                                             set: { path.wrappedValue = $0.map(\.entry) })) {
+            // Collapsed, the root sits over the primary column with the system Back, so a guarded root replaces it
+            // like any guarded page. Side by side it has nothing behind it.
+            page(root, key: key, isBranchRoot: !surface.secondaryRootHasBack)
+                .navigationDestination(for: SecondaryPage.self) { page($0.entry, key: key) }
         }
     }
 
@@ -142,7 +194,9 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
         // it as the managed close affordance.
         let intercept = !isBranchRoot && back?.intercepts(entry) == true
         let context = surface.context(for: entry, key: key)
-        return styledDestination(context, key: key, appliesTransition: appliesTransition)
+        // A guarded page gets no destination transition. A zoom brings UIKit's interactive zoom dismissal, which pops
+        // the page whatever its Back button, and no public API turns that off for a SwiftUI zoom.
+        return styledDestination(context, key: key, appliesTransition: appliesTransition && !intercept)
         .background(PageMarker(surface: surface, key: key, entry: entry))
         // Hiding the button also disables the edge swipe and the Back-history menu.
         .navigationBarBackButtonHidden(intercept || surface.withholdsBack(key) || surface.isWaitingForTab(key))
@@ -225,8 +279,21 @@ extension NavigationShell where EmptyContent == EmptyView, Footer == EmptyView {
     }
 }
 
+private struct SecondaryIdentity: Hashable {
+    let stack: String
+    let root: String
+}
+
+private struct SecondaryPage: Hashable {
+    let entry: NavigationEntry
+}
+
 /// Routes Back on selected screens through the app's AppNav Back request. The app also owns
 /// any dismissal buttons its screens add.
+///
+/// `intercepts` runs on the main thread whenever SwiftUI builds a page, and on every display frame for the root of a
+/// collapsed split's secondary column. Keep it a cheap lookup, such as a comparison or a set membership test.
+/// A guarded entry takes no destination transition.
 public struct NavigationBackControl {
     let intercepts: (NavigationEntry) -> Bool
     let request: () -> Void

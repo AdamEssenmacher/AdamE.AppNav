@@ -36,6 +36,10 @@ public sealed class NavigationShellViewModel(
     private Task? teardown;
     private Action? detach;
 
+    /// <summary>Whether the native shell presents a split at the window root. Set it before attaching; the presenter
+    /// refuses splits for a shell that does not.</summary>
+    public bool PresentsSplits { get; init; }
+
     /// <summary>The callback epoch assigned by Attach, or zero for manually wired instances.</summary>
     public long Epoch { get; private set; }
 
@@ -53,25 +57,36 @@ public sealed class NavigationShellViewModel(
     public static NavigationShellViewModel Attach(
         OahuNavigationPresenter presenter, RouteEntryLeaseRegistry leases,
         Func<RouteEntry, RouteEntryLease, OahuMount> mount, Func<Action, Task> dispatch,
-        Action<Exception> reportFailure) =>
+        Action<Exception> reportFailure, bool presentsSplits = false) =>
         Attach(presenter, leases, Adapt(mount),
-            dispatch, reportFailure);
+            dispatch, reportFailure, presentsSplits);
 
     /// <summary>Creates a shell, attaches it to the presenter, and fences observations to its epoch.</summary>
+    /// <param name="presentsSplits">Whether the native shell presents a split at the window root.</param>
     public static NavigationShellViewModel Attach(
         OahuNavigationPresenter presenter, RouteEntryLeaseRegistry leases,
-        OahuScreenFactory mount, Func<Action, Task> dispatch, Action<Exception> reportFailure)
+        OahuScreenFactory mount, Func<Action, Task> dispatch, Action<Exception> reportFailure,
+        bool presentsSplits = false)
     {
         ArgumentNullException.ThrowIfNull(presenter);
         long epoch = 0;
         var shell = new NavigationShellViewModel(leases, mount, dispatch, reading =>
             presenter.ObserveAsync(epoch, reading.Revision, reading.Branch, reading.Entries,
-                reading.ModalId.Length == 0 ? null : reading.ModalId, reading.ModalEntries),
-            reportFailure);
+                reading.ModalId.Length == 0 ? null : reading.ModalId, reading.ModalEntries,
+                reading.SecondaryEntries, ParseCompactColumn(reading.CompactColumn)),
+            reportFailure) { PresentsSplits = presentsSplits };
         shell.Epoch = epoch = presenter.Attach(shell);
         shell.detach = () => presenter.Detach(epoch);
         return shell;
     }
+
+    private static SplitColumn? ParseCompactColumn(string column) => column switch
+    {
+        "" => null,
+        "primary" => SplitColumn.Primary,
+        "secondary" => SplitColumn.Secondary,
+        _ => throw new ArgumentException($"Unknown split column '{column}'.", nameof(column))
+    };
 
     /// <summary>Stops presenter work for this host before the native UI is removed.</summary>
     public void Detach() => Interlocked.Exchange(ref detach, null)?.Invoke();

@@ -8,7 +8,11 @@ public struct PageScreen: View {
     public init(model: PageModel) { self.model = model }
 
     public var body: some View {
-        if let gameProbe, model.title == "home-detail" {
+        if let splitProbe, model.title == "home" {
+            SplitHome(context: splitProbe)
+        } else if let splitProbe, ["game-a", "game-b"].contains(model.title) {
+            SplitGame(title: model.title, context: splitProbe)
+        } else if let gameProbe, model.title == "home-detail" {
             GameRows(context: gameProbe)
         } else if let gameProbe, model.title == "game" {
             GameDestination(kind: .managed, context: gameProbe)
@@ -81,6 +85,7 @@ public struct PageScreen: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.gameProbe) private var gameProbe
+    @Environment(\.splitProbe) private var splitProbe
 }
 
 public struct ShellScreen: View {
@@ -92,6 +97,7 @@ public struct ShellScreen: View {
     @State private var reportGeneration = -1
     @State private var traceGeneration = -1
     @State private var clearsPushTransition = false
+    @State private var guardsGame = SplitProbeContext.guardsGame
 
     private var testsImmediatePush: Bool {
         ProcessInfo.processInfo.arguments.contains("--probe-disable-game-push-animation")
@@ -115,7 +121,8 @@ public struct ShellScreen: View {
         guard clearsPushTransition else { return target }
         // Drop the transient metadata while preserving the staged revision and all mounts.
         return NavigationProjection(revision: target.revision, selectedBranch: target.selectedBranch,
-                                    isBranchHost: target.isBranchHost, branches: target.branches, modal: target.modal)
+                                    isBranchHost: target.isBranchHost, branches: target.branches, modal: target.modal,
+                                    split: target.split)
     }
 
     public var body: some View {
@@ -127,7 +134,7 @@ public struct ShellScreen: View {
             if testsCallbackReplacement && message.hasPrefix("settled ") { traceGeneration = generation }
             model.recordTrace(message)
         },
-                        back: NavigationBackControl(intercepts: { $0.id == "home-detail" },
+                        back: NavigationBackControl(intercepts: { $0.id == "home-detail" || (guardsGame && ["game-a", "game"].contains($0.id)) },
                                                     request: { model.runCommand("request-back") }),
                         customization: customization) {
             VStack {
@@ -141,6 +148,13 @@ public struct ShellScreen: View {
                 Text(evidence(diagnostics.lastReading)).accessibilityIdentifier("probe-native")
                 Text(diagnostics.stagedTops.joined(separator: ",")).accessibilityIdentifier("probe-presented")
                 Text(gestures(diagnostics)).accessibilityIdentifier("probe-gesture")
+                if SplitProbeContext.isEnabled {
+                    Text(splitLayout(diagnostics)).accessibilityIdentifier("probe-split-layout")
+                }
+                if SplitProbeContext.guardsGame && guardsGame {
+                    Button("Stop guarding") { guardsGame = false }
+                        .accessibilityIdentifier("probe-stop-guarding")
+                }
                 if ProcessInfo.processInfo.arguments.contains("--probe-animation-style") {
                     Text(animationEvidence).accessibilityIdentifier("probe-animation-style")
                     Text(supportsNativeCrossFade ? "crossFade" : "automatic")
@@ -184,7 +198,8 @@ public struct ShellScreen: View {
             // covers that point while Game is on top, so the push stays applying until a Back gesture begins. It
             // leaves the leading edge free for that swipe.
             if Self.holdsGameSettlement, gesturesBegan == 0,
-               model.target.branches.contains(where: { $0.entries.last?.entryId == "game" }) {
+               model.target.branches.contains(where: { $0.entries.last?.entryId == "game" }) ||
+                model.target.split.secondaryEntries.last?.entryId.hasPrefix("game-") == true {
                 GeometryReader { geometry in
                     Color.black.opacity(0.02)
                         .frame(width: geometry.size.width - 60, height: geometry.size.height * 0.5)
@@ -200,6 +215,13 @@ public struct ShellScreen: View {
             openCrossFade: { model.runCommand("open-game-crossfade") },
             pushReview: { model.runCommand("push-review") },
             replaceModal: { model.runCommand($0) }, trace: gameTrace))
+        .environment(\.splitProbe, SplitProbeContext.isEnabled
+            ? SplitProbeContext(namespace: gameZoom, command: { model.runCommand($0) }) : nil)
+    }
+
+    private func splitLayout(_ diagnostics: NavigationDiagnostics) -> String {
+        let layout = diagnostics.splitCollapsed.map { $0 ? "collapsed" : "expanded" } ?? "none"
+        return "\(layout) repairs=\(diagnostics.compactColumnRepairs) taken back=\(diagnostics.pushesTakenBack) restored=\(diagnostics.pushesRestored)"
     }
 
     /// Keeps a Game push applying, so a UI test can go Back before the shell settles it.
@@ -271,6 +293,11 @@ public struct ShellScreen: View {
     }
 
     private func coverKey(for context: NavigationTransitionContext) -> String? {
+        if let destination = context.destinationScreen, ["push", "replace"].contains(context.operation.rawValue),
+           context.sourceKey == SplitProbeContext.coverKey(destination) {
+            // Selecting a game from its Home row zooms from the row's cover when it pushes over a collapsed Home.
+            return context.operation == .push ? context.sourceKey : nil
+        }
         guard context.operation == .push else { return nil }
         switch (context.sourceScreen, context.destinationScreen) {
         case ("home-detail", "game") where context.sourceKey == "game-cover",
@@ -288,12 +315,16 @@ public struct ShellScreen: View {
     private func report(_ reading: NavigationReading) {
         model.report(NativeObservation(revision: reading.revision, branch: reading.branch,
                                        entries: reading.entries, modalId: reading.modalID ?? "",
-                                       modalEntries: reading.modalEntries))
+                                       modalEntries: reading.modalEntries, secondaryEntries: reading.secondaryEntries,
+                                       compactColumn: reading.compactColumn?.rawValue ?? ""))
     }
 
     private func evidence(_ reading: NavigationReading?) -> String {
         guard let reading else { return "Waiting for native surface" }
-        let branch = "rev=\(reading.revision) \(reading.branch) [\(reading.entries.joined(separator: ","))]"
+        var branch = "rev=\(reading.revision) \(reading.branch) [\(reading.entries.joined(separator: ","))]"
+        if let compact = reading.compactColumn {
+            branch += " + [\(reading.secondaryEntries.joined(separator: ","))] @\(compact.rawValue)"
+        }
         guard let modal = reading.modalID else { return branch }
         return "\(branch) \(modal) [\(reading.modalEntries.joined(separator: ","))]"
     }
@@ -314,7 +345,22 @@ private extension ShellTarget {
                 NavigationBranchProjection(id: $0.branch, title: $0.title, entries: $0.entries.map(\.projection))
             },
             modal: modalId.isEmpty ? nil : ModalProjection(id: modalId, entries: modalEntries.map(\.projection)),
-            transition: transition.context)
+            transition: transition.context,
+            split: split.splitId.isEmpty ? nil : SplitProjection(
+                id: split.splitId,
+                secondary: split.secondaryId.isEmpty ? nil : NavigationBranchProjection(
+                    id: split.secondaryId, title: split.secondaryId, entries: split.secondaryEntries.map(\.projection)),
+                compactColumn: Self.column(split.compactColumn)))
+    }
+}
+
+private extension ShellTarget {
+    // The managed side sends only these values; anything else is a broken contract.
+    static func column(_ value: String) -> NavigationSplitColumn {
+        guard let column = NavigationSplitColumn(rawValue: value) else {
+            preconditionFailure("Unknown split column '\(value)'.")
+        }
+        return column
     }
 }
 

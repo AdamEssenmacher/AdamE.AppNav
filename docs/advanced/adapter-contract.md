@@ -37,8 +37,11 @@ using only public core APIs and is created with the router through
   never learns which, and no plan depends on it. When the host closes the
   secondary column itself, such as a native Back from its root in a
   single-column window, the adapter reconciles to a state whose split has no
-  secondary column. An adapter that cannot present splits refuses them with
-  `NotSupportedException` before it builds anything;
+  secondary column. A native pop inside either column reconciles to exactly
+  what the host shows, so a pop in the primary column beside a shown secondary
+  column keeps the secondary column, unlike a planned Back. An adapter that
+  cannot present splits refuses them with `NotSupportedException` before it
+  builds anything;
 - attaching each native artifact to its entry's lease, and detaching it once
   the artifact no longer uses the lease, including during rollback and
   shutdown, and finishing rollback before `ApplyAsync` throws;

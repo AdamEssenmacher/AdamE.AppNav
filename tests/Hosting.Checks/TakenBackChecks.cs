@@ -64,7 +64,7 @@ internal static class TakenBackChecks
     }
 
     private static NativeObservation Reading(ShellTarget target, string[] home) =>
-        new(target.Revision, "home", home, "", []);
+        new(target.Revision, "home", home, "", [], [], "");
 
     private static Task Observe(OahuNavigationPresenter presenter, long epoch, ShellTarget target) =>
         presenter.ObserveAsync(epoch, target.Revision, target.SelectedBranch,

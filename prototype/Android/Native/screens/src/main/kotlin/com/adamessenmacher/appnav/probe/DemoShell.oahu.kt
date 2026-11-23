@@ -2,7 +2,7 @@
 // change the C# contract and rebuild (docs/codegen.md). The screen is yours to write, in this package:
 // @Composable fun DemoShellScreen(model: DemoShellModel).
 //
-// Contract hash -4347170740192184296, over its signature:
+// Contract hash 1435371312411982185, over its signature:
 //   oahu/1 contract DemoShell
 //   stream 0 state Target: ShellTarget
 //   stream 1 state Status: string
@@ -12,11 +12,12 @@
 //   member 1 method Report: NativeObservation
 //   member 2 method RunCommand: string
 //   member 3 method RecordTrace: string
-//   type ShellTarget = record {Revision: long, SelectedBranch: string, IsBranchHost: bool, Branches: list<BranchStack>, ModalId: string, ModalEntries: list<ScreenEntry>, Transition: PresentationTransition}
+//   type ShellTarget = record {Revision: long, SelectedBranch: string, IsBranchHost: bool, Branches: list<BranchStack>, ModalId: string, ModalEntries: list<ScreenEntry>, Transition: PresentationTransition, Split: SplitColumns}
 //   type BranchStack = record {Branch: string, Title: string, Entries: list<ScreenEntry>}
 //   type ScreenEntry = record {EntryId: string, Mount: long}
 //   type PresentationTransition = record {Operation: string, SourceEntryId: string, DestinationEntryId: string, SourceKey: string, SourceScreen: string, DestinationScreen: string}
-//   type NativeObservation = record {Revision: long, Branch: string, Entries: list<string>, ModalId: string, ModalEntries: list<string>}
+//   type SplitColumns = record {SplitId: string, SecondaryId: string, SecondaryEntries: list<ScreenEntry>, CompactColumn: string}
+//   type NativeObservation = record {Revision: long, Branch: string, Entries: list<string>, ModalId: string, ModalEntries: list<string>, SecondaryEntries: list<string>, CompactColumn: string}
 
 package com.adamessenmacher.appnav.probe
 
@@ -38,6 +39,7 @@ public data class ShellTarget(
     public val modalId: String,
     public val modalEntries: List<ScreenEntry>,
     public val transition: PresentationTransition,
+    public val split: SplitColumns,
 )
 
 /** `AdamE.AppNav.Oahu.Hosting.BranchStack`. */
@@ -60,6 +62,14 @@ public data class PresentationTransition(
     public val destinationScreen: String,
 )
 
+/** `AdamE.AppNav.Oahu.Hosting.SplitColumns`. */
+public data class SplitColumns(
+    public val splitId: String,
+    public val secondaryId: String,
+    public val secondaryEntries: List<ScreenEntry>,
+    public val compactColumn: String,
+)
+
 /** `AdamE.AppNav.Oahu.Hosting.NativeObservation`. */
 public data class NativeObservation(
     public val revision: Long,
@@ -67,6 +77,8 @@ public data class NativeObservation(
     public val entries: List<String>,
     public val modalId: String,
     public val modalEntries: List<String>,
+    public val secondaryEntries: List<String>,
+    public val compactColumn: String,
 )
 
 /** DemoShell's name, hash and numbering (docs/format.md, "Numbering"), as this library was built against them. */
@@ -74,7 +86,7 @@ internal object DemoShellContract {
     const val NAME: String = "DemoShell"
 
     /** FNV-1a 64 of DemoShell's signature (above). The .NET host refuses the screen when its own hash differs. */
-    const val HASH: Long = -4347170740192184296L
+    const val HASH: Long = 1435371312411982185L
 
     const val STREAM_TARGET: Int = 0
     const val STREAM_STATUS: Int = 1
@@ -98,6 +110,7 @@ internal object DemoShellCodec {
             modalId = r.readString(),
             modalEntries = r.readList(DemoShellCodec::readScreenEntry),
             transition = DemoShellCodec.readPresentationTransition(r),
+            split = DemoShellCodec.readSplitColumns(r),
         )
 
     fun writeShellTarget(w: OahuWriter, value: ShellTarget) {
@@ -108,6 +121,7 @@ internal object DemoShellCodec {
         w.writeString(value.modalId)
         w.writeList(value.modalEntries, DemoShellCodec::writeScreenEntry)
         DemoShellCodec.writePresentationTransition(w, value.transition)
+        DemoShellCodec.writeSplitColumns(w, value.split)
     }
 
     fun readBranchStack(r: OahuReader): BranchStack =
@@ -150,6 +164,21 @@ internal object DemoShellCodec {
         w.writeString(value.destinationScreen)
     }
 
+    fun readSplitColumns(r: OahuReader): SplitColumns =
+        SplitColumns(
+            splitId = r.readString(),
+            secondaryId = r.readString(),
+            secondaryEntries = r.readList(DemoShellCodec::readScreenEntry),
+            compactColumn = r.readString(),
+        )
+
+    fun writeSplitColumns(w: OahuWriter, value: SplitColumns) {
+        w.writeString(value.splitId)
+        w.writeString(value.secondaryId)
+        w.writeList(value.secondaryEntries, DemoShellCodec::writeScreenEntry)
+        w.writeString(value.compactColumn)
+    }
+
     fun readNativeObservation(r: OahuReader): NativeObservation =
         NativeObservation(
             revision = r.readLong(),
@@ -157,6 +186,8 @@ internal object DemoShellCodec {
             entries = r.readList(OahuReader::readString),
             modalId = r.readString(),
             modalEntries = r.readList(OahuReader::readString),
+            secondaryEntries = r.readList(OahuReader::readString),
+            compactColumn = r.readString(),
         )
 
     fun writeNativeObservation(w: OahuWriter, value: NativeObservation) {
@@ -165,6 +196,8 @@ internal object DemoShellCodec {
         w.writeList(value.entries, OahuWriter::writeString)
         w.writeString(value.modalId)
         w.writeList(value.modalEntries, OahuWriter::writeString)
+        w.writeList(value.secondaryEntries, OahuWriter::writeString)
+        w.writeString(value.compactColumn)
     }
 }
 

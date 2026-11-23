@@ -32,8 +32,8 @@ internal static class ObservationChecks
         SynchronizationContext.SetSynchronizationContext(context);
         try
         {
-            shell.Report(new(1, "home", [], "", []));
-            shell.Report(new(2, "home", [], "", []));
+            shell.Report(new(1, "home", [], "", [], [], ""));
+            shell.Report(new(2, "home", [], "", [], [], ""));
         }
         finally
         {

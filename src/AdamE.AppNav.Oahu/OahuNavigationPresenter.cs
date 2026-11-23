@@ -99,7 +99,7 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, INavigationP
         {
             ObjectDisposedException.ThrowIf(disposed, this);
             navigator = router ?? throw new InvalidOperationException("Bind the presenter before navigating.");
-            hint = pending is null && observed is { } last && last.Target.VisibleEntries.LastOrDefault()?.Id == sourceEntryId
+            hint = pending is null && observed is { } last && last.Target.ShowsOnTop(sourceEntryId)
                 ? new Interaction(last, request, sourceKey) : null;
         }
         var previous = interaction.Value;
@@ -171,12 +171,17 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, INavigationP
             await AcceptReconciliationAsync(plan.TargetState, context, cancellationToken).ConfigureAwait(false);
             return;
         }
-        var target = new OahuNavigationTarget(plan.TargetState, Interlocked.Increment(ref nextRevision));
+        // Refuse every shape no surface presents before waiting for one. Only whether the attached surface presents
+        // splits waits for the host.
+        _ = new OahuNavigationTarget(plan.TargetState, 0, presentsSplits: true);
+        var revision = Interlocked.Increment(ref nextRevision);
         var replay = false;
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
             Attachment current = await WaitForHostAsync(cancellationToken).ConfigureAwait(false);
+            // The attached surface decides which shapes it presents, so each host builds its own target.
+            var target = new OahuNavigationTarget(plan.TargetState, revision, current.Surface.PresentsSplits);
             var transition = DescribeTransition(current, plan, context, target, replay);
             try
             {
@@ -229,7 +234,8 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, INavigationP
         try
         {
             var state = context.CurrentState;
-            var rollback = new OahuNavigationTarget(state, Interlocked.Increment(ref nextRevision));
+            var rollback = new OahuNavigationTarget(state, Interlocked.Increment(ref nextRevision),
+                current.Surface.PresentsSplits);
             OahuNavigationTarget? previous;
             lock (gate) previous = observed?.Target;
             // Recovery must be able to restore the committed stack even when an app callback fails.
@@ -285,10 +291,21 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, INavigationP
     }
 
     /// <summary>Report settled native state; a canceled gesture reports its original state.</summary>
+    /// <param name="epoch">The epoch <see cref="Attach"/> returned for the reporting host.</param>
+    /// <param name="revision">The staged revision the reading belongs to.</param>
+    /// <param name="branch">The selected branch, or a split's primary column.</param>
+    /// <param name="entries">The entry IDs of that stack, bottom first.</param>
+    /// <param name="modalId">The presented modal, or null or empty for none.</param>
+    /// <param name="modalEntries">The modal stack's entry IDs.</param>
+    /// <param name="secondaryEntries">A split's secondary column entry IDs; empty when the split has none.</param>
+    /// <param name="compactColumn">For a split, the column a collapsed presentation shows on top: the column on top
+    /// when collapsed, and the staged column otherwise. Null for a window without a split.</param>
     public Task ObserveAsync(long epoch, long revision, string branch, IReadOnlyList<string> entries,
-        string? modalId = null, IReadOnlyList<string>? modalEntries = null)
+        string? modalId = null, IReadOnlyList<string>? modalEntries = null,
+        IReadOnlyList<string>? secondaryEntries = null, SplitColumn? compactColumn = null)
     {
-        var actual = new SurfaceObservation(branch, entries, string.IsNullOrEmpty(modalId) ? null : modalId, modalEntries ?? []);
+        var actual = new SurfaceObservation(branch, entries, string.IsNullOrEmpty(modalId) ? null : modalId,
+            modalEntries ?? [], secondaryEntries ?? [], compactColumn);
         lock (gate)
         {
             if (host is null || host.Epoch != epoch || host.Failure != null) return Task.CompletedTask;
@@ -315,7 +332,8 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, INavigationP
         NavigationReconciliation change)
     {
         var navigator = router ?? throw new InvalidOperationException("Bind the presenter before reporting native navigation.");
-        var reconciled = new OahuNavigationTarget(change.TargetState, previousTarget.Revision);
+        var reconciled = new OahuNavigationTarget(change.TargetState, previousTarget.Revision,
+            current.Surface.PresentsSplits);
         // The native host performed this gesture itself. Describe what it did rather than republishing the
         // transition that moved the app into the previous target, whose source key was consumed there.
         var target = reconciled with
