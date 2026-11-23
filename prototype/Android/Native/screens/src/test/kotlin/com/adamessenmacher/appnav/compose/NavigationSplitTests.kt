@@ -15,6 +15,7 @@ import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.WindowInfo
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -399,29 +400,102 @@ class NavigationSplitTests {
     }
 
     @Test
-    fun backLeavesAppMarksTheEntryWhoseBackGoesPastTheShell() {
+    fun navigationRootsHaveNoUpWithinTheShell() {
         val scopes = mutableMapOf<String, NavigationEntryScope>()
-        val target = mutableStateOf(split(listOf("game-a")))
+        val target = mutableStateOf(split(listOf("game-a", "page")))
         compose.setContent {
             FakeWindow {
-                AppNavNavigationShell(target.value, observations::add, unavailableContent = {
-                    scopes[it.entryId] = checkNotNull(LocalNavigationEntryScope.current)
-                    Text(it.entryId)
-                })
+                AppNavNavigationShell(target.value, observations::add, modalHost = { _, content -> content() },
+                    unavailableContent = {
+                        scopes[it.entryId] = checkNotNull(LocalNavigationEntryScope.current)
+                        Text(it.entryId)
+                    })
             }
         }
+        // Two panes: Home's root in the list pane has no Up; a game page does.
         compose.runOnIdle {
-            assertTrue(scopes.getValue("game-a").backLeavesApp)
-            assertFalse(scopes.getValue("home").backLeavesApp)
+            assertTrue(scopes.getValue("home").isNavigationRoot)
+            assertFalse(scopes.getValue("page").isNavigationRoot)
+            target.value = split(listOf("game-a"), revision = 2)
+        }
+        // The game's root beside Home's root has no Up either; Back there leaves the app.
+        compose.onNodeWithText("page").assertDoesNotExist()
+        compose.runOnIdle {
+            assertTrue(scopes.getValue("game-a").isNavigationRoot)
+            assertTrue(scopes.getValue("home").isNavigationRoot)
             window.value = Folded
         }
-        compose.runOnIdle { assertFalse(scopes.getValue("game-a").backLeavesApp) }
+        // Stacked over Home, the game's root has an Up that closes the column.
+        compose.runOnIdle { assertFalse(scopes.getValue("game-a").isNavigationRoot) }
         compose.runOnIdle {
             window.value = Unfolded
-            target.value = split(listOf("game-a"), primary = listOf("home", "more"), revision = 2)
+            target.value = split(listOf("game-a"), primary = listOf("home", "more"), revision = 3)
         }
         compose.onNodeWithText("more").assertExists()
-        compose.runOnIdle { assertFalse(scopes.getValue("game-a").backLeavesApp) }
+        compose.runOnIdle {
+            assertFalse(scopes.getValue("game-a").isNavigationRoot)
+            assertFalse(scopes.getValue("more").isNavigationRoot)
+        }
+        // One pane with a hidden default secondary: Home's root has no Up.
+        compose.runOnIdle {
+            window.value = Folded
+            target.value = split(listOf("game-a"), compact = NavigationSplitColumn.Primary, revision = 4)
+        }
+        compose.onNodeWithText("home").assertExists()
+        compose.runOnIdle { assertTrue(scopes.getValue("home").isNavigationRoot) }
+        // A modal covers Home: inside the modal and under it, nothing is a navigation root.
+        compose.runOnIdle { target.value = split(listOf("game-a"), compact = NavigationSplitColumn.Primary, revision = 5, modal = "sheet") }
+        compose.onNodeWithText("sheet-root").assertExists()
+        compose.runOnIdle {
+            assertFalse(scopes.getValue("sheet-root").isNavigationRoot)
+            assertFalse(scopes.getValue("home").isNavigationRoot)
+        }
+    }
+
+    @Test
+    fun aCancelledGestureReleasesTheHoldAndAppliesAFoldMadeDuringIt() {
+        window.value = Folded
+        compose.setContent { FakeWindow { Shell(split(listOf("game-a"))) } }
+        compose.onNodeWithText("game-a").assertExists()
+        val dispatcher = compose.activity.onBackPressedDispatcher
+
+        compose.runOnIdle {
+            dispatcher.dispatchOnBackStarted(BackEventCompat(10f, 500f, 0f, BackEventCompat.EDGE_LEFT))
+            dispatcher.dispatchOnBackProgressed(BackEventCompat(200f, 500f, 0.4f, BackEventCompat.EDGE_LEFT))
+        }
+        // The preview composes Home under the game, so read the layout from where the game sits.
+        compose.runOnIdle { window.value = Unfolded }
+        assertTrue(compose.onNodeWithText("game-a").getUnclippedBoundsInRoot().left < SplitListPaneWidth)
+        compose.runOnIdle { dispatcher.dispatchOnBackCancelled() }
+        compose.onNodeWithText("home").assertExists()
+        assertTrue(compose.onNodeWithText("game-a").getUnclippedBoundsInRoot().left >= SplitListPaneWidth)
+        compose.runOnIdle {
+            assertEquals(listOf("game-a"), observations.last().secondaryEntries)
+            assertEquals(1, observations.size)
+        }
+    }
+
+    @Test
+    fun anInlineModalGestureHoldsTheLayoutThroughAnUnfold() {
+        window.value = Folded
+        compose.setContent {
+            FakeWindow { Shell(split(listOf("game-a"), modal = "sheet"), modalHost = { _, content -> content() }) }
+        }
+        compose.onNodeWithText("sheet-root").assertExists()
+        val dispatcher = compose.activity.onBackPressedDispatcher
+
+        compose.runOnIdle { dispatcher.dispatchOnBackStarted(BackEventCompat(10f, 500f, 0f, BackEventCompat.EDGE_LEFT)) }
+        compose.runOnIdle { window.value = Unfolded }
+        compose.onNodeWithText("home").assertDoesNotExist()
+        compose.runOnIdle { dispatcher.onBackPressed() }
+        compose.onNodeWithText("sheet-root").assertDoesNotExist()
+        compose.onNodeWithText("home").assertExists()
+        compose.onNodeWithText("game-a").assertExists()
+        compose.runOnIdle {
+            assertEquals("", observations.last().modalId)
+            assertEquals(listOf("game-a"), observations.last().secondaryEntries)
+            assertFalse(compose.activity.isFinishing)
+        }
     }
 
     @Test

@@ -178,17 +178,20 @@ public fun AppNavNavigationShell(
     val surface = remember(target.revision) { DisplayedSurface(target) }
     // A layout change waits for a Back gesture under way, in Nav3 or through managed Back, so the callback
     // that started it keeps its enabled state and the Back it completes. The new layout applies once the
-    // gesture ends. Only the start and end recompose the shell, not every progress event.
+    // gesture ends. Only the start and end recompose the shell, not every progress event, and only a split
+    // reads the window size or the gesture, so a resize or a gesture never recomposes a plain stack or tabs.
     val dispatcher = LocalNavigationEventDispatcherOwner.current?.navigationEventDispatcher
     val gesture = remember(dispatcher) { dispatcher?.transitionState ?: MutableStateFlow(NavigationEventTransitionState.Idle) }
         .collectAsState()
-    val inBackGesture by remember(gesture) {
+    val inBackGesture = remember(gesture) {
         derivedStateOf { gesture.value is NavigationEventTransitionState.InProgress }
     }
-    val windowTwoPanes = showsBothColumns(LocalWindowInfo.current.containerDpSize)
-    val layoutLatch = remember { LayoutLatch(windowTwoPanes) }
-    val twoPanes = if (inBackGesture) layoutLatch.twoPanes else windowTwoPanes
-    SideEffect { if (!inBackGesture) layoutLatch.twoPanes = windowTwoPanes }
+    val window = LocalWindowInfo.current
+    val windowShowsBothColumns = remember(window) { derivedStateOf { showsBothColumns(window.containerDpSize) } }
+    val layoutLatch = remember { LayoutLatch(false) }
+    val isSplit = target.split != null
+    val twoPanes = isSplit && if (inBackGesture.value) layoutLatch.twoPanes else windowShowsBothColumns.value
+    SideEffect { if (isSplit && !inBackGesture.value) layoutLatch.twoPanes = twoPanes }
     val origins = remember { NavigationOrigins() }
     val backScope = rememberCoroutineScope()
     var managedBackInFlight by remember { mutableStateOf(false) }
@@ -300,7 +303,7 @@ public fun AppNavNavigationShell(
             } else {
                 branchStates.SaveableStateProvider(branch) {
                     MountedStack(expectedPrimary, target.transition, animations, origins, allowPrimaryPreview,
-                        { back(modalBack = false) }, unavailableContent, twoPanes, splitPlaceholder, backLeavesAppAtRoot = true) {
+                        { back(modalBack = false) }, unavailableContent, twoPanes, splitPlaceholder, rootsHaveNoUp = modal.isEmpty()) {
                         renderedPrimary = it
                     }
                 }
@@ -458,12 +461,15 @@ private data class StackRender(
         else -> listOfNotNull(presented.lastOrNull())
     }
 
-    /** Whether system Back with [entry] on top goes past this stack: nothing in it would pop or close. */
-    fun backLeavesApp(entry: MountedEntry, twoPanes: Boolean): Boolean {
-        if (visible(twoPanes).lastOrNull() != entry) return false
-        val compact = compactColumn ?: return entries.size == 1
-        val shown = if (secondary.isEmpty()) NavigationSplitColumn.Primary else compact
-        return splitBack(primaryCount, secondary.size, shown, twoPanes) == SplitBack.None
+    /**
+     * Whether the entry at [index] has no Up within the shell: a plain stack's root, the primary column's
+     * root, or, in two panes, the secondary root beside a primary column at its root.
+     */
+    fun isNavigationRoot(index: Int, twoPanes: Boolean): Boolean = when {
+        index == 0 -> true
+        !isSplit -> false
+        index == primaryCount -> twoPanes && primaryCount == 1
+        else -> false
     }
 
     fun columnOf(index: Int): NavigationSplitColumn? = when {
@@ -492,7 +498,7 @@ private fun MountedStack(
     unavailableContent: @Composable (MountedEntry) -> Unit,
     twoPanes: Boolean = false,
     splitPlaceholder: @Composable () -> Unit = {},
-    backLeavesAppAtRoot: Boolean = false,
+    rootsHaveNoUp: Boolean = false,
     onSettled: (StackRender) -> Unit,
 ) {
     var lastReset by rememberSaveable { mutableLongStateOf(0) }
@@ -509,7 +515,7 @@ private fun MountedStack(
     // owns a distinct NavEntry saveable holder while the old and new compositions exchange places.
     key(epoch) {
         StackScene(stack, presentation, animations, origins, allowBackPreview, onBack, unavailableContent,
-            twoPanes, splitPlaceholder, backLeavesAppAtRoot) { seen, isStillSettled ->
+            twoPanes, splitPlaceholder, rootsHaveNoUp) { seen, isStillSettled ->
             history.settledStack = seen
             history.isStillSettled = isStillSettled
             onSettled(seen)
@@ -528,11 +534,12 @@ private fun StackScene(
     unavailableContent: @Composable (MountedEntry) -> Unit,
     twoPanes: Boolean,
     splitPlaceholder: @Composable () -> Unit,
-    backLeavesAppAtRoot: Boolean,
+    rootsHaveNoUp: Boolean,
     onSettled: (StackRender, () -> Boolean) -> Unit,
 ) {
     val currentStack by rememberUpdatedState(stack)
     val currentTwoPanes by rememberUpdatedState(twoPanes)
+    val currentRootsHaveNoUp by rememberUpdatedState(rootsHaveNoUp)
     val currentPresentation by rememberUpdatedState(presentation)
     val currentUnavailable by rememberUpdatedState(unavailableContent)
     val settled by rememberUpdatedState(onSettled)
@@ -571,7 +578,8 @@ private fun StackScene(
                         backCancellations = { backCancellations },
                         splitColumn = column,
                         isSplitExpanded = expanded,
-                        backLeavesApp = backLeavesAppAtRoot && expected.backLeavesApp(entry, currentTwoPanes),
+                        isNavigationRoot = currentRootsHaveNoUp &&
+                            expected.isNavigationRoot(expected.entries.indexOf(entry), currentTwoPanes),
                     )
                     CompositionLocalProvider(LocalNavigationEntryScope provides scope) {
                         if (entry.mount == 0L) currentUnavailable(entry) else OahuMount(entry.mount)

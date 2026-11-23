@@ -102,16 +102,17 @@ public class NavigationEntryScope internal constructor(
     /** The split column that holds this entry, or null outside a split. */
     public val splitColumn: NavigationSplitColumn? = null,
     /**
-     * Whether the window shows the split's columns side by side. Use [backLeavesApp] to decide whether an
+     * Whether the window shows the split's columns side by side. Use [isNavigationRoot] to decide whether an
      * entry shows an Up or Back affordance.
      */
     public val isSplitExpanded: Boolean = false,
     /**
-     * Whether system Back while this entry is on top leaves the app, because the shell has nothing to pop or
-     * close: a stack's root, the primary column's root, or a split's secondary root beside a primary column
-     * at its root. Give such an entry no Up or Back affordance. False inside a modal.
+     * Whether this entry has no Up within the shell, so system Back from it leaves the app: a plain stack's
+     * root, a split's primary root in either layout, or, side by side, the secondary root beside a primary
+     * column at its root. Show an Up or Back affordance only when this is false. Always false inside a modal
+     * and for entries a modal covers.
      */
-    public val backLeavesApp: Boolean = false,
+    public val isNavigationRoot: Boolean = false,
 ) {
     /** 0–1 while Android is dispatching predictive Back. The route remains committed during a preview. */
     public val predictiveBackProgress: Float? get() = backProgress()
