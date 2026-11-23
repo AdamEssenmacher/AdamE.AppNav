@@ -119,9 +119,9 @@ final class NativeSurface: ObservableObject {
     }
 
     var target: NavigationProjection? { state.target }
-    /// The secondary column the detail column renders: the staged one, or one a staged revision is closing.
     /// Whether the secondary root has a page behind it: the split is collapsed on its last held layout.
     var secondaryRootHasBack: Bool { state.heldCollapsed == true }
+    /// The secondary column the detail column renders: the staged one, or one a staged revision is closing.
     var renderedSecondary: NavigationBranchProjection? { state.target?.split?.secondary ?? state.departingSecondary }
     var diagnostics: NavigationDiagnostics { state.diagnostics }
     var applying: Bool { state.applying }

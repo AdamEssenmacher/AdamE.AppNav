@@ -823,7 +823,17 @@ struct SurfaceState {
     // Records the split's layout. A layout counts once it holds across two frames: during a fold or a rotation UIKit
     // passes through intermediate sizes, and size classes flicker.
     private mutating func noteSplitLayout(_ sample: NativeSample) {
-        splitLayoutHeld = sample.split != nil && sample.split == splitLayout
+        // Without a split there is no layout to hold, so a later split starts from scratch.
+        if sample.split == nil || target?.split == nil {
+            splitLayout = nil
+            splitLayoutHeld = false
+            heldCollapsed = nil
+            collapsedTop = nil
+            secondarySeenOnTop = false
+            diagnostics.splitCollapsed = nil
+            return
+        }
+        splitLayoutHeld = sample.split == splitLayout
         if sample.split != splitLayout { secondarySeenOnTop = false }
         splitLayout = sample.split
         diagnostics.splitCollapsed = target?.split == nil ? nil : sample.split?.isCollapsed

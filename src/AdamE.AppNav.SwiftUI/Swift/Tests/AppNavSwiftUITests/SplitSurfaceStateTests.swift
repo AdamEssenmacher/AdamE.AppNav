@@ -445,6 +445,30 @@ final class SplitSurfaceStateTests: XCTestCase {
         XCTAssertEqual(h.nativePops, 1)
     }
 
+    // Review finding: a window that went from a split to a plain stack and back reused the old split's held layout.
+    func testSplitStackSplitStartsWithoutAHeldLayout() {
+        var h = SplitHarness()
+        h.stage(split(1, game: ["game"]))
+        h.frames()
+        XCTAssertEqual(h.state.heldCollapsed, true)
+        XCTAssertEqual(h.state.collapsedTop, .secondary)
+        let stack = NavigationProjection(
+            revision: 2, selectedBranch: "main", isBranchHost: false,
+            branches: [NavigationBranchProjection(id: "main", title: "", entries: [entry("page")])], modal: nil)
+        h.stage(stack)
+        let top = StackSample(key: .branch("main"), top: entry("page"), depth: 1, identities: ["page"])
+        for _ in 0..<3 { h.frame(NativeSample(time: h.time, markerKeys: [top.key], tops: [top])) }
+        XCTAssertNil(h.state.heldCollapsed)
+        XCTAssertNil(h.state.collapsedTop)
+        XCTAssertNil(h.state.splitLayout)
+        h.stage(split(3, game: ["game"]))
+        XCTAssertNil(h.state.heldCollapsed, "no layout has held for the new split")
+        h.frame()
+        XCTAssertNil(h.state.heldCollapsed, "one frame is not a layout yet")
+        h.frame()
+        XCTAssertEqual(h.state.heldCollapsed, true)
+    }
+
     func testBackPlanClosingTheColumnSetsTheBinding() {
         var h = SplitHarness()
         h.stage(split(1, game: ["game"]))
