@@ -213,7 +213,7 @@ final class NativeSurface: ObservableObject {
             }
         }
         if let previous = guardedStack, previous !== guarded?.0 || guardedPage !== guarded?.1 {
-            Self.setBackGestures(of: previous, page: guardedPage, enabled: true)
+            Self.setBackGestures(of: previous, enabled: true)
             guardedStack = nil
             guardedPage = nil
             trace?("restored the native Back gestures of the collapsed split")
@@ -221,23 +221,18 @@ final class NativeSurface: ObservableObject {
         guard let (nav, controller) = guarded else { return }
         if !controller.navigationItem.hidesBackButton { controller.navigationItem.hidesBackButton = true }
         if guardedStack !== nav {
-            Self.setBackGestures(of: nav, page: controller, enabled: false)
+            Self.setBackGestures(of: nav, enabled: false)
             guardedStack = nav
             guardedPage = controller
             trace?("guarding the collapsed secondary root: native Back gestures off")
         }
     }
 
-    // The edge swipe, and from iOS 26 the swipe anywhere on the content, pop the navigation stack. A root that arrived
-    // with a zoom transition also carries UIKit's interactive zoom dismissal (edge pan, swipe down, pinch) on its own
-    // view, which pops it too; UIKit names those recognizers, and the public zoom options are out of SwiftUI's reach.
-    private static func setBackGestures(of nav: UINavigationController, page: UIViewController?, enabled: Bool) {
+    // The edge swipe, and from iOS 26 the swipe anywhere on the content, pop the navigation stack. A guarded page
+    // never zooms in (see NavigationShell.page), so it carries no zoom-dismiss gestures of its own.
+    private static func setBackGestures(of nav: UINavigationController, enabled: Bool) {
         nav.interactivePopGestureRecognizer?.isEnabled = enabled
         if #available(iOS 26, *) { nav.interactiveContentPopGestureRecognizer?.isEnabled = enabled }
-        for recognizer in page?.viewIfLoaded?.gestureRecognizers ?? []
-        where recognizer.name?.hasPrefix("com.apple.UIKit.ZoomInteractiveDismiss") == true {
-            recognizer.isEnabled = enabled
-        }
     }
 
     private static func split(in root: UIViewController?) -> UISplitViewController? {

@@ -234,7 +234,7 @@ public sealed class SceneDelegate : UIWindowSceneDelegate
         sceneLifetime = null;
     }
 
-    // Guards Back from Home detail, and from Game A's root in the split probe when asked to.
+    // Guards Back from Home detail and, when asked to, from the zoomed Game page and Game A's root in the split probe.
     private sealed class HomeBackPolicy(bool guardsGame) : IBackNavigationPolicy
     {
         private volatile bool allowed;
@@ -248,7 +248,8 @@ public sealed class SceneDelegate : UIWindowSceneDelegate
             var guarded = context.NavigationContext.Window is
                 { Modals.Count: 0, Root: BranchHostNode { SelectedBranch.Content: StackNode { Top.Id: "home-detail" } } } ||
                 (guardsGame && context.NavigationContext.Window is
-                    { Modals.Count: 0, Root: SplitNode { Secondary: StackNode { Entries.Count: 1, Top.Id: "game-a" } } });
+                    { Modals.Count: 0, Root: SplitNode { Secondary: StackNode { Entries.Count: 1, Top.Id: "game-a" } } } or
+                    { Modals.Count: 0, Root: BranchHostNode { SelectedBranch.Content: StackNode { Top.Id: "game" } } });
             return ValueTask.FromResult(guarded && !allowed
                 ? BackNavigationPolicyDecision.Cancel : BackNavigationPolicyDecision.Continue);
         }

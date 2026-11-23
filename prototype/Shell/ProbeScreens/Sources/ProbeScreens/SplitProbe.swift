@@ -6,7 +6,7 @@ struct SplitProbeContext {
     let command: @MainActor (String) -> Void
 
     static let isEnabled = ProcessInfo.processInfo.arguments.contains("--probe-split")
-    /// Game A's root asks AppNav, whose policy cancels Back from it until Allow Back.
+    /// Game A's root, and Game in the plain stack, ask AppNav, whose policy cancels Back from them until Allow Back.
     static let guardsGame = ProcessInfo.processInfo.arguments.contains("--probe-guard-game")
 
     /// The matched source key of a game's cover on its Home row.

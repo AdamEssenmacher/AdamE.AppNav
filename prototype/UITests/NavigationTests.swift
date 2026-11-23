@@ -26,7 +26,7 @@ final class NavigationTests: XCTestCase {
         if name.contains("testSplit") {
             app.launchArguments.append("--probe-split")
         }
-        if name.contains("testSplitGuardedGame") {
+        if name.contains("testSplitGuardedGame") || name.contains("testGuardedZoomedGame") {
             app.launchArguments.append("--probe-guard-game")
         }
         if name.contains("testSplitSelectionTakenBack") {
@@ -633,5 +633,18 @@ final class NavigationTests: XCTestCase {
         awaitLabel("probe-native") { $0 == "rev=2 home-stack [home] + [game-a] @secondary" }
         XCTAssertFalse(app.buttons["appnav-request-back"].exists)
         XCTAssertFalse(app.buttons["BackButton"].exists)
+    }
+
+    // A guarded page has only the app's Back. The shell does not zoom it in, since UIKit's zoom dismissal would pop it
+    // past the policy, so the edge swipe leaves it in place.
+    func testGuardedZoomedGameKeepsItsPolicy() {
+        awaitLabel("probe-status") { $0 == self.home }
+        app.buttons["probe-open-game"].press(forDuration: 0.22)
+        awaitLabel("probe-status") { $0 == self.game }
+        let back = app.buttons["appnav-request-back"]
+        XCTAssertTrue(back.waitForExistence(timeout: 5))
+        edgeSwipe(to: 0.9)
+        XCTAssertTrue(app.staticTexts["page-game"].exists, "The edge swipe popped a guarded page")
+        XCTAssertEqual(app.staticTexts["probe-status"].label, game)
     }
 }

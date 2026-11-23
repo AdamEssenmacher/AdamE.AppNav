@@ -196,7 +196,9 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
         // it as the managed close affordance.
         let intercept = !isBranchRoot && back?.intercepts(entry) == true
         let context = surface.context(for: entry, key: key)
-        return styledDestination(context, key: key, appliesTransition: appliesTransition)
+        // A guarded page gets no destination transition. A zoom brings UIKit's interactive zoom dismissal, which pops
+        // the page whatever its Back button, and no public API turns that off for a SwiftUI zoom.
+        return styledDestination(context, key: key, appliesTransition: appliesTransition && !intercept)
         .background(PageMarker(surface: surface, key: key, entry: entry))
         // Hiding the button also disables the edge swipe and the Back-history menu.
         .navigationBarBackButtonHidden(intercept || surface.withholdsBack(key) || surface.isWaitingForTab(key))
