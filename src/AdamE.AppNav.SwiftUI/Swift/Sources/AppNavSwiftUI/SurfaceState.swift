@@ -278,8 +278,7 @@ struct SurfaceState {
         // While collapsed, SwiftUI can leave the binding on the primary column with the secondary root still on top.
         // It then neither pops that column for a staged primary column, nor shows a different secondary column, so
         // UIKit pops it first, as a native Back would.
-        let strayOnTop = compactColumn == .primary && splitLayoutHeld && splitLayout?.isCollapsed == true &&
-            collapsedTop == .secondary
+        let strayOnTop = compactColumn == .primary && heldCollapsed == true && collapsedTop == .secondary
         let previousSecondary = target?.split?.secondary
         // A different secondary column has not been seen on top yet, so no Back can have closed it.
         if previousSecondary?.id != next.split?.secondary?.id ||
@@ -332,7 +331,7 @@ struct SurfaceState {
     // second time. The binding keeps its value then, even when SwiftUI changed it while the column stayed on top.
     private mutating func adoptCompactColumn(_ desired: NavigationSplitColumn?) {
         guard let desired else { return }
-        if splitLayout?.isCollapsed == true, collapsedTop == desired { return }
+        if heldCollapsed == true, collapsedTop == desired { return }
         compactColumn = desired
     }
 
@@ -455,7 +454,7 @@ struct SurfaceState {
         guard let context = next.transition else { return }
         // A selection zooms only over a collapsed primary column. Side by side, its source row stays on screen, and
         // SwiftUI hides a matched source while its destination shows.
-        if let push, !push.changesColumn || splitLayout?.isCollapsed == true,
+        if let push, !push.changesColumn || heldCollapsed == true,
            let source = push.old.last, let destination = push.new.last,
            source.mount > 0, destination.mount > 0,
            context.sourceEntryID == source.id, context.destinationEntryID == destination.id {
@@ -696,7 +695,7 @@ struct SurfaceState {
         var out = SurfaceOutcome()
         guard next != compactColumn else { return out }
         // Only a collapsed window stacks the selection over the primary column; side by side the write is not a Back.
-        if next == .primary, applying, splitLayout?.isCollapsed == true, takenBack == nil, undo == nil,
+        if next == .primary, applying, heldCollapsed == true, takenBack == nil, undo == nil,
            let push = animatedPush, push.changesColumn,
            push.new.count > push.old.count, pushWitnessed, let staged = stagedReading() {
             takenBack = TakenBack(key: push.key, staged: staged, shorter: staged.closingSecondary(),
@@ -823,8 +822,9 @@ struct SurfaceState {
     // Records the split's layout. A layout counts once it holds across two frames: during a fold or a rotation UIKit
     // passes through intermediate sizes, and size classes flicker.
     private mutating func noteSplitLayout(_ sample: NativeSample) {
-        // Without a split there is no layout to hold, so a later split starts from scratch.
-        if sample.split == nil || target?.split == nil {
+        // A window without a split has no layout to hold, so a later split starts from scratch. A split whose controller
+        // a frame happens not to find keeps its last held layout.
+        if target?.split == nil {
             splitLayout = nil
             splitLayoutHeld = false
             heldCollapsed = nil
@@ -833,7 +833,7 @@ struct SurfaceState {
             diagnostics.splitCollapsed = nil
             return
         }
-        splitLayoutHeld = sample.split == splitLayout
+        splitLayoutHeld = sample.split != nil && sample.split == splitLayout
         if sample.split != splitLayout { secondarySeenOnTop = false }
         splitLayout = sample.split
         diagnostics.splitCollapsed = target?.split == nil ? nil : sample.split?.isCollapsed
@@ -1159,7 +1159,7 @@ struct SurfaceState {
         if taken.closesColumn {
             // A collapsed window already showing the secondary root on top would push it a second time.
             guard compactColumn != .secondary,
-                  !(splitLayout?.isCollapsed == true && collapsedTop == .secondary) else { return }
+                  !(heldCollapsed == true && collapsedTop == .secondary) else { return }
             compactColumn = .secondary
             if installs { out.install = InstallAnimation.none }
             return

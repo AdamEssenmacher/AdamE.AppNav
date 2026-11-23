@@ -77,7 +77,7 @@ Further checks by hand on the Duo simulator:
 - **Back button on a guarded root.** A screen recording of `testSplitGuardedGameRootSwipeOntoRoot` on the closed Duo, sampled at 6 frames a second, shows the Back control in the outer display's side rail without a gap or flicker. That covers the selection onto Game A, the swipe back from its page, and the two refused swipes. On that rail the app's Back and the system Back look alike, so the recording shows no flicker but cannot tell which one is drawn.
 - **First selection side by side.** On the open Duo held sideways, SwiftUI wrote no compact column for the first selection: no `SwiftUI set the compact column` trace appeared.
 
-On 2026-11-22, at the head that keeps the guard until a departing root leaves the top, the whole suite passed on an iPhone 17 Pro simulator with iOS 27.2: 29 tests, 26 passed and 3 skipped.
+On 2026-11-22, at the head that keeps a split's held layout through a frame without its controller, the whole suite passed on an iPhone 17 Pro simulator with iOS 27.2: 29 tests, 26 passed and 3 skipped.
 - **Passed:** the 17 existing tests, the plain-stack guarded Game test, and the eight split tests that run collapsed: select and swipe back, game switch, taken-back selection, sheet over a game, guarded root, guard released, swipe onto a guarded root, and AppNav Back from a guarded root after a pop.
 - **Skipped:** the two expanded tests and the fold test.
 

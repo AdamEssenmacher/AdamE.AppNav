@@ -469,6 +469,22 @@ final class SplitSurfaceStateTests: XCTestCase {
         XCTAssertEqual(h.state.heldCollapsed, true)
     }
 
+    // Review finding: one frame without the split controller dropped the held layout, so a stage wrote the column
+    // already on top and SwiftUI pushed it again.
+    func testFrameWithoutTheSplitKeepsTheHeldLayout() {
+        var h = SplitHarness()
+        strayCollapsedGame(&h, "game")
+        var missing = h.faithfulSample(secondaryOnTop: true)
+        missing.split = nil
+        h.frame(missing)
+        XCTAssertEqual(h.state.heldCollapsed, true)
+        XCTAssertEqual(h.state.collapsedTop, .secondary)
+        // A push in the game keeps the stray binding: writing the shown column would push the game's root again.
+        h.stage(split(2, game: ["game", "next"]))
+        XCTAssertEqual(h.state.compactColumn, .primary)
+        XCTAssertNil(h.state.nativePop)
+    }
+
     func testBackPlanClosingTheColumnSetsTheBinding() {
         var h = SplitHarness()
         h.stage(split(1, game: ["game"]))
