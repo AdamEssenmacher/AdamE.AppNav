@@ -99,6 +99,13 @@ public class NavigationEntryScope internal constructor(
     public val animatedVisibilityScope: AnimatedVisibilityScope,
     private val backProgress: () -> Float?,
     private val backCancellations: () -> Long,
+    /** The split column that holds this entry, or null outside a split. */
+    public val splitColumn: NavigationSplitColumn? = null,
+    /**
+     * Whether the window shows the split's columns side by side. The secondary column's root then has no
+     * Up or Back affordance: system Back from it leaves the app, as from the primary column's root.
+     */
+    public val isSplitExpanded: Boolean = false,
 ) {
     /** 0–1 while Android is dispatching predictive Back. The route remains committed during a preview. */
     public val predictiveBackProgress: Float? get() = backProgress()
@@ -134,8 +141,7 @@ internal class NavigationOrigins {
             entry in predecessors && predecessors[entry] != origin.source
         }
         if (transition.operation != "push") return
-        val stack = target.modalEntries.takeIf { it.isNotEmpty() }
-            ?: target.branches.firstOrNull { it.branch == target.selectedBranch }?.entries.orEmpty()
+        val stack = target.modalEntries.takeIf { it.isNotEmpty() } ?: target.presentedStack()
         val (source, destination) = transition.matchingPush(stack) ?: return
         origins[destination] = Origin(source, transition)
     }
@@ -168,10 +174,23 @@ internal class NavigationOrigins {
     }
 
     private fun predecessors(target: NavigationProjection): Map<MountedEntry, MountedEntry?> = buildMap {
-        (target.branches.map(NavigationBranch::entries) + listOf(target.modalEntries)).forEach { stack ->
+        // A split's secondary root follows the primary column's top, as a one-pane window stacks them.
+        val split = target.split
+        val stacks = target.branches.map { branch ->
+            if (split != null && branch.branch == target.selectedBranch) branch.entries + split.secondaryEntries
+            else branch.entries
+        }
+        (stacks + listOf(target.modalEntries)).forEach { stack ->
             stack.forEachIndexed { index, entry -> put(entry, stack.getOrNull(index - 1)) }
         }
     }
+}
+
+/** The stack one pane presents: the selected branch, or a split's primary column with its secondary on top. */
+private fun NavigationProjection.presentedStack(): List<MountedEntry> {
+    val primary = branches.firstOrNull { it.branch == selectedBranch }?.entries.orEmpty()
+    val split = split ?: return primary
+    return if (split.compactColumn == NavigationSplitColumn.Secondary) primary + split.secondaryEntries else primary
 }
 
 private fun NavigationPresentationTransition.matchingPush(
