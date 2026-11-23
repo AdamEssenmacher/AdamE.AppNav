@@ -241,7 +241,9 @@ jobs:
 
   android-adapter-native-checks:
     name: Android adapter native checks (API ${{ matrix.api-level }})
-    runs-on: macos-26-intel
+    # Linux with KVM: the API 36 emulator on the Intel macOS runner did not boot, or booted to a black display, in every
+    # dispatched run.
+    runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -262,13 +264,25 @@ jobs:
           distribution: microsoft
           java-version: "21"
       - run: dotnet workload install android
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
       # The action starts this run's own emulator, the only device on the runner.
       - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: ${{ matrix.api-level }}
           target: google_apis
           arch: x86_64
+          # Animations only slow the checks.
+          disable-animations: true
           script: ANDROID_SERIAL=emulator-5554 eng/run-android-native-checks.sh
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: android-adapter-native-checks-api${{ matrix.api-level }}
+          path: artifacts/android-native-checks
 
   android-api28-platform-tests:
     name: Android API 28 platform tests

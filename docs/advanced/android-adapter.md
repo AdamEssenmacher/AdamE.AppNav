@@ -64,10 +64,16 @@ operation in it ends whatever its outcome, so a recreated activity never shows
 an empty frame between its creation and the refresh that fills it, and a failed
 or empty presentation still draws.
 
-An operation on a stopped activity waits for a drawn layout like any other, and
-Android may not draw a hidden window until it is shown again: the operation
-finishes, at the latest, when the activity is started again. A rollback never
-waits for layout, so an operation canceled or failing there ends at once.
+Native changes only in a started activity. An operation waits for its activity
+to be started before it builds pages, and checks again in the same main-thread
+turn as it changes native, as it waits for a detached activity to be replaced.
+Android neither lays out nor draws a stopped activity, and on API 28 a dialog
+shown into one was not reliably drawn once it started again. Canceling an
+operation while it waits ends it with nothing touched. An operation that changed
+native and then fails after its activity stopped (it was waiting for a frame)
+shows nothing in its rollback: it gives the surface up, keeping its current
+pages, and once the activity starts the presenter asks for a refresh, which
+presents the router's state again. A rollback never waits for layout.
 
 ## One operation
 
@@ -134,6 +140,8 @@ call the router without AppNav refusing it as reentrant:
   waits for it does not fail that operation;
 - a dialog dismissed by something other than the presenter or its cancel, as a
   reported failure and a refresh;
+- after a rollback in a stopped activity gave its surface up, a refresh request
+  once the activity starts again, so the router's state is presented;
 - failures it recovered from.
 
 Each request is made in a later turn of the looper, and only if then its
@@ -151,7 +159,8 @@ real Back key, and a Back whose activity detached before delivery; cancel
 refused and accepted, dismissal from outside, a rollback that restores a closed
 modal, and a modal canceled while an operation keeps it or is showing it; a second activity
 attaching, a real `Recreate()` with a dialog showing, an operation on a stopped
-activity and one canceled there, an operation waiting for the next activity, a finishing activity and
+activity, one canceled there, an activity stopped during a page build, a rollback
+after the activity stopped, an operation waiting for the next activity, a finishing activity and
 disposal mid-operation; the first-draw gate holding and then opening; and, through a real router, lease release order,
 placeholders, presenter-opened leases and the router host. The release workflow
 runs them on API 28 and API 36 emulators. `eng/verify.sh native-android`
