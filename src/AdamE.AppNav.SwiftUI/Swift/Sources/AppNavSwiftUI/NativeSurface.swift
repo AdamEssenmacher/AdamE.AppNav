@@ -106,8 +106,16 @@ final class NativeSurface: ObservableObject {
         backGuard = nil
     }
 
+    // Releasing synchronously keeps a replacement surface's guard from recording a state this one is about to undo.
+    // Off the main thread the release waits for the main actor; the next quiet frame of a live surface heals any
+    // overlap.
     deinit {
-        if let current = backGuard { Task { @MainActor in current.release() } }
+        guard let current = backGuard else { return }
+        if Thread.isMainThread {
+            MainActor.assumeIsolated { current.release() }
+        } else {
+            Task { @MainActor in current.release() }
+        }
     }
 
     var target: NavigationProjection? { state.target }
@@ -192,11 +200,8 @@ final class NativeSurface: ObservableObject {
             identities.setObject(entry.id as NSString, forKey: controller)
             pages.append((marker, nav, controller, key, entry))
         }
-        // A gesture or transition in flight keeps the guard as it is: turning a recognizer off mid-gesture cancels
-        // it, and UIKit still names the page being left as the top. The guard engages on the first quiet frame.
-        if !isTransitioning, state.interaction == nil {
-            guardCollapsedSecondaryRoot(pages.map { ($0.nav, $0.controller, $0.key, $0.entry) })
-        }
+        guardCollapsedSecondaryRoot(pages.map { ($0.nav, $0.controller, $0.key, $0.entry) },
+                                    quiet: !isTransitioning && state.interaction == nil)
         let tops = pages.compactMap { page -> StackSample? in
             guard page.nav.topViewController === page.controller, !page.marker.isHidden else { return nil }
             return StackSample(
@@ -221,11 +226,13 @@ final class NativeSurface: ObservableObject {
         apply { $0.sample(sample) }
     }
 
-    // Hides the system Back and turns off the swipes of a collapsed split's navigation stack while its top is a
-    // guarded secondary root, so only the app's Back, which asks AppNav, leaves it. Whatever releases the guard (the
-    // root leaving the top, the app no longer intercepting it, an unfold, or the split going away) puts back the
-    // values the guard found.
-    private func guardCollapsedSecondaryRoot(_ pages: [(UINavigationController, UIViewController, StackKey, NavigationEntry)]) {
+    // Guards a guarded secondary root on top of a collapsed split, so only the app's Back, which asks AppNav, leaves
+    // it. Its system Back is hidden on every frame, transitions included, so it never flashes. The swipes are turned
+    // off only when no gesture is under way, since turning a recognizer off mid-gesture cancels it: at the end of the
+    // transition onto the root, or failing that on the first quiet frame. Whatever releases the guard (the root
+    // leaving the top, the app no longer intercepting it, an unfold, or the split going away) undoes its changes.
+    private func guardCollapsedSecondaryRoot(_ pages: [(UINavigationController, UIViewController, StackKey, NavigationEntry)],
+                                             quiet: Bool) {
         var guarded: (UINavigationController, UIViewController)?
         if let guardsBack, let root = state.target?.split?.secondary?.entries.first, state.heldCollapsed == true {
             for (nav, controller, key, entry) in pages where key.isSecondary && entry == root &&
@@ -239,13 +246,27 @@ final class NativeSurface: ObservableObject {
             trace?("released the guard on the collapsed secondary root")
         }
         guard let (nav, controller) = guarded else { return }
-        if let current = backGuard {
-            // SwiftUI can rebuild the navigation item while the guard holds.
-            current.reassert()
-            return
+        let current: BackGuard
+        if let existing = backGuard {
+            current = existing
+        } else {
+            current = BackGuard(stack: nav, page: controller)
+            backGuard = current
+            trace?("guarding the collapsed secondary root")
         }
-        backGuard = BackGuard(stack: nav, page: controller)
-        trace?("guarding the collapsed secondary root: system Back and swipes off")
+        // SwiftUI can rebuild the navigation item while the guard holds.
+        current.hideBackButton()
+        if quiet {
+            current.disableSwipes()
+        } else if let transition = nav.transitionCoordinator, current.awaitedTransition != ObjectIdentifier(transition) {
+            // Close the gap between the transition's end and the next display frame, where a new swipe could start.
+            current.awaitedTransition = ObjectIdentifier(transition)
+            transition.animate(alongsideTransition: nil) { [weak self, weak current] context in
+                guard !context.isCancelled, let self, let current, self.backGuard === current,
+                      current.stack?.topViewController === current.page else { return }
+                current.disableSwipes()
+            }
+        }
     }
 
     private static func split(in root: UIViewController?) -> UISplitViewController? {
@@ -414,14 +435,16 @@ final class NativeSurface: ObservableObject {
         }
     }
 }
-/// The guard on a collapsed secondary root. While it holds, the page hides its system Back and the stack's edge swipe,
-/// and from iOS 26 its content swipe, stay off; it asserts that again on each quiet frame. Releasing it undoes only what
-/// the guard itself changed, and only where the guard's value still stands, so a newer change by SwiftUI or the app
-/// survives. A guarded page never zooms in (see NavigationShell.page), so it carries no zoom-dismiss gestures.
+/// The guard on a collapsed secondary root: the page's system Back hidden, and the stack's edge swipe and, from iOS 26,
+/// content swipe turned off. Releasing it undoes only what the guard itself changed, and leaves a value alone when it no
+/// longer holds what the guard set; a later change that happened to set the same value is not detectable. A guarded
+/// page never zooms in (see NavigationShell.page), so it carries no zoom-dismiss gestures.
 @MainActor
 final class BackGuard {
     weak var stack: UINavigationController?
     weak var page: UIViewController?
+    /// The transition whose completion will turn the swipes off.
+    var awaitedTransition: ObjectIdentifier?
     private var hidBackButton = false
     private var disabledEdgeSwipe = false
     private var disabledContentSwipe = false
@@ -429,7 +452,6 @@ final class BackGuard {
     init(stack: UINavigationController, page: UIViewController) {
         self.stack = stack
         self.page = page
-        reassert()
     }
 
     private var contentSwipe: UIGestureRecognizer? {
@@ -437,11 +459,14 @@ final class BackGuard {
         return nil
     }
 
-    func reassert() {
+    func hideBackButton() {
         if let item = page?.navigationItem, !item.hidesBackButton {
             item.hidesBackButton = true
             hidBackButton = true
         }
+    }
+
+    func disableSwipes() {
         if let edge = stack?.interactivePopGestureRecognizer, edge.isEnabled {
             edge.isEnabled = false
             disabledEdgeSwipe = true

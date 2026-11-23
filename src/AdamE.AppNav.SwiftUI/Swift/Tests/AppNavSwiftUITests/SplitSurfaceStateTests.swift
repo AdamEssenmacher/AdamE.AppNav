@@ -428,6 +428,23 @@ final class SplitSurfaceStateTests: XCTestCase {
         XCTAssertEqual(h.state.paths[.branch("home-stack")], [])
     }
 
+    func testStrayLeftByARestoreTriggersTheNativePopOnTheNextStage() {
+        var h = SplitHarness()
+        h.stage(split(1, game: ["game"], compact: .primary))
+        h.frames()
+        h.absorb(h.state.setPath([entry("stray")], for: .branch("home-stack")))
+        h.absorb(h.state.setCompactColumn(.secondary))
+        // UIKit shows the game on top; the restore puts the binding back on the primary column over it.
+        h.frame(h.faithfulSample(secondaryOnTop: true))
+        h.frame(h.faithfulSample(secondaryOnTop: true))
+        XCTAssertEqual(h.state.compactColumn, .primary)
+        XCTAssertEqual(h.state.collapsedTop, .secondary)
+        h.stage(split(2))
+        XCTAssertNotNil(h.state.nativePop, "the binding already names the primary column, so UIKit must pop the game")
+        h.frame(h.staleSample("game"))
+        XCTAssertEqual(h.nativePops, 1)
+    }
+
     func testBackPlanClosingTheColumnSetsTheBinding() {
         var h = SplitHarness()
         h.stage(split(1, game: ["game"]))

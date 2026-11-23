@@ -130,15 +130,11 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
         }
     }
 
-    // `preferredCompactColumn` needs iOS 17. An iOS 16 build shows the primary column alone, so a split there never
-    // settles a secondary column on top; splits need iOS 17.
+    // Splits need iOS 17, the package floor; the managed host refuses them earlier.
     @ViewBuilder
     private func splitView(_ split: SplitProjection, primary: NavigationBranchProjection) -> some View {
         if #available(iOS 17, *) {
             systemSplitView(split, primary: primary)
-        } else {
-            stack(primary.entries, key: .branch(primary.id))
-                .id(primary.id)
         }
     }
 
