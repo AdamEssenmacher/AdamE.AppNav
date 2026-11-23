@@ -270,7 +270,10 @@ struct SurfaceState {
         paths = authority.paths
         selectedBranch = authority.selectedBranch
         selectedModal = authority.selectedModal
-        if next.split != nil, next.split?.secondary == nil, let leaving = target?.split?.secondary ?? departingSecondary {
+        // Only the same split keeps rendering the column it closes. A different split rebuilds the whole view, and its
+        // detail column must not show another split's page.
+        if let split = next.split, split.secondary == nil, target?.split?.id == split.id,
+           let leaving = target?.split?.secondary ?? departingSecondary {
             departingSecondary = leaving
         } else {
             departingSecondary = nil

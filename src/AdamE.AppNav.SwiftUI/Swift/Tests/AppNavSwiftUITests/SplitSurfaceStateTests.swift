@@ -8,13 +8,13 @@ private func entry(_ id: String) -> NavigationEntry {
 /// Home in the primary column and, optionally, a game's stack in the secondary column.
 private func split(_ revision: Int64, home: [String] = ["home"], game: [String]? = nil,
                    compact: NavigationSplitColumn? = nil, modal: [String]? = nil,
-                   transition: NavigationTransitionContext? = nil) -> NavigationProjection {
+                   transition: NavigationTransitionContext? = nil, id: String = "games") -> NavigationProjection {
     let secondary = game.map { NavigationBranchProjection(id: "\($0[0])-stack", title: "", entries: $0.map(entry)) }
     return NavigationProjection(
         revision: revision, selectedBranch: "home-stack", isBranchHost: false,
         branches: [NavigationBranchProjection(id: "home-stack", title: "", entries: home.map(entry))],
         modal: modal.map { ModalProjection(id: "sheet", entries: $0.map(entry)) }, transition: transition,
-        split: SplitProjection(id: "games", secondary: secondary,
+        split: SplitProjection(id: id, secondary: secondary,
                                compactColumn: compact ?? (secondary == nil ? .primary : .secondary)))
 }
 
@@ -254,6 +254,20 @@ final class SplitSurfaceStateTests: XCTestCase {
         XCTAssertEqual(h.readings.last?.revision, 2)
         XCTAssertEqual(h.readings.last?.secondaryEntries, [])
         XCTAssertNil(h.state.departingSecondary)
+    }
+
+    func testADifferentSplitDoesNotRenderTheOldSecondaryColumn() {
+        for collapsed in [true, false] {
+            var h = SplitHarness()
+            h.collapsed = collapsed
+            h.stage(split(1, game: ["game"]))
+            h.frames()
+            h.stage(split(2, id: "levels"))
+            XCTAssertNil(h.state.departingSecondary, "a new split's detail column never shows the old split's page")
+            h.frames()
+            XCTAssertEqual(h.readings.last?.revision, 2)
+            XCTAssertEqual(h.readings.last?.secondaryEntries, [])
+        }
     }
 
     func testSwitchingGamesOverAStrayBindingPopsThenShowsTheNewGame() {

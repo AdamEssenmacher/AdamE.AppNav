@@ -97,6 +97,8 @@ final class NativeSurface: ObservableObject {
     /// that root's system Back and edge swipe however the page hides its Back button, so the surface enforces it.
     var guardsBack: ((NavigationEntry) -> Bool)?
     private var backGuard: BackGuard?
+    /// The window's split controller as last found; see `splitController(in:pages:)`.
+    private weak var splitControllerCache: UISplitViewController?
 
     /// Puts back what the Back guard changed. The frame observer calls it when it leaves the window, so the swipes never
     /// stay off once display ticks stop.
@@ -200,9 +202,7 @@ final class NativeSurface: ObservableObject {
             identities.setObject(entry.id as NSString, forKey: controller)
             pages.append((marker, nav, controller, key, entry))
         }
-        // A hidden sidebar beside an empty detail column has no page in the window, so look from the root too.
-        let split = state.target?.split == nil ? nil :
-            pages.lazy.compactMap { $0.nav.splitViewController }.first ?? Self.split(in: window.rootViewController)
+        let split = state.target?.split == nil ? nil : splitController(in: window, pages: pages.map(\.nav))
         // A fold or rotation moves the split itself; it counts as busy like a navigation transition.
         let splitTransitioning = split?.transitionCoordinator != nil
         guardCollapsedSecondaryRoot(pages.map { ($0.nav, $0.controller, $0.key, $0.entry) },
@@ -271,6 +271,19 @@ final class NativeSurface: ObservableObject {
                 current.disableSwipes()
             }
         }
+    }
+
+    // A hidden sidebar beside an empty detail column has no page in the window, so the split is looked up from the
+    // window's root then. The result is kept while it stays in the window, so an idle frame does not walk the
+    // controller tree.
+    private func splitController(in window: UIWindow, pages: [UINavigationController]) -> UISplitViewController? {
+        if let found = pages.lazy.compactMap(\.splitViewController).first {
+            splitControllerCache = found
+            return found
+        }
+        if let cached = splitControllerCache, cached.viewIfLoaded?.window === window { return cached }
+        splitControllerCache = Self.split(in: window.rootViewController)
+        return splitControllerCache
     }
 
     private static func split(in root: UIViewController?) -> UISplitViewController? {
