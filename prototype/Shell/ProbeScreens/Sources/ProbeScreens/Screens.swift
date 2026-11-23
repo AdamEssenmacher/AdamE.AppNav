@@ -97,6 +97,7 @@ public struct ShellScreen: View {
     @State private var reportGeneration = -1
     @State private var traceGeneration = -1
     @State private var clearsPushTransition = false
+    @State private var guardsGame = SplitProbeContext.guardsGame
 
     private var testsImmediatePush: Bool {
         ProcessInfo.processInfo.arguments.contains("--probe-disable-game-push-animation")
@@ -133,7 +134,7 @@ public struct ShellScreen: View {
             if testsCallbackReplacement && message.hasPrefix("settled ") { traceGeneration = generation }
             model.recordTrace(message)
         },
-                        back: NavigationBackControl(intercepts: { $0.id == "home-detail" || (SplitProbeContext.guardsGame && ["game-a", "game"].contains($0.id)) },
+                        back: NavigationBackControl(intercepts: { $0.id == "home-detail" || (guardsGame && ["game-a", "game"].contains($0.id)) },
                                                     request: { model.runCommand("request-back") }),
                         customization: customization) {
             VStack {
@@ -149,6 +150,10 @@ public struct ShellScreen: View {
                 Text(gestures(diagnostics)).accessibilityIdentifier("probe-gesture")
                 if SplitProbeContext.isEnabled {
                     Text(splitLayout(diagnostics)).accessibilityIdentifier("probe-split-layout")
+                }
+                if SplitProbeContext.guardsGame && guardsGame {
+                    Button("Stop guarding") { guardsGame = false }
+                        .accessibilityIdentifier("probe-stop-guarding")
                 }
                 if ProcessInfo.processInfo.arguments.contains("--probe-animation-style") {
                     Text(animationEvidence).accessibilityIdentifier("probe-animation-style")
@@ -345,7 +350,17 @@ private extension ShellTarget {
                 id: split.splitId,
                 secondary: split.secondaryId.isEmpty ? nil : NavigationBranchProjection(
                     id: split.secondaryId, title: split.secondaryId, entries: split.secondaryEntries.map(\.projection)),
-                compactColumn: split.compactColumn == "secondary" ? .secondary : .primary))
+                compactColumn: Self.column(split.compactColumn)))
+    }
+}
+
+private extension ShellTarget {
+    // The managed side sends only these values; anything else is a broken contract.
+    static func column(_ value: String) -> NavigationSplitColumn {
+        guard let column = NavigationSplitColumn(rawValue: value) else {
+            preconditionFailure("Unknown split column '\(value)'.")
+        }
+        return column
     }
 }
 

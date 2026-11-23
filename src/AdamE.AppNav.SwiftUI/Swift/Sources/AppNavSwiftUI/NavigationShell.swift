@@ -121,7 +121,8 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
             // While a revision applies, the modal binding refuses dismissal. A swipe that UIKit
             // completed anyway would leave the surface waiting for a sheet that is gone.
             .interactiveDismissDisabled(surface.applying || surface.modalTop.map { back?.intercepts($0) == true } ?? false)
-        if let root = modal.entries.first, let customization {
+        // A guarded root takes no transition, like a guarded stack page.
+        if let root = modal.entries.first, let customization, back?.intercepts(root) != true {
             let context = surface.context(for: root, key: key)
             applyTransition(customization.transition(context), to: content, context: context, key: key)
         } else {
@@ -292,6 +293,10 @@ private struct SecondaryPage: Hashable {
 
 /// Routes Back on selected screens through the app's AppNav Back request. The app also owns
 /// any dismissal buttons its screens add.
+///
+/// `intercepts` runs on the main thread whenever SwiftUI builds a page, and on every display frame for the root of a
+/// collapsed split's secondary column. Keep it a cheap lookup, such as a comparison or a set membership test.
+/// A guarded entry takes no destination transition.
 public struct NavigationBackControl {
     let intercepts: (NavigationEntry) -> Bool
     let request: () -> Void

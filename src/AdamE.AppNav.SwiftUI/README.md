@@ -14,7 +14,7 @@ The floor follows the pinned OAHU runtime, which requires iOS 17. The sources al
 
 The factory may register entry-owned resources on an open lease. Use `AfterTeardown` for view models and other resources owned by a single mount, including when rebuilding a scene whose retained lease is closed. The host runs it after OAHU disconnects the mount and before detaching the lease. If the factory throws before returning, it owns cleanup for resources created during that call.
 
-An app requiring a policy decision before Back may supply a `NavigationBackControl` to route selected entries through an AppNav Back command. A guarded entry never takes a destination transition such as a zoom: UIKit's interactive zoom dismissal would pop the page past its Back button, and no public API turns it off for a SwiftUI zoom. It arrives with the automatic push. For those entries the shell replaces the system Back button, and when one is the top of a sheet it disables interactive dismissal. The app should use the same managed Back command for any close buttons it adds to guarded screens. The default configuration observes native Back, including canceled edge gestures and the native Back-history menu.
+An app requiring a policy decision before Back may supply a `NavigationBackControl` to route selected entries through an AppNav Back command. A guarded entry never takes a destination transition such as a zoom: UIKit's interactive zoom dismissal would pop the page past its Back button, and no public API turns it off for a SwiftUI zoom. It arrives with the automatic push. The same holds for a guarded sheet or full-screen cover root, which presents without its destination transition. Whether `interactiveDismissDisabled`, which the shell already applies to a guarded modal top, would also stop a zoomed modal's interactive dismissal was not measured; the shell never zooms a guarded root, so it doesn't depend on it. `intercepts` runs on the main thread while SwiftUI builds pages, and on every display frame for the root of a collapsed split's secondary column, so it must be a cheap lookup. For those entries the shell replaces the system Back button, and when one is the top of a sheet it disables interactive dismissal. The app should use the same managed Back command for any close buttons it adds to guarded screens. The default configuration observes native Back, including canceled edge gestures and the native Back-history menu.
 
 ## Native settling
 
@@ -29,9 +29,16 @@ The split tests run with `--probe-split`.
   - a selection and a swipe back that closes the column;
   - a game switch over SwiftUI's stray compact column;
   - a selection taken back by Back;
-  - a sheet over a game.
-- **Side by side, on the open Duo sideways:** a game switch, a system Back inside the game, and an AppNav Back. This test skips upright, where XCUITest's taps on the detail column do not reach the app; the upright overlay was checked by hand.
+  - a sheet over a game;
+  - a guarded game root that shows the app's Back and resists the edge swipe;
+  - a guard released while its root shows, which brings back the system Back and the swipe.
+- **Side by side, on the open Duo sideways:**
+  - a game switch, a system Back inside the game, and an AppNav Back;
+  - a guarded game root with no Back of either kind.
+
+  Both tests skip upright, where XCUITest's taps on the detail column do not reach the app; the upright overlay was checked by hand.
 - **Fold:** the fold-after-pop test needs the Duo's posture driven from outside and runs only with `TEST_RUNNER_APPNAV_POSTURE=1`.
+- **Plain stack:** a guarded Game page pushes without its zoom and resists the edge swipe.
 
 Nothing covers a physical Duo or an iPad. See the [test matrix and reproduction commands](../../prototype/SWIFTUI.md).
 

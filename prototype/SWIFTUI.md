@@ -51,6 +51,7 @@ The `--probe-split` launch argument starts the probe on a `SplitNode`: Home in t
 | `testSplitSheetOverGame` | Any | A sheet over the split, dismissed natively, keeps both columns. |
 | `testSplitGuardedGameRootCollapsed` | Collapsed | With `--probe-guard-game`, Game A's root shows the app's Back. The edge swipe leaves it in place, the policy cancels the app's Back, and after Allow Back the column closes. |
 | `testGuardedZoomedGameKeepsItsPolicy` | Plain stack | With `--probe-guard-game`, Game, which would otherwise zoom from its cover, has the app's Back and pushes without the zoom, so an edge swipe cannot pop it past the policy. |
+| `testSplitGuardedGameRootReleased` | Collapsed | Stopping the guard while Game A's root shows removes the app's Back. The system Back returns, the guard puts back the swipe settings it found, and an edge swipe closes the column. |
 | `testSplitGuardedGameRootExpanded` | Expanded, sideways | The guarded root has no Back of either kind beside Home. |
 | `testSplitExpandedSwitchAndBack` | Expanded, sideways | The Show Sidebar button reveals Home. Selecting the other game replaces the detail column. The system Back inside the game's stack and an AppNav Back both reconcile, the second one closing the column. |
 | `testSplitFoldKeepsGameAfterPop` | Fold and unfold | After the stray `.sidebar` write, unfolding repairs the compact column once. Folding again keeps the game on top with nothing new in history, and one Back reaches Home. |
@@ -73,7 +74,11 @@ Further checks by hand on the Duo simulator:
 - **Guarded root through a fold.** With the guarded Game A root on top, unfolding restored the swipes, and the root showed no Back beside Home. Folding again turned them off, and an edge swipe left the root in place. A guarded entry no longer takes the zoom, because UIKit's zoom-dismiss edge pan popped a zoomed guarded page past the policy. `testGuardedZoomedGameKeepsItsPolicy` covers the same bypass in a plain stack: it failed before the change and passes after it.
 - **First selection side by side.** On the open Duo held sideways, SwiftUI wrote no compact column for the first selection: no `SwiftUI set the compact column` trace appeared.
 
-On an iPhone 17 Pro simulator with iOS 27.2, the whole suite passes: 17 existing tests and the four split tests that run collapsed, with the expanded and fold tests skipped. A screen recording of `testSplitCollapsedSelectAndSwipeBack` on that phone shows Game A open with the zoom from its Home cover, and the swipe back shrinking the card into the cover. That is the Home → Game zoom, now going through a collapsed split.
+On 2026-11-22, at the head that added the guard-release test, the whole suite passed on an iPhone 17 Pro simulator with iOS 27.2: 27 tests, 24 passed and 3 skipped.
+- **Passed:** the 17 existing tests, the plain-stack guarded Game test, and the six split tests that run collapsed: select and swipe back, game switch, taken-back selection, sheet over a game, guarded root, and guard released.
+- **Skipped:** the two expanded tests and the fold test.
+
+On the Duo the same day, all eight collapsed tests passed on the closed device, including the plain-stack guard test and the posture-driven fold test, and three passed on the open device held sideways: the expanded switch, the guarded root, and the sheet. A screen recording of `testSplitCollapsedSelectAndSwipeBack` on that phone shows Game A open with the zoom from its Home cover, and the swipe back shrinking the card into the cover. That is the Home → Game zoom, now going through a collapsed split.
 
 ## Earlier SwiftUI prototype recordings
 

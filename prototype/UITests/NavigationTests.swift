@@ -647,4 +647,21 @@ final class NavigationTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["page-game"].exists, "The edge swipe popped a guarded page")
         XCTAssertEqual(app.staticTexts["probe-status"].label, game)
     }
+
+    // When the app stops intercepting the root while it shows, the guard puts back the system Back and the swipes.
+    func testSplitGuardedGameRootReleased() throws {
+        try requireSplit("collapsed")
+        awaitLabel("probe-status") { $0 == self.splitHome }
+        app.buttons["probe-select-game-a"].tap()
+        awaitLabel("probe-native") { $0 == "rev=2 home-stack [home] + [game-a] @secondary" }
+        XCTAssertTrue(app.buttons["appnav-request-back"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["BackButton"].exists)
+        app.buttons["probe-stop-guarding"].tap()
+        XCTAssertTrue(app.buttons["appnav-request-back"].waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["BackButton"].waitForExistence(timeout: 5), "The system Back did not come back")
+        edgeSwipe(to: 0.9)
+        awaitLabel("probe-status") {
+            self.status(3, "split[home]@primary")($0) && $0.hasSuffix(";HostReconciliation@split[home]@primary]")
+        }
+    }
 }
