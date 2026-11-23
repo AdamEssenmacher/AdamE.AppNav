@@ -171,6 +171,9 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, INavigationP
             await AcceptReconciliationAsync(plan.TargetState, context, cancellationToken).ConfigureAwait(false);
             return;
         }
+        // Refuse every shape no surface presents before waiting for one. Only whether the attached surface presents
+        // splits waits for the host.
+        _ = new OahuNavigationTarget(plan.TargetState, 0, presentsSplits: true);
         var revision = Interlocked.Increment(ref nextRevision);
         var replay = false;
         while (true)

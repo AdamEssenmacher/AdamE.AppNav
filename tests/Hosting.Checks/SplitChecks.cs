@@ -41,11 +41,23 @@ internal static class SplitChecks
             Report(loop, shell, game, ["home"], ["game-a"], "secondary");
             await select.WaitAsync(TimeSpan.FromSeconds(5));
 
+            // Selecting another game replaces the column: its mount is staged and the old game's mount is released.
+            var gameA = mounts["game-a"];
+            var replace = router.SelectGameAsync("game-b", "", default);
+            var switched = await StagedAsync(shell, game.Revision);
+            Check(switched.Split is { SecondaryId: "game-b-stack" } && mounts.TryGetValue("game-b", out var gameBMount) &&
+                switched.Split.SecondaryEntries.Single().Mount == gameBMount.Id && !gameA.IsDisposed,
+                $"The replacement game was not mounted beside the old one before acceptance: {switched.Split}");
+            Report(loop, shell, switched, ["home"], ["game-b"], "secondary");
+            await replace.WaitAsync(TimeSpan.FromSeconds(5));
+            await WaitUntilAsync(() => gameA.IsDisposed, () => "The replaced game's mount stayed attached");
+            Check(!mounts["game-b"].IsDisposed && !mounts["home"].IsDisposed, "Replacing the game released a shown screen");
+
             // A collapsed window's Back from the game's root closes the column and releases its mount.
-            Report(loop, shell, game, ["home"], [], "primary");
-            await WaitUntilAsync(() => router.Status.StartsWith("split[home]@primary history=3", StringComparison.Ordinal),
+            Report(loop, shell, switched, ["home"], [], "primary");
+            await WaitUntilAsync(() => router.Status.StartsWith("split[home]@primary history=4", StringComparison.Ordinal),
                 () => $"Closing the secondary column did not reconcile: {router.Status}");
-            await WaitUntilAsync(() => mounts["game-a"].IsDisposed && shell.Target.Current.Split.SecondaryEntries.Count == 0,
+            await WaitUntilAsync(() => mounts["game-b"].IsDisposed && shell.Target.Current.Split.SecondaryEntries.Count == 0,
                 () => "The closed column's mount stayed attached");
             Check(!mounts["home"].IsDisposed, "Closing the secondary column released Home");
         }
@@ -54,7 +66,7 @@ internal static class SplitChecks
             shell.Detach();
             await shell.DisposeAsync();
         }
-        Console.WriteLine("PASS a split's secondary column is mounted, observed and released after a native close");
+        Console.WriteLine("PASS a split's secondary column is mounted, replaced, observed and released after a native close");
     }
 
     private static void Report(OahuTestLoop loop, NavigationShellViewModel shell, ShellTarget target, string[] primary,

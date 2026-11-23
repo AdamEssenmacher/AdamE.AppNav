@@ -38,6 +38,22 @@ public sealed class ProbeRouter : IAsyncDisposable
             Task.CompletedTask;
     }
 
+    /// <summary>The screen name of the route the latest history entry recorded.</summary>
+    public string CurrentRoute => Navigator.History.Current is { } entry ? ScreenName(entry.Route) : "";
+
+    private static string ScreenName(AppRoute route) => route switch
+    {
+        Screen page => page.Name,
+        SelectGame game => game.Id,
+        PushGamePage => "game-page",
+        OpenGame => "game",
+        DetailLink => "detail",
+        OpenModal => "editor",
+        OpenFadeSheet => "fade-sheet",
+        PushReview => "review",
+        _ => ""
+    };
+
     public static OahuNavigationPresenter CreatePresenter() => new(screenName: entry => entry.Route switch
     {
         Screen page => page.Name,

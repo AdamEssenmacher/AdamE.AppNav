@@ -92,7 +92,9 @@ internal sealed record SurfaceObservation(string Branch, IReadOnlyList<string> E
         if (target.ModalId != null)
         {
             if (!columnsUnchanged) return null;
-            var uncovered = target.VisibleEntries.Count != 0 ? target.VisibleEntries[^1] : primary[^1];
+            // The sheet covers the columns; dismissing it shows the column on top of a collapsed window.
+            var uncovered = target.CompactColumn == SplitColumn.Secondary && target.SecondaryEntries.Count != 0
+                ? target.SecondaryEntries[^1] : primary[^1];
             return ReconcileModal(state, window, target, uncovered);
         }
         if (ModalId != null || ModalEntries.Count != 0 || columnsUnchanged) return null;

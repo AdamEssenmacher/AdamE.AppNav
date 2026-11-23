@@ -336,7 +336,7 @@ internal static class PresenterChecks
             }
             catch (NotSupportedException failure)
             {
-                Assert(!ContainsSplit(unsupported) || failure.Message.Contains("split 'split'", StringComparison.Ordinal),
+                Assert(!ContainsSplit(unsupported) || failure.Message.Contains("split 'split'", StringComparison.OrdinalIgnoreCase),
                     "A split is refused as a split");
             }
             await host.NextFailsIfPublished();
@@ -451,16 +451,43 @@ internal static class PresenterChecks
         await AckSplit(presenter, epoch, closed);
         Assert((await back).Status == BackNavigationStatus.Completed, "Back did not complete");
 
-        // A sheet over the split, dismissed natively.
+        // A sheet over a selected game, dismissed natively, records the game it uncovers, not the sheet.
+        var reselect = router.SelectGameAsync("game-b", "", default);
+        var shown = await splits.Next();
+        await AckSplit(presenter, epoch, shown);
+        await reselect;
         var sheet = router.ModalAsync();
         var covered = await splits.Next();
         Assert(covered.ModalId == "editor" && covered.SplitId == "games", "Sheet over the split");
         await AckSplit(presenter, epoch, covered);
         await sheet;
-        await presenter.ObserveAsync(epoch, covered.Revision, "home-stack", ["home"], null, null, [], SplitColumn.Primary);
-        Assert(router.Status.StartsWith("split[home]@primary history=", StringComparison.Ordinal) &&
-            router.HistorySummary.EndsWith("HostReconciliation@split[home]@primary", StringComparison.Ordinal),
+        await presenter.ObserveAsync(epoch, covered.Revision, "home-stack", ["home"], null, null, ["game-b"], SplitColumn.Secondary);
+        Assert(router.Status.StartsWith("split[home]+game-b-stack[game-b]@secondary history=", StringComparison.Ordinal) &&
+            router.HistorySummary.EndsWith("HostReconciliation@split[home]+game-b-stack[game-b]@secondary", StringComparison.Ordinal),
             "Sheet dismissal over the split: " + router.Status);
+        Assert(router.CurrentRoute == "game-b", "Sheet dismissal recorded the route " + router.CurrentRoute);
+
+        // Shapes no surface presents fail before the presenter waits for a host.
+        {
+            using var hostless = new OahuNavigationPresenter();
+            var page = new Page();
+            var request = new NavigationPresentationContext(RouterNavigationRequest.FromRoute(page, NavigationRequestSource.InAppCommand),
+                page, NavigationState.Empty, "test");
+            var column = new StackNode("column", [new("column-root", page)]);
+            var nested = new NavigationState([new WindowNode("primary", new BranchHostNode("sections",
+                [new NavigationBranch("section", "Section", new SplitNode("nested", column))], "section"))]);
+            var refusal = hostless.ApplyAsync(new(nested), request).AsTask();
+            Assert(refusal.IsCompleted, "An unsupported split waited for a host");
+            try
+            {
+                await refusal;
+                throw new Exception("A nested split reached a hostless presenter");
+            }
+            catch (NotSupportedException failure)
+            {
+                Assert(failure.Message.Contains("inside branch 'section'", StringComparison.Ordinal), "Unclear refusal: " + failure.Message);
+            }
+        }
 
         // Shapes a split-capable surface still refuses.
         var route = new Page();
