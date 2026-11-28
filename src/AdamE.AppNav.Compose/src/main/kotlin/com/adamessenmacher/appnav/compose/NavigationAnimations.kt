@@ -107,11 +107,9 @@ public class NavigationEntryScope internal constructor(
      */
     public val isSplitExpanded: Boolean = false,
     /**
-     * Whether this entry has no Up within the shell, so system Back from it leaves the app: a plain stack's
-     * root, a split's primary root in either layout, or, side by side, the secondary root beside a primary
-     * column at its root. A deeper default detail also has no Up while the primary root is active.
-     * Show an Up or Back affordance only when this is false. Always false inside a modal;
-     * a modal over an entry does not change its value.
+     * Whether to hide an Up affordance that invokes the shell's Back action. In a split, only the
+     * pane that Back pops or closes can show Up. When the shell lets system Back leave the app,
+     * both panes hide Up. Always false inside a modal; a modal over an entry does not change its value.
      */
     public val isNavigationRoot: Boolean = false,
 ) {

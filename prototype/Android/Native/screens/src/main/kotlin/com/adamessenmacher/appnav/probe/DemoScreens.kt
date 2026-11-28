@@ -179,8 +179,7 @@ public fun PageScreen(model: PageModel) {
     }
 }
 
-// The split probe: Home rows select a game; a game's pages push in its own column. A game page shows Up unless
-// it is a navigation root, as a game's root beside Home's root is.
+// The split probe: Home rows select a game; a game's pages push in its own column.
 @Composable
 private fun SplitPage(title: String, entry: NavigationEntryScope) {
     val actions = LocalGameActions.current
@@ -188,7 +187,7 @@ private fun SplitPage(title: String, entry: NavigationEntryScope) {
     Column(Modifier.fillMaxSize().statusBarsPadding().padding(12.dp)) {
         Text("Page: $title", style = MaterialTheme.typography.headlineSmall)
         val gameRoot = title == "game-a" || title == "game-b"
-        if (entry.splitColumn == NavigationSplitColumn.Secondary && !entry.isNavigationRoot) {
+        if (!entry.isNavigationRoot) {
             TextButton(onClick = { actions?.command?.invoke("up") }) { Text("Up") }
         }
         if (entry.splitColumn == NavigationSplitColumn.Primary) {

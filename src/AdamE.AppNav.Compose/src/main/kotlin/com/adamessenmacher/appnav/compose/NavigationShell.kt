@@ -463,16 +463,15 @@ private data class StackRender(
         else -> listOfNotNull(presented.lastOrNull())
     }
 
-    /**
-     * Whether the entry at [index] has no Up within the shell: a plain stack's root, the primary column's
-     * root, or a two-pane detail from which the active column has no Up.
-     */
-    fun isNavigationRoot(index: Int, twoPanes: Boolean): Boolean = when {
-        index == 0 -> true
-        !isSplit -> false
-        index >= primaryCount -> twoPanes && primaryCount == 1 &&
-            (compactColumn == NavigationSplitColumn.Primary || index == primaryCount)
-        else -> false
+    /** Whether the entry's pane has no Up backed by the shell's Back action. */
+    fun isNavigationRoot(index: Int, twoPanes: Boolean): Boolean {
+        if (index == 0) return true
+        val compact = compactColumn ?: return false
+        return when (splitBack(primaryCount, entries.size - primaryCount, compact, twoPanes)) {
+            SplitBack.None -> true
+            SplitBack.PopPrimary -> index >= primaryCount
+            SplitBack.PopSecondary, SplitBack.CloseSecondary -> index < primaryCount
+        }
     }
 
     fun columnOf(index: Int): NavigationSplitColumn? = when {

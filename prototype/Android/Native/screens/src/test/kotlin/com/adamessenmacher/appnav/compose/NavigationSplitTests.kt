@@ -441,19 +441,29 @@ class NavigationSplitTests {
             target.value = split(listOf("game-a"), primary = listOf("home", "more"), revision = 4)
         }
         compose.onNodeWithText("more").assertExists()
+        // Back closes the selected game without popping the primary list.
         compose.runOnIdle {
             assertFalse(scopes.getValue("game-a").isNavigationRoot)
-            assertFalse(scopes.getValue("more").isNavigationRoot)
+            assertTrue(scopes.getValue("more").isNavigationRoot)
+            target.value = target.value.copy(revision = 5, split = target.value.split!!.copy(
+                compactColumn = NavigationSplitColumn.Primary))
         }
+        // With the same entries and a default detail, Back starts in the primary list.
+        compose.runOnIdle {
+            assertTrue(scopes.getValue("game-a").isNavigationRoot)
+            assertFalse(scopes.getValue("more").isNavigationRoot)
+            window.value = Folded
+        }
+        compose.onNodeWithText("game-a").assertDoesNotExist()
+        compose.runOnIdle { assertFalse(scopes.getValue("more").isNavigationRoot) }
         // One pane with a hidden default secondary: Home's root has no Up.
         compose.runOnIdle {
-            window.value = Folded
-            target.value = split(listOf("game-a"), compact = NavigationSplitColumn.Primary, revision = 5)
+            target.value = split(listOf("game-a"), compact = NavigationSplitColumn.Primary, revision = 6)
         }
         compose.onNodeWithText("home").assertExists()
         compose.runOnIdle { assertTrue(scopes.getValue("home").isNavigationRoot) }
         // A modal's own root is never a navigation root, and a modal over Home does not change Home's value.
-        compose.runOnIdle { target.value = split(listOf("game-a"), compact = NavigationSplitColumn.Primary, revision = 6, modal = "sheet") }
+        compose.runOnIdle { target.value = split(listOf("game-a"), compact = NavigationSplitColumn.Primary, revision = 7, modal = "sheet") }
         compose.onNodeWithText("sheet-root").assertExists()
         compose.runOnIdle {
             assertFalse(scopes.getValue("sheet-root").isNavigationRoot)
