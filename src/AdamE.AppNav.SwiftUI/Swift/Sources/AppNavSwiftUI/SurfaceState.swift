@@ -160,6 +160,8 @@ struct SurfaceState {
     /// The value of NavigationSplitView's `preferredCompactColumn`. SwiftUI writes it too, sometimes while the column
     /// it names is not on top, so it is never a reading. See `setCompactColumn`.
     private(set) var compactColumn = NavigationSplitColumn.primary
+    // A held frame can still show the previous column while SwiftUI applies a shell write.
+    private var unconfirmedCompactColumn: NavigationSplitColumn?
     /// A secondary column the staged revision closes. The detail column keeps rendering it until the revision settles,
     /// so a collapsed window pops the page rather than a placeholder.
     private(set) var departingSecondary: NavigationBranchProjection?
@@ -185,6 +187,7 @@ struct SurfaceState {
     private var secondarySeenOnTop = false
     /// The column on top of a collapsed split on the last frame, or nil when it is not collapsed.
     private(set) var collapsedTop: NavigationSplitColumn?
+    private var collapsedTopInCurrentLayout = false
 
     private var undo: Undo?
     private var undoCount = 0
@@ -284,7 +287,7 @@ struct SurfaceState {
         // While collapsed, SwiftUI can leave the binding on the primary column with the secondary root still on top.
         // It then neither pops that column for a staged primary column, nor shows a different secondary column, so
         // UIKit pops it first, as a native Back would.
-        let strayOnTop = compactColumn == .primary && heldCollapsed == true && collapsedTop == .secondary
+        let strayOnTop = compactColumn == .primary && collapsedTopInCurrentLayout && collapsedTop == .secondary
         let previousSecondary = target?.split?.secondary
         // A different secondary column has not been seen on top yet, so no Back can have closed it.
         if previousSecondary?.id != next.split?.secondary?.id ||
@@ -294,7 +297,8 @@ struct SurfaceState {
         adoptCompactColumn(authority.compactColumn)
         pendingCompactColumn = nil
         nativePop = nil
-        if strayOnTop, let split = next.split {
+        // A stage that wrote the secondary binding superseded the primary write.
+        if strayOnTop, compactColumn == .primary, let split = next.split {
             if split.compactColumn == .primary {
                 nativePop = NativePop(animated: animation != .none)
                 out.traces.append("rev=\(next.revision) closes the collapsed secondary column the binding already left; popping it natively")
@@ -328,8 +332,7 @@ struct SurfaceState {
         nativePop = nil
         guard let pending = pendingCompactColumn else { return }
         pendingCompactColumn = nil
-        guard target?.split?.compactColumn == pending, compactColumn != pending else { return }
-        compactColumn = pending
+        guard target?.split?.compactColumn == pending, writeCompactColumn(pending) else { return }
         if out.install == nil { out.install = InstallAnimation.none }
     }
 
@@ -337,8 +340,16 @@ struct SurfaceState {
     // second time. The binding keeps its value then, even when SwiftUI changed it while the column stayed on top.
     private mutating func adoptCompactColumn(_ desired: NavigationSplitColumn?) {
         guard let desired else { return }
-        if heldCollapsed == true, collapsedTop == desired { return }
+        if collapsedTopInCurrentLayout, collapsedTop == desired, unconfirmedCompactColumn == nil { return }
+        writeCompactColumn(desired)
+    }
+
+    @discardableResult
+    private mutating func writeCompactColumn(_ desired: NavigationSplitColumn) -> Bool {
+        guard compactColumn != desired else { return false }
         compactColumn = desired
+        unconfirmedCompactColumn = desired
+        return true
     }
 
     /// The app's transaction policy returned no animation for the staged revision, so its push can't be taken back.
@@ -841,7 +852,10 @@ struct SurfaceState {
             return
         }
         splitLayoutHeld = layout == splitLayout
-        if layout != splitLayout { secondarySeenOnTop = false }
+        if layout != splitLayout {
+            secondarySeenOnTop = false
+            collapsedTopInCurrentLayout = false
+        }
         splitLayout = sample.split
         diagnostics.splitCollapsed = target?.split == nil ? nil : sample.split?.isCollapsed
         if splitLayoutHeld, sample.split?.isCollapsed == false {
@@ -857,7 +871,12 @@ struct SurfaceState {
             return
         }
         if let top = sample.tops.first(where: { $0.key == .branch(primary.id) || $0.key.isSecondary }) {
-            collapsedTop = top.key.isSecondary ? .secondary : .primary
+            let column: NavigationSplitColumn = top.key.isSecondary ? .secondary : .primary
+            collapsedTop = column
+            collapsedTopInCurrentLayout = true
+            if unconfirmedCompactColumn == column, !sample.isTransitioning, !top.isTransitioning {
+                unconfirmedCompactColumn = nil
+            }
             if top.key.isSecondary, !top.isTransitioning { secondarySeenOnTop = true }
         }
     }
@@ -868,6 +887,8 @@ struct SurfaceState {
         splitLayoutHeld = false
         heldCollapsed = nil
         collapsedTop = nil
+        collapsedTopInCurrentLayout = false
+        unconfirmedCompactColumn = nil
         secondarySeenOnTop = false
         diagnostics.splitCollapsed = nil
     }
@@ -877,8 +898,7 @@ struct SurfaceState {
     // screen, so the shell does it on a quiet frame.
     private mutating func repairCompactColumn(quiet: Bool, _ out: inout SurfaceOutcome) {
         guard let split = target?.split, let layout = splitLayout, !layout.isCollapsed, splitLayoutHeld, quiet,
-              undo == nil, takenBack == nil, compactColumn != split.compactColumn else { return }
-        compactColumn = split.compactColumn
+              undo == nil, takenBack == nil, writeCompactColumn(split.compactColumn) else { return }
         diagnostics.compactColumnRepairs += 1
         if out.install == nil { out.install = InstallAnimation.none }
         out.traces.append("restored the compact column \(split.compactColumn.rawValue) while both columns show rev=\(target?.revision ?? 0)")
@@ -1050,8 +1070,7 @@ struct SurfaceState {
                     guard secondarySeenOnTop else {
                         // This layout never showed the column, so no Back closed it: a fold, say, before the binding
                         // was repaired. Show the column again rather than report a Back the user never made.
-                        if compactColumn != .secondary {
-                            compactColumn = .secondary
+                        if writeCompactColumn(.secondary) {
                             diagnostics.compactColumnRepairs += 1
                             out.install = InstallAnimation.none
                             out.traces.append("showing the collapsed secondary column again rev=\(target.revision)")
@@ -1177,7 +1196,7 @@ struct SurfaceState {
             // A collapsed window already showing the secondary root on top would push it a second time.
             guard compactColumn != .secondary,
                   !(heldCollapsed == true && collapsedTop == .secondary) else { return }
-            compactColumn = .secondary
+            writeCompactColumn(.secondary)
             if installs { out.install = InstallAnimation.none }
             return
         }

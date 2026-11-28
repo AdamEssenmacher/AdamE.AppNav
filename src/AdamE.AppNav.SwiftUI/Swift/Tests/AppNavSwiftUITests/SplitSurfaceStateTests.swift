@@ -95,6 +95,14 @@ private struct SplitHarness {
     mutating func frames(_ count: Int = 3, secondaryOnTop: Bool? = nil) {
         for _ in 0..<count { frame(faithfulSample(secondaryOnTop: secondaryOnTop)) }
     }
+
+    mutating func framesFollowingCompactBinding(departing game: String) {
+        for _ in 0..<3 {
+            // The shell still renders the departing game, so UIKit can keep showing it when the binding asks for it.
+            let showsDeparting = state.compactColumn == .secondary && state.departingSecondary != nil
+            frame(showsDeparting ? staleSample(game) : faithfulSample())
+        }
+    }
 }
 
 final class SplitSurfaceStateTests: XCTestCase {
@@ -130,6 +138,40 @@ final class SplitSurfaceStateTests: XCTestCase {
         h.frames()
         XCTAssertEqual(h.readings.last?.secondaryEntries, ["game"])
         XCTAssertEqual(h.readings.last?.compactColumn, .secondary)
+    }
+
+    func testRollbackRestoresPrimaryBeforeUIKitShowsTheSelection() {
+        let rollback = NavigationTransitionContext(operation: .rollback, sourceEntryID: "", destinationEntryID: "",
+                                                   sourceKey: "", sourceScreen: "", destinationScreen: "")
+        for oldPrimaryFrames in [0, 1, 2] {
+            var h = SplitHarness()
+            h.stage(split(1))
+            h.frames()
+            h.stage(split(2, game: ["game"]))
+            XCTAssertEqual(h.state.compactColumn, .secondary)
+            h.frames(oldPrimaryFrames, secondaryOnTop: false)
+
+            h.stage(split(3, transition: rollback))
+            XCTAssertEqual(h.state.compactColumn, .primary)
+            h.framesFollowingCompactBinding(departing: "game")
+            XCTAssertEqual(h.readings.map(\.revision), [1, 3], "after \(oldPrimaryFrames) old primary frames")
+            XCTAssertNil(h.state.departingSecondary)
+        }
+    }
+
+    func testSelectionCanSupersedeAnUnconfirmedPrimaryWrite() {
+        var h = SplitHarness()
+        h.stage(split(1, game: ["a"]))
+        h.frames()
+        h.stage(split(2))
+        XCTAssertEqual(h.state.compactColumn, .primary)
+
+        h.stage(split(3, game: ["b"]))
+        XCTAssertEqual(h.state.compactColumn, .secondary)
+        XCTAssertNil(h.state.nativePop)
+        h.frames()
+        XCTAssertEqual(h.readings.last?.revision, 3)
+        XCTAssertEqual(h.readings.last?.secondaryEntries, ["b"])
     }
 
     func testSelectionOverHomeIsAMatchedOneEntryPush() {
@@ -288,6 +330,21 @@ final class SplitSurfaceStateTests: XCTestCase {
         XCTAssertEqual(h.readings.last?.secondaryEntries, ["b"])
     }
 
+    func testRollbackBeforeUIKitShowsTheColumnWrittenAfterANativePop() {
+        var h = SplitHarness()
+        strayCollapsedGame(&h, "a")
+        h.stage(split(2, game: ["b"]))
+        h.frame(h.staleSample("a"))
+        h.frame(h.faithfulSample(secondaryOnTop: false))
+        XCTAssertEqual(h.state.collapsedTop, .primary)
+        XCTAssertEqual(h.state.compactColumn, .secondary)
+
+        h.stage(split(3))
+        XCTAssertEqual(h.state.compactColumn, .primary)
+        h.framesFollowingCompactBinding(departing: "b")
+        XCTAssertEqual(h.readings.last?.revision, 3)
+    }
+
     func testUnfoldingBeforeTheNativePopWritesTheBindingInstead() {
         var h = SplitHarness()
         strayCollapsedGame(&h, "a")
@@ -342,6 +399,22 @@ final class SplitSurfaceStateTests: XCTestCase {
         XCTAssertNil(h.state.collapsedTop, "one folded frame is not a layout yet")
         h.frame(h.faithfulSample(secondaryOnTop: true))
         XCTAssertEqual(h.state.collapsedTop, .secondary)
+    }
+
+    func testStageDuringUnfoldDoesNotReuseTheOldCollapsedTop() {
+        var h = SplitHarness()
+        h.stage(split(1, game: ["game"], compact: .primary))
+        h.frames()
+        h.collapsed = false
+        h.frame()
+        XCTAssertEqual(h.state.collapsedTop, .primary, "the last held layout still showed Home")
+        h.absorb(h.state.setCompactColumn(.secondary))
+
+        h.stage(split(2))
+        XCTAssertEqual(h.state.compactColumn, .primary)
+        h.collapsed = true
+        h.framesFollowingCompactBinding(departing: "game")
+        XCTAssertEqual(h.readings.last?.revision, 2)
     }
 
     func testCancelledTakeBackKeepsTheBindingWhileTheGameIsOnTop() {
