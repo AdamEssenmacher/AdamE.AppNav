@@ -169,15 +169,25 @@ public sealed class RouteTemplate
                     throw new InvalidOperationException(
                         $"Path parameter '{segment.ParameterName}' value '{value}' does not satisfy constraint '{segment.Constraint}'.");
                 case true:
-                    segments.AddRange(catchAllSegments!.Select(Uri.EscapeDataString));
+                    foreach (string part in catchAllSegments!)
+                        segments.Add(FormatParameterSegment(segment.ParameterName, part));
                     continue;
                 default:
-                    segments.Add(Uri.EscapeDataString(value));
+                    segments.Add(FormatParameterSegment(segment.ParameterName, value));
                     break;
             }
         }
 
         return "/" + string.Join("/", segments);
+    }
+
+    private static string FormatParameterSegment(string parameterName, string value)
+    {
+        if (value is "." or "..")
+            throw new InvalidOperationException(
+                $"Path parameter '{parameterName}' cannot contain the dot segment '{value}'.");
+
+        return Uri.EscapeDataString(value);
     }
 
     internal bool IsOptionalParameter(string name)
@@ -306,6 +316,9 @@ public sealed class RouteTemplate
         for (var i = 0; i < segments.Length; i++)
         {
             TemplateSegment segment = segments[i];
+
+            if (segment.Literal is "." or "..")
+                throw new ArgumentException($"Route template '{template}' contains the literal dot segment '{segment.Literal}'.");
 
             if (segment.ParameterName is not null && !seenNames.Add(segment.ParameterName))
                 throw new ArgumentException(
