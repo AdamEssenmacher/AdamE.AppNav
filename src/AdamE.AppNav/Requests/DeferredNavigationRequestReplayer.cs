@@ -1,14 +1,36 @@
+using AdamE.AppNav.Diagnostics;
 using AdamE.AppNav.Navigation;
 using Microsoft.Extensions.Logging;
 
 namespace AdamE.AppNav.Requests;
 
+/// <summary>
+/// Replays pending navigation requests.
+/// </summary>
+/// <param name="deferredRequests">The store holding requests to replay.</param>
+/// <param name="navigator">The navigator that attempts each request.</param>
+/// <param name="logger">The logger for default Safe diagnostics when no diagnostics instance is supplied.</param>
+/// <param name="diagnostics">The configured diagnostics instance for replay failures.</param>
 public sealed class DeferredNavigationRequestReplayer(
     IDeferredNavigationRequestStore deferredRequests,
     IRouterNavigator navigator,
-    ILogger<DeferredNavigationRequestReplayer>? logger = null)
+    ILogger<DeferredNavigationRequestReplayer>? logger,
+    NavigationDiagnostics? diagnostics)
     : IDeferredNavigationRequestReplayer
 {
+    private readonly NavigationDiagnostics _diagnostics =
+        diagnostics ?? (logger is null ? NavigationDiagnostics.None : new NavigationDiagnostics(logger));
+
+#pragma warning disable RS0027 // Preserve the shipped optional logger argument.
+    public DeferredNavigationRequestReplayer(
+        IDeferredNavigationRequestStore deferredRequests,
+        IRouterNavigator navigator,
+        ILogger<DeferredNavigationRequestReplayer>? logger = null)
+        : this(deferredRequests, navigator, logger, diagnostics: null)
+    {
+    }
+#pragma warning restore RS0027
+
     public async ValueTask<DeferredNavigationReplayResult> ReplayAsync(CancellationToken cancellationToken = default)
     {
         var attempted = 0;
@@ -32,11 +54,17 @@ public sealed class DeferredNavigationRequestReplayer(
                                        !cancellationToken.IsCancellationRequested)
             {
                 failed++;
-                logger?.LogError(
-                    ex,
-                    "Failed to replay deferred navigation request for route {Route} from source {Source}.",
-                    request.Route,
-                    request.Source);
+                _diagnostics.Write(
+                    NavigationDiagnosticEventKind.DeferredRequestReplayFailed,
+                    Guid.NewGuid().ToString("N"),
+                    "Failed to replay a deferred navigation request.",
+                    new Dictionary<string, object?>
+                    {
+                        [NavigationDiagnosticDataKeys.RouteType] = request.Route?.GetType().FullName,
+                        [NavigationDiagnosticDataKeys.RequestSource] = request.Source.ToString(),
+                        [NavigationDiagnosticDataKeys.ExceptionType] = ex.GetType().FullName,
+                        [NavigationDiagnosticDataKeys.ExceptionMessage] = ex.Message
+                    });
                 continue;
             }
 
