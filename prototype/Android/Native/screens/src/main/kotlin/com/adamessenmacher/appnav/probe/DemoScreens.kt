@@ -42,6 +42,11 @@ import kotlinx.coroutines.withTimeout
 
 private val backRequestIds = AtomicLong()
 
+private fun reportBackFailure(failure: Throwable) {
+    val reason = if (failure is TimeoutCancellationException) "timeout" else failure.message
+    Log.i("AppNavProbe", "policy back failed: $reason")
+}
+
 @Composable
 public fun DemoShellScreen(model: DemoShellModel) {
     val target by model.target.collectAsState()
@@ -91,10 +96,7 @@ public fun DemoShellScreen(model: DemoShellModel) {
                 },
                 requestBack = if (managedBack) requestManagedBack else null,
                 animations = animations,
-                onBackFailure = { failure ->
-                    val reason = if (failure is TimeoutCancellationException) "timeout" else failure.message
-                    Log.i("AppNavProbe", "policy back failed: $reason")
-                },
+                onBackFailure = ::reportBackFailure,
             ) {
                 Column(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp)) {
                     Text("AppNav Compose probe", style = MaterialTheme.typography.titleLarge)
@@ -130,10 +132,17 @@ public fun DemoShellScreen(model: DemoShellModel) {
                                 Text("Recreate Activity")
                             }
                         }
-                    }
-                    if (managedBack) {
                         // Exercise the bridge even before the replacement has a navigable projection.
-                        TextButton(onClick = { scope.launch { requestManagedBack() } }) {
+                        TextButton(onClick = {
+                            scope.launch {
+                                try {
+                                    requestManagedBack()
+                                } catch (failure: Throwable) {
+                                    if (failure is CancellationException && !isActive) throw failure
+                                    reportBackFailure(failure)
+                                }
+                            }
+                        }) {
                             Text("Request managed Back")
                         }
                     }
