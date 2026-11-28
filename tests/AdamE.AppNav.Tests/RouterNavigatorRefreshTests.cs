@@ -1,3 +1,4 @@
+using AdamE.AppNav.Diagnostics;
 using AdamE.AppNav.Navigation;
 using AdamE.AppNav.Plans;
 
@@ -5,6 +6,47 @@ namespace AdamE.AppNav.Tests;
 
 public sealed class RouterNavigatorRefreshTests
 {
+    [Theory]
+    [InlineData(false, NavigationDiagnosticEventKind.PresentationCompleted)]
+    [InlineData(true, NavigationDiagnosticEventKind.PresentationFailed)]
+    public async Task RefreshDiagnosticsIncludePlanKind(
+        bool presentationFails,
+        NavigationDiagnosticEventKind outcomeKind)
+    {
+        var diagnostics = new NavigationDiagnostics();
+        var events = new List<NavigationDiagnosticEvent>();
+        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+        var presenter = new RecordingNavigationPresenter();
+        await using var router = new RouterNavigator(TestRoutes.CreateTable(), TestNavigationPlanner.EchoStack(), presenter,
+            new RouterNavigatorOptions { Diagnostics = diagnostics });
+
+        if (presentationFails)
+        {
+            var failure = new InvalidOperationException("Native remount failed.");
+            presenter.ThrowOnApply = failure;
+            Assert.Same(failure,
+                await Assert.ThrowsAsync<InvalidOperationException>(() => router.RefreshPresentationAsync().AsTask()));
+        }
+        else
+        {
+            await router.RefreshPresentationAsync();
+        }
+
+        Assert.Collection(events,
+            started =>
+            {
+                Assert.Equal(NavigationDiagnosticEventKind.PresentationStarted, started.Kind);
+                Assert.Equal(nameof(NavigationPlanKind.Refresh), started.Data[NavigationDiagnosticDataKeys.PlanKind]);
+            },
+            outcome =>
+            {
+                Assert.Equal(outcomeKind, outcome.Kind);
+                Assert.Equal(nameof(NavigationPlanKind.Refresh), outcome.Data[NavigationDiagnosticDataKeys.PlanKind]);
+                Assert.True(Assert.IsType<double>(outcome.Data[NavigationDiagnosticDataKeys.DurationMs]) >= 0);
+                Assert.Equal(events[0].OperationId, outcome.OperationId);
+            });
+    }
+
     [Fact]
     public async Task RefreshReappliesAcceptedStateWithoutPlanningOrHistoryMutation()
     {

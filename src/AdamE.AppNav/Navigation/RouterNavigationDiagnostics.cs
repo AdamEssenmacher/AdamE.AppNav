@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using AdamE.AppNav.Diagnostics;
+using AdamE.AppNav.Plans;
 using AdamE.AppNav.Requests;
 using AdamE.AppNav.Routing;
 
@@ -15,8 +16,6 @@ internal sealed class RouterNavigationDiagnostics(
     private readonly ActivitySource _activitySource =
         activitySource ?? throw new ArgumentNullException(nameof(activitySource));
 
-    public bool MayWrite => _diagnostics.MayWrite;
-
     public void Write(
         NavigationDiagnosticEventKind kind,
         string operationId,
@@ -25,6 +24,34 @@ internal sealed class RouterNavigationDiagnostics(
         NavigationDiagnosticPhase? phase = null)
     {
         _diagnostics.Write(kind, operationId, message, data, phase: phase);
+    }
+
+    public void WriteLazy<TState>(
+        NavigationDiagnosticEventKind kind,
+        string operationId,
+        TState state,
+        Func<TState, (string Message, IReadOnlyDictionary<string, object?>? Data)?> createPayload,
+        NavigationDiagnosticPhase? phase = null)
+    {
+        _diagnostics.WriteLazy(kind, operationId, state, createPayload, phase: phase);
+    }
+
+    public void WritePresentationStarted(string operationId, NavigationPlanKind planKind)
+    {
+        WriteLazy(NavigationDiagnosticEventKind.PresentationStarted, operationId, planKind, static kind =>
+        {
+            string name = kind.ToString();
+            return (name, Data((NavigationDiagnosticDataKeys.PlanKind, name)));
+        });
+    }
+
+    public void WritePresentationCompleted(string operationId, NavigationPlanKind planKind, long startedAt)
+    {
+        WriteLazy(NavigationDiagnosticEventKind.PresentationCompleted, operationId, (planKind, startedAt), static state =>
+        {
+            string name = state.planKind.ToString();
+            return (name, Duration(state.startedAt, (NavigationDiagnosticDataKeys.PlanKind, name)));
+        });
     }
 
     public RouterNavigationActivityScope StartActivity(
@@ -74,13 +101,14 @@ internal sealed class RouterNavigationDiagnostics(
         string message,
         Exception exception,
         long startedAt,
-        params (string Key, object? Value)[] data)
+        (string Key, object? Value)? data = null)
     {
         RouterNavigationActivityScope.TrySetCurrentTag(
             "navigation.failure.type",
             exception.GetType().FullName);
-        if (MayWrite)
-            _diagnostics.WriteWithException(kind, operationId, message, FailureData(exception, startedAt, data), exception);
+        _diagnostics.WriteLazy(kind, operationId, (message, exception, startedAt, data),
+            static state => (state.message, FailureData(state.exception, state.startedAt, state.data)),
+            exception: exception);
     }
 
     public static IReadOnlyDictionary<string, object?> Duration(
@@ -150,21 +178,18 @@ internal sealed class RouterNavigationDiagnostics(
         NavigationDiagnosticPhase phase)
     {
         RouterNavigationActivityScope.TrySetCurrentTag("navigation.redirect_count", redirectCount);
-        if (!MayWrite)
-            return;
-
-        string redirectTrace = BuildRedirectTrace(initialRequest, redirects);
-        _diagnostics.Write(
+        WriteLazy(
             NavigationDiagnosticEventKind.RequestRedirectLoopDetected,
             operationId,
-            message,
-            Data(
-                (componentTypeKey, componentType),
-                (NavigationDiagnosticDataKeys.RedirectCount, redirectCount),
-                (NavigationDiagnosticDataKeys.RedirectFrom, DescribeRedirectTarget(redirectFrom)),
-                (NavigationDiagnosticDataKeys.RedirectTo, DescribeRedirectTarget(redirectTo)),
-                (NavigationDiagnosticDataKeys.RedirectTrace, redirectTrace)),
-            phase: phase);
+            (message, componentTypeKey, componentType, redirectCount, redirectFrom, redirectTo, initialRequest,
+                redirects),
+            static state => (state.message, Data(
+                (state.componentTypeKey, state.componentType),
+                (NavigationDiagnosticDataKeys.RedirectCount, state.redirectCount),
+                (NavigationDiagnosticDataKeys.RedirectFrom, DescribeRedirectTarget(state.redirectFrom)),
+                (NavigationDiagnosticDataKeys.RedirectTo, DescribeRedirectTarget(state.redirectTo)),
+                (NavigationDiagnosticDataKeys.RedirectTrace, BuildRedirectTrace(state.initialRequest, state.redirects)))),
+            phase);
     }
 
     public static string BuildRedirectTrace(
@@ -217,11 +242,13 @@ internal sealed class RouterNavigationDiagnostics(
     private static Dictionary<string, object?> FailureData(
         Exception exception,
         long startedAt,
-        params (string Key, object? Value)[] data)
+        (string Key, object? Value)? data)
     {
-        double durationMs = Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds;
-        Dictionary<string, object?> result = Data(data);
-        result[NavigationDiagnosticDataKeys.DurationMs] = durationMs;
+        var result = new Dictionary<string, object?>(StringComparer.Ordinal);
+        if (data is { } field)
+            result[field.Key] = field.Value;
+
+        result[NavigationDiagnosticDataKeys.DurationMs] = Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds;
         result[NavigationDiagnosticDataKeys.ExceptionType] = exception.GetType().FullName;
         result[NavigationDiagnosticDataKeys.ExceptionMessage] = exception.Message;
 

@@ -106,22 +106,6 @@ public sealed class NavigationDiagnostics
         }
     }
 
-    // A conservative check for callers that would otherwise construct a payload before Write.
-    internal bool MayWrite
-    {
-        get
-        {
-            if (!_enabled)
-                return false;
-
-            if (_logger is not null || _redactor is not null || Activity.Current is not null)
-                return true;
-
-            lock (_gate)
-                return _eventWritten is not null || _observers.Count != 0;
-        }
-    }
-
     /// <summary>
     /// Writes a navigation diagnostic event.
     /// </summary>
@@ -151,6 +135,19 @@ public sealed class NavigationDiagnostics
         LogLevel? severity = null,
         NavigationDiagnosticPhase? phase = null)
     {
+        WriteLazy(kind, operationId, (message, data), static payload => payload, severity, phase, exception);
+    }
+
+    // Pass state to a static factory so a skipped event needs no payload or closure.
+    internal void WriteLazy<TState>(
+        NavigationDiagnosticEventKind kind,
+        string operationId,
+        TState state,
+        Func<TState, (string Message, IReadOnlyDictionary<string, object?>? Data)?> createPayload,
+        LogLevel? severity = null,
+        NavigationDiagnosticPhase? phase = null,
+        Exception? exception = null)
+    {
         if (!_enabled)
             return;
 
@@ -167,7 +164,6 @@ public sealed class NavigationDiagnostics
             return;
 
         LogLevel effectiveSeverity = severity ?? InferSeverity(kind);
-        NavigationDiagnosticPhase effectivePhase = phase ?? InferPhase(kind);
         bool hasLogger;
         try
         {
@@ -181,14 +177,17 @@ public sealed class NavigationDiagnostics
         if (_redactor is null && !hasLogger && !hasActivity && eventWritten is null && observers.Length == 0)
             return;
 
+        if (createPayload(state) is not { } payload)
+            return;
+
         var rawEvent = new NavigationDiagnosticEvent(
             kind,
             operationId,
-            message,
+            payload.Message,
             DateTimeOffset.UtcNow,
-            data ?? EmptyData.Value,
+            payload.Data ?? EmptyData.Value,
             effectiveSeverity,
-            effectivePhase);
+            phase ?? InferPhase(kind));
         NavigationDiagnosticEvent diagnosticEvent = PrepareEvent(rawEvent);
 
         TryMirrorToLogger(diagnosticEvent, exception);
@@ -404,7 +403,8 @@ public sealed class NavigationDiagnostics
 
     private static LogLevel InferSeverity(NavigationDiagnosticEventKind kind)
     {
-        return kind.ToString().EndsWith("Failed", StringComparison.Ordinal) ||
+        string? name = Enum.GetName(kind);
+        return name?.EndsWith("Failed", StringComparison.Ordinal) == true ||
                kind is NavigationDiagnosticEventKind.NavigationFailed or
                    NavigationDiagnosticEventKind.RequestRedirectLoopDetected or
                    NavigationDiagnosticEventKind.DiagnosticObserverFailed or
@@ -423,7 +423,7 @@ public sealed class NavigationDiagnostics
                     NavigationDiagnosticEventKind.PresentationHandlerAttached or
                     NavigationDiagnosticEventKind.PresentationHandlerDetached
                     ? LogLevel.Debug
-                    : kind.ToString().EndsWith("Started", StringComparison.Ordinal)
+                    : name?.EndsWith("Started", StringComparison.Ordinal) == true
                         ? LogLevel.Debug
                         : LogLevel.Information;
     }

@@ -154,6 +154,54 @@ public sealed class DiagnosticsTests
         Assert.IsType<double>(diagnosticEvent.Data[NavigationDiagnosticDataKeys.DurationMs]);
     }
 
+    [Theory]
+    [InlineData(NavigationDiagnosticEventKind.BackPolicyStarted, LogLevel.Debug, false)]
+    [InlineData(NavigationDiagnosticEventKind.BackPolicyCompleted, LogLevel.Information, false)]
+    [InlineData(NavigationDiagnosticEventKind.ReconciliationRejected, LogLevel.Warning, true)]
+    [InlineData(NavigationDiagnosticEventKind.BackFailed, LogLevel.Error, true)]
+    public void LazyWriteBuildsPayloadOnlyWhenLoggerEnablesEventLevel(
+        NavigationDiagnosticEventKind kind,
+        LogLevel severity,
+        bool expected)
+    {
+        var logger = new CapturingLogger(LogLevel.Warning);
+        var diagnostics = new NavigationDiagnostics(logger);
+        int payloadsBuilt = 0;
+
+        diagnostics.WriteLazy(kind, "operation", "message", message =>
+        {
+            payloadsBuilt++;
+            return (message, null);
+        });
+
+        if (expected)
+        {
+            Assert.Equal(1, payloadsBuilt);
+            Assert.Equal(severity, Assert.Single(logger.Entries).Level);
+        }
+        else
+        {
+            Assert.Equal(0, payloadsBuilt);
+            Assert.Empty(logger.Entries);
+        }
+    }
+
+    [Fact]
+    public void LazyWriteDeliversToObserversWhenLoggerLevelCheckThrows()
+    {
+        var diagnostics = new NavigationDiagnostics(
+            new ThrowingLogger(throwOnLevelCheck: true),
+            new NavigationDiagnosticsOptions { DataMode = NavigationDiagnosticDataMode.Full });
+        var observer = new CapturingObserver();
+        diagnostics.AddObserver(observer);
+
+        diagnostics.WriteLazy(NavigationDiagnosticEventKind.BackStarted, "operation", "main", static windowId =>
+            ("Back started", new Dictionary<string, object?> { [NavigationDiagnosticDataKeys.WindowId] = windowId }));
+
+        var diagnosticEvent = Assert.IsType<NavigationDiagnosticEvent>(observer.Event);
+        Assert.Equal("main", diagnosticEvent.Data[NavigationDiagnosticDataKeys.WindowId]);
+    }
+
     [Fact]
     public void SafeModeSanitizesBeforeObserversLoggersAndActivity()
     {
@@ -1026,7 +1074,7 @@ public sealed class DiagnosticsTests
         }
     }
 
-    private sealed class CapturingLogger : ILogger
+    private sealed class CapturingLogger(LogLevel minimumLevel = LogLevel.Trace) : ILogger
     {
         public List<LogEntry> Entries { get; } = new();
 
@@ -1040,7 +1088,7 @@ public sealed class DiagnosticsTests
 
         public bool IsEnabled(LogLevel logLevel)
         {
-            return true;
+            return logLevel >= minimumLevel;
         }
 
         public void Log<TState>(
@@ -1092,12 +1140,13 @@ public sealed class DiagnosticsTests
         public override string ToString() => throw new InvalidOperationException("value-secret");
     }
 
-    private sealed class ThrowingLogger : ILogger
+    private sealed class ThrowingLogger(bool throwOnLevelCheck = false) : ILogger
     {
         public IDisposable? BeginScope<TState>(TState state)
             where TState : notnull => null;
 
-        public bool IsEnabled(LogLevel logLevel) => true;
+        public bool IsEnabled(LogLevel logLevel) =>
+            throwOnLevelCheck ? throw new InvalidOperationException("logger-level-secret") : true;
 
         public void Log<TState>(
             LogLevel logLevel,
