@@ -224,7 +224,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             using RouterNavigationActivityScope activity =
                 _diagnostics.StartActivity("Navigation.Refresh", operationId, plan.Kind.ToString());
             var startedAt = Stopwatch.GetTimestamp();
-            _diagnostics.Write(NavigationDiagnosticEventKind.PresentationStarted, operationId, nameof(NavigationPlanKind.Refresh));
+            _diagnostics.WritePresentationStarted(operationId, plan.Kind);
             try
             {
                 _entryLeases?.BeginPresentation();
@@ -232,15 +232,20 @@ internal sealed class RouterNavigator : IRouterNavigator
                 await _presenter.ApplyAsync(plan,
                     new NavigationPresentationContext(request, route, state, operationId), operationCancellation)
                     .ConfigureAwait(false);
-                _diagnostics.WriteLazy(NavigationDiagnosticEventKind.PresentationCompleted, operationId, startedAt,
-                    static timestamp => (nameof(NavigationPlanKind.Refresh), RouterNavigationDiagnostics.Duration(timestamp)));
+                _diagnostics.WritePresentationCompleted(operationId, plan.Kind, startedAt);
                 activity.SetStatus(ActivityStatusCode.Ok);
             }
             catch (Exception exception)
             {
                 activity.SetStatus(ActivityStatusCode.Error);
-                _diagnostics.WriteFailure(NavigationDiagnosticEventKind.PresentationFailed,
-                    operationId, plan.Kind.ToString(), exception, startedAt);
+                string planKind = plan.Kind.ToString();
+                _diagnostics.WriteFailure(
+                    NavigationDiagnosticEventKind.PresentationFailed,
+                    operationId,
+                    planKind,
+                    exception,
+                    startedAt,
+                    (NavigationDiagnosticDataKeys.PlanKind, planKind));
                 throw;
             }
             finally
