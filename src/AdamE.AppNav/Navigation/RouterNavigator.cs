@@ -224,7 +224,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             using RouterNavigationActivityScope activity =
                 _diagnostics.StartActivity("Navigation.Refresh", operationId, plan.Kind.ToString());
             var startedAt = Stopwatch.GetTimestamp();
-            _diagnostics.Write(NavigationDiagnosticEventKind.PresentationStarted, operationId, plan.Kind.ToString());
+            _diagnostics.Write(NavigationDiagnosticEventKind.PresentationStarted, operationId, nameof(NavigationPlanKind.Refresh));
             try
             {
                 _entryLeases?.BeginPresentation();
@@ -232,8 +232,8 @@ internal sealed class RouterNavigator : IRouterNavigator
                 await _presenter.ApplyAsync(plan,
                     new NavigationPresentationContext(request, route, state, operationId), operationCancellation)
                     .ConfigureAwait(false);
-                _diagnostics.Write(NavigationDiagnosticEventKind.PresentationCompleted, operationId, plan.Kind.ToString(),
-                    RouterNavigationDiagnostics.Duration(startedAt));
+                _diagnostics.WriteLazy(NavigationDiagnosticEventKind.PresentationCompleted, operationId, startedAt,
+                    static timestamp => (nameof(NavigationPlanKind.Refresh), RouterNavigationDiagnostics.Duration(timestamp)));
                 activity.SetStatus(ActivityStatusCode.Ok);
             }
             catch (Exception exception)
@@ -315,17 +315,14 @@ internal sealed class RouterNavigator : IRouterNavigator
             activity.SetTag("navigation.disposition", effectiveRequest.Disposition);
 
             var planningStartedAt = Stopwatch.GetTimestamp();
-            if (_diagnostics.MayWrite)
-            {
-                _diagnostics.Write(
-                    NavigationDiagnosticEventKind.PlanningStarted,
-                    operationId,
-                    route.GetType().Name,
-                    RouterNavigationDiagnostics.RequestData(
-                        effectiveRequest,
-                        (NavigationDiagnosticDataKeys.RouteType, route.GetType().FullName),
-                        (NavigationDiagnosticDataKeys.RequestDisposition, effectiveRequest.Disposition.ToString())));
-            }
+            _diagnostics.WriteLazy(
+                NavigationDiagnosticEventKind.PlanningStarted,
+                operationId,
+                (routeType: route.GetType(), effectiveRequest),
+                static state => (state.routeType.Name, RouterNavigationDiagnostics.RequestData(
+                    state.effectiveRequest,
+                    (NavigationDiagnosticDataKeys.RouteType, state.routeType.FullName),
+                    (NavigationDiagnosticDataKeys.RequestDisposition, state.effectiveRequest.Disposition.ToString()))));
             NavigationPlan plan;
             try
             {
@@ -336,28 +333,30 @@ internal sealed class RouterNavigator : IRouterNavigator
                 if (_entryLeases is not null)
                     RouteEntryLeaseRegistry.ValidateUniqueEntryIds(plan.TargetState, "App navigation planner");
                 if (RouteEntryLeaseNavigation.TryGetLease(request, out RouteEntryLease? sentLease) &&
-                    sentLease.EntryId is { } sentEntryId &&
-                    _diagnostics.MayWrite &&
-                    !RouteEntryLeaseRegistry.EntryIds(plan.TargetState).Contains(sentEntryId))
+                    sentLease.EntryId is { } sentEntryId)
                 {
-                    // The lease will be abandoned when the request ends; say why instead of leaving it silent.
-                    _diagnostics.Write(
+                    _diagnostics.WriteLazy(
                         NavigationDiagnosticEventKind.EntryLeaseNotInPlan,
                         operationId,
-                        "The plan does not contain the entry of the route-entry lease sent with this request.",
-                        RouterNavigationDiagnostics.Data((NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
+                        (plan, sentEntryId),
+                        static state => RouteEntryLeaseRegistry.EntryIds(state.plan.TargetState).Contains(state.sentEntryId)
+                            ? null
+                            : ("The plan does not contain the entry of the route-entry lease sent with this request.",
+                                RouterNavigationDiagnostics.Data(
+                                    (NavigationDiagnosticDataKeys.PlanKind, state.plan.Kind.ToString()))));
                 }
                 activity.SetTag("navigation.plan_kind", plan.Kind);
-                if (_diagnostics.MayWrite)
-                {
-                    _diagnostics.Write(
-                        NavigationDiagnosticEventKind.PlanningCompleted,
-                        operationId,
-                        plan.Kind.ToString(),
-                        RouterNavigationDiagnostics.Duration(planningStartedAt,
-                            (NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString()),
-                            (NavigationDiagnosticDataKeys.ContextualFallback, plan.ContextualFallback)));
-                }
+                _diagnostics.WriteLazy(
+                    NavigationDiagnosticEventKind.PlanningCompleted,
+                    operationId,
+                    (plan, planningStartedAt),
+                    static state =>
+                    {
+                        string planKind = state.plan.Kind.ToString();
+                        return (planKind, RouterNavigationDiagnostics.Duration(state.planningStartedAt,
+                            (NavigationDiagnosticDataKeys.PlanKind, planKind),
+                            (NavigationDiagnosticDataKeys.ContextualFallback, state.plan.ContextualFallback)));
+                    });
             }
             catch (Exception ex)
             {
@@ -374,14 +373,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             AppRoute finalRoute = ResolvePresentedRoute(plan.TargetState, effectiveRequest.WindowId, route);
             RouterNavigationRequest finalizedRequest = effectiveRequest;
             var presentationStartedAt = Stopwatch.GetTimestamp();
-            if (_diagnostics.MayWrite)
-            {
-                _diagnostics.Write(
-                    NavigationDiagnosticEventKind.PresentationStarted,
-                    operationId,
-                    plan.Kind.ToString(),
-                    RouterNavigationDiagnostics.Data((NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
-            }
+            _diagnostics.WritePresentationStarted(operationId, plan.Kind);
             try
             {
                 _entryLeases?.BeginPresentation();
@@ -390,15 +382,7 @@ internal sealed class RouterNavigator : IRouterNavigator
                     plan,
                     new NavigationPresentationContext(finalizedRequest, finalRoute, CurrentState, operationId),
                     cancellationToken).ConfigureAwait(false);
-                if (_diagnostics.MayWrite)
-                {
-                    _diagnostics.Write(
-                        NavigationDiagnosticEventKind.PresentationCompleted,
-                        operationId,
-                        plan.Kind.ToString(),
-                        RouterNavigationDiagnostics.Duration(presentationStartedAt,
-                            (NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
-                }
+                _diagnostics.WritePresentationCompleted(operationId, plan.Kind, presentationStartedAt);
             }
             catch (Exception ex)
             {
@@ -448,13 +432,12 @@ internal sealed class RouterNavigator : IRouterNavigator
         var backContext = new BackNavigationContext(CurrentState, backRequest.WindowId, operationId);
         string? diagnosticWindowId =
             backContext.ResolvedWindowId ?? backContext.RequestedWindowId ?? CurrentState.ActiveWindowId;
-        string diagnosticWindowName = diagnosticWindowId ?? "active";
-
-        _diagnostics.Write(
+        _diagnostics.WriteLazy(
             NavigationDiagnosticEventKind.BackStarted,
             operationId,
-            diagnosticWindowName,
-            RouterNavigationDiagnostics.Data((NavigationDiagnosticDataKeys.WindowId, diagnosticWindowId)));
+            diagnosticWindowId,
+            static windowId => (windowId ?? "active",
+                RouterNavigationDiagnostics.Data((NavigationDiagnosticDataKeys.WindowId, windowId))));
 
         try
         {
@@ -470,12 +453,12 @@ internal sealed class RouterNavigator : IRouterNavigator
             NavigationPlan? plan = _backNavigator.CreateBackPlan(backContext);
             if (plan is null)
             {
-                _diagnostics.Write(
+                _diagnostics.WriteLazy(
                     NavigationDiagnosticEventKind.BackUnhandled,
                     operationId,
-                    "No host accepted back navigation.",
-                    RouterNavigationDiagnostics.Duration(startedAt,
-                        (NavigationDiagnosticDataKeys.WindowId, diagnosticWindowId)));
+                    (startedAt, diagnosticWindowId),
+                    static state => ("No host accepted back navigation.", RouterNavigationDiagnostics.Duration(
+                        state.startedAt, (NavigationDiagnosticDataKeys.WindowId, state.diagnosticWindowId))));
                 activity.SetStatus(ActivityStatusCode.Ok);
                 return BackNavigationResult.Unhandled;
             }
@@ -489,13 +472,13 @@ internal sealed class RouterNavigator : IRouterNavigator
             {
                 var policyStartedAt = Stopwatch.GetTimestamp();
                 string policyName = policy.GetType().FullName ?? policy.GetType().Name;
-                _diagnostics.Write(
+                _diagnostics.WriteLazy(
                     NavigationDiagnosticEventKind.BackPolicyStarted,
                     operationId,
-                    policyName,
-                    RouterNavigationDiagnostics.Data(
-                        (NavigationDiagnosticDataKeys.PolicyType, policyName),
-                        (NavigationDiagnosticDataKeys.BackSource, backRequest.Source.ToString())));
+                    (policyName, backRequest.Source),
+                    static state => (state.policyName, RouterNavigationDiagnostics.Data(
+                        (NavigationDiagnosticDataKeys.PolicyType, state.policyName),
+                        (NavigationDiagnosticDataKeys.BackSource, state.Source.ToString()))));
 
                 BackNavigationPolicyDecision decision;
                 try
@@ -507,14 +490,18 @@ internal sealed class RouterNavigator : IRouterNavigator
                             $"Back policy '{policyName}' returned unknown decision value '{(int)decision}'.");
                     }
 
-                    _diagnostics.Write(
+                    _diagnostics.WriteLazy(
                         NavigationDiagnosticEventKind.BackPolicyCompleted,
                         operationId,
-                        decision.ToString(),
-                        RouterNavigationDiagnostics.Duration(
-                            policyStartedAt,
-                            (NavigationDiagnosticDataKeys.PolicyType, policyName),
-                            (NavigationDiagnosticDataKeys.Decision, decision.ToString())));
+                        (decision, policyStartedAt, policyName),
+                        static state =>
+                        {
+                            string decisionName = state.decision.ToString();
+                            return (decisionName, RouterNavigationDiagnostics.Duration(
+                                state.policyStartedAt,
+                                (NavigationDiagnosticDataKeys.PolicyType, state.policyName),
+                                (NavigationDiagnosticDataKeys.Decision, decisionName)));
+                        });
                 }
                 catch (Exception ex)
                 {
@@ -530,14 +517,14 @@ internal sealed class RouterNavigator : IRouterNavigator
 
                 if (decision == BackNavigationPolicyDecision.Cancel)
                 {
-                    _diagnostics.Write(
+                    _diagnostics.WriteLazy(
                         NavigationDiagnosticEventKind.BackCanceled,
                         operationId,
-                        policyName,
-                        RouterNavigationDiagnostics.Duration(
-                            startedAt,
-                            (NavigationDiagnosticDataKeys.PolicyType, policyName),
-                            (NavigationDiagnosticDataKeys.WindowId, diagnosticWindowId)));
+                        (policyName, startedAt, diagnosticWindowId),
+                        static state => (state.policyName, RouterNavigationDiagnostics.Duration(
+                            state.startedAt,
+                            (NavigationDiagnosticDataKeys.PolicyType, state.policyName),
+                            (NavigationDiagnosticDataKeys.WindowId, state.diagnosticWindowId))));
                     activity.SetStatus(ActivityStatusCode.Ok);
                     return BackNavigationResult.Canceled;
                 }
@@ -548,11 +535,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             RouterNavigationRequest request =
                 RouterNavigationRequest.FromRoute(route, ResolveBackRequestSource(backRequest.Source), resolvedWindowId);
 
-            _diagnostics.Write(
-                NavigationDiagnosticEventKind.PresentationStarted,
-                operationId,
-                plan.Kind.ToString(),
-                RouterNavigationDiagnostics.Data((NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
+            _diagnostics.WritePresentationStarted(operationId, plan.Kind);
             var presentationStartedAt = Stopwatch.GetTimestamp();
             try
             {
@@ -562,12 +545,7 @@ internal sealed class RouterNavigator : IRouterNavigator
                     plan,
                     new NavigationPresentationContext(request, route, CurrentState, operationId),
                     cancellationToken).ConfigureAwait(false);
-                _diagnostics.Write(
-                    NavigationDiagnosticEventKind.PresentationCompleted,
-                    operationId,
-                    plan.Kind.ToString(),
-                    RouterNavigationDiagnostics.Duration(presentationStartedAt,
-                        (NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
+                _diagnostics.WritePresentationCompleted(operationId, plan.Kind, presentationStartedAt);
             }
             catch (Exception ex)
             {
@@ -588,12 +566,12 @@ internal sealed class RouterNavigator : IRouterNavigator
                 _maxHistoryEntries);
             RecordPresentationSettlement(CurrentState, plan.Kind, operationId);
 
-            _diagnostics.Write(
+            _diagnostics.WriteLazy(
                 NavigationDiagnosticEventKind.BackCompleted,
                 operationId,
-                plan.Reason ?? "Back handled.",
-                RouterNavigationDiagnostics.Duration(startedAt,
-                    (NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
+                (plan, startedAt),
+                static state => (state.plan.Reason ?? "Back handled.", RouterNavigationDiagnostics.Duration(
+                    state.startedAt, (NavigationDiagnosticDataKeys.PlanKind, state.plan.Kind.ToString()))));
             activity.SetStatus(ActivityStatusCode.Ok);
             return BackNavigationResult.CompletedBy(new NavigationResult(route, plan, CurrentState, true));
         }
@@ -622,21 +600,28 @@ internal sealed class RouterNavigator : IRouterNavigator
         AppRoute route = request.Route ?? new ReconciledRoute();
         var plan = new NavigationPlan(reconciliation.TargetState, NavigationPlanKind.Reconcile, reconciliation.Reason);
 
-        _diagnostics.Write(
+        _diagnostics.WriteLazy(
             NavigationDiagnosticEventKind.ReconciliationStarted,
             operationId,
-            reconciliation.Source.ToString(),
-            RouterNavigationDiagnostics.Data((NavigationDiagnosticDataKeys.ReconciliationSource,
-                reconciliation.Source.ToString())));
+            reconciliation.Source,
+            static source =>
+            {
+                string name = source.ToString();
+                return (name, RouterNavigationDiagnostics.Data((NavigationDiagnosticDataKeys.ReconciliationSource, name)));
+            });
 
         if (!ReferenceEquals(reconciliation.BaseState, CurrentState))
         {
-            _diagnostics.Write(
+            _diagnostics.WriteLazy(
                 NavigationDiagnosticEventKind.ReconciliationRejected,
                 operationId,
-                reconciliation.Source.ToString(),
-                RouterNavigationDiagnostics.Duration(startedAt,
-                    (NavigationDiagnosticDataKeys.ReconciliationSource, reconciliation.Source.ToString())));
+                (reconciliation.Source, startedAt),
+                static state =>
+                {
+                    string name = state.Source.ToString();
+                    return (name, RouterNavigationDiagnostics.Duration(
+                        state.startedAt, (NavigationDiagnosticDataKeys.ReconciliationSource, name)));
+                });
             activity.SetStatus(ActivityStatusCode.Error);
             throw new StaleNavigationReconciliationException(
                 reconciliation,
@@ -653,11 +638,7 @@ internal sealed class RouterNavigator : IRouterNavigator
             AppRoute finalRoute = ResolvePresentedRoute(plan.TargetState, request.WindowId, route);
             RouterNavigationRequest finalizedRequest = request;
             var presentationStartedAt = Stopwatch.GetTimestamp();
-            _diagnostics.Write(
-                NavigationDiagnosticEventKind.PresentationStarted,
-                operationId,
-                plan.Kind.ToString(),
-                RouterNavigationDiagnostics.Data((NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
+            _diagnostics.WritePresentationStarted(operationId, plan.Kind);
             try
             {
                 _entryLeases?.BeginPresentation();
@@ -666,12 +647,7 @@ internal sealed class RouterNavigator : IRouterNavigator
                     plan,
                     new NavigationPresentationContext(finalizedRequest, finalRoute, CurrentState, operationId),
                     cancellationToken).ConfigureAwait(false);
-                _diagnostics.Write(
-                    NavigationDiagnosticEventKind.PresentationCompleted,
-                    operationId,
-                    plan.Kind.ToString(),
-                    RouterNavigationDiagnostics.Duration(presentationStartedAt,
-                        (NavigationDiagnosticDataKeys.PlanKind, plan.Kind.ToString())));
+                _diagnostics.WritePresentationCompleted(operationId, plan.Kind, presentationStartedAt);
             }
             catch (Exception ex)
             {
@@ -693,12 +669,16 @@ internal sealed class RouterNavigator : IRouterNavigator
                 _maxHistoryEntries);
             RecordPresentationSettlement(CurrentState, plan.Kind, operationId);
 
-            _diagnostics.Write(
+            _diagnostics.WriteLazy(
                 NavigationDiagnosticEventKind.ReconciliationCompleted,
                 operationId,
-                reconciliation.Source.ToString(),
-                RouterNavigationDiagnostics.Duration(startedAt,
-                    (NavigationDiagnosticDataKeys.ReconciliationSource, reconciliation.Source.ToString())));
+                (reconciliation.Source, startedAt),
+                static state =>
+                {
+                    string name = state.Source.ToString();
+                    return (name, RouterNavigationDiagnostics.Duration(
+                        state.startedAt, (NavigationDiagnosticDataKeys.ReconciliationSource, name)));
+                });
             activity.SetStatus(ActivityStatusCode.Ok);
             return new NavigationResult(finalRoute, plan, CurrentState, false);
         }
