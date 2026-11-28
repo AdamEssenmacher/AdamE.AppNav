@@ -181,7 +181,9 @@ Not every navigation entry point is an interactive call:
   diagnostics.
 - `IAppNavStartupService.StartAsync` returns `AppNavStartupResult`. Its
   `Outcome` distinguishes app-link navigation, fallback navigation, no
-  navigation, and failure; `Exception` contains a captured startup failure.
+  navigation, and failure. `Exception` contains a captured startup failure.
+  When startup finds a buffered app link, it records `AppLinkPending` in the
+  `StartupAppLinkPending` diagnostic event before awaiting the dispatch outcome.
   Caller-requested cancellation still throws `OperationCanceledException`.
 - Deferred replay returns `DeferredNavigationReplayResult` with attempted,
   replayed, and failed counts. It acknowledges a leased request only after

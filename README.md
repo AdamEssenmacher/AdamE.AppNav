@@ -33,7 +33,7 @@ The target release is `0.1.0-preview.1`.
 - MAUI workload set: `10.0.402.1`
 - Android: API 28+
 - iOS: 15+
-- Mac Catalyst: 15+
+- Mac Catalyst: 17+
 - Local package version: `0.1.0-preview.local`
 
 The preview includes typed route generation and formatting, request transforms
