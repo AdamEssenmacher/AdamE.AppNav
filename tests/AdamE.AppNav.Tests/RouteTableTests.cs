@@ -320,11 +320,13 @@ public sealed class RouteTableTests
             match => new SearchRoute(match.Query("tag"), match.QueryAll("tag")),
             format => format.QueryParam("tag", route => route.Tags)));
 
-        var result = table.Match(new Uri("/search?tag=blue&tag=green", UriKind.Relative));
+        var result = table.Match(new Uri("/search?tag=blue&TAG=green", UriKind.Relative));
         var route = Assert.IsType<SearchRoute>(result.Route);
 
         Assert.Equal("green", route.LastTag);
         Assert.Equal(new[] { "blue", "green" }, route.Tags);
+        var tags = Assert.IsAssignableFrom<ICollection<string>>(route.Tags);
+        Assert.Throws<NotSupportedException>(() => tags.Add("red"));
         Assert.Equal("/search?tag=blue&tag=green", table.Format(route));
     }
 

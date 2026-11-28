@@ -32,6 +32,12 @@
     "RouteMatchingBenchmarks.MatchConvention_LastRoute/1000": 1768,
     "RouteMatchingBenchmarks.MatchExplicit_LastRoute/10": 1736,
     "RouteMatchingBenchmarks.MatchExplicit_LastRoute/100": 1736,
-    "RouteMatchingBenchmarks.MatchExplicit_LastRoute/1000": 1736
+    "RouteMatchingBenchmarks.MatchExplicit_LastRoute/1000": 1736,
+    "RouteMatchingBenchmarks.MatchExplicit_LastRouteWithRepeatedQuery/10": 2232,
+    "RouteMatchingBenchmarks.MatchExplicit_LastRouteWithRepeatedQuery/100": 2232,
+    "RouteMatchingBenchmarks.MatchExplicit_LastRouteWithRepeatedQuery/1000": 2232,
+    "RouteMatchingBenchmarks.MatchExplicit_LastRouteWithSingleQuery/10": 1664,
+    "RouteMatchingBenchmarks.MatchExplicit_LastRouteWithSingleQuery/100": 1664,
+    "RouteMatchingBenchmarks.MatchExplicit_LastRouteWithSingleQuery/1000": 1664
   }
 }
