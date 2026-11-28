@@ -64,11 +64,12 @@ public sealed class DeferredNavigationRequestReplayer(
                 if (request.Uri is { } uri)
                     data[NavigationDiagnosticDataKeys.Uri] = uri.ToString();
 
-                _diagnostics.Write(
+                _diagnostics.WriteWithException(
                     NavigationDiagnosticEventKind.DeferredRequestReplayFailed,
                     Guid.NewGuid().ToString("N"),
                     "Failed to replay a deferred navigation request.",
-                    data);
+                    data,
+                    ex);
                 continue;
             }
 

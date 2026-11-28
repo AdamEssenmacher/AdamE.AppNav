@@ -605,27 +605,55 @@ public sealed class DiagnosticsTests
         Assert.True(notMatched.Data.ContainsKey(NavigationDiagnosticDataKeys.DurationMs));
     }
 
-    [Fact]
-    public async Task DiagnosticsMirrorEventsToLogger()
+    [Theory]
+    [InlineData(NavigationDiagnosticDataMode.Safe)]
+    [InlineData(NavigationDiagnosticDataMode.Full)]
+    public async Task DiagnosticsMirrorNavigationFailuresToLogger(NavigationDiagnosticDataMode mode)
     {
         var logger = new CapturingLogger();
-        var diagnostics = new NavigationDiagnostics(logger);
+        var diagnostics = new NavigationDiagnostics(logger, new NavigationDiagnosticsOptions { DataMode = mode });
         var navigator = new RouterNavigator(
             TestRoutes.CreateTable(),
             new TestPlanner(),
             new ThrowingPresenter(),
             new RouterNavigatorOptions { Diagnostics = diagnostics });
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => navigator
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => navigator
             .NavigateAsync(RouterNavigationRequest.FromRoute(
                 new TestRoutes.StoreRoute("northwind"), NavigationRequestSource.Test))
             .AsTask());
 
-        Assert.Contains(logger.Entries, entry =>
-            entry.Level == LogLevel.Error &&
+        var presentationFailure = Assert.Single(logger.Entries, entry =>
             entry.Message.Contains(nameof(NavigationDiagnosticEventKind.PresentationFailed), StringComparison.Ordinal));
-        Assert.Contains(logger.Entries, entry =>
+        var navigationFailure = Assert.Single(logger.Entries, entry =>
             entry.Message.Contains(nameof(NavigationDiagnosticEventKind.NavigationFailed), StringComparison.Ordinal));
+        Assert.Equal(LogLevel.Error, presentationFailure.Level);
+        Assert.Equal(LogLevel.Error, navigationFailure.Level);
+        Exception? expectedException = mode == NavigationDiagnosticDataMode.Full ? exception : null;
+        Assert.Same(expectedException, presentationFailure.Exception);
+        Assert.Same(expectedException, navigationFailure.Exception);
+    }
+
+    [Theory]
+    [InlineData(NavigationDiagnosticDataMode.Safe)]
+    [InlineData(NavigationDiagnosticDataMode.Full)]
+    public void DiagnosticsMirrorObserverFailuresToLogger(NavigationDiagnosticDataMode mode)
+    {
+        var logger = new CapturingLogger();
+        var diagnostics = new NavigationDiagnostics(logger, new NavigationDiagnosticsOptions { DataMode = mode });
+        var exception = new InvalidOperationException("Observer failed.");
+        diagnostics.EventWritten += (_, diagnosticEvent) =>
+        {
+            if (diagnosticEvent.Kind == NavigationDiagnosticEventKind.PlanningStarted)
+                throw exception;
+        };
+
+        diagnostics.Write(NavigationDiagnosticEventKind.PlanningStarted, "operation", "Planning started.");
+
+        var observerFailure = Assert.Single(logger.Entries, entry =>
+            entry.Message.Contains(nameof(NavigationDiagnosticEventKind.DiagnosticObserverFailed), StringComparison.Ordinal));
+        Assert.Equal(LogLevel.Error, observerFailure.Level);
+        Assert.Same(mode == NavigationDiagnosticDataMode.Full ? exception : null, observerFailure.Exception);
     }
 
     [Fact]
@@ -1022,7 +1050,7 @@ public sealed class DiagnosticsTests
             Exception? exception,
             Func<TState, Exception?, string> formatter)
         {
-            Entries.Add(new LogEntry(logLevel, formatter(state, exception)));
+            Entries.Add(new LogEntry(logLevel, formatter(state, exception), exception));
             if (state is IEnumerable<KeyValuePair<string, object?>> properties &&
                 properties.FirstOrDefault(static pair => pair.Key is "Data" or "@Data").Value is
                     IReadOnlyDictionary<string, object?> data)
@@ -1080,5 +1108,5 @@ public sealed class DiagnosticsTests
             throw new InvalidOperationException("logger-secret");
     }
 
-    private sealed record LogEntry(LogLevel Level, string Message);
+    private sealed record LogEntry(LogLevel Level, string Message, Exception? Exception);
 }

@@ -112,6 +112,44 @@ public sealed class DeferredNavigationRequestReplayerTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ReplayAsync_FullDiagnosticsLogExceptionOnlyWithoutRedactor(bool useRedactor)
+    {
+        var store = new InMemoryDeferredNavigationRequestStore();
+        var request = RouterNavigationRequest.FromRoute(
+            new TestRoutes.StoreRoute("retry"), NavigationRequestSource.AppLink);
+        await store.EnqueueAsync(request);
+        var exception = new InvalidOperationException("Replay failed.", new Exception("Inner failure."));
+        var navigator = new RecordingRouterNavigator((_, _) => throw exception);
+        var logger = new ReplayLogger();
+        var diagnostics = new NavigationDiagnostics(
+            logger,
+            new NavigationDiagnosticsOptions { DataMode = NavigationDiagnosticDataMode.Full },
+            useRedactor ? new ReplayRedactor() : null);
+        var replayer = new DeferredNavigationRequestReplayer(store, navigator, logger: null, diagnostics: diagnostics);
+
+        Assert.Equal(new DeferredNavigationReplayResult(1, 0, 1), await replayer.ReplayAsync());
+        Assert.Equal([request], await SnapshotAsync(store));
+
+        var entry = Assert.Single(logger.Entries);
+        Assert.Equal(LogLevel.Error, entry.Level);
+        Assert.Same(useRedactor ? null : exception, entry.Exception);
+        var data = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object?>>(entry.State["@Data"]);
+        Assert.Equal(!useRedactor, data.ContainsKey(NavigationDiagnosticDataKeys.ExceptionMessage));
+    }
+
+    private sealed class ReplayRedactor : INavigationDiagnosticRedactor
+    {
+        public NavigationDiagnosticEvent Redact(NavigationDiagnosticEvent diagnosticEvent)
+        {
+            var data = new Dictionary<string, object?>(diagnosticEvent.Data);
+            data.Remove(NavigationDiagnosticDataKeys.ExceptionMessage);
+            return diagnosticEvent with { Data = data };
+        }
+    }
+
+    [Theory]
     [InlineData(NavigationDiagnosticDataMode.Safe, "https://example.com")]
     [InlineData(NavigationDiagnosticDataMode.Full, "https://user:password@example.com/path?token=secret#fragment")]
     public async Task ReplayAsync_ReportsUriForFailedUriRequest(

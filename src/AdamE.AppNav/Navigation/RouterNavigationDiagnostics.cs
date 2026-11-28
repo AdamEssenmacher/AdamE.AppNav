@@ -80,7 +80,7 @@ internal sealed class RouterNavigationDiagnostics(
             "navigation.failure.type",
             exception.GetType().FullName);
         if (MayWrite)
-            _diagnostics.Write(kind, operationId, message, FailureData(exception, startedAt, data));
+            _diagnostics.WriteWithException(kind, operationId, message, FailureData(exception, startedAt, data), exception);
     }
 
     public static IReadOnlyDictionary<string, object?> Duration(
