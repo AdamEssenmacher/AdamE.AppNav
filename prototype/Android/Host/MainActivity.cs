@@ -67,7 +67,7 @@ public sealed class MainActivity : ComponentActivity
         }
         else
         {
-            shell.Report(observation);
+            _ = shell.Report(observation);
         }
     }
 
@@ -83,7 +83,7 @@ public sealed class MainActivity : ComponentActivity
         if (current.Router.HistoryCount != history)
             throw new InvalidOperationException("The old activity committed after it was detached.");
         Trace($"stale ignored epoch={withheld.Epoch} rev={observation.Revision} history={history}");
-        replacement.Report(replacementObservation);
+        _ = replacement.Report(replacementObservation);
     }
 
     private void Command(string command)

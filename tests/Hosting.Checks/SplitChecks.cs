@@ -66,7 +66,7 @@ internal static class SplitChecks
             var history = router.HistoryCount;
             var closed = shell.Target.Current;
             using (loop.NativeCall())
-                shell.Report(new(closed.Revision, closed.SelectedBranch, ["home"], "", [], [], "sideways"));
+                _ = shell.Report(new(closed.Revision, closed.SelectedBranch, ["home"], "", [], [], "sideways"));
             await WaitUntilAsync(() => reported.Count == 1, () => "An unknown compact column was not reported");
             Check(reported[0] is ArgumentException && router.HistoryCount == history,
                 $"An unknown compact column must fail the reading: {reported[0]}");
@@ -101,7 +101,7 @@ internal static class SplitChecks
         string[] secondary, string compact)
     {
         using (loop.NativeCall())
-            shell.Report(new(target.Revision, target.SelectedBranch, primary, "", [], secondary, compact));
+            _ = shell.Report(new(target.Revision, target.SelectedBranch, primary, "", [], secondary, compact));
     }
 
     private static async Task<ShellTarget> StagedAsync(NavigationShellViewModel shell, long after)

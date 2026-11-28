@@ -30,10 +30,11 @@ internal static class ObservationChecks
         var previous = SynchronizationContext.Current;
         var context = new RecordingContext();
         SynchronizationContext.SetSynchronizationContext(context);
+        Task first, second;
         try
         {
-            shell.Report(new(1, "home", [], "", [], [], ""));
-            shell.Report(new(2, "home", [], "", [], [], ""));
+            first = shell.Report(new(1, "home", [], "", [], [], ""));
+            second = shell.Report(new(2, "home", [], "", [], [], ""));
         }
         finally
         {
@@ -41,7 +42,8 @@ internal static class ObservationChecks
         }
 
         if (reported.Count != 1 || !ReferenceEquals(reported[0], observationFailure) ||
-            !received.SequenceEqual([1L, 2L]) || context.PostCount != 0)
+            !received.SequenceEqual([1L, 2L]) || context.PostCount != 0 || !first.IsCompletedSuccessfully ||
+            !second.IsCompletedSuccessfully)
             throw new InvalidOperationException("A throwing failure reporter must stay contained and later observations must still run.");
     }
 
