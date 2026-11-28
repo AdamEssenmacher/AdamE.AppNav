@@ -114,6 +114,8 @@ dotnet_test() {
     -c "$CONFIGURATION" \
     -p:TreatWarningsAsErrors=true \
     -p:CheckEolTargetFramework=false \
+    --blame-hang-timeout 2m \
+    --blame-hang-dump-type mini \
     --results-directory "$result_directory" \
     --logger "trx;LogFileName=test-results.trx"
 

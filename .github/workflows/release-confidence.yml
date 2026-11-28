@@ -43,6 +43,7 @@ jobs:
   unit-api-allocation:
     name: Unit, API, and allocation contracts
     runs-on: macos-26
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v5
@@ -52,6 +53,11 @@ jobs:
         run: dotnet workload install maui
       - name: Run deterministic contracts
         run: eng/verify.sh contracts
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: contract-test-results
+          path: artifacts/test-results/contracts
 
   analyzer-pack:
     name: Supported targets, analyzers, and packages
