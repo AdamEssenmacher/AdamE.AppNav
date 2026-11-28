@@ -32,6 +32,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
@@ -64,6 +65,10 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 private val DefaultAnimations = NavigationAnimations()
+private val BranchKeysSaver = listSaver<MutableSet<String>, String>(
+    save = { it.toList() },
+    restore = { it.toMutableSet() },
+)
 
 /** Renders the shell using the original positional controls argument. */
 @Composable
@@ -168,7 +173,7 @@ public fun AppNavNavigationShell(
     val backScope = rememberCoroutineScope()
     var managedBackInFlight by remember { mutableStateOf(false) }
     val branchStates = rememberSaveableStateHolder()
-    val retainedBranches = remember { mutableSetOf<String>() }
+    val retainedBranches = rememberSaveable(saver = BranchKeysSaver) { mutableSetOf<String>() }
     SideEffect {
         origins.stage(target)
         val currentBranches = target.branches.mapTo(mutableSetOf(), NavigationBranch::branch)
