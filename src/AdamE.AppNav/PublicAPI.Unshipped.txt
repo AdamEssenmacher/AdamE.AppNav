@@ -162,6 +162,8 @@ static AdamE.AppNav.Presentation.NavigationTopologySupport.operator ==(AdamE.App
 AdamE.AppNav.Presentation.NavigationTopology.OwnerEntryIdOf(AdamE.AppNav.State.ModalNode! modal) -> string?
 AdamE.AppNav.Presentation.NavigationTopologySupport.NavigationTopologySupport(int maxStackEntries) -> void
 AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.PresentationSettlementFailed = 84 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind.DeferredRequestReplayFailed = 85 -> AdamE.AppNav.Diagnostics.NavigationDiagnosticEventKind
+AdamE.AppNav.Requests.DeferredNavigationRequestReplayer.DeferredNavigationRequestReplayer(AdamE.AppNav.Requests.IDeferredNavigationRequestStore! deferredRequests, AdamE.AppNav.Navigation.IRouterNavigator! navigator, Microsoft.Extensions.Logging.ILogger<AdamE.AppNav.Requests.DeferredNavigationRequestReplayer!>? logger, AdamE.AppNav.Diagnostics.NavigationDiagnostics? diagnostics) -> void
 AdamE.AppNav.Presentation.INavigationPresentationSettlement
 AdamE.AppNav.Presentation.INavigationPresentationSettlement.OnPresentationSettledAsync(AdamE.AppNav.State.NavigationState! state, string! operationId) -> System.Threading.Tasks.ValueTask
 AdamE.AppNav.State.SplitColumn

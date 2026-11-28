@@ -196,7 +196,13 @@ public static class AppNavServiceCollectionExtensions
         services.TryAddSingleton<MauiFileDeferredNavigationRequestStore>();
         services.TryAddSingleton<IDeferredNavigationRequestStore>(provider =>
             provider.GetRequiredService<MauiFileDeferredNavigationRequestStore>());
-        services.TryAddSingleton<IDeferredNavigationRequestReplayer, DeferredNavigationRequestReplayer>();
+        services.AddAppNavDiagnosticsServices();
+        services.TryAddSingleton<IDeferredNavigationRequestReplayer>(provider =>
+            new DeferredNavigationRequestReplayer(
+                provider.GetRequiredService<IDeferredNavigationRequestStore>(),
+                provider.GetRequiredService<IRouterNavigator>(),
+                logger: null,
+                diagnostics: provider.GetRequiredService<NavigationDiagnostics>()));
 
         return services;
     }

@@ -349,5 +349,10 @@ public enum NavigationDiagnosticEventKind
     /// <summary>
     /// Presentation cleanup failed after the router settled the accepted state.
     /// </summary>
-    PresentationSettlementFailed
+    PresentationSettlementFailed,
+
+    /// <summary>
+    /// A deferred navigation request failed to replay and remains pending.
+    /// </summary>
+    DeferredRequestReplayFailed
 }

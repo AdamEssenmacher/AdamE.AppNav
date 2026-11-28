@@ -1,10 +1,12 @@
 using AdamE.AppNav.Back;
+using AdamE.AppNav.Diagnostics;
 using AdamE.AppNav.History;
 using AdamE.AppNav.Navigation;
 using AdamE.AppNav.Plans;
 using AdamE.AppNav.Presentation;
 using AdamE.AppNav.Requests;
 using AdamE.AppNav.State;
+using Microsoft.Extensions.Logging;
 
 namespace AdamE.AppNav.Tests;
 
@@ -79,6 +81,55 @@ public sealed class DeferredNavigationRequestReplayerTests
         Assert.Equal(new DeferredNavigationReplayResult(2, 1, 1), result);
         Assert.True(await store.HasDeferredRequestsAsync());
         Assert.Equal([first], await SnapshotAsync(store));
+    }
+
+    [Fact]
+    public async Task ReplayAsync_LoggerConstructorSanitizesReplayFailures()
+    {
+        const string routeValue = "private-store-id";
+        const string exceptionMessage = "private-exception-message";
+        var store = new InMemoryDeferredNavigationRequestStore();
+        var request = RouterNavigationRequest.FromRoute(
+            new TestRoutes.StoreRoute(routeValue), NavigationRequestSource.AppLink);
+        await store.EnqueueAsync(request);
+        var navigator = new RecordingRouterNavigator((_, _) => throw new InvalidOperationException(exceptionMessage));
+        var logger = new ReplayLogger();
+        var replayer = new DeferredNavigationRequestReplayer(store, navigator, logger);
+
+        Assert.Equal(new DeferredNavigationReplayResult(1, 0, 1), await replayer.ReplayAsync());
+        Assert.Equal([request], await SnapshotAsync(store));
+
+        var entry = Assert.Single(logger.Entries);
+        Assert.Equal(LogLevel.Error, entry.Level);
+        Assert.Null(entry.Exception);
+        Assert.DoesNotContain(routeValue, entry.Message);
+        Assert.DoesNotContain(exceptionMessage, entry.Message);
+        var data = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object?>>(entry.State["@Data"]);
+        Assert.Equal(3, data.Count);
+        Assert.Equal(nameof(TestRoutes.StoreRoute), data[NavigationDiagnosticDataKeys.RouteType]);
+        Assert.Equal(nameof(NavigationRequestSource.AppLink), data[NavigationDiagnosticDataKeys.RequestSource]);
+        Assert.Equal(typeof(InvalidOperationException).FullName, data[NavigationDiagnosticDataKeys.ExceptionType]);
+    }
+
+    private sealed class ReplayLogger : ILogger<DeferredNavigationRequestReplayer>
+    {
+        public List<(LogLevel Level, string Message, Exception? Exception, IReadOnlyDictionary<string, object?> State)>
+            Entries { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            var properties = Assert.IsAssignableFrom<IEnumerable<KeyValuePair<string, object?>>>(state);
+            Entries.Add((logLevel, formatter(state, exception), exception, properties.ToDictionary()));
+        }
     }
 
     [Fact]

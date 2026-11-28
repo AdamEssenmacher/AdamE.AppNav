@@ -633,6 +633,40 @@ public sealed class AppNavNavigatorRegistrationTests
         Assert.Equal(1, configureCalls);
     }
 
+    [Theory]
+    [InlineData(NavigationDiagnosticDataMode.Safe)]
+    [InlineData(NavigationDiagnosticDataMode.Full)]
+    public async Task AddAppNavFileDeferredNavigationRequestsUsesConfiguredReplayDiagnostics(
+        NavigationDiagnosticDataMode mode)
+    {
+        var services = new ServiceCollection();
+        var store = new InMemoryDeferredNavigationRequestStore();
+        services.AddSingleton<IDeferredNavigationRequestStore>(store);
+        services.AddSingleton<IRouterNavigator>(new RecordingRouterNavigator());
+        services.AddAppNavFileDeferredNavigationRequests(options =>
+        {
+            options.Path = Path.Combine(Path.GetTempPath(), $"appnav-deferred-{Guid.NewGuid():N}.json");
+            options.BaseUri = new Uri("https://example.com/");
+        });
+        services.AddAppNavDiagnostics(options => options.DataMode = mode);
+        using ServiceProvider provider = services.BuildServiceProvider();
+        NavigationDiagnosticEvent? observed = null;
+        provider.GetRequiredService<NavigationDiagnostics>().EventWritten +=
+            (_, diagnosticEvent) => observed = diagnosticEvent;
+        await store.EnqueueAsync(RouterNavigationRequest.FromRoute(
+            new TestRoute("private-route-value"), NavigationRequestSource.AppLink));
+
+        var replayer = provider.GetRequiredService<IDeferredNavigationRequestReplayer>();
+        Assert.Equal(new DeferredNavigationReplayResult(1, 0, 1), await replayer.ReplayAsync());
+
+        Assert.NotNull(observed);
+        Assert.Equal(NavigationDiagnosticEventKind.DeferredRequestReplayFailed, observed.Kind);
+        Assert.Equal(nameof(TestRoute), observed.Data[NavigationDiagnosticDataKeys.RouteType]);
+        Assert.Equal(
+            mode == NavigationDiagnosticDataMode.Full,
+            observed.Data.ContainsKey(NavigationDiagnosticDataKeys.ExceptionMessage));
+    }
+
     private static TException AssertInvalidFileStoreRegistration<TException>(
         Action<MauiFileDeferredNavigationRequestStoreOptions> makeInvalid)
         where TException : Exception
