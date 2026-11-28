@@ -541,6 +541,29 @@ public sealed class AppNavNavigatorRegistrationTests
         Assert.IsType<ContributorPage>(await pageFactory.CreatePageAsync(new RouteEntry("contributor", new ContributorRoute("contributor"))));
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void AddAppNavPagesRejectsCollisionWithInlineMapping(bool contributorFirst)
+    {
+        var services = new ServiceCollection();
+        if (contributorFirst)
+            services.AddAppNavPages(pages => pages.MapPageFromServices<InlineRoute, ContributorPage>());
+
+        services.AddAppNav<ThrowingPlanner>(
+            Routes(),
+            pages => pages.MapPage<InlineRoute>((_, _) => new InlinePage()));
+
+        if (!contributorFirst)
+            services.AddAppNavPages(pages => pages.MapPageFromServices<InlineRoute, ContributorPage>());
+
+        using var provider = services.BuildServiceProvider();
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            provider.GetRequiredService<IMauiRoutePageFactory>());
+
+        Assert.Contains(typeof(InlineRoute).FullName!, exception.Message);
+    }
+
     [Fact]
     public void AddAppNavStartupExposesPublicExternalIngressSeam()
     {

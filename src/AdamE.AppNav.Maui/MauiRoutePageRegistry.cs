@@ -5,6 +5,9 @@ using Microsoft.Maui.Controls;
 
 namespace AdamE.AppNav.Maui;
 
+/// <summary>
+/// Registers one MAUI page factory per exact route type, with fallback to a mapped base route type.
+/// </summary>
 public sealed class MauiRoutePageRegistry
 {
     private readonly Dictionary<Type, Func<IServiceProvider, RouteEntry, Page>> _pageFactories = new();
@@ -29,8 +32,8 @@ public sealed class MauiRoutePageRegistry
         where TRoute : AppRoute
         where TPage : Page
     {
-        _pageFactories[typeof(TRoute)] = (services, entry) =>
-            ActivatorUtilities.CreateInstance<TPage>(services, (TRoute)entry.Route);
+        AddMapping(typeof(TRoute), (services, entry) =>
+            ActivatorUtilities.CreateInstance<TPage>(services, (TRoute)entry.Route));
 
         return this;
     }
@@ -39,7 +42,7 @@ public sealed class MauiRoutePageRegistry
         where TRoute : AppRoute
         where TPage : Page
     {
-        _pageFactories[typeof(TRoute)] = (services, _) => services.GetRequiredService<TPage>();
+        AddMapping(typeof(TRoute), (services, _) => services.GetRequiredService<TPage>());
         return this;
     }
 
@@ -48,7 +51,7 @@ public sealed class MauiRoutePageRegistry
     {
         ArgumentNullException.ThrowIfNull(factory);
 
-        _pageFactories[typeof(TRoute)] = (services, entry) => factory(services, (TRoute)entry.Route);
+        AddMapping(typeof(TRoute), (services, entry) => factory(services, (TRoute)entry.Route));
         return this;
     }
 
@@ -58,7 +61,7 @@ public sealed class MauiRoutePageRegistry
 
         foreach (var (routeType, factory) in other._pageFactories)
         {
-            _pageFactories[routeType] = factory;
+            AddMapping(routeType, factory);
         }
     }
 
@@ -73,5 +76,14 @@ public sealed class MauiRoutePageRegistry
 
         page = factory(services, entry);
         return true;
+    }
+
+    private void AddMapping(Type routeType, Func<IServiceProvider, RouteEntry, Page> factory)
+    {
+        if (!_pageFactories.TryAdd(routeType, factory))
+        {
+            throw new InvalidOperationException(
+                $"A MAUI page is already mapped for route type '{routeType.FullName ?? routeType.Name}'.");
+        }
     }
 }

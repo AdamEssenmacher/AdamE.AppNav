@@ -25,6 +25,22 @@ public sealed class MauiRoutePageFactoryTests
     }
 
     [Fact]
+    public async Task AddModuleRejectsDuplicatePageMappingAndKeepsOriginalMapping()
+    {
+        using var provider = new ServiceCollection().BuildServiceProvider();
+        var options = new MauiRoutePresentationOptions();
+        options.Pages.AddModule(new ModulePages());
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            options.Pages.AddModule(new ConflictingModulePages()));
+
+        Assert.Contains(typeof(ModulePageRoute).FullName!, exception.Message);
+        var factory = TestEntryLeases.Factory(provider, options);
+        var page = await factory.CreatePageAsync(new RouteEntry("module-route", new ModulePageRoute()));
+        Assert.IsType<ModuleMappedPage>(page);
+    }
+
+    [Fact]
     public async Task CreatePage_MapPageFromServices_ResolvesPageFromDI()
     {
         var services = new ServiceCollection();
@@ -467,6 +483,14 @@ public sealed class MauiRoutePageFactoryTests
         public void MapPages(MauiRoutePageRegistry pages)
         {
             pages.MapPage<ModulePageRoute>((_, _) => new ModuleMappedPage());
+        }
+    }
+
+    private sealed class ConflictingModulePages : IMauiRoutePageModule
+    {
+        public void MapPages(MauiRoutePageRegistry pages)
+        {
+            pages.MapPage<ModulePageRoute, ContentPage>();
         }
     }
 
