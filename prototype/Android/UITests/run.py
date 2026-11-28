@@ -204,18 +204,21 @@ def verify_managed_back_recovery(probe):
     probe.tap("Managed Back: off")
     probe.wait_for_texts("Managed Back: on")
 
-    probe.tap("Throw on next Back")
-    probe.back()
-    probe.wait_for_log(r"policy back failed: Probe Back callback failed")
-    probe.wait_for_texts("Page: detail")
-    assert "policy back requested" not in probe.logs(), probe.logs()
+    for request_back in (probe.back, lambda: probe.tap("Request managed Back")):
+        before_throw = len(probe.logs())
+        probe.tap("Throw on next Back")
+        request_back()
+        probe.wait_for_log(r"policy back failed: Probe Back callback failed", after=before_throw)
+        probe.wait_for_texts("Page: detail")
+        assert "policy back requested" not in probe.logs(), probe.logs()
 
-    probe.tap("Drop Back completion")
-    probe.wait_for_log(r"policy back completion drop armed")
-    probe.back()
-    probe.wait_for_log(r"policy back completion dropped id=\d+")
-    probe.wait_for_log(r"policy back failed: timeout")
-    probe.wait_for_texts("Page: detail")
+        before_drop = len(probe.logs())
+        probe.tap("Drop Back completion")
+        probe.wait_for_log(r"policy back completion drop armed", after=before_drop)
+        request_back()
+        probe.wait_for_log(r"policy back completion dropped id=\d+", after=before_drop)
+        probe.wait_for_log(r"policy back failed: timeout", after=before_drop)
+        probe.wait_for_texts("Page: detail")
 
     retry = len(probe.logs())
     probe.back()
@@ -271,6 +274,11 @@ def verify_managed_back_recreation(probe):
     if "Managed Back: off" in texts:
         probe.tap("Managed Back: off")
     # The replacement's refresh waits behind the retained router's pending Back policy.
+    probe.tap("Request managed Back")
+    rejected = probe.wait_for_log(r"policy back rejected id=(\d+)", after=start)
+    assert rejected[1] != original[1]
+    probe.wait_for_log(rf"policy back rejection observed id={rejected[1]}\b", after=start)
+    assert probe.logs()[start:].count("policy back evaluating") == 1, probe.logs()
     assert not re.search(r"policy back (finished|Completed)", probe.logs()[start:]), probe.logs()
     probe.tap("Step Back test")
     probe.wait_for_log(r"policy back Canceled history=2\b", after=start)
@@ -281,7 +289,7 @@ def verify_managed_back_recreation(probe):
     retry = len(probe.logs())
     probe.back()
     replacement = probe.wait_for_log(r"policy back requested id=(\d+) history=2\b", after=retry)
-    assert replacement[1] != original[1]
+    assert replacement[1] not in (original[1], rejected[1])
     probe.wait_for_log(r"policy back evaluating", after=retry)
     probe.run("shell", "input", "keyevent", "KEYCODE_BACK", "KEYCODE_BACK")
     probe.tap("Step Back test")
@@ -294,7 +302,7 @@ def verify_managed_back_recreation(probe):
     assert len(re.findall(r"policy back requested", trace)) == 2, trace
     assert len(re.findall(r"policy back Completed", trace)) == 1, trace
     assert not re.search(r"history=[4-9]\d*\b", trace), trace
-    print("PASS Activity recreation quietly cancels the native waiter and keeps the replacement Back gate independent")
+    print("PASS Activity recreation rejects overlapping managed Back and accepts the next Back after completion")
 
 
 GAME_HISTORY = r"home\[home,home-detail,game\][^\n]*history=2\b"
