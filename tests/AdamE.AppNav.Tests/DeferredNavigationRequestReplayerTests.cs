@@ -106,7 +106,7 @@ public sealed class DeferredNavigationRequestReplayerTests
         Assert.DoesNotContain(exceptionMessage, entry.Message);
         var data = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object?>>(entry.State["@Data"]);
         Assert.Equal(3, data.Count);
-        Assert.Equal(nameof(TestRoutes.StoreRoute), data[NavigationDiagnosticDataKeys.RouteType]);
+        Assert.Equal(typeof(TestRoutes.StoreRoute).FullName, data[NavigationDiagnosticDataKeys.RouteType]);
         Assert.Equal(nameof(NavigationRequestSource.AppLink), data[NavigationDiagnosticDataKeys.RequestSource]);
         Assert.Equal(typeof(InvalidOperationException).FullName, data[NavigationDiagnosticDataKeys.ExceptionType]);
     }

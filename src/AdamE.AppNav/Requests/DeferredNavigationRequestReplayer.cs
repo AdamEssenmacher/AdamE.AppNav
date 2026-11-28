@@ -60,7 +60,7 @@ public sealed class DeferredNavigationRequestReplayer(
                     "Failed to replay a deferred navigation request.",
                     new Dictionary<string, object?>
                     {
-                        [NavigationDiagnosticDataKeys.RouteType] = request.Route?.GetType().Name,
+                        [NavigationDiagnosticDataKeys.RouteType] = request.Route?.GetType().FullName,
                         [NavigationDiagnosticDataKeys.RequestSource] = request.Source.ToString(),
                         [NavigationDiagnosticDataKeys.ExceptionType] = ex.GetType().FullName,
                         [NavigationDiagnosticDataKeys.ExceptionMessage] = ex.Message

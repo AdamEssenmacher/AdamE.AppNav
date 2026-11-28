@@ -661,7 +661,7 @@ public sealed class AppNavNavigatorRegistrationTests
 
         Assert.NotNull(observed);
         Assert.Equal(NavigationDiagnosticEventKind.DeferredRequestReplayFailed, observed.Kind);
-        Assert.Equal(nameof(TestRoute), observed.Data[NavigationDiagnosticDataKeys.RouteType]);
+        Assert.Equal(typeof(TestRoute).FullName, observed.Data[NavigationDiagnosticDataKeys.RouteType]);
         Assert.Equal(
             mode == NavigationDiagnosticDataMode.Full,
             observed.Data.ContainsKey(NavigationDiagnosticDataKeys.ExceptionMessage));
