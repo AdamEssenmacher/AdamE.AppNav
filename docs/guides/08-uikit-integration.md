@@ -163,6 +163,9 @@ router = RouterNavigatorFactory.Create(
 
 Create the presenter on the main thread. It reveals the window itself, once it
 has installed the first page, so never show an empty window first.
+Navigation and refresh can acknowledge a frame while a separate overlay
+window is key. Frame acknowledgment waits while the presenter's window is
+hidden or its scene is inactive, and you can cancel the pending operation.
 
 `MainThreadLeaseHost` is your `IRouteEntryLeaseHost`: it runs lease work on the
 main thread and receives release defects and fatal failures. See

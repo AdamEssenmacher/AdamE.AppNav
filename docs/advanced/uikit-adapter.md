@@ -71,6 +71,11 @@ retires every page the operation built, all before `ApplyAsync` throws. The
 router then commits nothing. A refresh of an unchanged, still-current surface is
 a read-only acknowledgment: it never dismisses foreign UI.
 
+Frame acknowledgment can proceed while another window is key, including an
+overlay in the same scene. It waits while the presenter's window is hidden or
+its scene is inactive. For a window without a scene, the presenter uses the
+application's activation state. The wait is cancellable and has no timeout.
+
 If a page's lease retires after it was built while the router still shows its
 entry, the operation applies the same plan again, and the retired lease then
 gets its placeholder.

@@ -21,7 +21,9 @@ namespace AdamE.AppNav.iOS;
 /// </para>
 /// <para>
 /// Each operation resolves the plan into pages, changes native state, waits for a displayed frame and verifies the
-/// result before it returns. A failed or canceled operation restores the accepted presentation, or clears the window
+/// result before it returns. Frame acknowledgment can proceed while another window is key. It waits for a visible
+/// presenter window in a foreground-active scene (or an active application for a window without a scene).
+/// A failed or canceled operation restores the accepted presentation, or clears the window
 /// when that presentation is no longer current, before it throws, so the router never commits a state native does not
 /// show. A page is disposed only after it has physically left the window, and what it borrows is released only after
 /// that. If a page's native retirement fails, the presenter keeps that page's loan and lease attachment and fails each
@@ -1569,10 +1571,19 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
 
         public void Tick()
         {
-            if (_link is not { } current
-                || _window?.IsKeyWindow != true
-                || UIApplication.SharedApplication.ApplicationState != UIApplicationState.Active)
+            if (_link is not { } current || _window is not { } window)
                 return;
+
+            // Key status routes input. A visible window can still render while an overlay is key.
+            bool active = window.WindowScene is { } scene
+                ? scene.ActivationState == UISceneActivationState.ForegroundActive
+                : UIApplication.SharedApplication.ApplicationState == UIApplicationState.Active;
+            if (window.Hidden || !active)
+            {
+                _target = 0;
+                return;
+            }
+
             if (_target == 0)
                 _target = current.TargetTimestamp;
             else if (current.Timestamp >= _target)
