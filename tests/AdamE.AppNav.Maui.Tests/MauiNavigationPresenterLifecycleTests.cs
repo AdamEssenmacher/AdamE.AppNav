@@ -943,6 +943,74 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.All(fixture.Factory.CreatedPages, page => Assert.Contains(page, fixture.Factory.ReleasedPages));
     }
 
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task ShutdownWaitsForTheWindowBeforeDisposingItsHostAndEntryScope(
+        bool throwOnClear,
+        bool destroyWindow)
+    {
+        var services = new ServiceCollection();
+        services.AddScoped<PresentationScopeMarker>();
+        using var provider = services.BuildServiceProvider();
+        PresentationScopeMarker? marker = null;
+        var options = new MauiRoutePresentationOptions { UseScopedPages = true };
+        options.Pages.MapPage<TestPageRoute>((pageServices, _) =>
+        {
+            marker = pageServices.GetRequiredService<PresentationScopeMarker>();
+            return new ContentPage();
+        });
+        var hostFactory = new RecordingBranchHostFactory(MauiBranchHostPlacement.WindowRoot);
+        options.BranchHosts.Add("custom-root", new MauiBranchHostRegistration(hostFactory));
+        var operations = new CountingNativeNavigationOperations();
+        var leases = TestEntryLeases.Create();
+        var presenter = new MauiNavigationPresenter(
+            TestEntryLeases.Factory(provider, options, leases),
+            presentationOptions: options,
+            nativeOperations: operations);
+        var state = new BranchHostNode(
+            "custom-root",
+            [new NavigationBranch("home", "Home", Stack("home-stack", Entry("home")))],
+            "home",
+            "home");
+        await presenter.ApplyAsync(Plan(state), Context(new TestPageRoute("home")));
+        var window = new Window();
+        await presenter.AttachWindowAsync(window);
+        RecordingBranchHost host = Assert.Single(hostFactory.CreatedHosts);
+        var scope = Assert.IsType<PresentationScopeMarker>(marker);
+        Assert.True(leases.TryGet("home", out var lease));
+        lease.Retire();
+
+        var clearAttempted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        operations.ClearWindowPage = _ =>
+        {
+            clearAttempted.TrySetResult();
+            if (throwOnClear)
+                throw new InvalidOperationException("The window rejected its root clear.");
+        };
+
+        Task shutdown = presenter.StartShutdown();
+        await clearAttempted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await MainThread.InvokeOnMainThreadAsync(() =>
+        {
+            Assert.Same(host.Page, window.Page);
+            Assert.False(shutdown.IsCompleted);
+            Assert.Equal(0, host.DisposeCount);
+            Assert.Equal(0, scope.DisposeCount);
+
+            if (destroyWindow)
+                ((Microsoft.Maui.IWindow)window).Destroying();
+            else
+                window.Page = new ContentPage();
+        });
+
+        await shutdown.WaitAsync(TimeSpan.FromSeconds(5));
+        await lease.Released.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, host.DisposeCount);
+        Assert.Equal(1, scope.DisposeCount);
+        Assert.Null(presenter.AttachedWindow);
+    }
+
     [Fact]
     public async Task RootFlyoutCanContainDefaultTabsAndCustomBranchHosts()
     {
@@ -2635,6 +2703,7 @@ public sealed class MauiNavigationPresenterLifecycleTests
 
     private static readonly string[] WindowLifecycleEventNames =
     [
+        "Created",
         "Activated",
         "Deactivated",
         "Stopped",
@@ -2789,6 +2858,8 @@ public sealed class MauiNavigationPresenterLifecycleTests
 
     private sealed class CountingNativeNavigationOperations : IMauiNativeNavigationOperations
     {
+        public Action<Window>? ClearWindowPage { get; set; }
+
         public int StackPushCount { get; private set; }
 
         public int ModalPushCount { get; private set; }
@@ -2834,8 +2905,13 @@ public sealed class MauiNavigationPresenterLifecycleTests
         public void SetSelectedFlyoutBranch(MauiBranchFlyoutPage flyoutPage, string? branchId) =>
             MauiNativeNavigationOperations.Instance.SetSelectedFlyoutBranch(flyoutPage, branchId);
 
-        public void SetWindowPage(Window window, Page? page) =>
-            MauiNativeNavigationOperations.Instance.SetWindowPage(window, page);
+        public void SetWindowPage(Window window, Page? page)
+        {
+            if (page is null && ClearWindowPage is { } clear)
+                clear(window);
+            else
+                MauiNativeNavigationOperations.Instance.SetWindowPage(window, page);
+        }
     }
 
     private sealed class ThrowingReleaseRoutePageFactory : IMauiRoutePageFactory
