@@ -21,9 +21,11 @@ namespace AdamE.AppNav.iOS;
 /// </para>
 /// <para>
 /// Each operation resolves the plan into pages, changes native state, waits for a displayed frame and verifies the
-/// result before it returns. Caller cancellation is honored until the presenter accepts the verified surface and starts
-/// retiring the old pages. A failed operation restores the prior presentation when possible. If a recoverable failure
-/// clears an accepted surface after retirement starts, the presenter asks the host to rebuild the router's state.
+/// result before it returns. Frame acknowledgment can proceed while another window is key. It waits for a visible
+/// presenter window in a foreground-active scene (or an active application for a window without a scene).
+/// Caller cancellation is honored until the presenter accepts the verified surface and starts retiring the old pages.
+/// A failed operation restores the prior presentation when possible. If a recoverable failure clears an accepted
+/// surface after retirement starts, the presenter asks the host to rebuild the router's state.
 /// A page is disposed only after it has physically left the window, and what it borrows is released only after
 /// that. If a page's native retirement fails, the presenter keeps that page's loan and lease attachment and fails each
 /// later operation and its own disposal with that failure. Pages already retired release; the pages still shown are
@@ -343,9 +345,14 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
             .ConfigureAwait(false);
         try
         {
-            (unchangedAcceptedRoot ? admissionToken : _shutdown.Token).ThrowIfCancellationRequested();
-            if (completed is not null)
-                RequireCurrent(completed);
+            await OnMainAsync(() =>
+                {
+                    (unchangedAcceptedRoot ? admissionToken : _shutdown.Token).ThrowIfCancellationRequested();
+                    if (completed is not null)
+                        RequireCurrent(completed);
+                    return Task.CompletedTask;
+                })
+                .ConfigureAwait(false);
         }
         catch (Exception failure)
         {
@@ -1567,10 +1574,19 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
 
         public void Tick()
         {
-            if (_link is not { } current
-                || _window?.IsKeyWindow != true
-                || UIApplication.SharedApplication.ApplicationState != UIApplicationState.Active)
+            if (_link is not { } current || _window is not { } window)
                 return;
+
+            // Key status routes input. A visible window can still render while an overlay is key.
+            bool active = window.WindowScene is { } scene
+                ? scene.ActivationState == UISceneActivationState.ForegroundActive
+                : UIApplication.SharedApplication.ApplicationState == UIApplicationState.Active;
+            if (window.Hidden || !active)
+            {
+                _target = 0;
+                return;
+            }
+
             if (_target == 0)
                 _target = current.TargetTimestamp;
             else if (current.Timestamp >= _target)

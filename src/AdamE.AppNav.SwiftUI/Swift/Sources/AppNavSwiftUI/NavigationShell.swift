@@ -2,6 +2,11 @@
 import OahuRuntime
 import SwiftUI
 
+extension EnvironmentValues {
+    /// Lets the simulator probe hold an apply long enough to exercise Back during a staged push.
+    @_spi(Testing) @Entry public var appNavHoldsSettlement = false
+}
+
 /// A SwiftUI window driven by AppNav projections and real UIKit transition observations.
 public struct NavigationShell<EmptyContent: View, Footer: View>: View {
     private let projection: NavigationProjection
@@ -12,6 +17,7 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
     private let customization: NavigationCustomization?
     private let emptyContent: () -> EmptyContent
     private let footer: (NavigationDiagnostics) -> Footer
+    @Environment(\.appNavHoldsSettlement) private var holdsSettlement
     @StateObject private var surface = NativeSurface()
     @State private var presentedModalStyle: NavigationModalPresentation?
 
@@ -65,7 +71,8 @@ public struct NavigationShell<EmptyContent: View, Footer: View>: View {
                          onDismiss: { modalDidDismiss(.fullScreenCover) }) {
             modalContent($0, style: .fullScreenCover)
         }
-        .background(FrameObserver(surface: surface, report: report, trace: trace, guardsBack: back?.intercepts))
+        .background(FrameObserver(surface: surface, report: report, trace: trace, guardsBack: back?.intercepts,
+                                  isAppNavModalPresented: presentedModalStyle != nil, holdsSettlement: holdsSettlement))
         .modifier(StageProjection(projection: projection) { next in
             surface.stage(next, animatesSinglePushes: animatesSinglePushes,
                           transactionAnimation: customization?.transactionAnimation)

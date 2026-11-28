@@ -83,8 +83,8 @@ internal static class ActivityChecks
         }
     }
 
-    // A real recreation, with a dialog showing: the old instance's OnDestroy detaches it and the new one's OnCreate
-    // attaches, and a refresh shows the same entries in the new instance.
+    // A real recreation during a root animation and with a dialog showing. OnDestroy detaches the old instance,
+    // OnCreate attaches the new one, and a refresh shows the same entries in the new instance.
     private static async Task RecreatedAsync(ComponentActivity activity, CancellationToken token)
     {
         var views = new List<ProbeView>();
@@ -110,7 +110,13 @@ internal static class ActivityChecks
         try
         {
             current = await ProbeActivity.StartAsync(activity, token);
-            await ApplyAsync(presenter, shown, NavigationState.Empty, token);
+            NavigationState root = Shows("root");
+            await ApplyAsync(presenter, root, NavigationState.Empty, token);
+            await StartLegacyAnimationAsync(views[0], token);
+            await ApplyAsync(presenter, shown, root, token);
+            Require(
+                views[0].Animation is { HasStarted: true, HasEnded: false },
+                "The root animation was no longer active before recreation.");
             ProbeActivity first = current;
             Task<ProbeActivity> next = ProbeActivity.NextCreated();
             first.Recreate();

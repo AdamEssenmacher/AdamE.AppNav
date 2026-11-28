@@ -112,9 +112,9 @@ sealed class Pages : IUIKitPageFactory
   the controller once it has left the window, and only then disposes the page's
   `Loan`, anything the page borrows that the controller does not own.
 - **A page is current** while its entry's lease is not retired, its optional
-  `Retirement` token is not canceled, and its optional `IsCurrent` says so. An
-  operation presenting a page that stops being current is canceled and rolled
-  back.
+  `Retirement` token is not canceled, and its optional `IsCurrent` says so. The
+  presenter calls `IsCurrent` on the main thread. An operation presenting a page
+  that stops being current is canceled and rolled back.
 
 ### When building fails
 
@@ -163,6 +163,9 @@ router = RouterNavigatorFactory.Create(
 
 Create the presenter on the main thread. It reveals the window itself, once it
 has installed the first page, so never show an empty window first.
+Navigation and refresh can acknowledge a frame while a separate overlay
+window is key. Frame acknowledgment waits while the presenter's window is
+hidden or its scene is inactive, and you can cancel the pending operation.
 
 `MainThreadLeaseHost` is your `IRouteEntryLeaseHost`: it runs lease work on the
 main thread and receives release defects and fatal failures. See

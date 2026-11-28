@@ -404,12 +404,12 @@ final class SurfaceStateTests: XCTestCase {
         XCTAssertEqual(h.readings.last?.revision, 2)
     }
 
-    // An overlay, a dropped install, or any state the witness can't read used to withhold Back forever.
+    // A native stack that never mounts its top must eventually release Back.
     func testRevisionTheNativeSideNeverShowsIsAbandoned() {
         var h = Harness()
         h.stage(tabs(1, selected: "home", home: ["home", "game"]))
         var covered = h.faithfulSample()
-        covered.tops[0].isHittable = false
+        covered.tops[0].isInWindow = false
         while h.time < h.state.stallLimit + 0.5 { h.frame(covered) }
         XCTAssertEqual(h.state.phase, .abandoned)
         XCTAssertFalse(h.state.applying)
@@ -420,6 +420,21 @@ final class SurfaceStateTests: XCTestCase {
         h.settle()
         XCTAssertEqual(h.readings.map(\.entries), [["home", "game"]])
         XCTAssertEqual(h.state.phase, .idle)
+    }
+
+    func testAppNavModalDismissalWaitsForThePresenterAfterItsPagesUnmount() {
+        var h = Harness()
+        h.stage(stack(1, ["home"], modal: ["edit"]))
+        h.settle()
+        h.stage(stack(2, ["home"]))
+        var dismissing = h.faithfulSample()
+        dismissing.isAppNavModalPresented = true
+        for _ in 0..<3 { h.frame(dismissing) }
+        XCTAssertTrue(h.state.applying)
+        XCTAssertEqual(h.readings.map(\.revision), [1])
+
+        h.settle()
+        XCTAssertEqual(h.readings.map(\.revision), [1, 2])
     }
 
     func testTransitionsDoNotCountTowardTheStallLimit() {
@@ -482,7 +497,7 @@ final class SurfaceStateTests: XCTestCase {
                     var odd = h.faithfulSample()
                     if !odd.tops.isEmpty {
                         odd.tops[0].depth += Int.random(in: -1...1, using: &seed)
-                        odd.tops[0].isHittable = Bool.random(using: &seed)
+                        odd.tops[0].isInWindow = Bool.random(using: &seed)
                     }
                     odd.isTransitioning = Bool.random(using: &seed)
                     h.frame(odd)
@@ -497,7 +512,7 @@ final class SurfaceStateTests: XCTestCase {
             let deadline = h.time + h.state.stallLimit + 1
             while h.time < deadline {
                 var unreadable = h.faithfulSample()
-                for index in unreadable.tops.indices { unreadable.tops[index].isHittable = false }
+                for index in unreadable.tops.indices { unreadable.tops[index].isInWindow = false }
                 h.frame(unreadable)
             }
             XCTAssertFalse(h.state.applying, "seed \(seed.start) left the shell applying")

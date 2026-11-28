@@ -3,6 +3,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Maui;
 using Microsoft.Maui.Hosting;
 using Microsoft.Maui.LifecycleEvents;
+#if IOS || MACCATALYST
+using Foundation;
+using UIKit;
+#endif
 
 namespace AdamE.AppNav.Maui.AppLinks;
 
@@ -39,12 +43,35 @@ public static class AppNavExternalNavigationBuilderExtensions
                 .OpenUrl((_, url, _) =>
                     Dispatch(AppleAppLinkRequestFactory.FromOpenUrl(url, options), options))
                 .ContinueUserActivity((_, userActivity, _) =>
-                    Dispatch(AppleAppLinkRequestFactory.FromUserActivity(userActivity, options), options)));
+                    Dispatch(AppleAppLinkRequestFactory.FromUserActivity(userActivity, options), options))
+                .SceneOpenUrl((_, contexts) => DispatchSceneUrls(contexts, options))
+                .SceneContinueUserActivity((_, userActivity) =>
+                    Dispatch(AppleAppLinkRequestFactory.FromUserActivity(userActivity, options), options))
+                .SceneWillConnect((_, _, connectionOptions) =>
+                {
+                    // MAUI raises this before creating the window. The bridge buffers startup links.
+                    DispatchSceneUrls(connectionOptions.UrlContexts, options);
+                    foreach (NSUserActivity userActivity in connectionOptions.UserActivities)
+                        Dispatch(AppleAppLinkRequestFactory.FromUserActivity(userActivity, options), options);
+                }));
 #endif
         });
 
         return builder;
     }
+
+#if IOS || MACCATALYST
+    private static bool DispatchSceneUrls(
+        NSSet<UIOpenUrlContext> contexts,
+        MauiExternalNavigationOptions options)
+    {
+        bool handled = false;
+        foreach (UIOpenUrlContext context in contexts)
+            handled |= Dispatch(AppleAppLinkRequestFactory.FromOpenUrl(context.Url, options), options);
+
+        return handled;
+    }
+#endif
 
     internal static bool Dispatch(
         RouterNavigationRequest? request,

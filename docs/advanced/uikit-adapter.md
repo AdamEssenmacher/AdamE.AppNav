@@ -71,8 +71,13 @@ retires every page the operation built, all before `ApplyAsync` throws. The
 router then commits nothing. A refresh of an unchanged, still-current surface is
 a read-only acknowledgment: it never dismisses foreign UI.
 
-After acceptance, caller cancellation does not interrupt retirement of the old
-pages or prevent the router from committing a verified, current replacement.
+Frame acknowledgment can proceed while another window is key, including an
+overlay in the same scene. It waits while the presenter's window is hidden or
+its scene is inactive. For a window without a scene, the presenter uses the
+application's activation state. The wait is cancellable and has no timeout.
+
+After acceptance, the presenter finishes retiring the old pages and lets the
+router commit a verified, current replacement even if the caller cancels.
 If the replacement becomes invalid and recovery leaves the window empty, the
 presenter asks the host to reapply the router's committed state. The refresh
 runs after the failed navigation and leaves history intact.
