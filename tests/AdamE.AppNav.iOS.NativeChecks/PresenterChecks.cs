@@ -21,6 +21,7 @@ internal static class PresenterChecks
         ("failed-pop-record-refresh", FailedPopRecordRefreshAsync),
         ("modal-loan-retirement", ModalLoanRetirementAsync),
         ("healthy-presentation", HealthyPresentationAsync),
+        ("page-currency-main-thread", PageCurrencyMainThreadAsync),
         ("presentation-retirement-failure", PresentationRetirementFailureAsync),
         ("factory-cleanup-failure", FactoryCleanupFailureAsync),
         ("stack-preparation", StackPreparationAsync),
@@ -285,6 +286,26 @@ internal static class PresenterChecks
                 window.RootViewController = null;
             }
         }
+    }
+
+    private static async Task PageCurrencyMainThreadAsync(UIWindow window, CancellationToken token)
+    {
+        var root = new ProbeController();
+        int mainCalls = 0;
+        int backgroundCalls = 0;
+        await using UIKitNavigationPresenter presenter = Presenter(window, _ => Page(root, () =>
+        {
+            if (NSThread.IsMain)
+                Interlocked.Increment(ref mainCalls);
+            else
+                Interlocked.Increment(ref backgroundCalls);
+            return true;
+        }));
+
+        await Task.Run(() => ApplyAsync(presenter, Shows("root"), NavigationState.Empty, token), token);
+
+        Require(mainCalls > 0 && backgroundCalls == 0, "IsCurrent must run on the main thread for every check.");
+        Require(ReferenceEquals(window.RootViewController, root), "Background apply did not mount the root.");
     }
 
     private static async Task HealthyPresentationAsync(UIWindow window, CancellationToken token)

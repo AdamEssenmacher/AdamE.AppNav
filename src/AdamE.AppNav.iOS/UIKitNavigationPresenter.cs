@@ -355,9 +355,14 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
             .ConfigureAwait(false);
         try
         {
-            admissionToken.ThrowIfCancellationRequested();
-            if (completed is not null)
-                RequireCurrent(completed);
+            await OnMainAsync(() =>
+                {
+                    admissionToken.ThrowIfCancellationRequested();
+                    if (completed is not null)
+                        RequireCurrent(completed);
+                    return Task.CompletedTask;
+                })
+                .ConfigureAwait(false);
         }
         catch (Exception failure)
         {
