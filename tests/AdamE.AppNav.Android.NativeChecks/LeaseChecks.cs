@@ -18,7 +18,13 @@ internal static class LeaseChecks
         ("lease-custom-placeholders", CustomPlaceholdersAsync),
         ("lease-opened-by-presenter", OpenedByPresenterAsync),
         ("router-host", RouterHostAsync),
-        ("router-cancel-after-acceptance", CancelAfterAcceptanceAsync)
+        ("router-cancel-after-acceptance", CancelAfterAcceptanceAsync),
+        ("router-retry-retired-lease-after-acceptance",
+            (activity, token) => RetireAfterAcceptanceAsync(activity, token, retireCommittedLease: true, cancelCaller: true)),
+        ("router-refresh-retired-target-after-acceptance",
+            (activity, token) => RetireAfterAcceptanceAsync(activity, token, retireCommittedLease: false, cancelCaller: true)),
+        ("router-refresh-retired-target-without-cancellation",
+            (activity, token) => RetireAfterAcceptanceAsync(activity, token, retireCommittedLease: false, cancelCaller: false))
     ];
 
     private static async Task ReleaseOrderAsync(ComponentActivity activity, CancellationToken token)
@@ -495,6 +501,114 @@ internal static class LeaseChecks
         }
 
         Require(leaseHost.Failures.Count == 0 && failures.Count == 0, "Late cancellation reported a failure.");
+    }
+
+    private static async Task RetireAfterAcceptanceAsync(
+        ComponentActivity activity,
+        CancellationToken token,
+        bool retireCommittedLease,
+        bool cancelCaller)
+    {
+        const string rootId = "retire-root";
+        const string firstId = "retire-first";
+        const string nextId = "retire-next";
+        using var caller = CancellationTokenSource.CreateLinkedTokenSource(token);
+        var leaseHost = new MainThreadLeaseHost();
+        var leases = new RouteEntryLeaseRegistry(leaseHost);
+        var failures = new List<Exception>();
+        IRouterNavigator? router = null;
+        var navigationHost = new AndroidRouterNavigationHost(
+            () => router ?? throw new InvalidOperationException("No router yet."),
+            Topology,
+            failures.Add);
+        var views = new Dictionary<string, ProbeView>(StringComparer.Ordinal);
+        Action? onFirstRelease = null;
+        AndroidNavigationPresenter presenter = Presenter(
+            request => Page(
+                views[request.Entry.Id] = new ProbeView(request.Activity),
+                loan: request.Entry.Id == firstId ? new ActionDisposable(() => onFirstRelease?.Invoke()) : null),
+            navigationHost,
+            new AndroidNavigationPresenterOptions { EntryLeases = leases });
+        Mount(presenter, activity);
+        router = RouterChecks.Router(new PushedPlanner(rootId), presenter, leases);
+        try
+        {
+            _ = await router.NavigateAsync(
+                RouterNavigationRequest.FromRoute(new CheckRoute(firstId), NavigationRequestSource.Test), token);
+            ProbeView root = views[rootId];
+            ProbeView first = views[firstId];
+            var history = router.History;
+            ProbeView? retiredTarget = null;
+            RouteEntryLease? retiredLease = null;
+            onFirstRelease = () =>
+            {
+                onFirstRelease = null;
+                retiredTarget = views[nextId];
+                string retiringId = retireCommittedLease ? rootId : nextId;
+                if (!leases.TryGet(retiringId, out retiredLease) || retiredLease.IsCommitted != retireCommittedLease)
+                    throw new InvalidOperationException("The lease did not have the expected commit status.");
+                retiredLease.Retire();
+                if (cancelCaller)
+                    caller.Cancel();
+            };
+
+            NavigationResult? result = null;
+            try
+            {
+                result = await router.NavigateAsync(
+                    RouterNavigationRequest.FromRoute(new CheckRoute(nextId), NavigationRequestSource.Test), caller.Token);
+            }
+            catch (OperationCanceledException) when (!retireCommittedLease && !token.IsCancellationRequested)
+            {
+                // An uncommitted retired lease cannot be presented as a placeholder.
+            }
+
+            Require(caller.IsCancellationRequested == cancelCaller
+                    && first.Disposed
+                    && retiredTarget is { Disposed: true, DetachedAtDisposal: true }
+                    && retiredLease is { IsRetired: true },
+                "Acceptance did not exercise and safely dispose the invalidated target.");
+            if (retireCommittedLease)
+            {
+                Require(result is { Presented: true }
+                        && router.CurrentState.ActiveWindow?.Root is StackNode { Entries: [{ Id: rootId }, { Id: nextId }] }
+                        && ReferenceEquals(Visible(activity), views[nextId]),
+                    "The committed lease did not get a placeholder retry after late cancellation.");
+            }
+            else
+            {
+                Require(result is null
+                        && ReferenceEquals(router.History, history)
+                        && router.CurrentState.ActiveWindow?.Root is StackNode { Entries: [{ Id: rootId }, { Id: firstId }] },
+                    "The invalidated entry committed or changed the router's history.");
+                await UntilAsync(
+                    () => presenter.IsSettled
+                          && !ReferenceEquals(first, views[firstId]) && ReferenceEquals(Visible(activity), views[firstId])
+                          && activity.OnBackPressedDispatcher.HasEnabledCallbacks,
+                    "The failed apply did not rebuild the router's committed stack.",
+                    token);
+            }
+
+            Require(activity.OnBackPressedDispatcher.HasEnabledCallbacks, "Back was disabled after recovery.");
+            activity.OnBackPressedDispatcher.OnBackPressed();
+            await UntilAsync(
+                () => router.CurrentState.ActiveWindow?.Root is StackNode { Entries: [{ Id: rootId }] }
+                      && (retireCommittedLease
+                          ? ReferenceEquals(views[rootId], root) && Visible(activity) is { } visible
+                            && !ReferenceEquals(visible, root) && !ReferenceEquals(visible, views[nextId])
+                          : ReferenceEquals(Visible(activity), views[rootId])),
+                "Back after recovery did not show the committed root or its placeholder.",
+                token);
+        }
+        finally
+        {
+            onFirstRelease = null;
+            Task disposal = router.DisposeAsync().AsTask();
+            await presenter.DisposeAsync();
+            await disposal.WaitAsync(Soon, token);
+        }
+
+        Require(leaseHost.Failures.Count == 0 && failures.Count == 0, "Recovery reported an unexpected failure.");
     }
 
     private sealed class RequestPages(Func<AndroidPageRequest, AndroidPage> pages) : IAndroidPageFactory

@@ -102,8 +102,11 @@ commits nothing. If a page's lease retires after it was built while the router
 still shows its entry, the operation applies the same plan again, and the retired
 lease then gets its placeholder.
 
-An accepted surface stays in place when the caller cancels during retirement.
-The router commits the verified replacement after retirement finishes.
+Caller cancellation no longer applies after native acceptance, including when
+the presenter retries with a placeholder for a retired committed lease. The
+router commits once the replacement is verified and retirement finishes. If
+the accepted navigation fails safely and cannot complete, the presenter asks
+the host to reapply the router's committed state after the failure.
 
 Dialogs are not disposed. `Dialog.Dismiss` queues its dismiss message, and a
 disposed peer of a dialog subclass cannot be activated again when that message
