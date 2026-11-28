@@ -943,10 +943,15 @@ public sealed class MauiNavigationPresenterLifecycleTests
         Assert.All(fixture.Factory.CreatedPages, page => Assert.Contains(page, fixture.Factory.ReleasedPages));
     }
 
-    [Theory]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    public async Task ShutdownWaitsForTheWindowBeforeDisposingItsHostAndEntryScope(
+    [Fact]
+    public Task ShutdownWaitsForRootReplacementWhenClearThrows() =>
+        AssertShutdownWaitsForTheWindowAsync(throwOnClear: true, destroyWindow: false);
+
+    [Fact]
+    public Task ShutdownWaitsForWindowDestructionWhenClearIsIgnored() =>
+        AssertShutdownWaitsForTheWindowAsync(throwOnClear: false, destroyWindow: true);
+
+    private static async Task AssertShutdownWaitsForTheWindowAsync(
         bool throwOnClear,
         bool destroyWindow)
     {
