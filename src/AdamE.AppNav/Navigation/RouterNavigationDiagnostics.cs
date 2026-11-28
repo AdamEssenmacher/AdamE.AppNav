@@ -15,6 +15,8 @@ internal sealed class RouterNavigationDiagnostics(
     private readonly ActivitySource _activitySource =
         activitySource ?? throw new ArgumentNullException(nameof(activitySource));
 
+    public bool MayWrite => _diagnostics.MayWrite;
+
     public void Write(
         NavigationDiagnosticEventKind kind,
         string operationId,
@@ -71,38 +73,39 @@ internal sealed class RouterNavigationDiagnostics(
         string operationId,
         string message,
         Exception exception,
-        Stopwatch timer,
+        long startedAt,
         params (string Key, object? Value)[] data)
     {
         RouterNavigationActivityScope.TrySetCurrentTag(
             "navigation.failure.type",
             exception.GetType().FullName);
-        _diagnostics.Write(kind, operationId, message, FailureData(exception, timer, data));
+        if (MayWrite)
+            _diagnostics.Write(kind, operationId, message, FailureData(exception, startedAt, data));
     }
 
     public static IReadOnlyDictionary<string, object?> Duration(
-        Stopwatch timer,
+        long startedAt,
         params (string Key, object? Value)[] data)
     {
-        timer.Stop();
+        double durationMs = Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds;
         Dictionary<string, object?> result = Data(data);
-        result[NavigationDiagnosticDataKeys.DurationMs] = timer.Elapsed.TotalMilliseconds;
+        result[NavigationDiagnosticDataKeys.DurationMs] = durationMs;
         return result;
     }
 
     public static IReadOnlyDictionary<string, object?> Duration(
-        Stopwatch timer,
+        long startedAt,
         RouterNavigationRequest request,
         params (string Key, object? Value)[] data)
     {
-        timer.Stop();
+        double durationMs = Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds;
         Dictionary<string, object?> result = RequestData(request, data);
-        result[NavigationDiagnosticDataKeys.DurationMs] = timer.Elapsed.TotalMilliseconds;
+        result[NavigationDiagnosticDataKeys.DurationMs] = durationMs;
         return result;
     }
 
     public static IReadOnlyDictionary<string, object?> RouteFailureData(
-        Stopwatch timer,
+        long startedAt,
         RouterNavigationRequest request,
         RouteDiagnostic? diagnostic)
     {
@@ -112,7 +115,7 @@ internal sealed class RouterNavigationDiagnostics(
         };
 
         if (diagnostic is null)
-            return Duration(timer, request, data.ToArray());
+            return Duration(startedAt, request, data.ToArray());
 
         data.Add((NavigationDiagnosticDataKeys.RouteDiagnosticCode, diagnostic.Code));
         data.Add((NavigationDiagnosticDataKeys.RouteDiagnosticMessage, diagnostic.Message));
@@ -131,7 +134,7 @@ internal sealed class RouterNavigationDiagnostics(
             data.Add((normalizedKey, value));
         }
 
-        return Duration(timer, request, data.ToArray());
+        return Duration(startedAt, request, data.ToArray());
     }
 
     public void WriteRedirectLoopDetected(
@@ -141,11 +144,16 @@ internal sealed class RouterNavigationDiagnostics(
         RouterNavigationRequest redirectFrom,
         RouterNavigationRequest redirectTo,
         int redirectCount,
-        string redirectTrace,
+        RouterNavigationRequest initialRequest,
+        IReadOnlyList<RouterNavigationRequest> redirects,
         string message,
         NavigationDiagnosticPhase phase)
     {
         RouterNavigationActivityScope.TrySetCurrentTag("navigation.redirect_count", redirectCount);
+        if (!MayWrite)
+            return;
+
+        string redirectTrace = BuildRedirectTrace(initialRequest, redirects);
         _diagnostics.Write(
             NavigationDiagnosticEventKind.RequestRedirectLoopDetected,
             operationId,
@@ -208,12 +216,12 @@ internal sealed class RouterNavigationDiagnostics(
 
     private static Dictionary<string, object?> FailureData(
         Exception exception,
-        Stopwatch timer,
+        long startedAt,
         params (string Key, object? Value)[] data)
     {
-        timer.Stop();
+        double durationMs = Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds;
         Dictionary<string, object?> result = Data(data);
-        result[NavigationDiagnosticDataKeys.DurationMs] = timer.Elapsed.TotalMilliseconds;
+        result[NavigationDiagnosticDataKeys.DurationMs] = durationMs;
         result[NavigationDiagnosticDataKeys.ExceptionType] = exception.GetType().FullName;
         result[NavigationDiagnosticDataKeys.ExceptionMessage] = exception.Message;
 
