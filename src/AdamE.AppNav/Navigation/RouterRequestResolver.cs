@@ -98,13 +98,16 @@ internal sealed class RouterRequestResolver(
 
             string transformerName = transformer.GetType().Name;
             string? transformerType = transformer.GetType().FullName;
-            var timer = Stopwatch.StartNew();
-            _diagnostics.Write(
-                NavigationDiagnosticEventKind.RequestTransformStarted,
-                operationId,
-                transformerName,
-                RouterNavigationDiagnostics.Data(
-                    (NavigationDiagnosticDataKeys.RequestTransformerType, transformerType)));
+            var startedAt = Stopwatch.GetTimestamp();
+            if (_diagnostics.MayWrite)
+            {
+                _diagnostics.Write(
+                    NavigationDiagnosticEventKind.RequestTransformStarted,
+                    operationId,
+                    transformerName,
+                    RouterNavigationDiagnostics.Data(
+                        (NavigationDiagnosticDataKeys.RequestTransformerType, transformerType)));
+            }
 
             try
             {
@@ -122,13 +125,16 @@ internal sealed class RouterRequestResolver(
                 RequestTargetKey candidateTarget = RequestTargetKey.From(candidateRequest);
                 effectiveRequest = candidateRequest;
 
-                _diagnostics.Write(
-                    NavigationDiagnosticEventKind.RequestTransformCompleted,
-                    operationId,
-                    transformerName,
-                    RouterNavigationDiagnostics.Duration(
-                        timer,
-                        (NavigationDiagnosticDataKeys.RequestTransformerType, transformerType)));
+                if (_diagnostics.MayWrite)
+                {
+                    _diagnostics.Write(
+                        NavigationDiagnosticEventKind.RequestTransformCompleted,
+                        operationId,
+                        transformerName,
+                        RouterNavigationDiagnostics.Duration(
+                            startedAt,
+                            (NavigationDiagnosticDataKeys.RequestTransformerType, transformerType)));
+                }
 
                 if (candidateTarget == previousTarget)
                     continue;
@@ -153,7 +159,7 @@ internal sealed class RouterRequestResolver(
                     operationId,
                     transformerName,
                     ex,
-                    timer,
+                    startedAt,
                     (NavigationDiagnosticDataKeys.RequestTransformerType, transformerType));
                 throw;
             }
@@ -178,12 +184,15 @@ internal sealed class RouterRequestResolver(
 
             string policyName = policy.GetType().Name;
             string? policyType = policy.GetType().FullName;
-            var timer = Stopwatch.StartNew();
-            _diagnostics.Write(
-                NavigationDiagnosticEventKind.RequestPolicyStarted,
-                operationId,
-                policyName,
-                RouterNavigationDiagnostics.Data((NavigationDiagnosticDataKeys.PolicyType, policyType)));
+            var startedAt = Stopwatch.GetTimestamp();
+            if (_diagnostics.MayWrite)
+            {
+                _diagnostics.Write(
+                    NavigationDiagnosticEventKind.RequestPolicyStarted,
+                    operationId,
+                    policyName,
+                    RouterNavigationDiagnostics.Data((NavigationDiagnosticDataKeys.PolicyType, policyType)));
+            }
 
             try
             {
@@ -206,12 +215,15 @@ internal sealed class RouterRequestResolver(
                 RequestTargetKey candidateTarget = RequestTargetKey.From(candidateRequest);
                 effectiveRequest = candidateRequest;
 
-                _diagnostics.Write(
-                    NavigationDiagnosticEventKind.RequestPolicyCompleted,
-                    operationId,
-                    policyName,
-                    RouterNavigationDiagnostics.Duration(timer,
-                        (NavigationDiagnosticDataKeys.PolicyType, policyType)));
+                if (_diagnostics.MayWrite)
+                {
+                    _diagnostics.Write(
+                        NavigationDiagnosticEventKind.RequestPolicyCompleted,
+                        operationId,
+                        policyName,
+                        RouterNavigationDiagnostics.Duration(startedAt,
+                            (NavigationDiagnosticDataKeys.PolicyType, policyType)));
+                }
 
                 if (candidateTarget == previousTarget)
                     continue;
@@ -236,7 +248,7 @@ internal sealed class RouterRequestResolver(
                     operationId,
                     policyName,
                     ex,
-                    timer,
+                    startedAt,
                     (NavigationDiagnosticDataKeys.PolicyType, policyType));
                 throw;
             }
@@ -259,7 +271,6 @@ internal sealed class RouterRequestResolver(
     {
         redirects.Add(candidateRequest);
         int redirectCount = redirects.Count;
-        string redirectTrace = RouterNavigationDiagnostics.BuildRedirectTrace(initialRequest, redirects);
 
         if (redirectCount > maxRedirects)
         {
@@ -273,7 +284,8 @@ internal sealed class RouterRequestResolver(
                 previousRequest,
                 candidateRequest,
                 redirectCount,
-                redirectTrace,
+                initialRequest,
+                redirects,
                 message,
                 phase);
             throw new RouteRedirectLoopException(initialRequest, candidateRequest, redirects, message);
@@ -289,13 +301,18 @@ internal sealed class RouterRequestResolver(
                 previousRequest,
                 candidateRequest,
                 redirectCount,
-                redirectTrace,
+                initialRequest,
+                redirects,
                 message,
                 phase);
             throw new RouteRedirectLoopException(initialRequest, candidateRequest, redirects, message);
         }
 
         Activity.Current?.SetTag("navigation.redirect_count", redirectCount);
+        if (!_diagnostics.MayWrite)
+            return;
+
+        string redirectTrace = RouterNavigationDiagnostics.BuildRedirectTrace(initialRequest, redirects);
         _diagnostics.Write(
             NavigationDiagnosticEventKind.RequestRedirected,
             operationId,
@@ -323,15 +340,18 @@ internal sealed class RouterRequestResolver(
         if (request.Uri is null)
             throw new InvalidOperationException("RouterNavigationRequest must contain either a Uri or an AppRoute.");
 
-        var timer = Stopwatch.StartNew();
-        _diagnostics.Write(
-            NavigationDiagnosticEventKind.RouteMatchingStarted,
-            operationId,
-            request.Uri.ToString(),
-            RouterNavigationDiagnostics.RequestData(
-                request,
-                (NavigationDiagnosticDataKeys.Uri, request.Uri.ToString()),
-                (NavigationDiagnosticDataKeys.RequestSource, request.Source.ToString())));
+        var startedAt = Stopwatch.GetTimestamp();
+        if (_diagnostics.MayWrite)
+        {
+            _diagnostics.Write(
+                NavigationDiagnosticEventKind.RouteMatchingStarted,
+                operationId,
+                request.Uri.ToString(),
+                RouterNavigationDiagnostics.RequestData(
+                    request,
+                    (NavigationDiagnosticDataKeys.Uri, request.Uri.ToString()),
+                    (NavigationDiagnosticDataKeys.RequestSource, request.Source.ToString())));
+        }
 
         try
         {
@@ -339,16 +359,19 @@ internal sealed class RouterRequestResolver(
             if (!match.IsSuccess || match.Route is null)
             {
                 RouteDiagnostic? diagnostic = match.Diagnostics.Count > 0 ? match.Diagnostics[0] : null;
-                _diagnostics.Write(
-                    NavigationDiagnosticEventKind.RouteNotMatched,
-                    operationId,
-                    request.Uri.ToString(),
-                    RouterNavigationDiagnostics.RouteFailureData(timer, request, diagnostic));
+                if (_diagnostics.MayWrite)
+                {
+                    _diagnostics.Write(
+                        NavigationDiagnosticEventKind.RouteNotMatched,
+                        operationId,
+                        request.Uri.ToString(),
+                        RouterNavigationDiagnostics.RouteFailureData(startedAt, request, diagnostic));
+                }
 
                 if (diagnostic?.Code != "route.not_matched" || fallbackRouteFactory is null)
                     throw new RouteNotMatchedException(request.Uri, match.Diagnostics);
 
-                var fallbackTimer = Stopwatch.StartNew();
+                var fallbackStartedAt = Stopwatch.GetTimestamp();
                 AppRoute? fallbackRoute = fallbackRouteFactory(new NavigationFallbackContext(
                     request,
                     match.Diagnostics,
@@ -359,17 +382,20 @@ internal sealed class RouterRequestResolver(
                     throw new RouteNotMatchedException(request.Uri, match.Diagnostics);
 
                 Activity.Current?.SetTag("navigation.route_type", fallbackRoute.GetType().FullName);
-                _diagnostics.Write(
-                    NavigationDiagnosticEventKind.RouteFallbackSelected,
-                    operationId,
-                    fallbackRoute.GetType().Name,
-                    RouterNavigationDiagnostics.Duration(
-                        fallbackTimer,
-                        request,
-                        (NavigationDiagnosticDataKeys.Uri, request.Uri.ToString()),
-                        (NavigationDiagnosticDataKeys.RouteDiagnosticCode, diagnostic.Code),
-                        (NavigationDiagnosticDataKeys.RouteDiagnosticMessage, diagnostic.Message),
-                        (NavigationDiagnosticDataKeys.RouteType, fallbackRoute.GetType().FullName)));
+                if (_diagnostics.MayWrite)
+                {
+                    _diagnostics.Write(
+                        NavigationDiagnosticEventKind.RouteFallbackSelected,
+                        operationId,
+                        fallbackRoute.GetType().Name,
+                        RouterNavigationDiagnostics.Duration(
+                            fallbackStartedAt,
+                            request,
+                            (NavigationDiagnosticDataKeys.Uri, request.Uri.ToString()),
+                            (NavigationDiagnosticDataKeys.RouteDiagnosticCode, diagnostic.Code),
+                            (NavigationDiagnosticDataKeys.RouteDiagnosticMessage, diagnostic.Message),
+                            (NavigationDiagnosticDataKeys.RouteType, fallbackRoute.GetType().FullName)));
+                }
 
                 return new ResolvedRoute(fallbackRoute, null);
             }
@@ -377,16 +403,19 @@ internal sealed class RouterRequestResolver(
             Activity.Current?.SetTag("navigation.route_type", match.Route.GetType().FullName);
             string? routeTemplate = match.Definition?.Template.Value;
             Activity.Current?.SetTag("navigation.route_template", routeTemplate);
-            _diagnostics.Write(
-                NavigationDiagnosticEventKind.RouteMatched,
-                operationId,
-                match.Route.GetType().Name,
-                RouterNavigationDiagnostics.Duration(
-                    timer,
-                    request,
-                    (NavigationDiagnosticDataKeys.Uri, request.Uri.ToString()),
-                    (NavigationDiagnosticDataKeys.RouteType, match.Route.GetType().FullName),
-                    (NavigationDiagnosticDataKeys.RouteTemplate, routeTemplate)));
+            if (_diagnostics.MayWrite)
+            {
+                _diagnostics.Write(
+                    NavigationDiagnosticEventKind.RouteMatched,
+                    operationId,
+                    match.Route.GetType().Name,
+                    RouterNavigationDiagnostics.Duration(
+                        startedAt,
+                        request,
+                        (NavigationDiagnosticDataKeys.Uri, request.Uri.ToString()),
+                        (NavigationDiagnosticDataKeys.RouteType, match.Route.GetType().FullName),
+                        (NavigationDiagnosticDataKeys.RouteTemplate, routeTemplate)));
+            }
             return new ResolvedRoute(match.Route, match.Definition, match.Metadata);
         }
         catch (Exception ex) when (ex is not RouteNotMatchedException)
@@ -396,7 +425,7 @@ internal sealed class RouterRequestResolver(
                 operationId,
                 request.Uri.ToString(),
                 ex,
-                timer,
+                startedAt,
                 (NavigationDiagnosticDataKeys.Uri, request.Uri.ToString()));
             throw;
         }

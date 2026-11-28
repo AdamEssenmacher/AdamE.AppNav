@@ -91,6 +91,70 @@ public sealed class DiagnosticsTests
     }
 
     [Fact]
+    public async Task NavigatorEmitsTimedDiagnosticsToHandlerAddedDuringPlanning()
+    {
+        var diagnostics = new NavigationDiagnostics();
+        var events = new List<NavigationDiagnosticEvent>();
+        var planningStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var continuePlanning = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var timeout = TimeSpan.FromSeconds(5);
+        var innerPlanner = new TestPlanner();
+
+        var planner = new TestNavigationPlanner(async (context, cancellationToken) =>
+        {
+            planningStarted.SetResult();
+            await continuePlanning.Task.WaitAsync(timeout, cancellationToken);
+            return await innerPlanner.CreatePlanAsync(context, cancellationToken);
+        });
+
+        await using var navigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            planner,
+            NullNavigationPresenter.Instance,
+            new RouterNavigatorOptions { Diagnostics = diagnostics });
+        var request = RouterNavigationRequest.FromUri(
+            new Uri("https://example.com/stores/northwind/products/123"),
+            NavigationRequestSource.Test);
+
+        long startedAt = Stopwatch.GetTimestamp();
+        Task<NavigationResult> navigation = navigator.NavigateAsync(request).AsTask();
+        await planningStarted.Task.WaitAsync(timeout);
+        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+        continuePlanning.SetResult();
+        await navigation.WaitAsync(timeout);
+
+        Assert.Equal(
+            [
+                NavigationDiagnosticEventKind.PlanningCompleted,
+                NavigationDiagnosticEventKind.PresentationStarted,
+                NavigationDiagnosticEventKind.PresentationCompleted
+            ],
+            events.Select(static diagnosticEvent => diagnosticEvent.Kind));
+        double duration = Assert.IsType<double>(events[0].Data[NavigationDiagnosticDataKeys.DurationMs]);
+        Assert.InRange(duration, 0, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
+    }
+
+    [Fact]
+    public async Task NavigatorInvokesCustomRedactorWithoutOtherDiagnosticConsumers()
+    {
+        var redactor = new CapturingRedactor();
+        var diagnostics = new NavigationDiagnostics(redactor: redactor);
+        await using var navigator = new RouterNavigator(
+            TestRoutes.CreateTable(),
+            new TestPlanner(),
+            NullNavigationPresenter.Instance,
+            new RouterNavigatorOptions { Diagnostics = diagnostics });
+
+        await navigator.NavigateAsync(RouterNavigationRequest.FromUri(
+            new Uri("https://example.com/stores/northwind/products/123"),
+            NavigationRequestSource.Test));
+
+        var diagnosticEvent = Assert.IsType<NavigationDiagnosticEvent>(redactor.Input);
+        Assert.Equal(NavigationDiagnosticEventKind.PresentationCompleted, diagnosticEvent.Kind);
+        Assert.IsType<double>(diagnosticEvent.Data[NavigationDiagnosticDataKeys.DurationMs]);
+    }
+
+    [Fact]
     public void SafeModeSanitizesBeforeObserversLoggersAndActivity()
     {
         var logger = new CapturingLogger();

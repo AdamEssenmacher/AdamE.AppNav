@@ -106,6 +106,22 @@ public sealed class NavigationDiagnostics
         }
     }
 
+    // A conservative check for callers that would otherwise construct a payload before Write.
+    internal bool MayWrite
+    {
+        get
+        {
+            if (!_enabled)
+                return false;
+
+            if (_logger is not null || _redactor is not null || Activity.Current is not null)
+                return true;
+
+            lock (_gate)
+                return _eventWritten is not null || _observers.Count != 0;
+        }
+    }
+
     /// <summary>
     /// Writes a navigation diagnostic event.
     /// </summary>
