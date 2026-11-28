@@ -1563,7 +1563,7 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
     }
 
     // A queued native display tick may outlive invalidation; revoke every scope/task capture first.
-    private sealed class DisplayedFrameAcknowledgement(UIWindow window, TaskCompletionSource done)
+    internal sealed class DisplayedFrameAcknowledgement(UIWindow window, TaskCompletionSource done)
     {
         private UIWindow? _window = window;
         private TaskCompletionSource? _done = done;
@@ -1574,7 +1574,13 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
 
         public void Tick()
         {
-            if (_link is not { } current || _window is not { } window)
+            if (_link is { } current)
+                Tick(current.Timestamp, current.TargetTimestamp);
+        }
+
+        internal void Tick(double timestamp, double targetTimestamp)
+        {
+            if (_window is not { } window)
                 return;
 
             // Key status routes input. A visible window can still render while an overlay is key.
@@ -1588,8 +1594,8 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
             }
 
             if (_target == 0)
-                _target = current.TargetTimestamp;
-            else if (current.Timestamp >= _target)
+                _target = targetTimestamp;
+            else if (timestamp >= _target)
                 _ = _done?.TrySetResult();
         }
 

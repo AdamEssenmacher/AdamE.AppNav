@@ -4,6 +4,7 @@ using AdamE.AppNav.Policies;
 using AdamE.AppNav.Requests;
 using AdamE.AppNav.Routing;
 using AdamE.AppNav.State;
+using CoreAnimation;
 using ObjCRuntime;
 using static AdamE.AppNav.iOS.NativeChecks.Checks;
 
@@ -17,6 +18,8 @@ internal static class PresenterChecks
     [
         ("empty-startup-refresh", EmptyStartupRefreshAsync),
         ("key-overlay-navigation-and-refresh", KeyOverlayNavigationAndRefreshAsync),
+        ("hidden-window-refresh", HiddenWindowRefreshAsync),
+        ("hidden-window-frame-target", HiddenWindowFrameTargetAsync),
         ("modal-host-events", ModalHostEventsAsync),
         ("failed-pop-record-refresh", FailedPopRecordRefreshAsync),
         ("modal-loan-retirement", ModalLoanRetirementAsync),
@@ -113,6 +116,71 @@ internal static class PresenterChecks
                 deadline.Token);
 
         bool OverlayIsKey() => overlay.IsKeyWindow && !overlay.Hidden && !window.IsKeyWindow && !window.Hidden;
+    }
+
+    private static async Task HiddenWindowRefreshAsync(UIWindow hostWindow, CancellationToken token)
+    {
+        using var window = new UIWindow(
+            hostWindow.WindowScene ?? throw new InvalidOperationException("The check window has no scene."));
+        using var restoreHost = new ActionDisposable(() =>
+        {
+            window.Hidden = true;
+            hostWindow.MakeKeyWindow();
+        });
+        var root = new UIViewController();
+        await using var presenter = Presenter(window, _ => Page(root));
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(10));
+        NavigationState state = Shows("hidden-root");
+        await ApplyAsync(presenter, state, NavigationState.Empty, deadline.Token);
+
+        var frames = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int ticks = 0;
+        using var observer = CADisplayLink.Create(() =>
+        {
+            // Give an ungated presenter time to set and reach its frame target and resume the refresh.
+            if (++ticks == 4)
+                frames.TrySetResult();
+        });
+        window.Hidden = true;
+        var refresh = ApplyAsync(presenter, state, state, deadline.Token, NavigationPlanKind.Refresh);
+        bool waitedWhileHidden;
+        try
+        {
+            observer.AddToRunLoop(NSRunLoop.Main, NSRunLoopMode.Common);
+            await Task.WhenAny(refresh, frames.Task).WaitAsync(deadline.Token);
+            waitedWhileHidden = !refresh.IsCompleted && window.Hidden;
+        }
+        finally
+        {
+            observer.Invalidate();
+            window.MakeKeyAndVisible();
+        }
+
+        await refresh;
+        Require(waitedWhileHidden, "Refresh did not stay pending across display ticks while its window was hidden.");
+        Require(ReferenceEquals(window.RootViewController, root), "Refresh replaced the accepted root.");
+    }
+
+    private static Task HiddenWindowFrameTargetAsync(UIWindow hostWindow, CancellationToken token)
+    {
+        using var window = new UIWindow(
+            hostWindow.WindowScene ?? throw new InvalidOperationException("The check window has no scene."));
+        var done = new TaskCompletionSource();
+        var acknowledgment = new UIKitNavigationPresenter.DisplayedFrameAcknowledgement(window, done);
+
+        window.Hidden = false;
+        acknowledgment.Tick(1, 2);
+        window.Hidden = true;
+        acknowledgment.Tick(2, 3);
+        Require(!done.Task.IsCompleted, "A hidden tick acknowledged a frame.");
+
+        window.Hidden = false;
+        acknowledgment.Tick(3, 4);
+        Require(!done.Task.IsCompleted, "The first visible tick accepted the old frame target.");
+        acknowledgment.Tick(4, 5);
+        Require(done.Task.IsCompletedSuccessfully, "The fresh frame target was not acknowledged.");
+        return Task.CompletedTask;
     }
 
     private sealed record OverlayRoute(bool ShowSheet) : AppRoute;
