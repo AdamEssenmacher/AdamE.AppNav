@@ -116,7 +116,7 @@ public sealed class NavigationShellViewModel(
             surface.Settle(committed);
     });
 
-    public async void Report(NativeObservation observation)
+    public async Task Report(NativeObservation observation)
     {
         try
         {

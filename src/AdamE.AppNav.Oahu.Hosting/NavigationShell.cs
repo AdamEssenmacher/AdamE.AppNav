@@ -27,5 +27,5 @@ public sealed record NativeObservation(
 public interface INavigationShellViewModel
 {
     IOahuState<ShellTarget> Target { get; }
-    void Report(NativeObservation observation);
+    Task Report(NativeObservation observation);
 }

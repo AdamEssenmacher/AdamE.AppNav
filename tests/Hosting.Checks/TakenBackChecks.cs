@@ -40,8 +40,8 @@ internal static class TakenBackChecks
 
             using (loop.NativeCall())
             {
-                shell.Report(Reading(staged, ["home", "home-detail", "game"]));
-                shell.Report(Reading(staged, ["home", "home-detail"]));
+                _ = shell.Report(Reading(staged, ["home", "home-detail", "game"]));
+                _ = shell.Report(Reading(staged, ["home", "home-detail"]));
             }
             try { await Task.WhenAll(game, modal).WaitAsync(TimeSpan.FromSeconds(5)); }
             catch (TimeoutException)
