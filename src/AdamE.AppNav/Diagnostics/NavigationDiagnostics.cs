@@ -244,7 +244,7 @@ public sealed class NavigationDiagnostics
             NavigationDiagnosticPhase.Diagnostics);
         NavigationDiagnosticEvent failureEvent = PrepareEvent(rawFailureEvent);
 
-        TryMirrorToLogger(failureEvent);
+        TryMirrorToLogger(failureEvent, exception);
         TryMirrorToActivity(failureEvent);
 
         EventHandler<NavigationDiagnosticEvent>? eventWritten;
@@ -311,7 +311,7 @@ public sealed class NavigationDiagnostics
         }
     }
 
-    private void TryMirrorToLogger(NavigationDiagnosticEvent diagnosticEvent, Exception? exception = null)
+    private void TryMirrorToLogger(NavigationDiagnosticEvent diagnosticEvent, Exception? exception)
     {
         try
         {
