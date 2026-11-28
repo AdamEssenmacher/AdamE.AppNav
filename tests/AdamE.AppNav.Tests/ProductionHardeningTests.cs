@@ -83,6 +83,48 @@ public sealed class ProductionHardeningTests
     }
 
     [Fact]
+    public async Task BackCommitTrimsHistoryToConfiguredLimit()
+    {
+        var navigator = CreateNavigatorWithBoundedHistory();
+        var firstBack = await navigator.BackAsync();
+        Assert.Equal(BackNavigationStatus.Completed, firstBack.Status);
+        Assert.Single(navigator.History.Entries);
+
+        var secondBack = await navigator.BackAsync();
+
+        Assert.Equal(BackNavigationStatus.Completed, secondBack.Status);
+        var entry = Assert.Single(navigator.History.Entries);
+        Assert.Equal(new TestRoutes.StoreRoute("northwind"), entry.Route);
+        Assert.Same(navigator.CurrentState, entry.State);
+    }
+
+    [Fact]
+    public async Task HostBackReconciliationTrimsHistoryToConfiguredLimit()
+    {
+        var navigator = CreateNavigatorWithBoundedHistory();
+        var firstBack = await navigator.BackAsync();
+        Assert.Equal(BackNavigationStatus.Completed, firstBack.Status);
+        Assert.Single(navigator.History.Entries);
+
+        var baseState = navigator.CurrentState;
+        var window = baseState.ActiveWindow!;
+        var stack = Assert.IsType<StackNode>(window.Root);
+        var targetStack = stack with { Entries = [stack.Entries[0]] };
+        var targetState = TestNavigationState.State(window.Id, window with { Root = targetStack });
+
+        var result = await navigator.ReconcileAsync(new NavigationReconciliation(
+            baseState,
+            targetState,
+            NavigationReconciliationSource.HostBack));
+
+        Assert.Same(targetState, result.State);
+        Assert.Same(targetState, navigator.CurrentState);
+        var entry = Assert.Single(navigator.History.Entries);
+        Assert.Equal(new TestRoutes.StoreRoute("northwind"), entry.Route);
+        Assert.Same(targetState, entry.State);
+    }
+
+    [Fact]
     public async Task BackAsyncAppliesBackPlanAndReportsUnhandledExit()
     {
         var initialState = new NavigationState(new[]
@@ -283,6 +325,25 @@ public sealed class ProductionHardeningTests
 
         Assert.Contains(NavigationDiagnosticEventKind.RouteMatched, events);
         Assert.Contains(NavigationDiagnosticEventKind.DiagnosticObserverFailed, events);
+    }
+
+    private static RouterNavigator CreateNavigatorWithBoundedHistory()
+    {
+        var initialState = TestNavigationState.State(
+            "main",
+            TestNavigationState.Window(
+                "main",
+                TestNavigationState.Stack(
+                    "store-stack",
+                    TestNavigationState.Entry("store", new TestRoutes.StoreRoute("northwind")),
+                    TestNavigationState.Entry("catalog", new TestRoutes.CatalogRoute("northwind")),
+                    TestNavigationState.Entry("product", new TestRoutes.ProductDetailRoute("northwind", 123)))));
+
+        return new RouterNavigator(
+            TestRoutes.CreateTable(),
+            new RouteEchoPlanner(),
+            NullNavigationPresenter.Instance,
+            new RouterNavigatorOptions { InitialState = initialState, MaxHistoryEntries = 1 });
     }
 
     private sealed class RouteEchoPlanner : IAppNavigationPlanner
