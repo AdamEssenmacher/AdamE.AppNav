@@ -180,18 +180,20 @@ public fun AppNavNavigationShell(
     // that started it keeps its enabled state and the Back it completes. The new layout applies once the
     // gesture ends. Only the start and end recompose the shell, not every progress event, and only a split
     // reads the window size or the gesture, so a resize or a gesture never recomposes a plain stack or tabs.
-    val dispatcher = LocalNavigationEventDispatcherOwner.current?.navigationEventDispatcher
-    val gesture = remember(dispatcher) { dispatcher?.transitionState ?: MutableStateFlow(NavigationEventTransitionState.Idle) }
-        .collectAsState()
-    val inBackGesture = remember(gesture) {
-        derivedStateOf { gesture.value is NavigationEventTransitionState.InProgress }
-    }
-    val window = LocalWindowInfo.current
-    val windowShowsBothColumns = remember(window) { derivedStateOf { showsBothColumns(window.containerDpSize) } }
-    val layoutLatch = remember { LayoutLatch(false) }
-    val isSplit = target.split != null
-    val twoPanes = isSplit && if (inBackGesture.value) layoutLatch.twoPanes else windowShowsBothColumns.value
-    SideEffect { if (isSplit && !inBackGesture.value) layoutLatch.twoPanes = twoPanes }
+    val twoPanes = if (target.split != null) {
+        val dispatcher = LocalNavigationEventDispatcherOwner.current?.navigationEventDispatcher
+        val gesture = remember(dispatcher) { dispatcher?.transitionState ?: MutableStateFlow(NavigationEventTransitionState.Idle) }
+            .collectAsState()
+        val inBackGesture = remember(gesture) {
+            derivedStateOf { gesture.value is NavigationEventTransitionState.InProgress }
+        }
+        val window = LocalWindowInfo.current
+        val windowShowsBothColumns = remember(window) { derivedStateOf { showsBothColumns(window.containerDpSize) } }
+        val layoutLatch = remember { LayoutLatch(false) }
+        val twoPanes = if (inBackGesture.value) layoutLatch.twoPanes else windowShowsBothColumns.value
+        SideEffect { if (!inBackGesture.value) layoutLatch.twoPanes = twoPanes }
+        twoPanes
+    } else false
     val origins = remember { NavigationOrigins() }
     val backScope = rememberCoroutineScope()
     var managedBackInFlight by remember { mutableStateOf(false) }
@@ -463,12 +465,13 @@ private data class StackRender(
 
     /**
      * Whether the entry at [index] has no Up within the shell: a plain stack's root, the primary column's
-     * root, or, in two panes, the secondary root beside a primary column at its root.
+     * root, or a two-pane detail from which the active column has no Up.
      */
     fun isNavigationRoot(index: Int, twoPanes: Boolean): Boolean = when {
         index == 0 -> true
         !isSplit -> false
-        index == primaryCount -> twoPanes && primaryCount == 1
+        index >= primaryCount -> twoPanes && primaryCount == 1 &&
+            (compactColumn == NavigationSplitColumn.Primary || index == primaryCount)
         else -> false
     }
 
@@ -548,7 +551,7 @@ private fun StackScene(
         val composed = remember { mutableStateMapOf<MountedEntry, Int>() }
         var backCancellations by remember { mutableLongStateOf(0L) }
         val navigationState = remember { mutableStateOf<NavigationEventState<SceneInfo<MountedEntry>>?>(null) }
-        val undecorated = remember(stack.entries, stack.primaryCount, presentation, animations) {
+        val undecorated = remember(stack.entries, stack.primaryCount, stack.compactColumn, presentation, animations) {
             stack.entries.mapIndexed { index, entry ->
                 val column = stack.columnOf(index)
                 val metadata = animations.metadataFor(entry, presentation) + (AppNavMountedEntry to entry) +

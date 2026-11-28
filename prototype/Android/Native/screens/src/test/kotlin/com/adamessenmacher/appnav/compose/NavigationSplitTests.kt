@@ -418,7 +418,14 @@ class NavigationSplitTests {
         compose.runOnIdle {
             assertTrue(scopes.getValue("home").isNavigationRoot)
             assertFalse(scopes.getValue("page").isNavigationRoot)
-            target.value = split(listOf("game-a"), revision = 2)
+            target.value = target.value.copy(revision = 2, split = target.value.split!!.copy(
+                compactColumn = NavigationSplitColumn.Primary))
+        }
+        // The same detail has no Up when the active primary column is at its root.
+        compose.runOnIdle {
+            assertTrue(scopes.getValue("page").isNavigationRoot)
+            assertFalse(compose.activity.onBackPressedDispatcher.hasEnabledCallbacks())
+            target.value = split(listOf("game-a"), revision = 3)
         }
         // The game's root beside Home's root has no Up either; Back there leaves the app.
         compose.onNodeWithText("page").assertDoesNotExist()
@@ -431,7 +438,7 @@ class NavigationSplitTests {
         compose.runOnIdle { assertFalse(scopes.getValue("game-a").isNavigationRoot) }
         compose.runOnIdle {
             window.value = Unfolded
-            target.value = split(listOf("game-a"), primary = listOf("home", "more"), revision = 3)
+            target.value = split(listOf("game-a"), primary = listOf("home", "more"), revision = 4)
         }
         compose.onNodeWithText("more").assertExists()
         compose.runOnIdle {
@@ -441,12 +448,12 @@ class NavigationSplitTests {
         // One pane with a hidden default secondary: Home's root has no Up.
         compose.runOnIdle {
             window.value = Folded
-            target.value = split(listOf("game-a"), compact = NavigationSplitColumn.Primary, revision = 4)
+            target.value = split(listOf("game-a"), compact = NavigationSplitColumn.Primary, revision = 5)
         }
         compose.onNodeWithText("home").assertExists()
         compose.runOnIdle { assertTrue(scopes.getValue("home").isNavigationRoot) }
         // A modal's own root is never a navigation root, and a modal over Home does not change Home's value.
-        compose.runOnIdle { target.value = split(listOf("game-a"), compact = NavigationSplitColumn.Primary, revision = 5, modal = "sheet") }
+        compose.runOnIdle { target.value = split(listOf("game-a"), compact = NavigationSplitColumn.Primary, revision = 6, modal = "sheet") }
         compose.onNodeWithText("sheet-root").assertExists()
         compose.runOnIdle {
             assertFalse(scopes.getValue("sheet-root").isNavigationRoot)
