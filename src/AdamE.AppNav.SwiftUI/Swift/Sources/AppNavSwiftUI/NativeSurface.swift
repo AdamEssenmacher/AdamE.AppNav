@@ -12,7 +12,11 @@ final class MarkerView: UIView {
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        if window != nil { surface?.add(self) }
+        if window != nil {
+            surface?.add(self)
+        } else {
+            surface?.wakeSampler()
+        }
     }
 }
 
@@ -38,8 +42,11 @@ struct PageMarker: UIViewRepresentable {
 // Sample display frames without changing SwiftUI's delegates or gestures.
 @MainActor
 final class FrameView: UIView {
+    // Leave a poll running for native gestures and split layout changes that arrive without a binding write.
+    private static let idleRate = CAFrameRateRange(minimum: 30, maximum: 30, preferred: 30)
     weak var surface: NativeSurface?
     private var link: CADisplayLink?
+    private var wakeFrames = 0
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
@@ -49,6 +56,7 @@ final class FrameView: UIView {
             let link = CADisplayLink(target: self, selector: #selector(displayTick))
             link.add(to: .main, forMode: .common)
             self.link = link
+            wake()
         }
     }
 
@@ -57,7 +65,23 @@ final class FrameView: UIView {
         link = nil
     }
 
-    @objc private func displayTick() { surface?.frame(window: window) }
+    func wake() {
+        // Give SwiftUI time to deliver native changes even if the first sample still sees the old stack.
+        wakeFrames = 2
+        setFrameRate(.default)
+    }
+
+    private func setFrameRate(_ range: CAFrameRateRange) {
+        if let link, link.preferredFrameRateRange != range {
+            link.preferredFrameRateRange = range
+        }
+    }
+
+    @objc private func displayTick() {
+        if wakeFrames > 0 { wakeFrames -= 1 }
+        let active = surface?.frame(window: window) ?? false
+        setFrameRate(active || wakeFrames > 0 ? .default : Self.idleRate)
+    }
 }
 
 struct FrameObserver: UIViewRepresentable {
@@ -79,6 +103,8 @@ struct FrameObserver: UIViewRepresentable {
         surface.guardsBack = guardsBack
         surface.isAppNavModalPresented = isAppNavModalPresented
         surface.holdsSettlement = holdsSettlement
+        surface.frameView = view
+        view.wake()
     }
     static func dismantleUIView(_ view: FrameView, coordinator: Void) {
         view.stop()
@@ -86,11 +112,12 @@ struct FrameObserver: UIViewRepresentable {
     }
 }
 
-// Adapts UIKit and SwiftUI to SurfaceState. It samples the native stacks on each display frame, forwards
+// Adapts UIKit and SwiftUI to SurfaceState. It samples the native stacks on display-link callbacks, forwards
 // binding writes and gesture boundaries, and commits what the state machine decides. It holds no
 // navigation rules of its own.
 @MainActor
 final class NativeSurface: ObservableObject {
+    weak var frameView: FrameView?
     private var state = SurfaceState()
     private var report: ((NavigationReading) -> Void)?
     private var trace: ((String) -> Void)?
@@ -152,10 +179,16 @@ final class NativeSurface: ObservableObject {
         self.trace = trace
     }
 
-    func add(_ marker: MarkerView) { markers.add(marker) }
+    func wakeSampler() { frameView?.wake() }
+
+    func add(_ marker: MarkerView) {
+        markers.add(marker)
+        wakeSampler()
+    }
 
     func stage(_ proposed: NavigationProjection, animatesSinglePushes: Bool,
                transactionAnimation: ((NavigationTransitionContext) -> Animation?)?) {
+        wakeSampler()
         policy = transactionAnimation
         // A gesture can begin between display frames. Look for one now so the state machine holds this
         // revision instead of installing it underneath the gesture.
@@ -167,27 +200,34 @@ final class NativeSurface: ObservableObject {
     }
 
     var selection: Binding<String> {
-        Binding(get: { self.state.selectedBranch }, set: { next in self.apply { $0.selectBranch(next) } })
+        Binding(get: { self.state.selectedBranch }, set: { next in
+            self.applyNativeWrite { $0.selectBranch(next) }
+        })
     }
 
     var modal: Binding<ModalSelection?> {
         Binding(get: { self.state.selectedModal }, set: { next in
             guard next == nil else { return }
-            self.apply { $0.dismissModal() }
+            self.applyNativeWrite { $0.dismissModal() }
         })
     }
 
     func path(for key: StackKey) -> Binding<[NavigationEntry]> {
-        Binding(get: { self.state.paths[key] ?? [] }, set: { next in self.apply { $0.setPath(next, for: key) } })
+        Binding(get: { self.state.paths[key] ?? [] }, set: { next in
+            self.applyNativeWrite { $0.setPath(next, for: key) }
+        })
     }
 
     /// The split's `preferredCompactColumn`. Every write is kept; SurfaceState decides what it means.
     var compactColumn: Binding<NavigationSplitColumn> {
-        Binding(get: { self.state.compactColumn }, set: { next in self.apply { $0.setCompactColumn(next) } })
+        Binding(get: { self.state.compactColumn }, set: { next in
+            self.applyNativeWrite { $0.setCompactColumn(next) }
+        })
     }
 
-    func frame(window: UIWindow?) {
-        guard let window else { return }
+    /// Samples the stack and returns whether it still needs the normal display-link cadence.
+    func frame(window: UIWindow?) -> Bool {
+        guard let window else { return false }
         let attached = markers.allObjects.filter { $0.window === window }
         var pages: [(marker: MarkerView, nav: UINavigationController, controller: UIViewController,
                      key: StackKey, entry: NavigationEntry)] = []
@@ -229,7 +269,10 @@ final class NativeSurface: ObservableObject {
             if splitTransitioning { sample.isTransitioning = true }
             sample.split = SplitSample(isCollapsed: split.isCollapsed)
         }
+        let splitLayoutChanged = sample.split != nil && sample.split != state.splitLayout
         apply { $0.sample(sample) }
+        // A held guard may need to hide a rebuilt navigation item on the very next frame.
+        return sample.isTransitioning || splitLayoutChanged || backGuard != nil || state.needsActiveSampling
     }
 
     // Guards a guarded secondary root on top of a collapsed split, so only the app's Back, which asks AppNav, leaves
@@ -306,6 +349,7 @@ final class NativeSurface: ObservableObject {
     private func apply(_ transition: (inout SurfaceState) -> SurfaceOutcome) {
         var next = state
         let outcome = transition(&next)
+        if outcome.install != nil || outcome.popsCollapsedSecondary { wakeSampler() }
         var animation: Animation?
         if let install = outcome.install {
             animation = switch install {
@@ -330,6 +374,11 @@ final class NativeSurface: ObservableObject {
         outcome.traces.forEach { trace?($0) }
         outcome.readings.forEach { report?($0) }
         if outcome.popsCollapsedSecondary { popCollapsedSecondary(animated: outcome.animatesNativePop) }
+    }
+
+    private func applyNativeWrite(_ transition: (inout SurfaceState) -> SurfaceOutcome) {
+        wakeSampler()
+        apply(transition)
     }
 
     // SwiftUI already holds the primary column as the compact column, so only UIKit can pop the secondary column of a

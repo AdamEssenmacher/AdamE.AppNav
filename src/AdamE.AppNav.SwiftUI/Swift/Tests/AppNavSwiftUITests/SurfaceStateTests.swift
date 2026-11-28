@@ -88,6 +88,41 @@ final class SurfaceStateTests: XCTestCase {
         XCTAssertEqual(h.state.phase, .idle)
     }
 
+    func testNativeBackKeepsSamplingFastUntilTheSecondMatchingFrame() {
+        var h = Harness()
+        h.stage(stack(1, ["home", "game"]))
+        XCTAssertTrue(h.state.needsActiveSampling)
+        h.settle()
+        XCTAssertFalse(h.state.needsActiveSampling)
+
+        h.absorb(h.state.setPath([], for: .branch("main")))
+        h.frame()
+        XCTAssertTrue(h.state.needsActiveSampling)
+        XCTAssertEqual(h.readings.last?.entries, ["home", "game"])
+        h.frame()
+        XCTAssertFalse(h.state.needsActiveSampling)
+        XCTAssertEqual(h.readings.last?.entries, ["home"])
+    }
+
+    func testCancelledBackKeepsSamplingFastUntilTheOriginalStackIsVerified() {
+        var h = Harness()
+        h.stage(stack(1, ["home", "game"]))
+        h.settle()
+        let gesture = Gesture()
+        let token = ObjectIdentifier(gesture)
+        h.state.interactionBegan(token)
+        XCTAssertTrue(h.state.needsActiveSampling)
+
+        _ = h.state.interactionEnded(token, cancelled: true)
+        XCTAssertTrue(h.state.needsActiveSampling)
+        h.frame()
+        XCTAssertTrue(h.state.needsActiveSampling)
+        h.frame()
+        XCTAssertFalse(h.state.needsActiveSampling)
+        XCTAssertEqual(h.state.diagnostics.gestureReading?.entries, ["home", "game"])
+        XCTAssertEqual(h.readings.count, 1)
+    }
+
     func testUnknownSelectedBranchFallsBackToTheFirst() {
         var h = Harness()
         h.stage(tabs(1, selected: "missing"))
