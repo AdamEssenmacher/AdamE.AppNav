@@ -606,6 +606,30 @@ final class SplitSurfaceStateTests: XCTestCase {
         XCTAssertEqual(h.readings.last?.compactColumn, .secondary)
     }
 
+    // A new split id kept the old view's zoom origin, so the new view decorated a root it mounted in place with a zoom,
+    // whose dismissal kept the edge swipe from starting. The old split's departing game must not carry over either.
+    func testNewSplitIdDropsOnlyCrossColumnZoomAndTheDepartingGame() {
+        var h = SplitHarness()
+        let key = StackKey.secondary("game-stack")
+        let pagePush = NavigationTransitionContext(operation: .push, sourceEntryID: "game", destinationEntryID: "page",
+                                                   sourceKey: "card")
+        h.stage(split(1))
+        h.frames()
+        h.stage(split(2, game: ["game"], transition: selection), hasPolicy: true)
+        h.frames()
+        h.stage(split(3, game: ["game", "page"], transition: pagePush), hasPolicy: true)
+        h.frames()
+        XCTAssertEqual(h.state.matchedPushContext(for: entry("game"), key: key), selection)
+        XCTAssertEqual(h.state.matchedPushContext(for: entry("page"), key: key), pagePush)
+
+        h.stage(split(4, game: ["game", "page"], id: "games-2"))
+        h.frames()
+        XCTAssertNil(h.state.matchedPushContext(for: entry("game"), key: key))
+        XCTAssertEqual(h.state.matchedPushContext(for: entry("page"), key: key), pagePush)
+        h.stage(split(5, id: "games-3"))
+        XCTAssertNil(h.state.departingSecondary, "the old split's game is not carried into the new view")
+    }
+
     func testBackPlanClosingTheColumnSetsTheBinding() {
         var h = SplitHarness()
         h.stage(split(1, game: ["game"]))

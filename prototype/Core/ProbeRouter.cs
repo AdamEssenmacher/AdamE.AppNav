@@ -135,6 +135,9 @@ public sealed class ProbeRouter : IAsyncDisposable
     public Task PushGamePageAsync(CancellationToken cancellationToken = default) =>
         NavigateAsync(RouterNavigationRequest.FromRoute(new PushGamePage(), NavigationRequestSource.InAppCommand), cancellationToken);
 
+    public Task RegroupSplitAsync(CancellationToken cancellationToken = default) =>
+        NavigateAsync(RouterNavigationRequest.FromRoute(new Screen("regroup"), NavigationRequestSource.InAppCommand), cancellationToken);
+
     public Task PushHomePageAsync(CancellationToken cancellationToken = default) =>
         NavigateAsync(RouterNavigationRequest.FromRoute(new Screen("home-more"), NavigationRequestSource.InAppCommand), cancellationToken);
 
@@ -260,6 +263,10 @@ public sealed class ProbeRouter : IAsyncDisposable
                 case PushGamePage when current.Secondary is StackNode stack:
                     var page = new RouteEntry($"{stack.Entries[0].Id}-page-{stack.Entries.Count}", context.Route);
                     return Plan(current with { Secondary = stack with { Entries = [.. stack.Entries, page] } });
+                case Screen { Name: "regroup" }:
+                    // The same columns under a new split id, which SwiftUI renders as a new NavigationSplitView.
+                    return Plan(new SplitNode(current.Id == "games" ? "games-2" : "games", current.Primary,
+                        current.Secondary, current.CompactColumn));
                 case Screen { Name: "home-more" } when current.Primary is StackNode primary:
                     return Plan(current with { Primary = primary with { Entries = [.. primary.Entries, new RouteEntry("home-more", context.Route)] } });
                 case OpenModal:
