@@ -129,6 +129,19 @@ await navigator.NavigateAsync(
 Use plain `AppRoute` when no route-owned metadata is involved and the simpler
 overload is clearer.
 
+### Await navigation from UI code
+
+Use `await` for `NavigateAsync` and `BackAsync` in event handlers and commands.
+On the UI thread, synchronous waits such as `.Result` and
+`.GetAwaiter().GetResult()` can deadlock. AppNav runs one router operation at a
+time, and the active operation may need the UI thread to finish presentation
+before the next operation can start.
+
+A lifecycle hook running as part of a router operation cannot reenter the same
+navigator. AppNav rejects that call with `InvalidOperationException`. Start
+follow-up navigation after the owning operation completes. See the
+[lifecycle hook guidance](../advanced/route-owned-presentation-pages.md#lifecycle-hooks).
+
 ## Route-owned metadata
 
 Keep route-owned metadata app-defined in a `RouteStateRegistry`.
