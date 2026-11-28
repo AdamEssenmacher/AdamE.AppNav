@@ -3080,6 +3080,13 @@ internal sealed class MauiNavigationPresenter :
                         isNavigationTarget: window.Modals.Count == 0,
                         CancellationToken.None,
                         placement: MauiBranchHostPlacement.WindowRoot);
+            }
+
+            CurrentPage = rebuiltRoot;
+            SetAttachedWindowPage(rebuiltRoot);
+            if (rebuiltRoot is not null && window is not null)
+            {
+                // MAUI replays modal pushes queued on a detached root without awaiting them.
                 await ApplyModalsAsync(
                     rebuiltRoot,
                     window.Modals,
@@ -3088,8 +3095,6 @@ internal sealed class MauiNavigationPresenter :
             }
 
             _activeTransaction = null;
-            CurrentPage = rebuiltRoot;
-            SetAttachedWindowPage(rebuiltRoot);
             VerifyPresentation(state, operationId);
             await recoveryTransaction.CommitAsync();
             _lastState = state;

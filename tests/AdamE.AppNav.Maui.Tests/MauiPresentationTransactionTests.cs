@@ -746,6 +746,49 @@ public sealed class MauiPresentationTransactionTests
     }
 
     [Fact]
+    public async Task RollbackFailureRestoresModalsThroughTheAttachedRoot()
+    {
+        var nativeOperations = new FaultingNativeOperations();
+        var presenter = new MauiNavigationPresenter(
+            new InstrumentedRoutePageFactory(),
+            nativeOperations: nativeOperations);
+        var window = new Window(new ContentPage());
+        await presenter.AttachWindowAsync(window);
+
+        NavigationState previousState = ModalState("first", "second");
+        await presenter.ApplyAsync(new NavigationPlan(previousState), Context("second", NavigationState.Empty));
+        Page? previousRoot = window.Page;
+        var modalPushes = new List<(Page Host, bool WasAttached)>();
+        nativeOperations.BeforeModalPush = host => modalPushes.Add((host, ReferenceEquals(host, window.Page)));
+        nativeOperations.FaultAfterMutation = NativeMutation.PushModal;
+        nativeOperations.PopModalFailuresRemaining = 1;
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            presenter.ApplyAsync(
+                new NavigationPlan(ModalState("first", "second", "failed")),
+                Context("failed", previousState)).AsTask());
+
+        Assert.Equal("Injected PushModal failure after mutation.", failure.Message);
+        Page recoveredRoot = Assert.IsType<NavigationPage>(window.Page);
+        Assert.Same(recoveredRoot, presenter.CurrentPage);
+        Assert.NotSame(previousRoot, recoveredRoot);
+        Assert.Collection(
+            modalPushes.Where(push => ReferenceEquals(push.Host, recoveredRoot)),
+            first => Assert.True(first.WasAttached),
+            second => Assert.True(second.WasAttached));
+        Assert.Equal(
+            ["first", "second"],
+            recoveredRoot.Navigation.ModalStack
+                .Select(page => Assert.IsType<string>(MauiPresentationMetadata.GetModalId(page)))
+                .ToArray());
+
+        NavigationState nextState = ModalState("first");
+        await presenter.ApplyAsync(new NavigationPlan(nextState), Context("first", previousState));
+        Assert.Equal("first", MauiPresentationMetadata.GetModalId(Assert.Single(window.Navigation.ModalStack)));
+        await presenter.StartShutdown();
+    }
+
+    [Fact]
     public async Task RollbackAndRecoveryFailureFaultPresenterClosed()
     {
         var nativeOperations = new FaultingNativeOperations();
@@ -1154,7 +1197,7 @@ public sealed class MauiPresentationTransactionTests
             "main");
     }
 
-    private static NavigationState ModalState(string modalId)
+    private static NavigationState ModalState(params string[] modalIds)
     {
         return new NavigationState(
             [
@@ -1163,7 +1206,8 @@ public sealed class MauiPresentationTransactionTests
                     new StackNode(
                         "main-stack",
                         [new RouteEntry("home", new TestRoute("home"))]),
-                    [new ModalNode(modalId, new RouteEntry($"{modalId}-entry", new TestRoute(modalId)))])
+                    modalIds.Select(id => new ModalNode(id, new RouteEntry($"{id}-entry", new TestRoute(id))))
+                        .ToArray())
             ],
             "main");
     }
@@ -1547,6 +1591,8 @@ public sealed class MauiPresentationTransactionTests
 
         public int PopModalFailuresRemaining { get; set; }
 
+        public Action<Page>? BeforeModalPush { get; set; }
+
         public bool AlwaysFailPush { get; set; }
 
         public bool BlockNextPush { get; set; }
@@ -1624,6 +1670,7 @@ public sealed class MauiPresentationTransactionTests
 
         public async Task PushModalAsync(Page host, Page page, bool animated)
         {
+            BeforeModalPush?.Invoke(host);
             await MauiNativeNavigationOperations.Instance.PushModalAsync(host, page, animated);
             ThrowAfterMutation(NativeMutation.PushModal);
         }
