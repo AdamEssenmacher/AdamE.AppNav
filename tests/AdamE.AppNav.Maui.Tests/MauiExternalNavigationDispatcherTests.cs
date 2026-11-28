@@ -10,12 +10,54 @@ using AdamE.AppNav.Requests;
 using AdamE.AppNav.State;
 using Microsoft.Extensions.DependencyInjection;
 using System.Runtime.CompilerServices;
+#if IOS || MACCATALYST
+using Foundation;
+using Microsoft.Maui.Hosting;
+using Microsoft.Maui.LifecycleEvents;
+#endif
 
 namespace AdamE.AppNav.Maui.Tests;
 
 [Collection(ExternalNavigationBridgeTestCollection.Name)]
 public sealed class MauiExternalNavigationDispatcherTests
 {
+#if IOS || MACCATALYST
+    [Fact]
+    public async Task AppleSceneLifecycle_RegistersAllDeliveriesAndDispatchesBrowsingActivity()
+    {
+        var builder = MauiApp.CreateBuilder();
+        builder.UseAppNavExternalNavigation(options => options.AllowOrigin(new Uri("https://example.com")));
+        using var app = builder.Build();
+        var lifecycle = app.Services.GetRequiredService<ILifecycleEventService>();
+
+        Assert.Single(lifecycle.GetEventDelegates<iOSLifecycle.SceneOpenUrl>(nameof(iOSLifecycle.SceneOpenUrl)));
+        Assert.Single(lifecycle.GetEventDelegates<iOSLifecycle.SceneWillConnect>(nameof(iOSLifecycle.SceneWillConnect)));
+        var continueActivity = Assert.Single(lifecycle.GetEventDelegates<iOSLifecycle.SceneContinueUserActivity>(
+            nameof(iOSLifecycle.SceneContinueUserActivity)));
+
+        var navigator = new RecordingRouterNavigator();
+        var options = app.Services.GetRequiredService<MauiExternalNavigationOptions>();
+        using ServiceProvider provider = CreateDispatcherProvider(navigator, options: options);
+        var dispatcher = provider.GetRequiredService<MauiExternalNavigationDispatcher>();
+        using var trustedUrl = new NSUrl("https://example.com/detail");
+        using var untrustedUrl = new NSUrl("https://untrusted.example/detail");
+        using var trusted = new NSUserActivity("NSUserActivityTypeBrowsingWeb") { WebPageUrl = trustedUrl };
+        using var untrusted = new NSUserActivity("NSUserActivityTypeBrowsingWeb") { WebPageUrl = untrustedUrl };
+
+        // The AppNav callbacks only read the activity payload.
+        Assert.False(continueActivity(null!, untrusted));
+        Assert.True(continueActivity(null!, trusted));
+        dispatcher.MarkReady();
+        dispatcher.SetForegrounded(true);
+        await WaitUntilAsync(() => !dispatcher.HasPendingRequests);
+
+        var request = Assert.Single(navigator.Calls);
+        Assert.Equal(new Uri("https://example.com/detail"), request.Uri);
+        Assert.Equal(NavigationRequestSource.AppLink, request.Source);
+        Assert.Equal("ios-user-activity", request.Provenance?.Provider);
+    }
+#endif
+
     [Fact]
     public async Task DispatchBeforeReady_IsBufferedAndDispatchedAfterReadyAndForegrounded()
     {
