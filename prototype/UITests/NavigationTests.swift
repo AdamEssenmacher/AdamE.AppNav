@@ -88,6 +88,22 @@ final class NavigationTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["page-detail"].exists)
     }
 
+    func testHostPresentationUIKitFullScreenDefersDeepLinkUntilDismissal() {
+        awaitLabel("probe-status") { $0 == self.home }
+        app.buttons["probe-show-uikit-cover"].tap()
+        awaitLabel("probe-uikit-cover-status") { $0 == self.home }
+        app.buttons["probe-uikit-cover-link"].tap()
+
+        let status = app.staticTexts["probe-uikit-cover-status"]
+        let changed = expectation(for: NSPredicate(format: "label != %@", home), evaluatedWith: status)
+        changed.isInverted = true
+        // Keep UIKit's presenter detached past the managed acknowledgement timeout.
+        wait(for: [changed], timeout: 11)
+        app.buttons["probe-dismiss-uikit-cover"].tap()
+        awaitLabel("probe-status") { $0 == self.deep }
+        XCTAssertTrue(app.staticTexts["page-detail"].exists)
+    }
+
     func testHomeGameZoomCancelAndReturn() {
         verifyGameCancelAndReturn(openButton: "probe-open-game")
     }

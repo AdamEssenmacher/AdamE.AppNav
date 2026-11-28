@@ -9,7 +9,7 @@ namespace AdamE.AppNav.Oahu;
 /// <summary>Applies AppNav plans to a replaceable SwiftUI or Navigation 3 host.</summary>
 public sealed class OahuNavigationPresenter : INavigationPresenter, INavigationPresentationSettlement, IDisposable
 {
-    private sealed record Attachment(long Epoch, IOahuNavigationSurface Surface)
+    private sealed record Attachment(long Epoch, IOahuNavigationSurface Surface, Func<CancellationToken, Task>? WaitUntilReady)
     {
         public CancellationTokenSource Detached { get; } = new();
         public Exception? Failure { get; set; }
@@ -113,7 +113,12 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, INavigationP
     }
 
     /// <summary>Capture the returned epoch in callbacks from this host, including delayed callbacks.</summary>
-    public long Attach(IOahuNavigationSurface surface)
+    public long Attach(IOahuNavigationSurface surface) => Attach(surface, waitUntilReady: null);
+
+    /// <summary>Attaches a host that can wait for temporary unavailability before a presentation is staged.</summary>
+    /// <param name="surface">The native host attachment.</param>
+    /// <param name="waitUntilReady">Waits for the host to be ready. The token cancels on detachment or caller cancellation.</param>
+    public long Attach(IOahuNavigationSurface surface, Func<CancellationToken, Task>? waitUntilReady)
     {
         ArgumentNullException.ThrowIfNull(surface);
         Attachment? previous;
@@ -122,7 +127,7 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, INavigationP
         {
             ObjectDisposedException.ThrowIf(disposed, this);
             previous = host;
-            host = current = new(++nextEpoch, surface);
+            host = current = new(++nextEpoch, surface, waitUntilReady);
             observed = pending = null;
             awaitingSettlement.Clear();
             attached.TrySetResult();
@@ -182,9 +187,12 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, INavigationP
             Attachment current = await WaitForHostAsync(cancellationToken).ConfigureAwait(false);
             // The attached surface decides which shapes it presents, so each host builds its own target.
             var target = new OahuNavigationTarget(plan.TargetState, revision, current.Surface.PresentsSplits);
-            var transition = DescribeTransition(current, plan, context, target, replay);
+            var presenting = false;
             try
             {
+                await WaitUntilReadyAsync(current, cancellationToken).ConfigureAwait(false);
+                var transition = DescribeTransition(current, plan, context, target, replay);
+                presenting = true;
                 var accepted = await PresentAsync(current, plan.TargetState, target with { Transition = transition },
                     cancellationToken).ConfigureAwait(false);
                 RememberSettlement(context.OperationId, accepted);
@@ -196,12 +204,21 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, INavigationP
                 // A different native host must witness this same pending plan before a logical commit.
                 continue;
             }
-            catch (Exception failure)
+            catch (Exception failure) when (presenting)
             {
                 await RollbackAsync(current, context, failure).ConfigureAwait(false);
                 throw;
             }
         }
+    }
+
+    private static async Task WaitUntilReadyAsync(Attachment current, CancellationToken cancellationToken)
+    {
+        if (current.WaitUntilReady is not { } wait) return;
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, current.Detached.Token);
+        lifetime.Token.ThrowIfCancellationRequested();
+        await wait(lifetime.Token).WaitAsync(lifetime.Token).ConfigureAwait(false);
+        lifetime.Token.ThrowIfCancellationRequested();
     }
 
     private OahuPresentationTransition DescribeTransition(Attachment current, NavigationPlan plan,
@@ -240,6 +257,7 @@ public sealed class OahuNavigationPresenter : INavigationPresenter, INavigationP
             lock (gate) previous = observed?.Target;
             // Recovery must be able to restore the committed stack even when an app callback fails.
             rollback = rollback with { Transition = OahuPresentationTransition.Describe(previous, rollback, "rollback", "", screenName: null) };
+            await WaitUntilReadyAsync(current, CancellationToken.None).ConfigureAwait(false);
             var restored = await PresentAsync(current, state, rollback, CancellationToken.None).ConfigureAwait(false);
             RememberSettlement(context.OperationId, restored);
         }

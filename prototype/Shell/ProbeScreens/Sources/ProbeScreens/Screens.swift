@@ -192,6 +192,8 @@ public struct ShellScreen: View {
                         .accessibilityIdentifier("probe-push-behind-alert")
                     Button("Show host cover") { showsHostCover = true }
                         .accessibilityIdentifier("probe-show-host-cover")
+                    Button("Show UIKit full-screen cover") { model.runCommand("show-uikit-full-screen") }
+                        .accessibilityIdentifier("probe-show-uikit-cover")
                 }
                 if ProcessInfo.processInfo.arguments.contains("--probe-center-overlay") {
                     HStack {
