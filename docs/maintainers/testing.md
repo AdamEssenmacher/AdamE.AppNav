@@ -48,8 +48,21 @@ Use `eng/run-maui-platform-tests.sh` for Android, iOS, and Mac Catalyst. Runtime
 the main thread, and verify logical state, native tree, history, and released scopes.
 
 A lane fails on zero tests, unexpected skips, missing results, DeviceRunners failure, crash markers, unhandled
-exceptions, presentation consistency faults, or retained scopes. PRs compile every target and execute Mac Catalyst
-tests. Nightly runs latest Android/iOS/Mac Catalyst; weekly and release runs also exercise Android API 28.
+exceptions, presentation consistency faults, or retained scopes. Pull requests compile every supported target.
+Release Confidence enables the following device jobs for each trigger:
+
+| Trigger | MAUI DeviceRunners | Native adapter checks |
+| --- | --- | --- |
+| Pull request or push to `preview` or `main` | Mac Catalyst | None |
+| Nightly (08:00 UTC daily) | Mac Catalyst, iOS simulator, Android API 36 | UIKit simulator, Android APIs 28 and 36 |
+| Weekly (09:00 UTC Sunday) or manual dispatch with `release_tag` | Mac Catalyst, iOS simulator, Android APIs 28 and 36 | UIKit simulator, Android APIs 28 and 36 |
+
+For a manual dispatch without a release tag, Mac Catalyst runs by default. Select `run-ios-platform-tests` for both
+iOS suites, `run-android-platform-tests` for API 36 DeviceRunners and both Android adapter checks, and
+`run-android-api28-platform-tests` for API 28 DeviceRunners.
+
+API 36 provides Android compatibility coverage. After those platform tests pass, the job deliberately fails the
+release gate until maintainers validate and pin an emulator action that supports API 37 and run the tests on API 37.
 
 ## UIKit adapter checks
 

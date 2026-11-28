@@ -62,9 +62,13 @@ Artifacts are written under `artifacts/device-runners/`. A pass requires a TRX r
 failures or unexpected skips, no unhandled exception/native crash/consistency-fault markers, and a successful
 DeviceRunners exit.
 
-Pull requests compile all supported targets and run Mac Catalyst tests in Release. Nightly CI adds current Android and
-iOS simulator runs. Weekly CI also runs Android API 28. If simulator or emulator infrastructure is unavailable, stop
-and record the required local command; do not waive the gate.
+Pull requests compile all supported targets and run Mac Catalyst platform tests in Release. Nightly CI adds iOS
+simulator and Android API 36 platform tests, plus UIKit and Android API 28 and 36 adapter checks. Weekly runs and
+manual release candidates also enable the Android API 28 platform suite. See the [device matrix](testing.md#runtime-gate).
+
+Android API 37 coverage remains a release blocker. The API 36 compatibility job deliberately fails after its tests
+pass until the API 37 emulator setup is validated and used. If simulator or emulator infrastructure is unavailable,
+stop and record the required local command; do not waive the gate.
 
 ## Package and publication checks
 
@@ -75,7 +79,9 @@ The API and schema changes for this candidate are recorded in
 - Packages contain only the documented .NET 10 target assets and their assigned source generators.
 - Package metadata points to `AdamEssenmacher/AdamE.AppNav`.
 - Public API and schema baselines match the release notes.
-- The exact green `main` commit is tagged `v0.1.0-preview.1`.
+- Run Release Confidence twice on the same `preview` commit with `release_tag` set to the intended tag
+  (for example, `v0.1.0-preview.1`). Both runs must succeed and retain the matching package artifact.
+- Tag that validated commit while it is still the head of `preview`.
 - The tag workflow reuses already-validated packages, emits SHA-256 hashes, and creates a GitHub prerelease.
 - No workflow pushes to NuGet.org for this preview.
 
