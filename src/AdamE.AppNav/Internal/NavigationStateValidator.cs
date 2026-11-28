@@ -1,17 +1,21 @@
-using AdamE.AppNav.Plans;
 using AdamE.AppNav.Navigation;
+using AdamE.AppNav.Plans;
 using AdamE.AppNav.State;
 
 namespace AdamE.AppNav.Internal;
 
 internal static class NavigationStateValidator
 {
-    public static void ValidatePlan(NavigationPlan? plan, string source)
+    public static void ValidatePlan(NavigationPlan? plan, NavigationValidationSource source)
     {
         if (plan is null)
             throw new AppNavigationConfigurationException($"{source} produced a null navigation plan.");
 
-        ValidateState(plan.TargetState, $"{source} target state");
+        if (plan.TargetState is null)
+            throw new AppNavigationConfigurationException($"{source} target state cannot be null.");
+
+        if (FindStateError(plan.TargetState) is { } error)
+            throw Invalid($"{source} target state{error}");
     }
 
     public static void ValidateState(NavigationState? state, string source)
@@ -19,171 +23,206 @@ internal static class NavigationStateValidator
         if (state is null)
             throw new AppNavigationConfigurationException($"{source} cannot be null.");
 
-        var windowIds = new HashSet<string>(StringComparer.Ordinal);
-        foreach (WindowNode window in RequireListItems(state.Windows, $"{source}.Windows"))
-        {
-            RequireId(window.Id, $"{source}.Windows[].Id");
-            if (!windowIds.Add(window.Id))
-                throw Invalid($"{source} contains duplicate window id '{window.Id}'.");
+        if (FindStateError(state) is { } error)
+            throw Invalid($"{source}{error}");
+    }
 
-            ValidateWindow(window, $"{source}.Window('{window.Id}')");
+    // Errors are relative to the current node. Each caller prepends its path segment only when a child fails.
+    private static string? FindStateError(NavigationState state)
+    {
+        IReadOnlyList<WindowNode> windows = state.Windows;
+        if (FindListError(windows) is { } listError)
+            return $".Windows{listError}";
+
+        var windowIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (WindowNode window in windows)
+        {
+            if (string.IsNullOrWhiteSpace(window.Id))
+                return ".Windows[].Id" + MissingId;
+            if (!windowIds.Add(window.Id))
+                return $" contains duplicate window id '{window.Id}'.";
+
+            if (FindWindowError(window) is { } error)
+                return $".Window('{window.Id}'){error}";
         }
 
         if (state.ActiveWindowId is not null)
         {
-            RequireId(state.ActiveWindowId, $"{source}.ActiveWindowId");
+            if (string.IsNullOrWhiteSpace(state.ActiveWindowId))
+                return ".ActiveWindowId" + MissingId;
             if (!windowIds.Contains(state.ActiveWindowId))
-                throw Invalid(
-                    $"{source}.ActiveWindowId '{state.ActiveWindowId}' does not reference an existing window.");
+                return $".ActiveWindowId '{state.ActiveWindowId}' does not reference an existing window.";
         }
+
+        return null;
     }
 
-    private static void ValidateWindow(WindowNode window, string path)
+    private static string? FindWindowError(WindowNode window)
     {
-        if (window.Root is not null)
-            ValidateNode(window.Root, $"{path}.Root", SplitPlacement.Allowed);
+        if (window.Root is not null && FindNodeError(window.Root, SplitPlacement.Allowed) is { } rootError)
+            return $".Root{rootError}";
+
+        IReadOnlyList<ModalNode> modals = window.Modals;
+        if (FindListError(modals) is { } listError)
+            return $".Modals{listError}";
 
         var modalIds = new HashSet<string>(StringComparer.Ordinal);
-        foreach (ModalNode modal in RequireListItems(window.Modals, $"{path}.Modals"))
+        foreach (ModalNode modal in modals)
         {
-            RequireId(modal.Id, $"{path}.Modals[].Id");
+            if (string.IsNullOrWhiteSpace(modal.Id))
+                return ".Modals[].Id" + MissingId;
             if (!modalIds.Add(modal.Id))
-                throw Invalid($"{path} contains duplicate modal id '{modal.Id}'.");
+                return $" contains duplicate modal id '{modal.Id}'.";
 
-            ValidateModal(modal, $"{path}.Modal('{modal.Id}')");
+            if (FindModalError(modal) is { } error)
+                return $".Modal('{modal.Id}'){error}";
         }
+
+        return null;
     }
 
-    private static void ValidateNode(NavigationNode? node, string path, SplitPlacement splitPlacement)
+    private static string? FindNodeError(NavigationNode? node, SplitPlacement splitPlacement)
     {
         if (node is null)
-            throw Invalid($"{path} cannot be null.");
+            return " cannot be null.";
 
-        RequireId(node.Id, $"{path}.Id");
+        if (string.IsNullOrWhiteSpace(node.Id))
+            return ".Id" + MissingId;
 
-        switch (node)
+        return node switch
         {
-            case StackNode stack:
-                ValidateStack(stack, path);
-                break;
-            case BranchHostNode branchHost:
-                ValidateBranchHost(branchHost, path, splitPlacement);
-                break;
-            case SplitNode split:
-                ValidateSplit(split, path, splitPlacement);
-                break;
-            case ModalNode modal:
-                ValidateModal(modal, path);
-                break;
-            default:
-                throw Invalid($"{path} has unsupported node type '{node.GetType().FullName}'.");
-        }
+            StackNode stack => FindStackError(stack),
+            BranchHostNode branchHost => FindBranchHostError(branchHost, splitPlacement),
+            SplitNode split => FindSplitError(split, splitPlacement),
+            ModalNode modal => FindModalError(modal),
+            _ => $" has unsupported node type '{node.GetType().FullName}'."
+        };
     }
 
-    private static void ValidateStack(StackNode stack, string path)
+    private static string? FindStackError(StackNode stack)
     {
+        IReadOnlyList<RouteEntry> entries = stack.Entries;
+        if (FindListError(entries) is { } listError)
+            return $".Entries{listError}";
+
         var entryIds = new HashSet<string>(StringComparer.Ordinal);
-        foreach (RouteEntry entry in RequireListItems(stack.Entries, $"{path}.Entries"))
+        foreach (RouteEntry entry in entries)
         {
-            ValidateRouteEntry(entry, $"{path}.Entry('{entry.Id}')");
+            if (FindRouteEntryError(entry) is { } error)
+                return $".Entry('{entry.Id}'){error}";
             if (!entryIds.Add(entry.Id))
-                throw Invalid($"{path} contains duplicate route-entry id '{entry.Id}'.");
+                return $" contains duplicate route-entry id '{entry.Id}'.";
         }
+
+        return null;
     }
 
-    private static void ValidateBranchHost(BranchHostNode branchHost, string path, SplitPlacement splitPlacement)
+    private static string? FindBranchHostError(BranchHostNode branchHost, SplitPlacement splitPlacement)
     {
-        IReadOnlyList<NavigationBranch> branches = RequireListItems(branchHost.Branches, $"{path}.Branches");
+        IReadOnlyList<NavigationBranch> branches = branchHost.Branches;
+        if (FindListError(branches) is { } listError)
+            return $".Branches{listError}";
         if (branches.Count == 0)
-            throw Invalid($"{path} must contain at least one branch.");
+            return " must contain at least one branch.";
 
         var branchIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (NavigationBranch branch in branches)
         {
-            RequireId(branch.Id, $"{path}.Branches[].Id");
+            if (string.IsNullOrWhiteSpace(branch.Id))
+                return ".Branches[].Id" + MissingId;
             if (!branchIds.Add(branch.Id))
-                throw Invalid($"{path} contains duplicate branch id '{branch.Id}'.");
+                return $" contains duplicate branch id '{branch.Id}'.";
 
             if (string.IsNullOrWhiteSpace(branch.Title))
-                throw Invalid($"{path}.Branch('{branch.Id}').Title cannot be null, empty, or whitespace.");
+                return $".Branch('{branch.Id}').Title{MissingId}";
 
-            ValidateNode(branch.Content, $"{path}.Branch('{branch.Id}').Content", splitPlacement);
+            if (FindNodeError(branch.Content, splitPlacement) is { } error)
+                return $".Branch('{branch.Id}').Content{error}";
         }
 
-        RequireId(branchHost.SelectedBranchId, $"{path}.SelectedBranchId");
+        if (string.IsNullOrWhiteSpace(branchHost.SelectedBranchId))
+            return ".SelectedBranchId" + MissingId;
         if (!branchIds.Contains(branchHost.SelectedBranchId))
-            throw Invalid(
-                $"{path} selected branch id '{branchHost.SelectedBranchId}' does not reference an existing branch.");
+            return $" selected branch id '{branchHost.SelectedBranchId}' does not reference an existing branch.";
 
-        if (branchHost.DefaultBranchId is null)
-            return;
+        if (branchHost.DefaultBranchId is not null)
+        {
+            if (string.IsNullOrWhiteSpace(branchHost.DefaultBranchId))
+                return ".DefaultBranchId" + MissingId;
+            if (!branchIds.Contains(branchHost.DefaultBranchId))
+                return $" default branch id '{branchHost.DefaultBranchId}' does not reference an existing branch.";
+        }
 
-        RequireId(branchHost.DefaultBranchId, $"{path}.DefaultBranchId");
-        if (!branchIds.Contains(branchHost.DefaultBranchId))
-            throw Invalid(
-                $"{path} default branch id '{branchHost.DefaultBranchId}' does not reference an existing branch.");
+        return null;
     }
 
     // A split cannot be nested, at any depth, inside a modal or another split: what collapsing means there is not
     // defined, so such placements are rejected rather than left to each presenter.
-    private static void ValidateSplit(SplitNode split, string path, SplitPlacement splitPlacement)
+    private static string? FindSplitError(SplitNode split, SplitPlacement splitPlacement)
     {
         switch (splitPlacement)
         {
             case SplitPlacement.InsideModal:
-                throw Invalid($"{path} is a split inside a modal; a split cannot be nested, at any depth, inside a modal or another split.");
+                return " is a split inside a modal; a split cannot be nested, at any depth, inside a modal or another split.";
             case SplitPlacement.InsideSplit:
-                throw Invalid(
-                    $"{path} is a split inside another split; a split cannot be nested, at any depth, inside a modal or another split.");
+                return " is a split inside another split; a split cannot be nested, at any depth, inside a modal or another split.";
         }
 
         if (!Enum.IsDefined(split.CompactColumn))
-            throw Invalid($"{path}.CompactColumn has unknown value '{split.CompactColumn}'.");
+            return $".CompactColumn has unknown value '{split.CompactColumn}'.";
 
-        ValidateNode(split.Primary, $"{path}.Primary", SplitPlacement.InsideSplit);
+        if (FindNodeError(split.Primary, SplitPlacement.InsideSplit) is { } primaryError)
+            return $".Primary{primaryError}";
+
         if (split.Secondary is not null)
-            ValidateNode(split.Secondary, $"{path}.Secondary", SplitPlacement.InsideSplit);
+        {
+            if (FindNodeError(split.Secondary, SplitPlacement.InsideSplit) is { } secondaryError)
+                return $".Secondary{secondaryError}";
+        }
         else if (split.CompactColumn == SplitColumn.Secondary)
-            throw Invalid(
-                $"{path} shows its secondary column but has no secondary content. Remove a selection with " +
-                "SplitNode.ClearSecondary(); 'with { Secondary = null }' keeps CompactColumn as it was.");
+        {
+            return " shows its secondary column but has no secondary content. Remove a selection with " +
+                   "SplitNode.ClearSecondary(); 'with { Secondary = null }' keeps CompactColumn as it was.";
+        }
+
+        return null;
     }
 
-    private static void ValidateModal(ModalNode modal, string path)
+    private static string? FindModalError(ModalNode modal)
     {
-        ValidateRouteEntry(modal.RouteEntry, $"{path}.RouteEntry");
-        if (modal.Content is not null)
-            ValidateNode(modal.Content, $"{path}.Content", SplitPlacement.InsideModal);
+        if (FindRouteEntryError(modal.RouteEntry) is { } entryError)
+            return $".RouteEntry{entryError}";
+        if (modal.Content is not null && FindNodeError(modal.Content, SplitPlacement.InsideModal) is { } contentError)
+            return $".Content{contentError}";
+
+        return null;
     }
 
-    private static void ValidateRouteEntry(RouteEntry? entry, string path)
+    private static string? FindRouteEntryError(RouteEntry? entry)
     {
         if (entry is null)
-            throw Invalid($"{path} cannot be null.");
-
-        RequireId(entry.Id, $"{path}.Id");
+            return " cannot be null.";
+        if (string.IsNullOrWhiteSpace(entry.Id))
+            return ".Id" + MissingId;
         if (entry.Route is null)
-            throw Invalid($"{path}.Route cannot be null.");
+            return ".Route cannot be null.";
+
+        return null;
     }
 
-    private static IReadOnlyList<T> RequireListItems<T>(IReadOnlyList<T>? items, string path)
-        where T : class
+    private static string? FindListError<T>(IReadOnlyList<T>? items) where T : class
     {
         if (items is null)
-            throw Invalid($"{path} cannot be null.");
+            return " cannot be null.";
 
         for (var i = 0; i < items.Count; i++)
             if (items[i] is null)
-                throw Invalid($"{path}[{i}] cannot be null.");
+                return $"[{i}] cannot be null.";
 
-        return items;
+        return null;
     }
 
-    private static void RequireId(string? value, string path)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-            throw Invalid($"{path} cannot be null, empty, or whitespace.");
-    }
+    private const string MissingId = " cannot be null, empty, or whitespace.";
 
     private static AppNavigationConfigurationException Invalid(string message)
     {
