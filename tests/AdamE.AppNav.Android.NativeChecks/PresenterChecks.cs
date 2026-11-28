@@ -11,6 +11,7 @@ internal static class PresenterChecks
     [
         ("empty-startup", EmptyStartupAsync),
         ("healthy-presentation", HealthyPresentationAsync),
+        ("animated-page-removal", AnimatedPageRemovalAsync),
         ("retirement-order", RetirementOrderAsync),
         ("page-refused", RefusedAsync),
         ("retirement-failure-is-sticky", RetirementFailureAsync),
@@ -116,6 +117,46 @@ internal static class PresenterChecks
         {
             currencyOffMain |= !OnMain;
             return true;
+        }
+    }
+
+    private static async Task AnimatedPageRemovalAsync(ComponentActivity activity, CancellationToken token)
+    {
+        var views = new Dictionary<string, ProbeView>(StringComparer.Ordinal);
+        AndroidNavigationPresenter presenter = Presenter(request =>
+            Page(views[request.Entry.Id] = new ProbeView(request.Activity)));
+        Mount(presenter, activity);
+        try
+        {
+            NavigationState root = Shows("root");
+            NavigationState pushed = Pushed("root", "pushed");
+            NavigationState replacement = Shows("replacement");
+            await ApplyAsync(presenter, root, NavigationState.Empty, token);
+            ProbeView original = views["root"];
+
+            await StartLegacyAnimationAsync(original, token);
+            await ApplyAsync(presenter, pushed, root, token);
+            Require(
+                original is { Disposed: false, Parent: null, IsAttachedToWindow: false },
+                "The animated root was not detached and kept for Back.");
+
+            await StartLegacyAnimationAsync(views["pushed"], token);
+            await ApplyAsync(presenter, root, pushed, token);
+            Require(
+                ReferenceEquals(Visible(activity), original)
+                && views["pushed"] is { Disposed: true, DetachedAtDisposal: true },
+                "Back did not restore the root and retire the animated pushed page out of the window.");
+
+            await StartLegacyAnimationAsync(original, token);
+            await ApplyAsync(presenter, replacement, root, token);
+            Require(
+                original is { Disposed: true, DetachedAtDisposal: true }
+                && ReferenceEquals(Visible(activity), views["replacement"]),
+                "Root replacement did not retire the animated root out of the window.");
+        }
+        finally
+        {
+            await presenter.DisposeAsync();
         }
     }
 

@@ -881,7 +881,7 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
         View? visible = target.VisibleRoot?.View;
         if (!ReferenceEquals(epoch.Frame.GetChildAt(0), visible) || epoch.Frame.ChildCount != (visible is null ? 0 : 1))
         {
-            epoch.Frame.RemoveAllViews();
+            RemoveFrameChildren(epoch.Frame);
             if (visible is not null)
             {
                 if (visible.Parent is not null)
@@ -939,13 +939,25 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
                 epoch.ShownModal = null;
             }
 
-            epoch.Frame.RemoveAllViews();
+            RemoveFrameChildren(epoch.Frame);
         }
         catch (Exception failure)
         {
             RememberUnsafeCleanup(failure);
             throw;
         }
+    }
+
+    private static void RemoveFrameChildren(FrameLayout frame)
+    {
+        // Android otherwise keeps a removed child with a legacy Animation attached as a disappearing view.
+        for (int i = 0; i < frame.ChildCount; i++)
+        {
+            if (frame.GetChildAt(i) is { Animation: not null } child)
+                child.ClearAnimation();
+        }
+
+        frame.RemoveAllViews();
     }
 
     private bool IsAttached(Epoch epoch)
@@ -1533,7 +1545,11 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
                         // Leave the parent first: .NET for Android frees the Java peer on Dispose, and a view still in
                         // a frame is called back (OnDetachedFromWindow) when the frame drops it.
                         if (view.Parent is ViewGroup parent)
+                        {
+                            if (view.Animation is not null)
+                                view.ClearAnimation();
                             parent.RemoveView(view);
+                        }
                         if (view.IsAttachedToWindow)
                             throw new InvalidOperationException(
                                 $"The view for entry '{Entry.Id}' did not physically detach.");

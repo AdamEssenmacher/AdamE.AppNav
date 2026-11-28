@@ -9,6 +9,7 @@ using AdamE.AppNav.State;
 using Android.Content;
 using Android.OS;
 using Android.Views;
+using Android.Views.Animations;
 using AndroidX.Activity;
 using OperationCanceledException = System.OperationCanceledException;
 
@@ -116,6 +117,15 @@ internal static class Checks
                     "native-check"),
                 token)
             .AsTask();
+    }
+
+    public static Task StartLegacyAnimationAsync(View view, CancellationToken token)
+    {
+        view.StartAnimation(new AlphaAnimation(0, 1) { Duration = 30_000 });
+        return UntilAsync(
+            () => view.IsAttachedToWindow && view.Animation is { HasStarted: true, HasEnded: false },
+            "The attached page never started its legacy animation.",
+            token);
     }
 
     /// <summary>Waits, on the main thread, until <paramref name="condition"/> holds.</summary>
