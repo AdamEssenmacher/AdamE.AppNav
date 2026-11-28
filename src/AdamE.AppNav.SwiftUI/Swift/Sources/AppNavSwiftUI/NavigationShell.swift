@@ -335,6 +335,8 @@ private struct LegacyStageProjection: ViewModifier {
     // `@StateObject` builds its value once per shell; `@State` would build and discard one on every init.
     @StateObject private var latest = LatestStage()
 
+    // SwiftUI uses this witness only on the legacy branch, where the one-argument onChange is required.
+    @available(iOS, deprecated: 17)
     func body(content: Content) -> some View {
         let latest = latest
         let _ = latest.stage = stage
@@ -353,10 +355,12 @@ private final class LatestStage: ObservableObject {
 
 /// What a destination shows while its mount is unavailable.
 private struct UnavailableScreen: View {
-    var body: some View {
+    // Erase the two view types explicitly so the iOS 16 path does not depend on the iOS 17 view type.
+    var body: AnyView {
         if #available(iOS 17, *) {
-            ContentUnavailableView("Screen unavailable", systemImage: "rectangle.slash")
-        } else {
+            return AnyView(ContentUnavailableView("Screen unavailable", systemImage: "rectangle.slash"))
+        }
+        return AnyView(
             VStack(spacing: 8) {
                 Image(systemName: "rectangle.slash")
                     .font(.largeTitle)
@@ -365,7 +369,7 @@ private struct UnavailableScreen: View {
                     .font(.headline)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
+        )
     }
 }
 #endif
