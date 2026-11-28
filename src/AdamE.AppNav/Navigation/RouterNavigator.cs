@@ -467,7 +467,7 @@ internal sealed class RouterNavigator : IRouterNavigator
                 return BackNavigationResult.Unhandled;
             }
 
-            string backPlanSource = $"Back navigator '{_backNavigator.GetType().Name}'";
+            var backPlanSource = NavigationValidationSource.ForBackNavigator(_backNavigator.GetType());
             NavigationStateValidator.ValidatePlan(plan, backPlanSource);
             if (_entryLeases is not null)
                 RouteEntryLeaseRegistry.ValidateUniqueEntryIds(plan.TargetState, backPlanSource);

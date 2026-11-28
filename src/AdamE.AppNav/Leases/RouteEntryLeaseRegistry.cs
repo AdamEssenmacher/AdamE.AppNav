@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using AdamE.AppNav.Internal;
 using AdamE.AppNav.Navigation;
 using AdamE.AppNav.State;
 
@@ -163,7 +164,7 @@ public sealed class RouteEntryLeaseRegistry
     }
 
     // One occurrence, one lease: with leases configured, an entry ID may appear only once in a state.
-    internal static void ValidateUniqueEntryIds(NavigationState state, string source)
+    internal static void ValidateUniqueEntryIds(NavigationState state, NavigationValidationSource source)
     {
         var ids = new HashSet<string>(StringComparer.Ordinal);
         foreach (string entryId in EnumerateEntryIds(state))

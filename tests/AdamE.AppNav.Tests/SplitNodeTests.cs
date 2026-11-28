@@ -157,9 +157,13 @@ public sealed class SplitNodeTests
         var outer = new SplitNode("outer", new StackNode("accounts", [Entry("accounts")]), tabs);
 
         AppNavigationConfigurationException exception = Assert.Throws<AppNavigationConfigurationException>(() =>
-            NavigationStateValidator.ValidateState(Root(outer), "Test"));
-        Assert.Contains("Root.Secondary.Branch('mail').Content", exception.Message, StringComparison.Ordinal);
-        Assert.Contains("cannot be nested, at any depth", exception.Message, StringComparison.Ordinal);
+            NavigationStateValidator.ValidatePlan(
+                new NavigationPlan(Root(outer)), NavigationValidationSource.ForBackNavigator(typeof(SplitNodeTests))));
+        Assert.Equal(
+            "Invalid navigation state: Back navigator 'SplitNodeTests' target state.Window('main').Root.Secondary." +
+            "Branch('mail').Content is a split inside another split; a split cannot be nested, at any depth, " +
+            "inside a modal or another split.",
+            exception.Message);
     }
 
     [Fact]
