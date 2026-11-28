@@ -54,7 +54,7 @@ public sealed class DeferredNavigationRequestReplayer(
                                        !cancellationToken.IsCancellationRequested)
             {
                 failed++;
-                _diagnostics.Write(
+                _diagnostics.WriteWithException(
                     NavigationDiagnosticEventKind.DeferredRequestReplayFailed,
                     Guid.NewGuid().ToString("N"),
                     "Failed to replay a deferred navigation request.",
@@ -64,7 +64,8 @@ public sealed class DeferredNavigationRequestReplayer(
                         [NavigationDiagnosticDataKeys.RequestSource] = request.Source.ToString(),
                         [NavigationDiagnosticDataKeys.ExceptionType] = ex.GetType().FullName,
                         [NavigationDiagnosticDataKeys.ExceptionMessage] = ex.Message
-                    });
+                    },
+                    ex);
                 continue;
             }
 
