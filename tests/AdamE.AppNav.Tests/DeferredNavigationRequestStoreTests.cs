@@ -147,6 +147,21 @@ public sealed class DeferredNavigationRequestStoreTests
     }
 
     [Fact]
+    public async Task ClearAsync_AllowsEquivalentRequestToBeEnqueuedAgain()
+    {
+        var store = new InMemoryDeferredNavigationRequestStore();
+        var original = Request("first", NavigationRequestSource.AppLink);
+        var requeued = original with { Timestamp = original.Timestamp.AddMinutes(1) };
+        await store.EnqueueAsync(original);
+
+        await store.ClearAsync();
+        await store.EnqueueAsync(requeued);
+
+        await using IDeferredNavigationRequestLease lease = await store.AcquireReplayLeaseAsync();
+        Assert.Equal(requeued, Assert.Single(lease.Requests));
+    }
+
+    [Fact]
     public async Task EnqueueAsync_CollapsesExactDuplicatesIgnoringTimestamp()
     {
         var store = new InMemoryDeferredNavigationRequestStore();
