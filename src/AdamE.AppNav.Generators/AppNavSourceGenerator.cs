@@ -1375,6 +1375,12 @@ internal sealed class ParsedRouteTemplate
         for (var i = 0; i < segments.Count; i++)
         {
             TemplateSegment segment = segments[i];
+            if (segment.LiteralValue is "." or "..")
+            {
+                error = $"Route template '{template}' contains the literal dot segment '{segment.LiteralValue}'.";
+                return false;
+            }
+
             if (segment.ParameterName is not null && !seenNames.Add(segment.ParameterName))
             {
                 error = $"Route template '{template}' contains duplicate parameter '{segment.ParameterName}'.";
