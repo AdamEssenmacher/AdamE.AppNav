@@ -582,7 +582,8 @@ internal static class LeaseChecks
                         && router.CurrentState.ActiveWindow?.Root is StackNode { Entries: [{ Id: rootId }, { Id: firstId }] },
                     "The invalidated entry committed or changed the router's history.");
                 await UntilAsync(
-                    () => !ReferenceEquals(first, views[firstId]) && ReferenceEquals(Visible(activity), views[firstId])
+                    () => presenter.IsSettled
+                          && !ReferenceEquals(first, views[firstId]) && ReferenceEquals(Visible(activity), views[firstId])
                           && activity.OnBackPressedDispatcher.HasEnabledCallbacks,
                     "The failed apply did not rebuild the router's committed stack.",
                     token);
