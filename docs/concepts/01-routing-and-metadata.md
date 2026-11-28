@@ -72,6 +72,10 @@ Template member names match public readable route properties without regard to
 case. The generator selects a compatible public constructor. Ambiguous or
 missing constructors are compile errors.
 
+Route literals are case-sensitive in both attributed and fluent routes. For
+example, `/Stores` and `/stores` can identify distinct route types, and an
+incoming path must use the registered literal casing to match that template.
+
 Templates support:
 
 - literal path segments, such as `/pause/inventory/items`;
