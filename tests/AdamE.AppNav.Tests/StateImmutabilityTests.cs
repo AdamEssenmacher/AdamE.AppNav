@@ -150,6 +150,45 @@ public sealed class StateImmutabilityTests
     }
 
     [Fact]
+    public void NavigationHistoryPushTrimsFromCurrentPositionAndKeepsReadOnlySnapshot()
+    {
+        var first = HistoryEntry("first");
+        var current = HistoryEntry("current");
+        var forward = HistoryEntry("forward");
+        var next = HistoryEntry("next");
+        var history = new NavigationHistory([first, current, forward], 1);
+
+        var updated = history.Push(next, maxEntries: 2);
+
+        Assert.Equal([current, next], updated.Entries);
+        Assert.Same(next, updated.Current);
+        Assert.Throws<NotSupportedException>(() =>
+            ((IList<NavigationHistoryEntry>)updated.Entries)[0] = first);
+        Assert.Equal([first, current, forward], history.Entries);
+        Assert.Same(current, history.Current);
+    }
+
+    [Fact]
+    public void NavigationHistoryPushKeepsOnlyNewestEntryAtLimitOne()
+    {
+        var history = NavigationHistory.Empty.Push(HistoryEntry("first"));
+        var next = HistoryEntry("next");
+
+        var updated = history.Push(next, maxEntries: 1);
+
+        Assert.Same(next, Assert.Single(updated.Entries));
+        Assert.Same(next, updated.Current);
+    }
+
+    [Fact]
+    public void NavigationHistoryPushReturnsEmptyAtLimitZero()
+    {
+        var history = NavigationHistory.Empty.Push(HistoryEntry("first"));
+
+        Assert.Same(NavigationHistory.Empty, history.Push(HistoryEntry("next"), maxEntries: 0));
+    }
+
+    [Fact]
     public void NavigationHistoryRejectsInvalidCurrentIndex()
     {
         var entries = new[]

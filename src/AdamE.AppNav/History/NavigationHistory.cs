@@ -31,7 +31,7 @@ public sealed class NavigationHistory
     /// </exception>
     internal NavigationHistory(IReadOnlyList<NavigationHistoryEntry> entries, int currentIndex)
     {
-        Entries = entries;
+        Entries = CollectionSnapshot.List(entries);
         int entryCount = Entries.Count;
         bool hasEntries = entryCount > 0;
         if ((hasEntries && (currentIndex < 0 || currentIndex >= entryCount)) ||
@@ -44,6 +44,13 @@ public sealed class NavigationHistory
         CurrentIndex = currentIndex;
     }
 
+    // Only Push passes its freshly allocated array here. The wrapper keeps it read-only.
+    private NavigationHistory(NavigationHistoryEntry[] ownedEntries)
+    {
+        Entries = Array.AsReadOnly(ownedEntries);
+        CurrentIndex = ownedEntries.Length - 1;
+    }
+
     /// <summary>
     /// Gets the history entries in oldest-to-newest order.
     /// </summary>
@@ -51,11 +58,7 @@ public sealed class NavigationHistory
     /// The collection is snapshotted when the history is created, so later mutations to the
     /// source collection do not affect this instance.
     /// </remarks>
-    public IReadOnlyList<NavigationHistoryEntry> Entries
-    {
-        get;
-        private init => field = CollectionSnapshot.List(value);
-    }
+    public IReadOnlyList<NavigationHistoryEntry> Entries { get; }
 
     /// <summary>
     /// Gets the index of <see cref="Current"/> within <see cref="Entries"/>, or -1 when the
@@ -86,26 +89,21 @@ public sealed class NavigationHistory
     {
         ArgumentNullException.ThrowIfNull(entry);
 
-        // Appending from the middle follows browser-style history behavior: stale forward
-        // entries are discarded before the new current entry is added.
-        int retainedCount = CurrentIndex + 1;
-        var entries = new NavigationHistoryEntry[retainedCount + 1];
-        for (var i = 0; i < retainedCount; i++)
-            entries[i] = Entries[i];
-
-        entries[^1] = entry;
-
-        if (maxEntries is null || maxEntries.Value >= entries.Length)
-            return new NavigationHistory(entries, entries.Length - 1);
-
-        if (maxEntries.Value <= 0)
+        if (maxEntries is <= 0)
             return Empty;
 
-        NavigationHistoryEntry[] trimmed = entries
-            .Skip(entries.Length - maxEntries.Value)
-            .ToArray();
+        // Appending from the middle follows browser-style history behavior: stale forward
+        // entries are discarded before the new current entry is added.
+        int availableCount = CurrentIndex + 1;
+        int finalCount = Math.Min(availableCount + 1, maxEntries ?? int.MaxValue);
+        int retainedCount = finalCount - 1;
+        int startIndex = availableCount - retainedCount;
+        var entries = new NavigationHistoryEntry[finalCount];
+        for (int i = 0; i < retainedCount; i++)
+            entries[i] = Entries[startIndex + i];
 
-        return new NavigationHistory(trimmed, trimmed.Length - 1);
+        entries[^1] = entry;
+        return new NavigationHistory(entries);
     }
 }
 
