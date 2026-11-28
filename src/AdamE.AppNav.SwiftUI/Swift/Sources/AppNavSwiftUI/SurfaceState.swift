@@ -215,6 +215,10 @@ struct SurfaceState {
         return false
     }
 
+    var needsActiveSampling: Bool {
+        applying || interaction != nil || held != nil || undo != nil || candidate != nil || needsGestureVerification
+    }
+
     // MARK: Staging
 
     mutating func stage(_ proposed: NavigationProjection, animatesSinglePushes: Bool, hasPolicy: Bool,
@@ -1138,13 +1142,19 @@ struct SurfaceState {
 
     // A reading counts once two consecutive frames agree on it.
     private mutating func settle(_ reading: NavigationReading, _ out: inout SurfaceOutcome) {
-        guard reading != lastReading || needsGestureVerification else { return }
+        guard reading != lastReading || needsGestureVerification else {
+            candidate = nil
+            return
+        }
         guard candidate == reading else { candidate = reading; return }
         if needsGestureVerification {
             diagnostics.gestureReading = reading
             needsGestureVerification = false
         }
-        guard reading != lastReading else { return }
+        guard reading != lastReading else {
+            candidate = nil
+            return
+        }
         if let taken = takenBack {
             guard reading == taken.shorter else { return }
             // The page was on screen, so AppNav records the push and then a native Back. Both are reported from
