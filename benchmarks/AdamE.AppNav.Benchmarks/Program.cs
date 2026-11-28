@@ -387,7 +387,15 @@ internal static class AllocationBudgetRunner
         foreach (AllocationScenario scenario in CreateScenarios())
         {
             long allocated = MeasureMedianAllocatedBytesPerOperation(scenario);
-            long budget = Math.Max((long)Math.Ceiling(allocated * 1.20), allocated + 1024);
+            if (scenario.PinnedBudget is long pinnedBudget && allocated > pinnedBudget)
+            {
+                Console.Error.WriteLine(
+                    $"{scenario.Name}: {allocated:N0} B/op exceeds pinned budget {pinnedBudget:N0}. Allocation budgets were not written.");
+                return 1;
+            }
+
+            long budget = scenario.PinnedBudget
+                ?? Math.Max((long)Math.Ceiling(allocated * 1.20), allocated + 1024);
             budgets[scenario.Name] = budget;
             Console.WriteLine($"{scenario.Name}: {allocated:N0} B/op -> budget {budget:N0}");
         }
@@ -468,12 +476,15 @@ internal static class AllocationBudgetRunner
             yield return new AllocationScenario(
                 $"RouteMatchingBenchmarks.MatchConvention_LastRoute/{routeCount}",
                 () => matching.MatchConvention_LastRoute());
+            // Keep these caps below the allocation cost of the previous query parser.
             yield return new AllocationScenario(
                 $"RouteMatchingBenchmarks.MatchExplicit_LastRouteWithSingleQuery/{routeCount}",
-                () => matching.MatchExplicit_LastRouteWithSingleQuery());
+                () => matching.MatchExplicit_LastRouteWithSingleQuery(),
+                PinnedBudget: 1664);
             yield return new AllocationScenario(
                 $"RouteMatchingBenchmarks.MatchExplicit_LastRouteWithRepeatedQuery/{routeCount}",
-                () => matching.MatchExplicit_LastRouteWithRepeatedQuery());
+                () => matching.MatchExplicit_LastRouteWithRepeatedQuery(),
+                PinnedBudget: 2232);
 
             var formatting = new RouteFormattingBenchmarks();
             formatting.SetupForBudget(routeCount);
@@ -543,5 +554,6 @@ internal static class AllocationBudgetRunner
 
     private sealed record AllocationScenario(
         string Name,
-        Func<object?> Invoke);
+        Func<object?> Invoke,
+        long? PinnedBudget = null);
 }
