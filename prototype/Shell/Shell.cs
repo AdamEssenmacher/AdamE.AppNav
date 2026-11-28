@@ -38,7 +38,7 @@ public sealed class ShellViewModel(
         if (!holdObservation(this, observation))
             Forward(observation);
     }
-    public void Forward(NativeObservation observation) => navigation.Report(observation);
+    public void Forward(NativeObservation observation) => _ = navigation.Report(observation);
     public void SetStatus(string message) => status.Set(message);
     public void RecordTrace(string message) => trace(message);
     public void RunCommand(string name) => command(name);
