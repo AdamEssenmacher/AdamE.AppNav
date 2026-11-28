@@ -149,6 +149,31 @@ public sealed class DeferredNavigationRequestReplayerTests
         }
     }
 
+    [Theory]
+    [InlineData(NavigationDiagnosticDataMode.Safe, "https://example.com")]
+    [InlineData(NavigationDiagnosticDataMode.Full, "https://user:password@example.com/path?token=secret#fragment")]
+    public async Task ReplayAsync_ReportsUriForFailedUriRequest(
+        NavigationDiagnosticDataMode mode,
+        string expectedUri)
+    {
+        var store = new InMemoryDeferredNavigationRequestStore();
+        var request = RouterNavigationRequest.FromUri(
+            new Uri("https://user:password@example.com/path?token=secret#fragment"),
+            NavigationRequestSource.AppLink);
+        await store.EnqueueAsync(request);
+        var navigator = new RecordingRouterNavigator((_, _) => throw new InvalidOperationException("Replay failure."));
+        var diagnostics = new NavigationDiagnostics(options: new NavigationDiagnosticsOptions { DataMode = mode });
+        var events = new List<NavigationDiagnosticEvent>();
+        diagnostics.EventWritten += (_, diagnosticEvent) => events.Add(diagnosticEvent);
+        var replayer = new DeferredNavigationRequestReplayer(store, navigator, logger: null, diagnostics: diagnostics);
+
+        Assert.Equal(new DeferredNavigationReplayResult(1, 0, 1), await replayer.ReplayAsync());
+
+        var failure = Assert.Single(events);
+        Assert.Equal(NavigationDiagnosticEventKind.DeferredRequestReplayFailed, failure.Kind);
+        Assert.Equal(expectedUri, failure.Data[NavigationDiagnosticDataKeys.Uri]);
+    }
+
     private sealed class ReplayLogger : ILogger<DeferredNavigationRequestReplayer>
     {
         public List<(LogLevel Level, string Message, Exception? Exception, IReadOnlyDictionary<string, object?> State)>

@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using AdamE.AppNav.Diagnostics;
 using AdamE.AppNav.Navigation;
@@ -45,6 +46,7 @@ internal sealed class MauiNavigationPresenter :
     private NavigationState _routerState = NavigationState.Empty;
     private Window? _attachedWindow;
     private string? _attachedWindowId;
+    private bool _attachedWindowDestroyed;
     private string _lifecycleOperationId = CreateOperationId();
     private string? _activeOperationId;
     private NavigationPresentationContext? _activeNavigationPresentationContext;
@@ -300,20 +302,32 @@ internal sealed class MauiNavigationPresenter :
     private async Task FinalizeShutdownAsync()
     {
         MauiNativeTreeEpochClosure? epochClosure = null;
+        var canReleasePages = false;
         try
         {
-            if (_mainThreadDispatcher.IsMainThread)
-                await FinalizeShutdownOnMainThreadAsync();
-            else
-                await _mainThreadDispatcher.InvokeAsync(FinalizeShutdownOnMainThreadAsync);
+            Task windowRelease = Task.CompletedTask;
+            do
+            {
+                await windowRelease.ConfigureAwait(false);
+                await _mainThreadDispatcher.InvokeAsync(async () =>
+                {
+                    windowRelease = WaitForShutdownWindowRelease();
+                    if (!windowRelease.IsCompleted)
+                        return;
+
+                    canReleasePages = true;
+                    await FinalizeShutdownOnMainThreadAsync();
+                }).ConfigureAwait(false);
+            }
+            while (!canReleasePages);
 
             epochClosure = _nativeTreeEpoch.Close();
         }
         catch (Exception ex)
         {
             WritePageReleaseFailure(null, ex);
-            // The main-thread cleanup may not have run at all; pages must still stop holding their leases.
-            await ReleaseOutstandingPagesAsync();
+            if (canReleasePages || _attachedWindow is null)
+                await ReleaseOutstandingPagesAsync();
         }
         finally
         {
@@ -329,6 +343,55 @@ internal sealed class MauiNavigationPresenter :
         }
     }
 
+    private Task WaitForShutdownWindowRelease()
+    {
+        _suppressReconciliation = true;
+        _externalNavigationDispatcher?.SetForegrounded(false);
+
+        Window? window = _attachedWindow;
+        if (window is null || _attachedWindowDestroyed || !WindowHasPresenterPage(window))
+            return Task.CompletedTask;
+
+        var released = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        // Keep the host and factory-owned leases alive while a live window still owns the tree.
+        window.PropertyChanged += OnWindowPropertyChanged;
+        window.Destroying += OnWindowDestroying;
+        try
+        {
+            SetAttachedWindowPage(null);
+            if (!released.Task.IsCompleted && WindowHasPresenterPage(window))
+                throw new InvalidOperationException("The MAUI window retained its page during presenter shutdown.");
+        }
+        catch (Exception ex)
+        {
+            WritePageReleaseFailure(null, ex);
+        }
+
+        // The setter can throw after updating the root. Check ownership even on that path.
+        if (!WindowHasPresenterPage(window))
+            CompleteRelease();
+
+        return released.Task;
+
+        void OnWindowPropertyChanged(object? sender, PropertyChangedEventArgs args)
+        {
+            if (args.PropertyName == nameof(Window.Page) && !WindowHasPresenterPage(window))
+                CompleteRelease();
+        }
+
+        void OnWindowDestroying(object? sender, EventArgs args) => CompleteRelease();
+
+        void CompleteRelease()
+        {
+            window.PropertyChanged -= OnWindowPropertyChanged;
+            window.Destroying -= OnWindowDestroying;
+            released.TrySetResult();
+        }
+    }
+
+    private bool WindowHasPresenterPage(Window window) =>
+        window.Page is Page page && (ReferenceEquals(page, CurrentPage) || CanMutatePage(page));
+
     private async Task FinalizeShutdownOnMainThreadAsync()
     {
         try
@@ -343,7 +406,6 @@ internal sealed class MauiNavigationPresenter :
 
     private async Task FinalizeShutdownOnMainThreadCoreAsync()
     {
-        _suppressReconciliation = true;
         _activeOperationId = null;
 
         Page? currentPage = CurrentPage;
@@ -354,14 +416,6 @@ internal sealed class MauiNavigationPresenter :
         foreach (SuppressedNavigationPop pendingPop in _suppressedNavigationPops.Values)
             detachedCandidates.UnionWith(pendingPop.KnownPages);
         CurrentPage = null;
-        try
-        {
-            SetAttachedWindowPage(null);
-        }
-        catch (Exception ex)
-        {
-            WritePageReleaseFailure(null, ex);
-        }
 
         InvokeRootPageChanged(null);
         if (currentPage is not null)
@@ -389,10 +443,7 @@ internal sealed class MauiNavigationPresenter :
             UntrackModalPage(modalPage);
 
         if (_attachedWindow is not null)
-        {
             UnsubscribeWindowLifecycle(_attachedWindow);
-            _externalNavigationDispatcher?.SetForegrounded(false);
-        }
 
         _attachedWindow = null;
         _attachedWindowId = null;
@@ -601,6 +652,8 @@ internal sealed class MauiNavigationPresenter :
 
     private void SubscribeWindowLifecycle(Window window)
     {
+        _attachedWindowDestroyed = false;
+        window.Created += HandleWindowCreated;
         window.Activated += HandleWindowActivated;
         window.Deactivated += HandleWindowDeactivated;
         window.Stopped += HandleWindowStopped;
@@ -610,11 +663,17 @@ internal sealed class MauiNavigationPresenter :
 
     private void UnsubscribeWindowLifecycle(Window window)
     {
+        window.Created -= HandleWindowCreated;
         window.Activated -= HandleWindowActivated;
         window.Deactivated -= HandleWindowDeactivated;
         window.Stopped -= HandleWindowStopped;
         window.Resumed -= HandleWindowResumed;
         window.Destroying -= HandleWindowDestroying;
+    }
+
+    private void HandleWindowCreated(object? sender, EventArgs e)
+    {
+        _attachedWindowDestroyed = false;
     }
 
     private void HandleWindowActivated(object? sender, EventArgs e)
@@ -639,6 +698,7 @@ internal sealed class MauiNavigationPresenter :
 
     private void HandleWindowDestroying(object? sender, EventArgs e)
     {
+        _attachedWindowDestroyed = true;
         _externalNavigationDispatcher?.SetForegrounded(false);
     }
 
