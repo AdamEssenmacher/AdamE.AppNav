@@ -31,9 +31,9 @@ namespace AdamE.AppNav.Android;
 /// </para>
 /// <para>
 /// Each operation builds the plan's pages, changes native state, waits for a laid-out frame and verifies the result
-/// before it returns. A failed or canceled operation restores the accepted presentation, or clears the frame when that
-/// presentation is no longer current, before it throws, so the router never commits a state native does not show. A
-/// page is disposed only after it has physically left the window, and what it borrows is released only after that. If
+/// before it returns. Caller cancellation is honored until the presenter accepts the verified surface. A failure
+/// before acceptance restores the previous presentation when possible, or clears the frame.
+/// A page is disposed only after it has physically left the window, and what it borrows is released only after that. If
 /// a page's native retirement fails, the presenter keeps that page's loan and lease attachment and fails each later
 /// operation, attachment and its own disposal with that failure.
 /// </para>
@@ -332,9 +332,9 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
                             resolved => attempted = resolved))
                         .ConfigureAwait(false);
                     nativeCompleted = true;
-                    // The pages' own currency was last checked on the main thread, as the operation ended there: an
-                    // application's IsCurrent is never called from here.
-                    operationToken.ThrowIfCancellationRequested();
+                    // The main-thread apply accepted the surface. Shutdown and detachment still revoke it.
+                    // The pages' own currency was last checked on the main thread.
+                    _shutdown.Token.ThrowIfCancellationRequested();
                     if (!IsAttached(epoch))
                         throw new OperationCanceledException(epoch.Stopped.Token);
                     return;
@@ -448,14 +448,14 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
             RequireEpoch(epoch);
             RequireCurrent(staged);
             Verify(epoch, staged);
-            owned.Token.ThrowIfCancellationRequested();
             RequireCurrent(staged);
+            owned.Token.ThrowIfCancellationRequested();
             epoch.Surface = staged;
             accepted = true;
-            // No rollback may resurrect these pages once their disposal begins.
+            // The old pages cannot be restored once retirement starts. The caller can no longer cancel the apply.
             epoch.Spare = Surface.Empty;
             ReleaseDifference(kept, staged);
-            owned.Token.ThrowIfCancellationRequested();
+            _shutdown.Token.ThrowIfCancellationRequested();
             RequireEpoch(epoch);
             RequireCurrent(staged);
         }

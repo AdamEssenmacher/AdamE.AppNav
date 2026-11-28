@@ -102,6 +102,9 @@ commits nothing. If a page's lease retires after it was built while the router
 still shows its entry, the operation applies the same plan again, and the retired
 lease then gets its placeholder.
 
+An accepted surface stays in place when the caller cancels during retirement.
+The router commits the verified replacement after retirement finishes.
+
 Dialogs are not disposed. `Dialog.Dismiss` queues its dismiss message, and a
 disposed peer of a dialog subclass cannot be activated again when that message
 arrives, which crashes the app. A dialog out of the window is what makes its
@@ -153,8 +156,9 @@ modal, and a modal canceled while an operation keeps it or is showing it; a seco
 attaching, a real `Recreate()` with a dialog showing, an operation on a stopped
 activity and one canceled there, an operation waiting for the next activity, a finishing activity and
 disposal mid-operation; the first-draw gate holding and then opening; and, through a real router, lease release order,
-placeholders, presenter-opened leases and the router host. The release workflow
-runs them on API 28 and API 36 emulators. `eng/verify.sh native-android`
+placeholders, presenter-opened leases, the router host and cancellation after
+acceptance. The release workflow runs them on API 28 and API 36 emulators.
+`eng/verify.sh native-android`
 publishes the same app fully trimmed, so the package stays trim-clean.
 
 ## Next steps
