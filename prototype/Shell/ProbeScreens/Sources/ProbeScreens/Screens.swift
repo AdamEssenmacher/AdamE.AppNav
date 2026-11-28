@@ -92,6 +92,7 @@ public struct ShellScreen: View {
     let model: ShellModel
     @Namespace private var gameZoom
     @State private var animationEvidence = "Waiting for native animation"
+    @State private var releasedReview = false
     @State private var gesturesBegan = 0
     @State private var showsHostCover = false
     @State private var showsCenterOverlay = false
@@ -243,7 +244,10 @@ public struct ShellScreen: View {
     }
 
     private var holdsSettlement: Bool {
-        Self.holdsGameSettlement && gesturesBegan == 0 &&
+        if Self.holdsReviewSettlement && projection.modal?.entries.last?.id == "review-again" {
+            return !releasedReview
+        }
+        return Self.holdsGameSettlement && gesturesBegan == 0 &&
             (model.target.branches.contains { $0.entries.last?.entryId == "game" } ||
                 model.target.split.secondaryEntries.last?.entryId.hasPrefix("game-") == true)
     }
@@ -252,6 +256,8 @@ public struct ShellScreen: View {
         let layout = diagnostics.splitCollapsed.map { $0 ? "collapsed" : "expanded" } ?? "none"
         return "\(layout) repairs=\(diagnostics.compactColumnRepairs) taken back=\(diagnostics.pushesTakenBack) restored=\(diagnostics.pushesRestored)"
     }
+
+    private static let holdsReviewSettlement = ProcessInfo.processInfo.arguments.contains("--probe-hold-review-settlement")
 
     /// Keeps a Game push applying, so a UI test can go Back before the shell settles it.
     static let holdsGameSettlement = ProcessInfo.processInfo.arguments.contains("--probe-hold-game-settlement")
@@ -308,6 +314,17 @@ public struct ShellScreen: View {
                 return .automatic
             },
             chrome: { destination, content in
+                if Self.holdsReviewSettlement && destination.entry.id == "review-again" {
+                    return AnyView(content.overlay(alignment: .bottom) {
+                        VStack {
+                            Text(model.status).accessibilityIdentifier("probe-modal-status")
+                            if !releasedReview {
+                                Button("Release review") { releasedReview = true }
+                                    .accessibilityIdentifier("probe-release-review")
+                            }
+                        }
+                    })
+                }
                 guard destination.entry.id == "game" else { return content }
                 return AnyView(content
                     .modifier(GameChrome(kind: .managed, trace: { model.recordTrace($0) }))
