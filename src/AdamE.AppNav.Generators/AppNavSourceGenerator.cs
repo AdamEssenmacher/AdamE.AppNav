@@ -83,7 +83,7 @@ public sealed class AppNavSourceGenerator : IIncrementalGenerator
                 RouteModel left = routes[i];
                 RouteModel right = routes[j];
 
-                if (StringComparer.OrdinalIgnoreCase.Equals(left.Template.Value, right.Template.Value))
+                if (StringComparer.Ordinal.Equals(left.Template.Value, right.Template.Value))
                 {
                     reportDiagnostic(Diagnostic.Create(
                         AppNavDiagnostics.DuplicateRouteTemplate,

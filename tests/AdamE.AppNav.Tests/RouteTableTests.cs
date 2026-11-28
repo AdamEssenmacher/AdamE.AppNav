@@ -1132,6 +1132,21 @@ public sealed class RouteTableTests
     }
 
     [Fact]
+    public void TemplatesWithDifferentLiteralCasingMatchDistinctRoutes()
+    {
+        var table = RouteTable.Create(routes => routes
+            .MapRoute<TestRoutes.StoreRoute>("/Stores/{storeId}")
+            .MapRoute<TestRoutes.CatalogRoute>("/stores/{storeId}"));
+
+        Assert.Equal(new TestRoutes.StoreRoute("northwind"), table.Match(new Uri("/Stores/northwind", UriKind.Relative)).Route);
+        Assert.Equal(new TestRoutes.CatalogRoute("northwind"), table.Match(new Uri("/stores/northwind", UriKind.Relative)).Route);
+
+        RouteMatchResult unmatched = table.Match(new Uri("/STORES/northwind", UriKind.Relative));
+        Assert.False(unmatched.IsSuccess);
+        Assert.Equal("route.not_matched", Assert.Single(unmatched.Diagnostics).Code);
+    }
+
+    [Fact]
     public void DuplicateTemplatesAreRejected()
     {
         InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => RouteTable.Create(routes => routes
@@ -1249,6 +1264,7 @@ public sealed class RouteTableTests
     }
 
     [Theory]
+    [InlineData("int", "INT")]
     [InlineData("int", "long")]
     [InlineData("int", "decimal")]
     [InlineData("long", "decimal")]
