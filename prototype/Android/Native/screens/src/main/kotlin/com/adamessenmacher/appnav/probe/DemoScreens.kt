@@ -19,6 +19,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -33,6 +34,7 @@ import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
@@ -50,6 +52,32 @@ public fun DemoShellScreen(model: DemoShellModel) {
     var managedBack by rememberSaveable { mutableStateOf(false) }
     var throwOnBack by remember { mutableStateOf(false) }
     var shortBackTimeout by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val requestManagedBack: suspend () -> Unit = {
+        if (throwOnBack) {
+            throwOnBack = false
+            error("Probe Back callback failed")
+        }
+        val completionTimeoutMs = if (shortBackTimeout) 2_000L else 30_000L
+        shortBackTimeout = false
+        val request = backRequestIds.incrementAndGet()
+        model.requestBack(request)
+        try {
+            withTimeout(completionTimeoutMs) {
+                combine(model.completedBack, model.rejectedBack) { completed, rejected ->
+                    completed == request || rejected == request
+                }.first { it }
+            }
+        } catch (canceled: CancellationException) {
+            if (!currentCoroutineContext().isActive) {
+                Log.i("AppNavProbe", "policy back waiter canceled id=$request")
+            }
+            throw canceled
+        }
+        if (model.rejectedBack.value == request) {
+            model.recordTrace("policy back rejection observed id=$request")
+        }
+    }
     MaterialTheme {
         CompositionLocalProvider(LocalGameActions provides actions) {
             AppNavNavigationShell(
@@ -61,33 +89,7 @@ public fun DemoShellScreen(model: DemoShellModel) {
                         emptyList(), "",
                     ))
                 },
-                requestBack = if (managedBack) {
-                    {
-                        if (throwOnBack) {
-                            throwOnBack = false
-                            error("Probe Back callback failed")
-                        }
-                        val completionTimeoutMs = if (shortBackTimeout) 2_000L else 30_000L
-                        shortBackTimeout = false
-                        val request = backRequestIds.incrementAndGet()
-                        model.requestBack(request)
-                        try {
-                            withTimeout(completionTimeoutMs) {
-                                combine(model.completedBack, model.rejectedBack) { completed, rejected ->
-                                    completed == request || rejected == request
-                                }.first { it }
-                            }
-                        } catch (canceled: CancellationException) {
-                            if (!currentCoroutineContext().isActive) {
-                                Log.i("AppNavProbe", "policy back waiter canceled id=$request")
-                            }
-                            throw canceled
-                        }
-                        if (model.rejectedBack.value == request) {
-                            model.recordTrace("policy back rejection observed id=$request")
-                        }
-                    }
-                } else null,
+                requestBack = if (managedBack) requestManagedBack else null,
                 animations = animations,
                 onBackFailure = { failure ->
                     val reason = if (failure is TimeoutCancellationException) "timeout" else failure.message
@@ -127,6 +129,12 @@ public fun DemoShellScreen(model: DemoShellModel) {
                             TextButton(onClick = { model.runCommand("recreate-activity") }) {
                                 Text("Recreate Activity")
                             }
+                        }
+                    }
+                    if (managedBack) {
+                        // Exercise the bridge even before the replacement has a navigable projection.
+                        TextButton(onClick = { scope.launch { requestManagedBack() } }) {
+                            Text("Request managed Back")
                         }
                     }
                     Text(status, style = MaterialTheme.typography.labelSmall)

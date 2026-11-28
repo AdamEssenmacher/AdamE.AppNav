@@ -106,6 +106,9 @@ public fun AppNavNavigationShell(
  * drives the stack change. Suspend until the managed request finishes, even when the policy
  * refuses Back. The shell holds the Back gate closed while the callback is running.
  * If the callback fails, [onBackFailure] receives the error and the gate reopens.
+ * This gate belongs to the current composition. If managed work can outlive its caller, the app
+ * must reject overlapping Back requests for that window in its retained session until the original
+ * operation finishes, including after Activity recreation or a local timeout.
  * Calls across a one-way bridge should bound the wait for completion and report timeout as a failure.
  */
 @OptIn(ExperimentalMaterial3Api::class)
