@@ -47,6 +47,11 @@ public sealed class AppNavStartupOptions
 
 public enum AppNavStartupOutcome
 {
+    /// <summary>
+    /// Legacy value recorded by the built-in startup service in the
+    /// <see cref="NavigationDiagnosticEventKind.StartupAppLinkPending"/> diagnostic event.
+    /// The service awaits buffered app-link dispatch before returning its startup result.
+    /// </summary>
     AppLinkPending,
     FallbackNavigated,
     NoNavigation,

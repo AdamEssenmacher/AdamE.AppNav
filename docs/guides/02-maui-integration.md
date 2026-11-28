@@ -231,10 +231,12 @@ coexist for unrelated flows. Advanced hosts that need a custom navigator must
 instead own the complete navigator/presenter pair through
 `RouterNavigatorFactory` and skip the MAUI `AddAppNav(...)` composition helper.
 
-The final `AddAppNav(...)` callback configures the three app-owned router settings. Its
-`FallbackRouteFactory` runs only when a URI has no matching route; `MaxRedirects` and
-`MaxHistoryEntries` default to 16 and 128. Startup fallback remains a separate
-concern configured through `AddAppNavStartup(...)`:
+The final `AddAppNav(...)` callback configures `AppNavNavigatorOptions`.
+`FallbackRouteFactory` runs only when a URI has no matching route.
+`MaxRedirects` and `MaxHistoryEntries` default to 16 and 128.
+`EntryLeaseShutdownWarningDelay` controls how long disposal waits for outstanding
+[entry leases](../advanced/entry-leases.md) before logging a warning. It defaults
+to five seconds. Configure startup fallback through `AddAppNavStartup(...)`.
 
 ```csharp
 services.AddAppNav(

@@ -43,8 +43,8 @@ modal without a navigation stack cannot push presentation pages.
 
 ## Lifecycle hooks
 
-With `UseScopedPages`, the page factory opens an [entry lease](entry-leases.md)
-for each route-entry occurrence it presents and gives that lease one DI scope.
+The MAUI page factory opens an [entry lease](entry-leases.md) for each
+route-entry occurrence it presents and gives that lease one DI scope.
 A page rebuilt for an entry that is still committed resolves from the same
 scope, and the scope is disposed only after the commit that drops the entry and
 the release of every page built for it. When the application opened the entry's
