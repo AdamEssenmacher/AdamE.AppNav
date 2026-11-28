@@ -106,8 +106,9 @@ internal sealed class RouterNavigationDiagnostics(
         RouterNavigationActivityScope.TrySetCurrentTag(
             "navigation.failure.type",
             exception.GetType().FullName);
-        WriteLazy(kind, operationId, (message, exception, startedAt, data),
-            static state => (state.message, FailureData(state.exception, state.startedAt, state.data)));
+        _diagnostics.WriteLazy(kind, operationId, (message, exception, startedAt, data),
+            static state => (state.message, FailureData(state.exception, state.startedAt, state.data)),
+            exception: exception);
     }
 
     public static IReadOnlyDictionary<string, object?> Duration(

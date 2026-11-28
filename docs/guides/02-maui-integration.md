@@ -305,6 +305,10 @@ lease](../advanced/entry-leases.md), which disposes the page scopes. Work past t
 completes successfully. Public presentation surfaces force runtime creation so
 DI cannot dispose presenter dependencies independently.
 
+If a live window retains an AppNav root during shutdown, its branch hosts and
+page resources stay alive until the root leaves the window or the window is
+destroyed. `DisposeAsync()` stays pending until that cleanup completes.
+
 Deferred replay is lease-based and at-least-once. Acquiring a lease does not
 remove persisted requests; successful navigation is removed only after durable
 acknowledgement. A crash between presentation and acknowledgement may replay

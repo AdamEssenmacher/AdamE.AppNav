@@ -16,7 +16,9 @@ public sealed class MainApplication : MauiApplication
 
     protected override MauiApp CreateMauiApp()
     {
-        return MauiProgram.CreateMauiApp();
+        return Android.App.Application.ProcessName?.EndsWith(":recreation", StringComparison.Ordinal) == true
+            ? RecreationCheckApp.Build()
+            : MauiProgram.CreateMauiApp();
     }
 }
 #endif

@@ -15,6 +15,11 @@ internal interface IMauiWindowAttachment
         Window window,
         string windowId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Whether the destroyed host left logical presentation state for <paramref name="windowId"/>.
+    /// </summary>
+    bool IsAwaitingReplacement(string windowId);
 }
 
 internal interface IAppNavRuntime : IRouterNavigator
@@ -121,4 +126,6 @@ internal sealed class AppNavRuntime(
     {
         return presenter.AttachWindowAsync(window, windowId, cancellationToken);
     }
+
+    public bool IsAwaitingReplacement(string windowId) => presenter.IsAwaitingReplacement(windowId);
 }

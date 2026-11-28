@@ -132,6 +132,44 @@ public sealed class AppNavStartupServiceTests
         Assert.Null(request.Uri);
     }
 
+    [Theory]
+    [InlineData(true, AppNavStartupOutcome.NoNavigation, 0)]
+    [InlineData(false, AppNavStartupOutcome.FallbackNavigated, 1)]
+    public async Task StartAsync_RunsFallbackForSeededStateAndResumesADestroyedWindow(
+        bool awaitingReplacement,
+        AppNavStartupOutcome expectedOutcome,
+        int expectedNavigations)
+    {
+        var state = new NavigationState(
+            [new WindowNode("main", new StackNode("stack", [new RouteEntry("home", new TestRoute("home"))]))],
+            "main");
+        var navigator = new RecordingRouterNavigator { CurrentState = state };
+        using var services = new ServiceCollection()
+            .AddSingleton<IRouterNavigator>(navigator)
+            .AddSingleton(new NavigationDiagnostics())
+            .BuildServiceProvider();
+        var diagnostics = services.GetRequiredService<NavigationDiagnostics>();
+        using var dispatcher = new MauiExternalNavigationDispatcher(services, diagnostics);
+        var attachment = new RecordingWindowAttachment { AwaitsReplacement = awaitingReplacement };
+        var fallbackCalls = 0;
+        var startup = new AppNavStartupService(navigator, attachment, dispatcher, new AppNavStartupOptions
+        {
+            AppLinkGracePeriod = TimeSpan.Zero,
+            FallbackRouteFactory = (_, _) =>
+            {
+                fallbackCalls++;
+                return ValueTask.FromResult<AppRoute?>(new TestRoute("fallback"));
+            }
+        }, services, diagnostics);
+
+        var result = await StartOnMainThreadAsync(startup, new Window(new ContentPage()));
+
+        Assert.Equal(expectedOutcome, result.Outcome);
+        Assert.Equal(expectedNavigations, fallbackCalls);
+        Assert.Equal(expectedNavigations, navigator.NavigateCalls.Count);
+        Assert.Equal(1, attachment.AttachCalls);
+    }
+
     [Fact]
     public void StartupFallbackFactoriesAreMutuallyExclusive()
     {
@@ -1060,6 +1098,10 @@ public sealed class AppNavStartupServiceTests
 
     private sealed class RecordingWindowAttachment(Action? onAttach = null) : IMauiWindowAttachment
     {
+        public bool AwaitsReplacement { get; set; }
+
+        public bool IsAwaitingReplacement(string windowId) => AwaitsReplacement;
+
         public int AttachCalls { get; private set; }
 
         public List<bool> AttachMainThreadChecks { get; } = [];
@@ -1081,6 +1123,8 @@ public sealed class AppNavStartupServiceTests
 
     private sealed class GatedWindowAttachment : IMauiWindowAttachment
     {
+        public bool IsAwaitingReplacement(string windowId) => false;
+
         private readonly TaskCompletionSource _attachStarted =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _attachCompletion =
@@ -1214,7 +1258,7 @@ public sealed class AppNavStartupServiceTests
 
         public List<bool> NavigateMainThreadChecks { get; } = [];
 
-        public NavigationState CurrentState => NavigationState.Empty;
+        public NavigationState CurrentState { get; set; } = NavigationState.Empty;
 
         public NavigationHistory History => NavigationHistory.Empty;
 

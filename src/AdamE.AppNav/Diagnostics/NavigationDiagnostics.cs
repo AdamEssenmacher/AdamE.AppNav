@@ -123,7 +123,19 @@ public sealed class NavigationDiagnostics
         LogLevel? severity = null,
         NavigationDiagnosticPhase? phase = null)
     {
-        WriteLazy(kind, operationId, (message, data), static payload => payload, severity, phase);
+        WriteWithException(kind, operationId, message, data, exception: null, severity, phase);
+    }
+
+    internal void WriteWithException(
+        NavigationDiagnosticEventKind kind,
+        string operationId,
+        string message,
+        IReadOnlyDictionary<string, object?>? data,
+        Exception? exception,
+        LogLevel? severity = null,
+        NavigationDiagnosticPhase? phase = null)
+    {
+        WriteLazy(kind, operationId, (message, data), static payload => payload, severity, phase, exception);
     }
 
     // Pass state to a static factory so a skipped event needs no payload or closure.
@@ -133,7 +145,8 @@ public sealed class NavigationDiagnostics
         TState state,
         Func<TState, (string Message, IReadOnlyDictionary<string, object?>? Data)?> createPayload,
         LogLevel? severity = null,
-        NavigationDiagnosticPhase? phase = null)
+        NavigationDiagnosticPhase? phase = null,
+        Exception? exception = null)
     {
         if (!_enabled)
             return;
@@ -177,7 +190,7 @@ public sealed class NavigationDiagnostics
             phase ?? InferPhase(kind));
         NavigationDiagnosticEvent diagnosticEvent = PrepareEvent(rawEvent);
 
-        TryMirrorToLogger(diagnosticEvent);
+        TryMirrorToLogger(diagnosticEvent, exception);
         TryMirrorToActivity(diagnosticEvent);
 
         // Observer callbacks must never become part of the navigation control flow.
@@ -230,7 +243,7 @@ public sealed class NavigationDiagnostics
             NavigationDiagnosticPhase.Diagnostics);
         NavigationDiagnosticEvent failureEvent = PrepareEvent(rawFailureEvent);
 
-        TryMirrorToLogger(failureEvent);
+        TryMirrorToLogger(failureEvent, exception);
         TryMirrorToActivity(failureEvent);
 
         EventHandler<NavigationDiagnosticEvent>? eventWritten;
@@ -297,11 +310,11 @@ public sealed class NavigationDiagnostics
         }
     }
 
-    private void TryMirrorToLogger(NavigationDiagnosticEvent diagnosticEvent)
+    private void TryMirrorToLogger(NavigationDiagnosticEvent diagnosticEvent, Exception? exception)
     {
         try
         {
-            MirrorToLogger(diagnosticEvent);
+            MirrorToLogger(diagnosticEvent, exception);
         }
         catch
         {
@@ -321,13 +334,14 @@ public sealed class NavigationDiagnostics
         }
     }
 
-    private void MirrorToLogger(NavigationDiagnosticEvent diagnosticEvent)
+    private void MirrorToLogger(NavigationDiagnosticEvent diagnosticEvent, Exception? exception)
     {
         if (_logger is null || !_logger.IsEnabled(diagnosticEvent.Severity))
             return;
 
         _logger.Log(
             diagnosticEvent.Severity,
+            _dataMode == NavigationDiagnosticDataMode.Full && _redactor is null ? exception : null,
             "Navigation {Kind} ({Phase}) operation {OperationId}: {Message} {@Data}",
             diagnosticEvent.Kind,
             diagnosticEvent.Phase,
