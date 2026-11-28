@@ -21,6 +21,8 @@ internal static class LeaseChecks
         ("lease-release-order", ReleaseOrderAsync),
         ("lease-retired-during-build", RetiredDuringBuildAsync),
         ("router-host", RouterHostAsync),
+        ("accepted-root-late-cancellation", (window, token) => ReplaceAcceptedRootAsync(window, token, false)),
+        ("accepted-root-retirement-refresh", (window, token) => ReplaceAcceptedRootAsync(window, token, true)),
         ("lease-custom-placeholder", CustomPlaceholderAsync),
         ("lease-opened-by-presenter", OpenedByPresenterAsync)
     ];
@@ -367,6 +369,64 @@ internal static class LeaseChecks
         }
 
         Require(host.Failures.Count == 0 && survived.Count == 0, "The router host reported a failure.");
+    }
+
+    private static async Task ReplaceAcceptedRootAsync(UIWindow window, CancellationToken token, bool retireReplacement)
+    {
+        using var caller = CancellationTokenSource.CreateLinkedTokenSource(token);
+        using var retirement = new CancellationTokenSource();
+        var original = new ProbeController { Retiring = retireReplacement ? retirement.Cancel : caller.Cancel };
+        var replacement = new ProbeController();
+        ProbeController? rebuilt = null;
+        var refreshed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        IRouterNavigator? router = null;
+        int refreshes = 0;
+        await using var presenter = Presenter(
+            window,
+            entry => entry.Id == "accepted-next"
+                ? Page(replacement, retirement: retirement.Token)
+                : Page(original.Retired ? rebuilt = new ProbeController() : original),
+            refresh: async refreshToken =>
+            {
+                refreshes++;
+                await router!.RefreshPresentationAsync(refreshToken);
+                _ = refreshed.TrySetResult();
+            },
+            report: failure => refreshed.TrySetException(failure));
+        await using var navigator = RouterNavigatorFactory.Create(
+            new RouteTableBuilder().Build(), new OneRootPlanner(static _ => { }), presenter);
+        router = navigator;
+        var first = RouterNavigationRequest.FromRoute(new LeaseRoute("accepted-first"), NavigationRequestSource.Test);
+        var next = RouterNavigationRequest.FromRoute(new LeaseRoute("accepted-next"), NavigationRequestSource.Test);
+        _ = await navigator.NavigateAsync(first, token);
+        if (retireReplacement)
+        {
+            var acceptedState = navigator.CurrentState;
+            var acceptedHistory = navigator.History;
+            try
+            {
+                _ = await navigator.NavigateAsync(next, caller.Token);
+                throw new InvalidOperationException("A replacement that retired during acceptance was committed.");
+            }
+            catch (OperationCanceledException) when (retirement.IsCancellationRequested) { }
+
+            await refreshed.Task.WaitAsync(Soon, token);
+            Require(
+                original.Retired && replacement.Retired && rebuilt is not null && refreshes == 1
+                && ReferenceEquals(window.RootViewController, rebuilt)
+                && ReferenceEquals(navigator.CurrentState, acceptedState) && ReferenceEquals(navigator.History, acceptedHistory),
+                "Refresh did not rebuild the committed root after the replacement retired.");
+        }
+        else
+        {
+            _ = await navigator.NavigateAsync(next, caller.Token);
+            Require(
+                caller.IsCancellationRequested && original.Retired && !replacement.Retired
+                && ReferenceEquals(window.RootViewController, replacement) && ReferenceEquals(replacement.View?.Window, window)
+                && navigator.CurrentState.ActiveWindow?.Root is StackNode { Entries: [{ Id: "accepted-next" }] }
+                && navigator.History.Current?.Route is LeaseRoute { Name: "accepted-next" },
+                "Late caller cancellation prevented the verified replacement from committing.");
+        }
     }
 
     // A custom placeholder replaces a retired root the router still shows: here a navigation controller of its own,

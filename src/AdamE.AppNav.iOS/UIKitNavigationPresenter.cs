@@ -21,9 +21,10 @@ namespace AdamE.AppNav.iOS;
 /// </para>
 /// <para>
 /// Each operation resolves the plan into pages, changes native state, waits for a displayed frame and verifies the
-/// result before it returns. A failed or canceled operation restores the accepted presentation, or clears the window
-/// when that presentation is no longer current, before it throws, so the router never commits a state native does not
-/// show. A page is disposed only after it has physically left the window, and what it borrows is released only after
+/// result before it returns. Caller cancellation is honored until the presenter accepts the verified surface and starts
+/// retiring the old pages. A failed operation restores the prior presentation when possible. If a recoverable failure
+/// clears an accepted surface after retirement starts, the presenter asks the host to rebuild the router's state.
+/// A page is disposed only after it has physically left the window, and what it borrows is released only after
 /// that. If a page's native retirement fails, the presenter keeps that page's loan and lease attachment and fails each
 /// later operation and its own disposal with that failure. Pages already retired release; the pages still shown are
 /// never retired again, so they keep their loans and leases too.
@@ -120,6 +121,7 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
         using var admission = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _shutdown.Token);
         CancellationToken admissionToken = admission.Token;
         await _serial.WaitAsync(admissionToken).ConfigureAwait(false);
+        bool clearedAcceptedRoot = false;
         try
         {
             while (true)
@@ -127,7 +129,8 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
                 Surface? attempted = null;
                 try
                 {
-                    await ApplyOnceAsync(plan, context, admissionToken, resolved => attempted = resolved)
+                    await ApplyOnceAsync(plan, context, admissionToken, resolved => attempted = resolved,
+                            () => clearedAcceptedRoot = true)
                         .ConfigureAwait(false);
                     return;
                 }
@@ -152,6 +155,12 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
         {
             throw RetainUnsafeFailure(failure);
         }
+        catch when (clearedAcceptedRoot)
+        {
+            // A retry may already have restored the window. Repair only when the overall apply fails.
+            _ = OnMainAsync(() => RepairAsync());
+            throw;
+        }
         finally
         {
             _ = _serial.Release();
@@ -164,13 +173,16 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
         NavigationPlan plan,
         NavigationPresentationContext context,
         CancellationToken admissionToken,
-        Action<Surface> resolved)
+        Action<Surface> resolved,
+        Action acceptedRootCleared)
     {
         Surface? completed = null;
         bool unchangedAcceptedRoot = false;
+        bool hadAcceptedRoot = false;
         await OnMainAsync(async () =>
             {
                 Surface previous = _surface;
+                hadAcceptedRoot = previous.Root is not null;
                 Surface? target = null;
                 bool accepted = false;
                 bool mutated = false;
@@ -230,13 +242,14 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
                     owned.Token.ThrowIfCancellationRequested();
                     RequireCurrent(target);
                     Verify(target);
-                    owned.Token.ThrowIfCancellationRequested();
                     RequireCurrent(target);
+                    owned.Token.ThrowIfCancellationRequested();
                     _surface = target;
                     accepted = true;
-                    // Old artifacts cannot be rolled back after native disposal starts.
+                    // The old pages cannot be restored once native disposal starts. The caller's token
+                    // no longer owns this operation, but shutdown and retirement of the target still do.
                     ReleaseDifference(previous, target);
-                    owned.Token.ThrowIfCancellationRequested();
+                    _shutdown.Token.ThrowIfCancellationRequested();
                     RequireCurrent(target);
                     completed = target;
                 }
@@ -249,30 +262,7 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
                         throw;
                     if (accepted && target is not null)
                     {
-                        var failures = new List<Exception> { failure };
-                        try
-                        {
-                            ClearNative();
-                        }
-                        catch (Exception cleanup)
-                        {
-                            failures.Add(cleanup);
-                        }
-
-                        try
-                        {
-                            ReleaseDifference(target, new Surface(null, null, null, null));
-                        }
-                        catch (Exception cleanup)
-                        {
-                            failures.Add(cleanup);
-                        }
-
-                        _surface = new Surface(null, null, null, null);
-                        if (failures.Count > 1)
-                            throw new AggregateException(
-                                "Accepted native presentation could not be safely retired.",
-                                failures);
+                        DiscardAcceptedSurface(target, failure);
                         throw;
                     }
 
@@ -353,7 +343,7 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
             .ConfigureAwait(false);
         try
         {
-            admissionToken.ThrowIfCancellationRequested();
+            (unchangedAcceptedRoot ? admissionToken : _shutdown.Token).ThrowIfCancellationRequested();
             if (completed is not null)
                 RequireCurrent(completed);
         }
@@ -363,33 +353,41 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
                 throw; // A canceled read-only acknowledgment must not dismiss the original SDK hierarchy.
             await OnMainAsync(() =>
                 {
-                    var failures = new List<Exception> { failure };
-                    try
-                    {
-                        ClearNative();
-                    }
-                    catch (Exception cleanup)
-                    {
-                        failures.Add(cleanup);
-                    }
-
-                    if (completed is not null)
-                        try
-                        {
-                            ReleaseDifference(completed, new Surface(null, null, null, null));
-                        }
-                        catch (Exception cleanup)
-                        {
-                            failures.Add(cleanup);
-                        }
-
-                    _surface = new Surface(null, null, null, null);
-                    if (failures.Count > 1)
-                        throw new AggregateException("Canceled native presentation cleanup failed.", failures);
+                    DiscardAcceptedSurface(_surface, failure);
                     return Task.CompletedTask;
                 })
                 .ConfigureAwait(false);
             throw;
+        }
+
+        void DiscardAcceptedSurface(Surface target, Exception failure)
+        {
+            var failures = new List<Exception> { failure };
+            var empty = new Surface(null, null, null, null);
+            try
+            {
+                ClearNative();
+            }
+            catch (Exception cleanup)
+            {
+                failures.Add(cleanup);
+            }
+
+            try
+            {
+                ReleaseDifference(target, empty);
+            }
+            catch (Exception cleanup)
+            {
+                failures.Add(cleanup);
+            }
+
+            _surface = empty;
+            if (failures.Count > 1)
+                throw new AggregateException("Accepted native presentation could not be safely retired.", failures);
+            // A repair that starts from an empty window must not queue another repair of its own.
+            if (hadAcceptedRoot)
+                acceptedRootCleared();
         }
     }
 
@@ -1183,15 +1181,15 @@ public sealed class UIKitNavigationPresenter : INavigationPresenter, IAsyncDispo
         }
     }
 
-    private async Task RepairAsync(PresentedPage original)
+    private async Task RepairAsync(PresentedPage? original = null)
     {
         try
         {
             // The callback detaches AppNav execution context and serializes behind the failed operation.
-            if (original.IsCurrent && Volatile.Read(ref _disposed) == 0)
+            if (original?.IsCurrent != false && Volatile.Read(ref _disposed) == 0)
                 await DetachedAsync(() => _host.RequestRefreshAsync(_shutdown.Token));
         }
-        catch (OperationCanceledException) when (_shutdown.IsCancellationRequested || !original.IsCurrent) { }
+        catch (OperationCanceledException) when (_shutdown.IsCancellationRequested || original?.IsCurrent == false) { }
         catch (Exception failure)
         {
             _host.ReportRecoveredFailure(failure);

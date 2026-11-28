@@ -71,6 +71,12 @@ retires every page the operation built, all before `ApplyAsync` throws. The
 router then commits nothing. A refresh of an unchanged, still-current surface is
 a read-only acknowledgment: it never dismisses foreign UI.
 
+After acceptance, caller cancellation does not interrupt retirement of the old
+pages or prevent the router from committing a verified, current replacement.
+If the replacement becomes invalid and recovery leaves the window empty, the
+presenter asks the host to reapply the router's committed state. The refresh
+runs after the failed navigation and leaves history intact.
+
 If a page's lease retires after it was built while the router still shows its
 entry, the operation applies the same plan again, and the retired lease then
 gets its placeholder.
