@@ -51,8 +51,16 @@ internal static class PresenterChecks
         Require(hidden.Hidden && hidden.RootViewController is null, "Empty refresh revealed or populated the window.");
     }
 
-    private static async Task KeyOverlayNavigationAndRefreshAsync(UIWindow window, CancellationToken token)
+    private static async Task KeyOverlayNavigationAndRefreshAsync(UIWindow hostWindow, CancellationToken token)
     {
+        UIWindowScene scene = hostWindow.WindowScene
+                              ?? throw new InvalidOperationException("The check window has no scene.");
+        using var window = new UIWindow(scene);
+        using var restoreHost = new ActionDisposable(() =>
+        {
+            window.Hidden = true;
+            hostWindow.MakeKeyWindow();
+        });
         var root = new UIViewController();
         var sheet = new UIViewController { ModalPresentationStyle = UIModalPresentationStyle.PageSheet };
         await using var presenter = Presenter(window, entry => Page(entry.Id == "overlay-root" ? root : sheet));
@@ -62,8 +70,7 @@ internal static class PresenterChecks
         {
             View = new UIView { BackgroundColor = UIColor.Clear, Opaque = false }
         };
-        using var overlay = new UIWindow(
-            window.WindowScene ?? throw new InvalidOperationException("The check window has no scene."))
+        using var overlay = new UIWindow(scene)
         {
             RootViewController = overlayController,
             WindowLevel = UIWindowLevel.Alert,
