@@ -94,6 +94,7 @@ public struct ShellScreen: View {
     @State private var animationEvidence = "Waiting for native animation"
     @State private var gesturesBegan = 0
     @State private var showsHostCover = false
+    @State private var showsCenterOverlay = false
     @State private var callbackGeneration = 0
     @State private var reportGeneration = -1
     @State private var traceGeneration = -1
@@ -191,6 +192,16 @@ public struct ShellScreen: View {
                     Button("Show host cover") { showsHostCover = true }
                         .accessibilityIdentifier("probe-show-host-cover")
                 }
+                if ProcessInfo.processInfo.arguments.contains("--probe-center-overlay") {
+                    HStack {
+                        Button(showsCenterOverlay ? "Hide center overlay" : "Show center overlay") {
+                            showsCenterOverlay.toggle()
+                        }
+                        .accessibilityIdentifier("probe-toggle-center-overlay")
+                        Button("Push behind overlay") { model.runCommand("open-game") }
+                            .accessibilityIdentifier("probe-push-behind-overlay")
+                    }
+                }
                 if ProcessInfo.processInfo.arguments.contains("--probe-replace-host") {
                     Button(model.status.contains("replacement=held") ? "Release observation" : "Replace during push") {
                         model.runCommand("replace-during-push")
@@ -199,6 +210,16 @@ public struct ShellScreen: View {
                 }
             }
             .font(.caption)
+        }
+        .overlay {
+            if showsCenterOverlay {
+                GeometryReader { geometry in
+                    Color.black.opacity(0.25)
+                        .frame(width: geometry.size.width - 60, height: geometry.size.height * 0.5)
+                        .position(x: geometry.size.width / 2, y: geometry.size.height * 0.4)
+                        .accessibilityHidden(true)
+                }
+            }
         }
         .environment(\.appNavHoldsSettlement, holdsSettlement)
         .fullScreenCover(isPresented: $showsHostCover) {
