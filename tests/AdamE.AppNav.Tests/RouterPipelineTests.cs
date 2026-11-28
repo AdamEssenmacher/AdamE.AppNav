@@ -36,8 +36,10 @@ public sealed class RouterPipelineTests
         Assert.Equal(1, presenter.ApplyCount);
     }
 
-    [Fact]
-    public async Task UriRouteMetadataFlowsIntoEffectiveRequest()
+    [Theory]
+    [InlineData(null, "mission-1")]
+    [InlineData("explicit", "explicit")]
+    public async Task UriRouteMetadataFlowsIntoEffectiveRequest(string? requestMissionId, string expectedMissionId)
     {
         var table = RouteTable.Create(routes => routes.MapRoute<TestRoutes.StoreRoute>(
             "/stores/{storeId}",
@@ -45,11 +47,35 @@ public sealed class RouterPipelineTests
         var planner = new MetadataCapturingPlanner();
         var navigator = new RouterNavigator(table, planner, NullNavigationPresenter.Instance);
 
+        var metadata = requestMissionId is null
+            ? null
+            : new Dictionary<string, object?> { [MissionIdMetadata.Name] = requestMissionId };
         await navigator.NavigateAsync(RouterNavigationRequest.FromUri(
             new Uri("https://example.com/stores/northwind?missionId=mission-1"),
-            NavigationRequestSource.Test));
+            NavigationRequestSource.Test,
+            metadata: metadata));
 
-        Assert.Equal("mission-1", planner.Metadata[MissionIdMetadata.Name]);
+        Assert.Equal(expectedMissionId, planner.Metadata[MissionIdMetadata.Name]);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PlanningReusesEffectiveRequestWhenRouteContributesNoMetadata(bool useUri)
+    {
+        var planner = new RequestCapturingPlanner();
+        var navigator = new RouterNavigator(TestRoutes.CreateTable(), planner, NullNavigationPresenter.Instance);
+        var metadata = new Dictionary<string, object?> { ["origin"] = "request" };
+        var request = useUri
+            ? RouterNavigationRequest.FromUri(
+                new Uri("/stores/northwind", UriKind.Relative), NavigationRequestSource.Test, metadata: metadata)
+            : RouterNavigationRequest.FromRoute(
+                new TestRoutes.StoreRoute("northwind"), NavigationRequestSource.Test, metadata: metadata);
+
+        await navigator.NavigateAsync(request);
+
+        Assert.Same(request, planner.Request);
+        Assert.Equal("request", planner.Metadata["origin"]);
     }
 
     [Fact]

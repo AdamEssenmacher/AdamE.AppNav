@@ -70,11 +70,15 @@ internal sealed class RouterRequestResolver(
             effectiveRequest = policyResult.Request;
             if (!policyResult.Restarted)
             {
-                RouterNavigationRequest finalizedRequest = effectiveRequest with
+                if (resolvedRoute.Metadata is { Count: > 0 } routeMetadata)
                 {
-                    Metadata = MergeMetadata(resolvedRoute.Metadata, effectiveRequest.Metadata)
-                };
-                return new ResolvedNavigationRequest(finalizedRequest, route, resolvedRoute.Definition);
+                    effectiveRequest = effectiveRequest with
+                    {
+                        Metadata = MergeMetadata(routeMetadata, effectiveRequest.Metadata)
+                    };
+                }
+
+                return new ResolvedNavigationRequest(effectiveRequest, route, resolvedRoute.Definition);
             }
         }
     }
@@ -399,17 +403,10 @@ internal sealed class RouterRequestResolver(
     }
 
     private static Dictionary<string, object?> MergeMetadata(
-        IReadOnlyDictionary<string, object?>? lowerPriority,
-        IReadOnlyDictionary<string, object?>? higherPriority)
+        IReadOnlyDictionary<string, object?> lowerPriority,
+        IReadOnlyDictionary<string, object?> higherPriority)
     {
-        var merged = new Dictionary<string, object?>(StringComparer.Ordinal);
-        if (lowerPriority is not null)
-            foreach (KeyValuePair<string, object?> pair in lowerPriority)
-                merged[pair.Key] = pair.Value;
-
-        if (higherPriority is null)
-            return merged;
-
+        var merged = new Dictionary<string, object?>(lowerPriority, StringComparer.Ordinal);
         foreach (KeyValuePair<string, object?> pair in higherPriority)
             merged[pair.Key] = pair.Value;
 
