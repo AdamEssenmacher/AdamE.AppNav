@@ -65,6 +65,8 @@ struct FrameObserver: UIViewRepresentable {
     let report: (NavigationReading) -> Void
     let trace: (String) -> Void
     var guardsBack: ((NavigationEntry) -> Bool)? = nil
+    let isAppNavModalPresented: Bool
+    let holdsSettlement: Bool
 
     func makeUIView(context: Context) -> FrameView {
         let view = FrameView()
@@ -75,6 +77,8 @@ struct FrameObserver: UIViewRepresentable {
         view.surface = surface
         surface.updateCallbacks(report: report, trace: trace)
         surface.guardsBack = guardsBack
+        surface.isAppNavModalPresented = isAppNavModalPresented
+        surface.holdsSettlement = holdsSettlement
     }
     static func dismantleUIView(_ view: FrameView, coordinator: Void) {
         view.stop()
@@ -96,6 +100,8 @@ final class NativeSurface: ObservableObject {
     /// The app's Back guard. A collapsed split shows its secondary root over the primary column, and SwiftUI keeps
     /// that root's system Back and edge swipe however the page hides its Back button, so the surface enforces it.
     var guardsBack: ((NavigationEntry) -> Bool)?
+    var isAppNavModalPresented = false
+    var holdsSettlement = false
     private var backGuard: BackGuard?
     /// The window's split controller as last found; see `splitController(in:pages:)`.
     private weak var splitControllerCache: UISplitViewController?
@@ -212,14 +218,13 @@ final class NativeSurface: ObservableObject {
             return StackSample(
                 key: page.key, top: page.entry, depth: page.nav.viewControllers.count,
                 identities: page.nav.viewControllers.map { identities.object(forKey: $0) as String? },
-                isVisible: page.nav.visibleViewController === page.controller,
                 isInWindow: page.controller.viewIfLoaded?.window === window,
-                isHittable: hitTest(page.nav, in: window),
                 isTransitioning: (page.nav.transitionCoordinator ?? page.controller.transitionCoordinator) != nil)
         }
         var sample = NativeSample(time: CACurrentMediaTime(), markerKeys: attached.map(\.key), tops: tops,
                                   isTransitioning: isTransitioning,
-                                  mounted: pages.map { MountedPage(key: $0.key, entry: $0.entry) })
+                                  mounted: pages.map { MountedPage(key: $0.key, entry: $0.entry) },
+                                  isAppNavModalPresented: isAppNavModalPresented, holdsSettlement: holdsSettlement)
         if let split {
             if splitTransitioning { sample.isTransitioning = true }
             sample.split = SplitSample(isCollapsed: split.isCollapsed)
@@ -397,12 +402,6 @@ final class NativeSurface: ObservableObject {
             responder = current.next
         }
         return nil
-    }
-
-    private func hitTest(_ nav: UINavigationController, in window: UIWindow) -> Bool {
-        guard let view = nav.viewIfLoaded, view.window === window else { return false }
-        let middle = view.convert(CGPoint(x: view.bounds.midX, y: view.bounds.midY), to: window)
-        return window.hitTest(middle, with: nil)?.isDescendant(of: view) == true
     }
 
     private func track(_ transition: any UIViewControllerTransitionCoordinator) {

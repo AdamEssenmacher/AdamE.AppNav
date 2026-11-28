@@ -1,4 +1,4 @@
-import AppNavSwiftUI
+@_spi(Testing) import AppNavSwiftUI
 import OahuRuntime
 import SwiftUI
 
@@ -93,6 +93,8 @@ public struct ShellScreen: View {
     @Namespace private var gameZoom
     @State private var animationEvidence = "Waiting for native animation"
     @State private var gesturesBegan = 0
+    @State private var showsHostCover = false
+    @State private var showsCenterOverlay = false
     @State private var callbackGeneration = 0
     @State private var reportGeneration = -1
     @State private var traceGeneration = -1
@@ -184,6 +186,22 @@ public struct ShellScreen: View {
                 }
                 Button("Open fade sheet") { model.runCommand("open-fade-sheet") }
                     .accessibilityIdentifier("probe-open-fade-sheet")
+                if ProcessInfo.processInfo.arguments.contains("--probe-host-presentation") {
+                    Button("Push behind alert") { model.runCommand("push-behind-alert") }
+                        .accessibilityIdentifier("probe-push-behind-alert")
+                    Button("Show host cover") { showsHostCover = true }
+                        .accessibilityIdentifier("probe-show-host-cover")
+                }
+                if ProcessInfo.processInfo.arguments.contains("--probe-center-overlay") {
+                    HStack {
+                        Button(showsCenterOverlay ? "Hide center overlay" : "Show center overlay") {
+                            showsCenterOverlay.toggle()
+                        }
+                        .accessibilityIdentifier("probe-toggle-center-overlay")
+                        Button("Push behind overlay") { model.runCommand("open-game") }
+                            .accessibilityIdentifier("probe-push-behind-overlay")
+                    }
+                }
                 if ProcessInfo.processInfo.arguments.contains("--probe-replace-host") {
                     Button(model.status.contains("replacement=held") ? "Release observation" : "Replace during push") {
                         model.runCommand("replace-during-push")
@@ -194,18 +212,23 @@ public struct ShellScreen: View {
             .font(.caption)
         }
         .overlay {
-            // The shell settles a page only once the centre of its navigation controller hit-tests into it. This band
-            // covers that point while Game is on top, so the push stays applying until a Back gesture begins. It
-            // leaves the leading edge free for that swipe.
-            if Self.holdsGameSettlement, gesturesBegan == 0,
-               model.target.branches.contains(where: { $0.entries.last?.entryId == "game" }) ||
-                model.target.split.secondaryEntries.last?.entryId.hasPrefix("game-") == true {
+            if showsCenterOverlay {
                 GeometryReader { geometry in
-                    Color.black.opacity(0.02)
+                    Color.black.opacity(0.25)
                         .frame(width: geometry.size.width - 60, height: geometry.size.height * 0.5)
-                        .position(x: 30 + (geometry.size.width - 60) / 2, y: geometry.size.height * 0.4)
+                        .position(x: geometry.size.width / 2, y: geometry.size.height * 0.4)
                         .accessibilityHidden(true)
                 }
+            }
+        }
+        .environment(\.appNavHoldsSettlement, holdsSettlement)
+        .fullScreenCover(isPresented: $showsHostCover) {
+            VStack {
+                Text(model.status).accessibilityIdentifier("probe-cover-status")
+                Button("Deep link") { model.runCommand("deep-link") }
+                    .accessibilityIdentifier("probe-cover-link")
+                Button("Dismiss") { showsHostCover = false }
+                    .accessibilityIdentifier("probe-dismiss-host-cover")
             }
         }
         .environment(\.gameProbe, GameProbeContext(
@@ -217,6 +240,12 @@ public struct ShellScreen: View {
             replaceModal: { model.runCommand($0) }, trace: gameTrace))
         .environment(\.splitProbe, SplitProbeContext.isEnabled
             ? SplitProbeContext(namespace: gameZoom, command: { model.runCommand($0) }) : nil)
+    }
+
+    private var holdsSettlement: Bool {
+        Self.holdsGameSettlement && gesturesBegan == 0 &&
+            (model.target.branches.contains { $0.entries.last?.entryId == "game" } ||
+                model.target.split.secondaryEntries.last?.entryId.hasPrefix("game-") == true)
     }
 
     private func splitLayout(_ diagnostics: NavigationDiagnostics) -> String {

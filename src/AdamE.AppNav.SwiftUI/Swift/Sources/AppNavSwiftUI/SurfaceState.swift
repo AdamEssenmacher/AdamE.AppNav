@@ -40,12 +40,8 @@ struct StackSample: Equatable {
     var depth: Int
     /// The entry each controller was last seen showing, bottom first. Nil where it was never witnessed.
     var identities: [String?]
-    /// The top is the navigation controller's visible view controller.
-    var isVisible = true
     /// The top's view is in the sampled window.
     var isInWindow = true
-    /// The centre of the navigation controller hit-tests to its own view.
-    var isHittable = true
     /// The navigation controller or its top has a transition coordinator.
     var isTransitioning = false
 }
@@ -59,6 +55,10 @@ struct NativeSample {
     var isTransitioning = false
     /// Every configured page marker attached to the window, as its stack and entry.
     var mounted: [MountedPage] = []
+    /// An AppNav sheet or cover appeared and has yet to finish dismissing.
+    var isAppNavModalPresented = false
+    /// The simulator probe is holding settlement while native gestures still run.
+    var holdsSettlement = false
     /// The split's layout, or nil when the window has no split controller.
     var split: SplitSample?
 }
@@ -804,7 +804,7 @@ struct SurfaceState {
         }
         if let pending = undo, quiet {
             restore(pending, &out)
-        } else {
+        } else if !applying || !sample.holdsSettlement {
             qualified = witness(sample, &out)
         }
         if !qualified { candidate = nil }
@@ -814,7 +814,7 @@ struct SurfaceState {
         // An applying revision always ends: it settles, or the native side sits still without showing it
         // for `stallLimit` and the shell stops waiting.
         if case .applying(let quietSince) = phase {
-            if qualified || !quiet {
+            if qualified || !quiet || sample.holdsSettlement {
                 phase = .applying(quietSince: nil)
             } else if let quietSince {
                 if sample.time - quietSince >= stallLimit { abandon("the native stack never showed it", &out) }
@@ -912,7 +912,7 @@ struct SurfaceState {
         if applying && sample.time >= nextDiagnostic {
             nextDiagnostic = sample.time + 2
             let tops = sample.tops.map { top in
-                "\(top.key):\(top.top.id):depth=\(top.depth):visible=\(top.isVisible):hit=\(top.isHittable):transition=\(top.isTransitioning)"
+                "\(top.key):\(top.top.id):depth=\(top.depth):inWindow=\(top.isInWindow):transition=\(top.isTransitioning)"
             }.joined(separator: ";")
             out.traces.append("waiting rev=\(target.revision) branch=\(selectedBranch) modal=\(selectedModal?.id ?? "-") attached=\(sample.markerKeys.count) tops=[\(tops)]")
         }
@@ -929,12 +929,12 @@ struct SurfaceState {
         if let currentModal {
             let key = StackKey.modal(currentModal.id)
             guard modalMarkers.allSatisfy({ $0 == key }),
-                  let visible = sample.tops.first(where: { $0.key == key && $0.isHittable })
+                  let top = sample.tops.first(where: { $0.key == key })
             else { return false }
-            modalTop = visible
+            modalTop = top
         } else {
-            // The old sheet must leave before the uncovered branch can be acknowledged.
-            guard modalMarkers.isEmpty, branchTop?.isHittable ?? true else { return false }
+            // Wait for AppNav's presenter to finish dismissing even after its pages have unmounted.
+            guard modalMarkers.isEmpty, !sample.isAppNavModalPresented else { return false }
             modalTop = nil
         }
 
@@ -952,8 +952,7 @@ struct SurfaceState {
 
         let branchEntries: [String]
         if let branch, let branchTop {
-            guard let entries = read(branchTop, desired: desired(branch.entries, key: .branch(branch.id)),
-                                     covered: modalTop != nil)
+            guard let entries = read(branchTop, desired: desired(branch.entries, key: .branch(branch.id)))
             else { return false }
             if isWaitingForTab(branchTop.key), entries.count < branch.entries.count {
                 // There is no independent witness for a selection followed by a premature pop.
@@ -1005,13 +1004,11 @@ struct SurfaceState {
         if let currentModal {
             let key = StackKey.modal(currentModal.id)
             guard modalMarkers.allSatisfy({ $0 == key }),
-                  let visible = sample.tops.first(where: { $0.key == key && $0.isHittable })
+                  let top = sample.tops.first(where: { $0.key == key })
             else { return false }
-            modalTop = visible
+            modalTop = top
         } else {
-            // The old sheet must leave before the columns can be acknowledged. An overlaid column is dimmed, so one
-            // hittable column is enough.
-            guard modalMarkers.isEmpty, columnTops.isEmpty || columnTops.contains(where: \.isHittable) else { return false }
+            guard modalMarkers.isEmpty, !sample.isAppNavModalPresented else { return false }
             modalTop = nil
         }
         if applying, let top = modalTop ?? columnTops.last, stagedTops.last != top.top.id { stagedTops.append(top.top.id) }
@@ -1024,13 +1021,12 @@ struct SurfaceState {
         }
         takenBackKept = false
 
-        let covered = modalTop != nil
         let primaryEntries = [primaryRoot] + (paths[primaryKey] ?? [])
         var primaryIDs: [String]
         var secondaryIDs: [String]
         var compact: NavigationSplitColumn
         if layout.isCollapsed {
-            guard columnTops.count == 1, let top = columnTops.first, covered || top.isVisible, top.isInWindow
+            guard columnTops.count == 1, let top = columnTops.first, top.isInWindow
             else { return false }
             if let secondary, let secondaryKey, top.key == secondaryKey {
                 let secondaryEntries = [secondary.entries[0]] + (paths[secondaryKey] ?? [])
@@ -1067,7 +1063,7 @@ struct SurfaceState {
             }
         } else {
             if let top = columnTops.first(where: { $0.key == primaryKey }), top.isInWindow {
-                guard let entries = read(top, desired: primary.entries, covered: covered) else { return false }
+                guard let entries = read(top, desired: primary.entries) else { return false }
                 primaryIDs = entries
             } else {
                 guard applying ? primary.entries == primaryEntries : primary.entries.starts(with: primaryEntries)
@@ -1076,7 +1072,7 @@ struct SurfaceState {
             }
             if let secondary, let secondaryKey {
                 guard let top = columnTops.first(where: { $0.key == secondaryKey }),
-                      let entries = read(top, desired: desired(secondary.entries, key: secondaryKey), covered: covered)
+                      let entries = read(top, desired: desired(secondary.entries, key: secondaryKey))
                 else { return false }
                 secondaryIDs = entries
             } else {
@@ -1107,10 +1103,9 @@ struct SurfaceState {
         return true
     }
 
-    private func read(_ top: StackSample, desired: [NavigationEntry], covered: Bool = false) -> [String]? {
-        // UIKit reports the presented sheet as the underlying navigation controller's visible controller.
-        // Its own top still needs to be mounted in the same window and match the retained path.
-        guard let root = desired.first, covered || top.isVisible, top.isInWindow else { return nil }
+    private func read(_ top: StackSample, desired: [NavigationEntry]) -> [String]? {
+        // A presentation can cover the stack while UIKit still holds the expected top in the window.
+        guard let root = desired.first, top.isInWindow else { return nil }
         // SwiftUI creates hidden destinations lazily. Verify controller count, mounted top,
         // and every controller identity that could previously be witnessed.
         let entries = [root] + (paths[top.key] ?? [])
