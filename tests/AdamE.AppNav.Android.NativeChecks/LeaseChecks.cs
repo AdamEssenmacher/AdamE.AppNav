@@ -17,7 +17,8 @@ internal static class LeaseChecks
         ("lease-retired-during-build", RetiredDuringBuildAsync),
         ("lease-custom-placeholders", CustomPlaceholdersAsync),
         ("lease-opened-by-presenter", OpenedByPresenterAsync),
-        ("router-host", RouterHostAsync)
+        ("router-host", RouterHostAsync),
+        ("router-cancel-after-acceptance", CancelAfterAcceptanceAsync)
     ];
 
     private static async Task ReleaseOrderAsync(ComponentActivity activity, CancellationToken token)
@@ -434,6 +435,66 @@ internal static class LeaseChecks
             _ = await router.NavigateAsync(
                 RouterNavigationRequest.FromRoute(new CheckRoute(id), NavigationRequestSource.Test),
                 token);
+    }
+
+    private static async Task CancelAfterAcceptanceAsync(ComponentActivity activity, CancellationToken token)
+    {
+        const string rootId = "cancel-root";
+        const string firstId = "cancel-first";
+        const string nextId = "cancel-next";
+        using var caller = CancellationTokenSource.CreateLinkedTokenSource(token);
+        var leaseHost = new MainThreadLeaseHost();
+        var leases = new RouteEntryLeaseRegistry(leaseHost);
+        var failures = new List<Exception>();
+        IRouterNavigator? router = null;
+        var navigationHost = new AndroidRouterNavigationHost(
+            () => router ?? throw new InvalidOperationException("No router yet."),
+            Topology,
+            failures.Add);
+        var views = new Dictionary<string, ProbeView>(StringComparer.Ordinal);
+        AndroidNavigationPresenter presenter = Presenter(
+            request => Page(
+                views[request.Entry.Id] = new ProbeView(request.Activity),
+                loan: request.Entry.Id == firstId ? new ActionDisposable(caller.Cancel) : null),
+            navigationHost,
+            new AndroidNavigationPresenterOptions { EntryLeases = leases });
+        Mount(presenter, activity);
+        router = RouterChecks.Router(new PushedPlanner(rootId), presenter, leases);
+        try
+        {
+            _ = await router.NavigateAsync(
+                RouterNavigationRequest.FromRoute(new CheckRoute(firstId), NavigationRequestSource.Test), token);
+            ProbeView root = views[rootId];
+            ProbeView first = views[firstId];
+            Require(ReferenceEquals(Visible(activity), first), "The first pushed page was not shown.");
+
+            // Retiring the first pushed page cancels the caller after the replacement has been accepted.
+            NavigationResult result = await router.NavigateAsync(
+                RouterNavigationRequest.FromRoute(new CheckRoute(nextId), NavigationRequestSource.Test), caller.Token);
+            ProbeView next = views[nextId];
+            Require(caller.IsCancellationRequested && first.Disposed, "Retirement did not cancel the caller.");
+            Require(result.Presented
+                    && router.CurrentState.ActiveWindow?.Root is StackNode { Entries: [{ Id: rootId }, { Id: nextId }] }
+                    && ReferenceEquals(Visible(activity), next)
+                    && !next.Disposed && !root.Disposed,
+                "Late cancellation did not preserve and commit the replacement and its root.");
+
+            Require(activity.OnBackPressedDispatcher.HasEnabledCallbacks, "Back was disabled after late cancellation.");
+            activity.OnBackPressedDispatcher.OnBackPressed();
+            await UntilAsync(
+                () => router.CurrentState.ActiveWindow?.Root is StackNode { Entries: [{ Id: rootId }] }
+                      && ReferenceEquals(Visible(activity), root) && next.Disposed,
+                "Back after late cancellation did not return to the original root.",
+                token);
+        }
+        finally
+        {
+            Task disposal = router.DisposeAsync().AsTask();
+            await presenter.DisposeAsync();
+            await disposal.WaitAsync(Soon, token);
+        }
+
+        Require(leaseHost.Failures.Count == 0 && failures.Count == 0, "Late cancellation reported a failure.");
     }
 
     private sealed class RequestPages(Func<AndroidPageRequest, AndroidPage> pages) : IAndroidPageFactory
