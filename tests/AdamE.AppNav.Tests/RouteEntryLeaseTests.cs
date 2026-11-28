@@ -619,19 +619,28 @@ public sealed class RouteEntryLeaseTests
         {
             // A presenter that uses GetOrOpen as a lookup for an entry the plan does not contain, and never closes it.
             RouteEntryLease stray = leases.GetOrOpen("elsewhere", out bool opened);
-            Assert.True(opened);
             strays.Add(stray);
+            Assert.True(opened);
             return ValueTask.CompletedTask;
         };
 
-        await router.NavigateAsync(new TestRoutes.StoreRoute("one"));
-        await router.RefreshPresentationAsync();
+        try
+        {
+            await router.NavigateAsync(new TestRoutes.StoreRoute("one"));
+            await router.RefreshPresentationAsync();
 
-        Assert.Equal(2, strays.Count);
-        Assert.All(strays, static stray => Assert.Equal(RouteEntryLeaseRetirement.Abandoned, stray.Retirement));
-        await Task.WhenAll(strays.Select(static stray => stray.Released)).WaitAsync(Timeout);
-        Assert.False(leases.TryGet("elsewhere", out _));
-        leases.Open("elsewhere").Close();
+            Assert.Equal(2, strays.Count);
+            Assert.All(strays, static stray => Assert.Equal(RouteEntryLeaseRetirement.Abandoned, stray.Retirement));
+            await Task.WhenAll(strays.Select(static stray => stray.Released)).WaitAsync(Timeout);
+            Assert.False(leases.TryGet("elsewhere", out _));
+            leases.Open("elsewhere").Close();
+        }
+        finally
+        {
+            // Let router disposal drain even if an operation failed to close a lease.
+            foreach (RouteEntryLease stray in strays)
+                stray.Close();
+        }
     }
 
     [Fact]
@@ -650,16 +659,23 @@ public sealed class RouteEntryLeaseTests
             return ValueTask.CompletedTask;
         };
 
-        await router.NavigateAsync(new TestRoutes.StoreRoute("one"));
+        try
+        {
+            await router.NavigateAsync(new TestRoutes.StoreRoute("one"));
 
-        Assert.NotNull(lookedUp);
-        Assert.True(lookedUp.IsCommitted);
-        Assert.Throws<InvalidOperationException>(() => lookedUp.Own(() => { }));
+            Assert.NotNull(lookedUp);
+            Assert.True(lookedUp.IsCommitted);
+            Assert.Throws<InvalidOperationException>(() => lookedUp.Own(() => { }));
 
-        await router.NavigateAsync(new TestRoutes.StoreRoute("two"));
+            await router.NavigateAsync(new TestRoutes.StoreRoute("two"));
 
-        await lookedUp.Released.WaitAsync(Timeout);
-        Assert.Equal(RouteEntryLeaseRetirement.Dropped, lookedUp.Retirement);
+            await lookedUp.Released.WaitAsync(Timeout);
+            Assert.Equal(RouteEntryLeaseRetirement.Dropped, lookedUp.Retirement);
+        }
+        finally
+        {
+            lookedUp?.Close();
+        }
     }
 
     [Fact]
