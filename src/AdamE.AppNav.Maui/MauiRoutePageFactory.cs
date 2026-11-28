@@ -40,6 +40,10 @@ internal interface IMauiRoutePageFactory
 
     ValueTask ReleasePresentationPageAsync(Page page);
 
+    void PrepareEntry(string entryId) { }
+
+    ValueTask AbandonOutstandingPagesAsync() => ValueTask.CompletedTask;
+
     /// <summary>Releases every page this factory built that has not been released, at presenter shutdown.</summary>
     ValueTask ReleaseOutstandingPagesAsync() => ValueTask.CompletedTask;
 }
@@ -90,6 +94,7 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
     // The DI scope of each entry occurrence whose lease this factory opened, owned and disposed by that lease.
     private readonly ConditionalWeakTable<RouteEntryLease, IServiceProvider> _entryServices = new();
     // Pages built and not yet released, so shutdown can detach every artifact even if the presenter lost one.
+    private int _treeGeneration;
     private readonly HashSet<Page> _outstandingPages = new(ReferenceEqualityComparer.Instance);
 
     public MauiRoutePageFactory(
@@ -123,6 +128,7 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
                 lease.RetiredToken);
         }
 
+        int generation = _treeGeneration;
         Page? page = null;
         IAsyncDisposable? pageScope = null;
         try
@@ -139,17 +145,20 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
                         "already presented. Route pages must be new instances; register them as transient.");
                 }
 
-                var handle = new PageHandle(
-                    lease,
-                    attachment,
-                    pageScope,
-                    services.GetServices<IMauiRoutePageLifecycleHook>().ToArray());
+                var hooks = services.GetServices<IMauiRoutePageLifecycleHook>().ToArray();
+                if (generation != _treeGeneration)
+                    throw new MauiNativeTreeInvalidatedException();
+                var handle = new PageHandle(lease, attachment, pageScope, hooks);
                 SetPageHandle(page, handle);
                 attachment = null;
                 pageScope = null;
                 Track(page);
                 foreach (IMauiRoutePageLifecycleHook hook in handle.GetActiveHooks())
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
                     await hook.OnPageCreatedAsync(page, entry, cancellationToken);
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
 
                 return page;
             }
@@ -161,7 +170,7 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
         {
             try
             {
-                await CleanupFailedCreationAsync(page, attachment, pageScope).ConfigureAwait(false);
+                await CleanupFailedCreationAsync(generation == _treeGeneration ? page : null, attachment, pageScope).ConfigureAwait(false);
             }
             catch (Exception cleanupException)
             {
@@ -204,6 +213,7 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
                 "The owning route entry has retired, so it cannot present new pages until a navigation removes it.");
         }
 
+        int generation = _treeGeneration;
         IAsyncDisposable? scope = null;
         Page? page = null;
         try
@@ -222,6 +232,9 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
                 throw new AppNavigationConfigurationException(
                     $"Registered presentation page service '{pageType.FullName}' did not resolve to a MAUI Page.");
             }
+
+            if (generation != _treeGeneration)
+                throw new MauiNativeTreeInvalidatedException();
 
             if (GetPageHandle(resolvedPage) is not null)
             {
@@ -245,7 +258,7 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
         {
             try
             {
-                await CleanupFailedCreationAsync(page, attachment, scope).ConfigureAwait(false);
+                await CleanupFailedCreationAsync(generation == _treeGeneration ? page : null, attachment, scope).ConfigureAwait(false);
             }
             catch (Exception cleanupException)
             {
@@ -268,7 +281,11 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
         PageHandle handle = GetPageHandle(page) ??
             throw new InvalidOperationException("The route page is not owned by this page factory.");
         foreach (IMauiRoutePageLifecycleHook hook in handle.GetActiveHooks())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
             await hook.OnPageUpdatedAsync(page, entry, context, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+        }
     }
 
     public ValueTask ReleasePageAsync(Page page)
@@ -330,6 +347,45 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
         AsyncServiceScope scope = _serviceProvider.CreateAsyncScope();
         pageScope = scope;
         return scope.ServiceProvider;
+    }
+
+    public void PrepareEntry(string entryId)
+    {
+        RouteEntryLease lease = _leases.GetOrOpen(entryId, out bool opened);
+        if (opened)
+            OpenEntryServices(lease);
+    }
+
+    public ValueTask AbandonOutstandingPagesAsync()
+    {
+        // Claim every handle synchronously, including a page still inside a creation hook.
+        // Only scope disposal and detaching the page's lease can continue after Destroying.
+        _treeGeneration++;
+        var resourcesToRelease = new List<PageReleaseResources>();
+        lock (_outstandingPages)
+        {
+            foreach (Page page in _outstandingPages)
+            {
+                if (GetPageHandle(page) is { } handle && handle.TryClaimRelease(out var resources))
+                    resourcesToRelease.Add(resources);
+            }
+            _outstandingPages.Clear();
+        }
+        return new ValueTask(Task.WhenAll(resourcesToRelease.Select(resources =>
+            ReleaseAttachmentAsync(resources.Scope, resources.Attachment))));
+    }
+
+    private static async Task ReleaseAttachmentAsync(IAsyncDisposable? scope, RouteEntryLeaseAttachment? attachment)
+    {
+        try
+        {
+            if (scope is not null)
+                await scope.DisposeAsync();
+        }
+        finally
+        {
+            attachment?.Detach();
+        }
     }
 
     public async ValueTask ReleaseOutstandingPagesAsync()
@@ -409,6 +465,7 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
 
     private async ValueTask ReleaseCoreAsync(Page page)
     {
+        int generation = _treeGeneration;
         PageHandle? handle = GetPageHandle(page);
         if (handle is null)
         {
@@ -436,6 +493,8 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
 
         foreach (IMauiRoutePageLifecycleHook hook in resources.Hooks)
         {
+            if (generation != _treeGeneration)
+                break;
             try
             {
                 await hook.OnPageReleasedAsync(page, CancellationToken.None);
@@ -448,7 +507,8 @@ internal sealed class MauiRoutePageFactory : IMauiRoutePageFactory
 
         try
         {
-            page.BindingContext = null;
+            if (generation == _treeGeneration)
+                page.BindingContext = null;
         }
         catch (Exception ex)
         {

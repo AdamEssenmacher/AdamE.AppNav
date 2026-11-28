@@ -64,6 +64,17 @@ A hook cannot synchronously or asynchronously re-enter `NavigateAsync`,
 follow-up navigation after the hook and its owning router operation complete.
 Reentrant calls fail immediately with `InvalidOperationException`.
 
+## Window recreation
+
+When MAUI destroys the attached window, AppNav drops its native pages. It keeps
+the committed routes, logical modals, and live route-entry scopes. Navigation
+during the gap updates the logical state. Starting the replacement window
+rebuilds fresh pages and restores logical modals after attaching the new root.
+Route-owned presentation pages are transient and must be opened again.
+
+Destruction skips page-release hooks on abandoned pages. Keep resources that
+must be disposed independently of a page in its DI scope or route-entry lease.
+
 ## Transaction and Back behavior
 
 AppNav stages replacements, retains removed pages until commit, suppresses
