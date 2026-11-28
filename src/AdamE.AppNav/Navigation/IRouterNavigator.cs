@@ -20,10 +20,14 @@ public interface IRouterNavigator : IDisposable, IAsyncDisposable
 
     NavigationHistory History { get; }
 
+    /// <summary>Executes a navigation request and returns its outcome.</summary>
+    /// <remarks>Await this operation. Blocking the UI thread can deadlock if presentation needs that thread.</remarks>
     ValueTask<NavigationResult> NavigateAsync(
         RouterNavigationRequest request,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Requests app-authored Back navigation for the specified window.</summary>
+    /// <remarks>Await this operation. Blocking the UI thread can deadlock if presentation needs that thread.</remarks>
     ValueTask<BackNavigationResult> BackAsync(
         string? windowId = null,
         CancellationToken cancellationToken = default)
@@ -34,6 +38,8 @@ public interface IRouterNavigator : IDisposable, IAsyncDisposable
     }
 
 #pragma warning disable RS0026 // The preview intentionally exposes paired legacy and request-backed Back overloads.
+    /// <summary>Executes a Back navigation request and returns its outcome.</summary>
+    /// <remarks>Await this operation. Blocking the UI thread can deadlock if presentation needs that thread.</remarks>
     ValueTask<BackNavigationResult> BackAsync(
         BackNavigationRequest request,
         CancellationToken cancellationToken = default);
