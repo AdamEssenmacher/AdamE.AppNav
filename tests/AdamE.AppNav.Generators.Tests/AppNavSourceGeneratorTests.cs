@@ -1172,6 +1172,34 @@ public sealed class AppNavSourceGeneratorTests
         AssertCompileClean(result.Compilation);
     }
 
+    [Theory]
+    [InlineData(".", ".")]
+    [InlineData("..", "..")]
+    [InlineData("%2e", ".")]
+    [InlineData(".%2E", "..")]
+    [InlineData("%2e%2E", "..")]
+    public void LiteralDotSegmentReportsInvalidTemplate(string literal, string decoded)
+    {
+        string template = $"/docs/{literal}/posts";
+        string source = $$"""
+            using AdamE.AppNav;
+            using AdamE.AppNav.Routing;
+
+            namespace Commerce.Sample;
+
+            [AppNavRoute("{{template}}")]
+            public sealed record PostsRoute : AppRoute;
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+
+        string expectedMessage = $"Route template '{template}' contains the literal dot segment '{decoded}'.";
+        Assert.Contains(result.GeneratorDiagnostics, diagnostic =>
+            diagnostic.Id == "APPNAV001" &&
+            diagnostic.Severity == DiagnosticSeverity.Error &&
+            diagnostic.GetMessage().Contains(expectedMessage, StringComparison.Ordinal));
+    }
+
     [Fact]
     public void MissingPathPropertyReportsDiagnostic()
     {
