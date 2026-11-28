@@ -14,13 +14,13 @@ jobs:
     name: GitHub prerelease from validated packages
     runs-on: ubuntu-24.04
     steps:
-      - name: Require the exact current main commit
+      - name: Require the exact current preview commit
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          main_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
-          if [[ "$main_sha" != "$GITHUB_SHA" ]]; then
-            echo "Tag commit $GITHUB_SHA is not the current main commit $main_sha." >&2
+          preview_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/preview" --jq '.object.sha')"
+          if [[ "$preview_sha" != "$GITHUB_SHA" ]]; then
+            echo "Tag commit $GITHUB_SHA is not the current preview commit $preview_sha." >&2
             exit 1
           fi
 

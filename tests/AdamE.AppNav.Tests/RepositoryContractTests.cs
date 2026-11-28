@@ -973,7 +973,7 @@ public sealed partial class RepositoryContractTests
         Assert.Contains("release_tag:", confidenceWorkflow, StringComparison.Ordinal);
         Assert.Contains("packages-{0}", confidenceWorkflow, StringComparison.Ordinal);
         Assert.Contains("v0.1.0-preview.*", releaseWorkflow, StringComparison.Ordinal);
-        Assert.Contains("Require the exact current main commit", releaseWorkflow, StringComparison.Ordinal);
+        Assert.Contains("repos/$GITHUB_REPOSITORY/git/ref/heads/preview", releaseWorkflow, StringComparison.Ordinal);
         Assert.Contains("packages-$GITHUB_REF_NAME", releaseWorkflow, StringComparison.Ordinal);
         Assert.Contains("select(.head_sha == \\\"$GITHUB_SHA\\\"", releaseWorkflow, StringComparison.Ordinal);
         Assert.Contains(".conclusion == \\\"success\\\"", releaseWorkflow, StringComparison.Ordinal);
