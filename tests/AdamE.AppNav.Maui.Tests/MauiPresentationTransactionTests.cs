@@ -778,7 +778,9 @@ public sealed class MauiPresentationTransactionTests
             second => Assert.True(second.WasAttached));
         Assert.Equal(
             ["first", "second"],
-            recoveredRoot.Navigation.ModalStack.Select(MauiPresentationMetadata.GetModalId).ToArray());
+            recoveredRoot.Navigation.ModalStack
+                .Select(page => Assert.IsType<string>(MauiPresentationMetadata.GetModalId(page)))
+                .ToArray());
 
         NavigationState nextState = ModalState("first");
         await presenter.ApplyAsync(new NavigationPlan(nextState), Context("first", previousState));
