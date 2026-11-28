@@ -39,8 +39,8 @@ public interface IAndroidNavigationHost
     /// implementation forwards to <see cref="RequestBackAsync"/> for hosts that handle their own admission.</remarks>
     Task RequestModalBackAsync(string entryId, CancellationToken cancellationToken) => RequestBackAsync(cancellationToken);
 
-    /// <summary>Native state left the accepted presentation (a dialog dismissed by something other than the presenter,
-    /// or one a refused Back request left closed): reapply the router's accepted state with
+    /// <summary>Native state needs to be restored after a dialog dismissal or a failure after native acceptance.
+    /// Reapply the router's committed state with
     /// <see cref="IRouterNavigator.RefreshPresentationAsync"/>.</summary>
     Task RequestRefreshAsync(CancellationToken cancellationToken);
 

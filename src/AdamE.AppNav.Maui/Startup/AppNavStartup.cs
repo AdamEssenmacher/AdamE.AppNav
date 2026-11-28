@@ -33,7 +33,8 @@ public sealed class AppNavStartupOptions
     public TimeSpan AppLinkGracePeriod { get; set; } = TimeSpan.FromMilliseconds(250);
 
     /// <summary>
-    /// Creates the typed fallback route used when no external or deferred request is pending.
+    /// Creates the typed startup fallback route when startup continues without a successful app-link navigation.
+    /// Startup reports pending deferred requests through diagnostics and still evaluates the fallback.
     /// The route is wrapped in an in-app, canonical request for the startup window.
     /// </summary>
     public Func<IServiceProvider, CancellationToken, ValueTask<AppRoute?>>? FallbackRouteFactory { get; set; }
@@ -46,6 +47,11 @@ public sealed class AppNavStartupOptions
 
 public enum AppNavStartupOutcome
 {
+    /// <summary>
+    /// Legacy value recorded by the built-in startup service in the
+    /// <see cref="NavigationDiagnosticEventKind.StartupAppLinkPending"/> diagnostic event.
+    /// The service awaits buffered app-link dispatch before returning its startup result.
+    /// </summary>
     AppLinkPending,
     FallbackNavigated,
     NoNavigation,

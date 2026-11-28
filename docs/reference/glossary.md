@@ -301,8 +301,8 @@ loops. A successful operation returns the final redirected route.
 ### Request source
 
 The `NavigationRequestSource` category describing the kind of caller, such as
-an in-app command, app link, push, QR code, restore, test, or host
-reconciliation. Source influences `Auto` disposition and is broader than
+an in-app command, app link, push, QR code, test, host reconciliation, or
+host-initiated Back. Source influences `Auto` disposition and is broader than
 provider-specific provenance.
 
 ### Restorable metadata

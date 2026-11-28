@@ -1172,6 +1172,34 @@ public sealed class AppNavSourceGeneratorTests
         AssertCompileClean(result.Compilation);
     }
 
+    [Theory]
+    [InlineData(".", ".")]
+    [InlineData("..", "..")]
+    [InlineData("%2e", ".")]
+    [InlineData(".%2E", "..")]
+    [InlineData("%2e%2E", "..")]
+    public void LiteralDotSegmentReportsInvalidTemplate(string literal, string decoded)
+    {
+        string template = $"/docs/{literal}/posts";
+        string source = $$"""
+            using AdamE.AppNav;
+            using AdamE.AppNav.Routing;
+
+            namespace Commerce.Sample;
+
+            [AppNavRoute("{{template}}")]
+            public sealed record PostsRoute : AppRoute;
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+
+        string expectedMessage = $"Route template '{template}' contains the literal dot segment '{decoded}'.";
+        Assert.Contains(result.GeneratorDiagnostics, diagnostic =>
+            diagnostic.Id == "APPNAV001" &&
+            diagnostic.Severity == DiagnosticSeverity.Error &&
+            diagnostic.GetMessage().Contains(expectedMessage, StringComparison.Ordinal));
+    }
+
     [Fact]
     public void MissingPathPropertyReportsDiagnostic()
     {
@@ -1210,9 +1238,40 @@ public sealed class AppNavSourceGeneratorTests
     }
 
     [Fact]
-    public void DuplicateTemplatesReportDiagnostic()
+    public void GeneratedRouteTableMatchesDistinctLiteralCasing()
     {
         const string source = """
+            using AdamE.AppNav;
+            using AdamE.AppNav.Routing;
+
+            namespace Commerce.Sample;
+
+            [AppNavRoute("/Stores/{storeId}")]
+            public sealed record StoreRoute(string StoreId) : AppRoute;
+
+            [AppNavRoute("/stores/{storeId}")]
+            public sealed record CatalogRoute(string StoreId) : AppRoute;
+            """;
+
+        GeneratorResult result = RunGenerator(source);
+        Assert.Empty(result.GeneratorDiagnostics.Where(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assembly assembly = Emit(result.Compilation);
+
+        Type generatedType = assembly.GetRequiredType("Commerce.Sample.AppNavGenerated");
+        var table = Assert.IsType<RouteTable>(generatedType.GetMethod("CreateRouteTable", Type.EmptyTypes)!.Invoke(null, null));
+
+        Assert.Equal("StoreRoute", table.Match(new Uri("/Stores/northwind", UriKind.Relative)).Route?.GetType().Name);
+        Assert.Equal("CatalogRoute", table.Match(new Uri("/stores/northwind", UriKind.Relative)).Route?.GetType().Name);
+    }
+
+    [Theory]
+    [InlineData("storeId", "APPNAV009")]
+    [InlineData("StoreId", "APPNAV010")]
+    [InlineData("id", "APPNAV010")]
+    public void DuplicateOrOverlappingTemplatesReportDiagnostic(string secondParameter, string diagnosticId)
+    {
+        string secondTemplate = $"/stores/{{{secondParameter}}}";
+        string source = $$"""
             using AdamE.AppNav;
             using AdamE.AppNav.Routing;
 
@@ -1221,13 +1280,13 @@ public sealed class AppNavSourceGeneratorTests
             [AppNavRoute("/stores/{storeId}")]
             public sealed record StoreRoute(string StoreId) : AppRoute;
 
-            [AppNavRoute("/stores/{id}")]
-            public sealed record DuplicateStoreRoute(string Id) : AppRoute;
+            [AppNavRoute("{{secondTemplate}}")]
+            public sealed record DuplicateStoreRoute(string {{secondParameter}}) : AppRoute;
             """;
 
         GeneratorResult result = RunGenerator(source);
 
-        Assert.Contains(result.GeneratorDiagnostics, static diagnostic => diagnostic.Id == "APPNAV010");
+        Assert.Contains(result.GeneratorDiagnostics, diagnostic => diagnostic.Id == diagnosticId);
     }
 
     [Fact]

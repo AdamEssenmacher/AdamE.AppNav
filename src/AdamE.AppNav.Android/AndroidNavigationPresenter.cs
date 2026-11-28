@@ -313,13 +313,18 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
         CancellationToken operationToken = operation.Token;
         await _serial.WaitAsync(operationToken).ConfigureAwait(false);
         Epoch? last = null;
+        // Once any attempt accepts, the caller cannot cancel recovery for this operation.
+        bool accepted = false;
+        CancellationToken ApplyToken() => accepted ? _shutdown.Token : operationToken;
+        bool CanRetry() => !ApplyToken().IsCancellationRequested && Volatile.Read(ref _retirementFailure) is null;
         try
         {
             while (true)
             {
                 ThrowIfRetirementFailed();
-                operationToken.ThrowIfCancellationRequested();
-                Epoch epoch = await AttachedAsync(operationToken).ConfigureAwait(false);
+                CancellationToken attemptToken = ApplyToken();
+                attemptToken.ThrowIfCancellationRequested();
+                Epoch epoch = await AttachedAsync(attemptToken).ConfigureAwait(false);
                 last = epoch;
                 bool nativeCompleted = false;
                 Surface? attempted = null;
@@ -328,8 +333,9 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
                     await OnMainAsync(() => ApplyAttachedAsync(
                             epoch,
                             plan.TargetState,
-                            operationToken,
-                            resolved => attempted = resolved))
+                            attemptToken,
+                            resolved => attempted = resolved,
+                            () => accepted = true))
                         .ConfigureAwait(false);
                     nativeCompleted = true;
                     // The main-thread apply accepted the surface. Shutdown and detachment still revoke it.
@@ -339,15 +345,12 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
                         throw new OperationCanceledException(epoch.Stopped.Token);
                     return;
                 }
-                catch (OperationCanceledException) when (epoch.Stopped.IsCancellationRequested
-                                                         && !operation.IsCancellationRequested
-                                                         && Volatile.Read(ref _retirementFailure) is null)
+                catch (OperationCanceledException) when (epoch.Stopped.IsCancellationRequested && CanRetry())
                 {
                     // The activity ended, not the navigation. Wait for the next one, which gets new pages for the same
                     // entries: their leases keep what they own, so no newer owner can take an entry's place.
                 }
-                catch (OperationCanceledException) when (!operation.IsCancellationRequested
-                                                         && Volatile.Read(ref _retirementFailure) is null
+                catch (OperationCanceledException) when (CanRetry()
                                                          && attempted is { } surface
                                                          && RetiredWhileShown(surface))
                 {
@@ -400,6 +403,18 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
         {
             throw RetainUnsafeFailure(failure);
         }
+        catch when (accepted && last is not null && plan.Kind != NavigationPlanKind.Refresh
+                    && !_shutdown.IsCancellationRequested)
+        {
+            // The old views are gone. Let the router abandon this plan before the detached host request rebuilds
+            // its committed state. A failed refresh must not request another refresh.
+            _ = RequestAsync(
+                last,
+                original: null,
+                () => Volatile.Read(ref _retirementFailure) is null,
+                () => _host.RequestRefreshAsync(_shutdown.Token));
+            throw;
+        }
         finally
         {
             // Whatever the operation's outcome, the activity now shows what it will show: the gate that kept a fresh
@@ -414,7 +429,8 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
         Epoch epoch,
         NavigationState state,
         CancellationToken operation,
-        Action<Surface> resolved)
+        Action<Surface> resolved,
+        Action accept)
     {
         MainOnly();
         ThrowIfRetirementFailed();
@@ -452,6 +468,7 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
             owned.Token.ThrowIfCancellationRequested();
             epoch.Surface = staged;
             accepted = true;
+            accept();
             // The old pages cannot be restored once retirement starts. The caller can no longer cancel the apply.
             epoch.Spare = Surface.Empty;
             ReleaseDifference(kept, staged);
@@ -1095,19 +1112,19 @@ public sealed class AndroidNavigationPresenter : INavigationPresenter, IAsyncDis
 
     // A host request that cannot fail the presenter: its failure is reported, and a cancellation by shutdown, by the
     // activity's end or by the page's retirement is expected. The request is made in a later turn of the looper, and
-    // only if then the activity is still attached, the page it came from still current, and stillValid still holds:
+    // only if then the activity is still attached, any originating page is still current, and stillValid still holds:
     // an event from an activity that detached, or about a page that has gone, never reaches the host. A request
     // already made is not canceled by the activity's end: an operation it starts waits for the next activity.
-    private async Task RequestAsync(Epoch epoch, NativePage original, Func<bool> stillValid, Func<Task> request)
+    private async Task RequestAsync(Epoch epoch, NativePage? original, Func<bool> stillValid, Func<Task> request)
     {
         try
         {
             if (IsAttached(epoch))
-                await DetachedAsync(() => IsAttached(epoch) && original.IsCurrent && stillValid(), request);
+                await DetachedAsync(() => IsAttached(epoch) && original?.IsCurrent != false && stillValid(), request);
         }
         catch (OperationCanceledException) when (_shutdown.IsCancellationRequested
                                                  || epoch.Stopped.IsCancellationRequested
-                                                 || !original.IsCurrent)
+                                                 || original is { IsCurrent: false })
         {
         }
         catch (Exception failure)

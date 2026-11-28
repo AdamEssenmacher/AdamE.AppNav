@@ -83,7 +83,7 @@ public sealed class AppNavSourceGenerator : IIncrementalGenerator
                 RouteModel left = routes[i];
                 RouteModel right = routes[j];
 
-                if (StringComparer.OrdinalIgnoreCase.Equals(left.Template.Value, right.Template.Value))
+                if (StringComparer.Ordinal.Equals(left.Template.Value, right.Template.Value))
                 {
                     reportDiagnostic(Diagnostic.Create(
                         AppNavDiagnostics.DuplicateRouteTemplate,
@@ -1375,6 +1375,12 @@ internal sealed class ParsedRouteTemplate
         for (var i = 0; i < segments.Count; i++)
         {
             TemplateSegment segment = segments[i];
+            if (segment.LiteralValue is "." or "..")
+            {
+                error = $"Route template '{template}' contains the literal dot segment '{segment.LiteralValue}'.";
+                return false;
+            }
+
             if (segment.ParameterName is not null && !seenNames.Add(segment.ParameterName))
             {
                 error = $"Route template '{template}' contains duplicate parameter '{segment.ParameterName}'.";

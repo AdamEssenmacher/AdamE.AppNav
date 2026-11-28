@@ -8,6 +8,9 @@ final class NavigationTests: XCTestCase {
         if name.contains("testFullScreenModal") {
             app.launchArguments.append("--probe-full-screen")
         }
+        if name.contains("testSheetSwipeDuringReviewPush") {
+            app.launchArguments.append("--probe-hold-review-settlement")
+        }
         if name.contains("testReplaceHostDuringGamePush") {
             app.launchArguments.append("--probe-replace-host")
         }
@@ -374,6 +377,29 @@ final class NavigationTests: XCTestCase {
         awaitLabel("probe-status") {
             $0 == "home[home,home-detail] history=3 [InAppCommand@home[home,home-detail];InAppCommand@home[home,home-detail];HostReconciliation@home[home,home-detail]]"
         }
+    }
+
+    func testSheetSwipeDuringReviewPush() {
+        awaitLabel("probe-status") { $0 == self.home }
+        openModal()
+        app.navigationBars["review"].buttons.firstMatch.tap()
+        app.buttons["probe-push-review"].tap()
+
+        let release = app.buttons["probe-release-review"]
+        XCTAssertTrue(release.waitForExistence(timeout: 10))
+        let bar = app.navigationBars["review-again"]
+        let start = bar.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9))
+        start.press(forDuration: 0.05, thenDragTo: end)
+        XCTAssertTrue(release.isHittable)
+        awaitModalCommit(3)
+        release.tap()
+        awaitModalCommit(4)
+
+        // The same drag now dismisses the settled sheet and AppNav records the native navigation.
+        start.press(forDuration: 0.05, thenDragTo: end)
+        awaitLabel("probe-status") { $0.hasPrefix("home[home,home-detail] history=5 ") && $0.hasSuffix("HostReconciliation@home[home,home-detail]]") }
+        awaitLabel("probe-native") { $0.hasSuffix("home [home,home-detail]") }
     }
 
     func testManagedPushInsideSettledSheet() {

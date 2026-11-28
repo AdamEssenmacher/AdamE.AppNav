@@ -298,6 +298,52 @@ public sealed class RouteTableTests
         Assert.Equal(new OptionalProductRoute(null), table.Match(new Uri("/products", UriKind.Relative)).Route);
     }
 
+    [Theory]
+    [InlineData("/docs/{path}/posts", ".")]
+    [InlineData("/docs/{path}/posts", "..")]
+    [InlineData("/docs/{path?}", "..")]
+    [InlineData("/docs/{*path}", "./first")]
+    [InlineData("/docs/{*path}", "a/../b")]
+    [InlineData("/docs/{*path}", "last/.")]
+    public void FormatRejectsDotSegments(string template, string path)
+    {
+        var table = RouteTable.Create(routes => routes.Map(
+            template,
+            match => new DocsRoute(match.Path("path")),
+            format => format.PathParam("path", route => route.Path)));
+        var route = new DocsRoute(path);
+
+        Assert.Throws<InvalidOperationException>(() => table.Format(route));
+        Assert.Throws<InvalidOperationException>(() => table.FormatUri(route, new Uri("myapp://app/")));
+    }
+
+    [Theory]
+    [InlineData(".")]
+    [InlineData("..")]
+    [InlineData("%2e")]
+    [InlineData("%2E%2e")]
+    [InlineData(".%2E")]
+    public void RegistrationRejectsLiteralDotSegments(string literal)
+    {
+        Assert.Throws<ArgumentException>(() => RouteTable.Create(routes => routes.Map(
+            $"/docs/{literal}/posts", _ => new DocsIndexRoute())));
+    }
+
+    [Theory]
+    [InlineData("/%2ewell-known/{path}", "v1.2")]
+    [InlineData("/docs/{path}", "%2E%2E")]
+    [InlineData("/docs/{*path}", ".well-known/.../v1.2")]
+    public void DottedNamesRoundTripThroughAbsoluteUris(string template, string path)
+    {
+        var table = RouteTable.Create(routes => routes.Map(
+            template,
+            match => new DocsRoute(match.Path("path")),
+            format => format.PathParam("path", route => route.Path)));
+        var route = new DocsRoute(path);
+
+        Assert.Equal(route, table.Match(table.FormatUri(route, new Uri("myapp://app/"))).Route);
+    }
+
     [Fact]
     public void CatchAllPathParamsCaptureAndFormatRemainingPath()
     {
@@ -1134,6 +1180,21 @@ public sealed class RouteTableTests
     }
 
     [Fact]
+    public void TemplatesWithDifferentLiteralCasingMatchDistinctRoutes()
+    {
+        var table = RouteTable.Create(routes => routes
+            .MapRoute<TestRoutes.StoreRoute>("/Stores/{storeId}")
+            .MapRoute<TestRoutes.CatalogRoute>("/stores/{storeId}"));
+
+        Assert.Equal(new TestRoutes.StoreRoute("northwind"), table.Match(new Uri("/Stores/northwind", UriKind.Relative)).Route);
+        Assert.Equal(new TestRoutes.CatalogRoute("northwind"), table.Match(new Uri("/stores/northwind", UriKind.Relative)).Route);
+
+        RouteMatchResult unmatched = table.Match(new Uri("/STORES/northwind", UriKind.Relative));
+        Assert.False(unmatched.IsSuccess);
+        Assert.Equal("route.not_matched", Assert.Single(unmatched.Diagnostics).Code);
+    }
+
+    [Fact]
     public void DuplicateTemplatesAreRejected()
     {
         InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => RouteTable.Create(routes => routes
@@ -1251,6 +1312,7 @@ public sealed class RouteTableTests
     }
 
     [Theory]
+    [InlineData("int", "INT")]
     [InlineData("int", "long")]
     [InlineData("int", "decimal")]
     [InlineData("long", "decimal")]

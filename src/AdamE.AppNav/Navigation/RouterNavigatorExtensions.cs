@@ -8,6 +8,8 @@ namespace AdamE.AppNav.Navigation;
 public static class RouterNavigatorExtensions
 {
 #pragma warning disable RS0026 // The preview deliberately exposes exactly four paired typed convenience overloads.
+    /// <summary>Navigates to a typed route.</summary>
+    /// <remarks>Await this operation. Blocking the UI thread can deadlock if presentation needs that thread.</remarks>
     public static ValueTask<NavigationResult> NavigateAsync(
         this IRouterNavigator navigator,
         AppRoute route,
@@ -22,6 +24,8 @@ public static class RouterNavigatorExtensions
             cancellationToken);
     }
 
+    /// <summary>Navigates to a typed route with the specified disposition.</summary>
+    /// <remarks>Await this operation. Blocking the UI thread can deadlock if presentation needs that thread.</remarks>
     public static ValueTask<NavigationResult> NavigateAsync(
         this IRouterNavigator navigator,
         AppRoute route,
@@ -37,6 +41,8 @@ public static class RouterNavigatorExtensions
             cancellationToken);
     }
 
+    /// <summary>Navigates using a typed route request.</summary>
+    /// <remarks>Await this operation. Blocking the UI thread can deadlock if presentation needs that thread.</remarks>
     public static ValueTask<NavigationResult> NavigateAsync(
         this IRouterNavigator navigator,
         AppRouteRequest routeRequest,
@@ -51,6 +57,8 @@ public static class RouterNavigatorExtensions
             cancellationToken);
     }
 
+    /// <summary>Navigates using a typed route request with the specified disposition.</summary>
+    /// <remarks>Await this operation. Blocking the UI thread can deadlock if presentation needs that thread.</remarks>
     public static ValueTask<NavigationResult> NavigateAsync(
         this IRouterNavigator navigator,
         AppRouteRequest routeRequest,

@@ -295,8 +295,11 @@ private struct SecondaryPage: Hashable {
     let entry: NavigationEntry
 }
 
-/// Routes Back on selected screens through the app's AppNav Back request. The app also owns
-/// any dismissal buttons its screens add.
+/// Routes Back through the app's AppNav Back request when a guarded screen is on top.
+///
+/// From an unguarded screen above it, a user can pop past the guarded screen with the native Back-history
+/// menu or swipe down to dismiss the entire sheet. Either action can remove the guarded screen without
+/// invoking `request`. The app also owns any dismissal buttons its screens add.
 ///
 /// `intercepts` runs on the main thread whenever SwiftUI builds a page, and on every display frame for the root of a
 /// collapsed split's secondary column. Keep it a cheap lookup, such as a comparison or a set membership test.
@@ -335,6 +338,8 @@ private struct LegacyStageProjection: ViewModifier {
     // `@StateObject` builds its value once per shell; `@State` would build and discard one on every init.
     @StateObject private var latest = LatestStage()
 
+    // SwiftUI uses this witness only on the legacy branch, where the one-argument onChange is required.
+    @available(iOS, deprecated: 17)
     func body(content: Content) -> some View {
         let latest = latest
         let _ = latest.stage = stage
@@ -353,10 +358,12 @@ private final class LatestStage: ObservableObject {
 
 /// What a destination shows while its mount is unavailable.
 private struct UnavailableScreen: View {
-    var body: some View {
+    // Erase the two view types explicitly so the iOS 16 path does not depend on the iOS 17 view type.
+    var body: AnyView {
         if #available(iOS 17, *) {
-            ContentUnavailableView("Screen unavailable", systemImage: "rectangle.slash")
-        } else {
+            return AnyView(ContentUnavailableView("Screen unavailable", systemImage: "rectangle.slash"))
+        }
+        return AnyView(
             VStack(spacing: 8) {
                 Image(systemName: "rectangle.slash")
                     .font(.largeTitle)
@@ -365,7 +372,7 @@ private struct UnavailableScreen: View {
                     .font(.headline)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
+        )
     }
 }
 #endif

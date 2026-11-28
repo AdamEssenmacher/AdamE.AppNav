@@ -72,17 +72,26 @@ Template member names match public readable route properties without regard to
 case. The generator selects a compatible public constructor. Ambiguous or
 missing constructors are compile errors.
 
+Route literals are case-sensitive in both attributed and fluent routes. For
+example, `/Stores` and `/stores` can identify distinct route types, and an
+incoming path must use the registered literal casing to match that template.
+
 Templates support:
 
 - literal path segments, such as `/pause/inventory/items`;
 - required parameters, such as `{itemId}`;
 - optional parameters, such as `{slot:int?}`;
-- a terminal catch-all parameter, such as `{*path}`;
+- a terminal catch-all parameter, such as `{*path}`, that captures zero or more path segments;
 - built-in `int`, `long`, `guid`, `bool`, `decimal`, and `alpha` constraints.
 
-Optional constructor parameters must be nullable or have a default. A route
-type has one canonical attributed template; duplicate or overlapping templates
-are rejected when AppNav cannot prove them disjoint.
+For an attributed route, constructor parameters bound to optional or catch-all
+path parameters must be nullable or have a default. An empty catch-all binds to
+an empty string for a string parameter. For example, `/files/{*path}` matches
+both `/files` with `path = ""` and `/files/images/logo.png` with
+`path = "images/logo.png"`.
+
+A route type has one canonical attributed template. AppNav rejects duplicate or
+overlapping templates when it cannot prove them disjoint.
 
 ## Query-bound route properties
 

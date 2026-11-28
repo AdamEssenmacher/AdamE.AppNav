@@ -72,10 +72,10 @@ That is an adapter requirement, not the definition of the route. The route
 remains semantic destination identity, while the page and its view model are
 application-owned presentation choices.
 
-An anchor page can display one route in a particular state, host custom
-controls, and update when a compatible route entry is reused. A route can also
-own a native segment of additional presentation pages. Those pages participate
-in native Back without becoming new routes or logical history entries. See
+An anchor page can display one route in a particular state and host custom
+controls. A route can also own a native segment of additional presentation
+pages. Those pages participate in native Back without becoming new routes or
+logical history entries. See
 [Route-owned presentation pages](../advanced/route-owned-presentation-pages.md)
 for that advanced lifecycle.
 
@@ -84,6 +84,25 @@ by the app's page or composition layer. AppNav does not navigate to a view-model
 type or require a one-route-to-one-view-model relationship. A custom host
 adapter may map logical entries to non-page artifacts; the MAUI adapter uses
 pages so it can participate in MAUI's native navigation containers.
+
+### Page reuse
+
+When MAUI retains a navigation stack, it compares route entry IDs from the root
+and keeps the existing pages for the matching prefix, even if their route values
+change. A host replacement or an earlier entry ID change can still cause a page
+to be rebuilt.
+
+A retained page's constructor does not run again. MAUI passes the incoming
+`RouteEntry` to registered `IMauiRoutePageLifecycleHook.OnPageUpdatedAsync`
+hooks. Choose how each page handles incoming route values:
+
+- If the page captures values at construction and needs a fresh instance when
+  they change, include those values in the entry ID. The Commerce sample keys
+  its branch roots by store and its product detail by store, product, variant,
+  and promo.
+- If the page should keep its instance, keep the entry ID stable and refresh
+  displayed values and navigation commands from `entry.Route` in the update
+  hook.
 
 ## Common flow
 
@@ -128,6 +147,19 @@ await navigator.NavigateAsync(
 
 Use plain `AppRoute` when no route-owned metadata is involved and the simpler
 overload is clearer.
+
+### Await navigation from UI code
+
+Use `await` for `NavigateAsync` and `BackAsync` in event handlers and commands.
+On the UI thread, synchronous waits such as `.Result` and
+`.GetAwaiter().GetResult()` can deadlock. AppNav runs one router operation at a
+time, and the active operation may need the UI thread to finish presentation
+before the next operation can start.
+
+A lifecycle hook running as part of a router operation cannot reenter the same
+navigator. AppNav rejects that call with `InvalidOperationException`. Start
+follow-up navigation after the owning operation completes. See the
+[lifecycle hook guidance](../advanced/route-owned-presentation-pages.md#lifecycle-hooks).
 
 ## Route-owned metadata
 
@@ -231,10 +263,12 @@ coexist for unrelated flows. Advanced hosts that need a custom navigator must
 instead own the complete navigator/presenter pair through
 `RouterNavigatorFactory` and skip the MAUI `AddAppNav(...)` composition helper.
 
-The final `AddAppNav(...)` callback configures the three app-owned router settings. Its
-`FallbackRouteFactory` runs only when a URI has no matching route; `MaxRedirects` and
-`MaxHistoryEntries` default to 16 and 128. Startup fallback remains a separate
-concern configured through `AddAppNavStartup(...)`:
+The final `AddAppNav(...)` callback configures `AppNavNavigatorOptions`.
+`FallbackRouteFactory` runs only when a URI has no matching route.
+`MaxRedirects` and `MaxHistoryEntries` default to 16 and 128.
+`EntryLeaseShutdownWarningDelay` controls how long disposal waits for outstanding
+[entry leases](../advanced/entry-leases.md) before logging a warning. It defaults
+to five seconds. Configure startup fallback through `AddAppNavStartup(...)`.
 
 ```csharp
 services.AddAppNav(
@@ -270,6 +304,10 @@ page release, and the release of every [route-entry
 lease](../advanced/entry-leases.md), which disposes the page scopes. Work past the presentation commit point
 completes successfully. Public presentation surfaces force runtime creation so
 DI cannot dispose presenter dependencies independently.
+
+If a live window retains an AppNav root during shutdown, its branch hosts and
+page resources stay alive until the root leaves the window or the window is
+destroyed. `DisposeAsync()` stays pending until that cleanup completes.
 
 Deferred replay is lease-based and at-least-once. Acquiring a lease does not
 remove persisted requests; successful navigation is removed only after durable

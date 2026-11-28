@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using AdamE.AppNav.Diagnostics;
 using AdamE.AppNav.Navigation;
@@ -45,6 +46,7 @@ internal sealed class MauiNavigationPresenter :
     private NavigationState _routerState = NavigationState.Empty;
     private Window? _attachedWindow;
     private string? _attachedWindowId;
+    private Task _windowCleanup = Task.CompletedTask;
     private string _lifecycleOperationId = CreateOperationId();
     private string? _activeOperationId;
     private NavigationPresentationContext? _activeNavigationPresentationContext;
@@ -303,23 +305,37 @@ internal sealed class MauiNavigationPresenter :
     private async Task FinalizeShutdownAsync()
     {
         MauiNativeTreeEpochClosure? epochClosure = null;
+        var canReleasePages = false;
         try
         {
-            if (_mainThreadDispatcher.IsMainThread)
-                await FinalizeShutdownOnMainThreadAsync();
-            else
-                await _mainThreadDispatcher.InvokeAsync(FinalizeShutdownOnMainThreadAsync);
+            Task windowRelease = Task.CompletedTask;
+            do
+            {
+                await windowRelease.ConfigureAwait(false);
+                await _mainThreadDispatcher.InvokeAsync(async () =>
+                {
+                    windowRelease = WaitForShutdownWindowRelease();
+                    if (!windowRelease.IsCompleted)
+                        return;
+
+                    canReleasePages = true;
+                    await FinalizeShutdownOnMainThreadAsync();
+                }).ConfigureAwait(false);
+            }
+            while (!canReleasePages);
 
             epochClosure = _nativeTreeEpoch.Close();
         }
         catch (Exception ex)
         {
             WritePageReleaseFailure(null, ex);
-            // The main-thread cleanup may not have run at all; pages must still stop holding their leases.
-            await ReleaseOutstandingPagesAsync();
+            if (canReleasePages || _attachedWindow is null)
+                await ReleaseOutstandingPagesAsync();
         }
         finally
         {
+            // Destruction can start asynchronous host disposal while shutdown waits for the window to release its root.
+            await _windowCleanup.ConfigureAwait(false);
             epochClosure ??= _nativeTreeEpoch.Close();
             await epochClosure.CompleteAsync().ConfigureAwait(false);
             _presentationOperationLock.Dispose();
@@ -331,6 +347,55 @@ internal sealed class MauiNavigationPresenter :
             _shutdownCompletion.TrySetResult(true);
         }
     }
+
+    private Task WaitForShutdownWindowRelease()
+    {
+        _suppressReconciliation = true;
+        _externalNavigationDispatcher?.SetForegrounded(false);
+
+        Window? window = _attachedWindow;
+        if (window is null || !WindowHasPresenterPage(window))
+            return Task.CompletedTask;
+
+        var released = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        // Keep the host and factory-owned leases alive while a live window still owns the tree.
+        window.PropertyChanged += OnWindowPropertyChanged;
+        window.Destroying += OnWindowDestroying;
+        try
+        {
+            SetAttachedWindowPage(null);
+            if (!released.Task.IsCompleted && WindowHasPresenterPage(window))
+                throw new InvalidOperationException("The MAUI window retained its page during presenter shutdown.");
+        }
+        catch (Exception ex)
+        {
+            WritePageReleaseFailure(null, ex);
+        }
+
+        // The setter can throw after updating the root. Check ownership even on that path.
+        if (!WindowHasPresenterPage(window))
+            CompleteRelease();
+
+        return released.Task;
+
+        void OnWindowPropertyChanged(object? sender, PropertyChangedEventArgs args)
+        {
+            if (args.PropertyName == nameof(Window.Page) && !WindowHasPresenterPage(window))
+                CompleteRelease();
+        }
+
+        void OnWindowDestroying(object? sender, EventArgs args) => CompleteRelease();
+
+        void CompleteRelease()
+        {
+            window.PropertyChanged -= OnWindowPropertyChanged;
+            window.Destroying -= OnWindowDestroying;
+            released.TrySetResult();
+        }
+    }
+
+    private bool WindowHasPresenterPage(Window window) =>
+        window.Page is Page page && (ReferenceEquals(page, CurrentPage) || CanMutatePage(page));
 
     private async Task FinalizeShutdownOnMainThreadAsync()
     {
@@ -346,7 +411,6 @@ internal sealed class MauiNavigationPresenter :
 
     private async Task FinalizeShutdownOnMainThreadCoreAsync()
     {
-        _suppressReconciliation = true;
         _activeOperationId = null;
 
         Page? currentPage = CurrentPage;
@@ -357,14 +421,6 @@ internal sealed class MauiNavigationPresenter :
         foreach (SuppressedNavigationPop pendingPop in _suppressedNavigationPops.Values)
             detachedCandidates.UnionWith(pendingPop.KnownPages);
         CurrentPage = null;
-        try
-        {
-            SetAttachedWindowPage(null);
-        }
-        catch (Exception ex)
-        {
-            WritePageReleaseFailure(null, ex);
-        }
 
         InvokeRootPageChanged(null);
         if (currentPage is not null)
@@ -392,10 +448,7 @@ internal sealed class MauiNavigationPresenter :
             UntrackModalPage(modalPage);
 
         if (_attachedWindow is not null)
-        {
             UnsubscribeWindowLifecycle(_attachedWindow);
-            _externalNavigationDispatcher?.SetForegrounded(false);
-        }
 
         _attachedWindow = null;
         _attachedWindowId = null;
@@ -709,34 +762,24 @@ internal sealed class MauiNavigationPresenter :
         _pendingBranchHostSelections.Clear();
         _hostBackReconciliationPending = false;
         _pendingHostBackRoute = null;
-        ObserveWindowCleanup(_pageFactory.AbandonOutstandingPagesAsync);
+        var cleanup = new List<Task> { _windowCleanup, ObserveWindowCleanupAsync(_pageFactory.AbandonOutstandingPagesAsync) };
         foreach (var host in hosts)
-            ObserveWindowCleanup(host.DisposeAsync);
+            cleanup.Add(ObserveWindowCleanupAsync(host.DisposeAsync));
         var cancellation = closure.CompleteAsync();
-        ObserveWindowCleanup(() => new ValueTask(cancellation));
+        cleanup.Add(ObserveWindowCleanupAsync(() => new ValueTask(cancellation)));
+        _windowCleanup = Task.WhenAll(cleanup);
         InvokeRootPageChanged(null);
     }
 
-    private void ObserveWindowCleanup(Func<ValueTask> cleanup)
+    private async Task ObserveWindowCleanupAsync(Func<ValueTask> cleanup)
     {
-        lock (_lifetimeGate)
-            _activeOperations++;
-        _ = CompleteAsync();
-
-        async Task CompleteAsync()
+        try
         {
-            try
-            {
-                await cleanup();
-            }
-            catch (Exception ex)
-            {
-                WritePageReleaseFailure(null, ex);
-            }
-            finally
-            {
-                EndOperation();
-            }
+            await cleanup();
+        }
+        catch (Exception ex)
+        {
+            WritePageReleaseFailure(null, ex);
         }
     }
 

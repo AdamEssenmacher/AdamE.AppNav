@@ -129,7 +129,7 @@ public sealed class RouteTableBuilder
                 $"Call {nameof(AddValueCodec)} before building the route table.");
 
         IGrouping<string, RouteDefinition>? duplicateTemplate = _definitions
-            .GroupBy(definition => definition.Template.Value, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(definition => definition.Template.Value, StringComparer.Ordinal)
             .FirstOrDefault(group => group.Count() > 1);
 
         if (duplicateTemplate is not null)
