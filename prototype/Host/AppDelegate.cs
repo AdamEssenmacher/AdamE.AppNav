@@ -41,6 +41,7 @@ public sealed class SceneDelegate : UIWindowSceneDelegate
     private (long Epoch, long Revision)? replacedPresentation;
     private NativeObservation? heldReading;
     private UIAlertController? pushAlert;
+    private UILabel? fullScreenStatus;
     public override UIWindow? Window { get; set; }
 
     public override void WillConnect(UIScene scene, UISceneSession session, UISceneConnectionOptions connectionOptions)
@@ -93,6 +94,10 @@ public sealed class SceneDelegate : UIWindowSceneDelegate
                     pushAlert = alert;
                     activeHost.ViewController.PresentViewController(alert, true, () => Run(() => current.OpenGameAsync(token)));
                     break;
+                case "show-uikit-full-screen":
+                    if (host is { } fullScreenHost)
+                        ShowFullScreen(fullScreenHost.ViewController, current, token);
+                    break;
                 case "open-game-crossfade": Run(() => current.OpenGameAsync("game-crossfade", token)); break;
                 case "open-fade-sheet": Run(() => current.OpenFadeSheetAsync(token)); break;
                 case "replace-during-push":
@@ -129,6 +134,43 @@ public sealed class SceneDelegate : UIWindowSceneDelegate
                     });
                 }); break;
             }
+        });
+    }
+
+    private void ShowFullScreen(UIViewController presenter, ProbeRouter current, CancellationToken token)
+    {
+        var cover = new UIViewController { ModalPresentationStyle = UIModalPresentationStyle.FullScreen };
+        var view = cover.View!;
+        view.BackgroundColor = UIColor.SystemBackground;
+        var status = new UILabel { AccessibilityIdentifier = "probe-uikit-cover-status", Lines = 0 };
+        var link = UIButton.FromType(UIButtonType.System);
+        link.SetTitle("Open deep link", UIControlState.Normal);
+        link.AccessibilityIdentifier = "probe-uikit-cover-link";
+        var dismiss = UIButton.FromType(UIButtonType.System);
+        dismiss.SetTitle("Dismiss", UIControlState.Normal);
+        dismiss.AccessibilityIdentifier = "probe-dismiss-uikit-cover";
+        var controls = new UIStackView([status, link, dismiss])
+        {
+            Axis = UILayoutConstraintAxis.Vertical,
+            Spacing = 16,
+            TranslatesAutoresizingMaskIntoConstraints = false,
+        };
+        view.AddSubview(controls);
+        NSLayoutConstraint.ActivateConstraints([
+            controls.LeadingAnchor.ConstraintEqualTo(view.LayoutMarginsGuide.LeadingAnchor),
+            controls.TrailingAnchor.ConstraintEqualTo(view.LayoutMarginsGuide.TrailingAnchor),
+            controls.CenterYAnchor.ConstraintEqualTo(view.CenterYAnchor),
+        ]);
+        link.TouchUpInside += (_, _) => Run(() => current.DeepLinkAsync(token));
+        dismiss.TouchUpInside += (_, _) =>
+        {
+            fullScreenStatus = null;
+            presenter.DismissViewController(true, null);
+        };
+        fullScreenStatus = status;
+        presenter.PresentViewController(cover, true, () =>
+        {
+            status.Text = presenter.ViewIfLoaded?.Window is null ? current.Status : "Presenter still attached";
         });
     }
 
@@ -200,6 +242,8 @@ public sealed class SceneDelegate : UIWindowSceneDelegate
         shell?.SetStatus(current.Status);
         if (pushAlert is { } alert)
             alert.Message = current.Status;
+        if (fullScreenStatus is { } status)
+            status.Text = current.Status;
     });
 
     private async void Run(Func<Task> operation)
@@ -231,6 +275,7 @@ public sealed class SceneDelegate : UIWindowSceneDelegate
         leases = null;
         heldReading = null;
         pushAlert = null;
+        fullScreenStatus = null;
         replacedPresentation = null;
         replaceDuringPush = false;
         Window?.RootViewController = null;

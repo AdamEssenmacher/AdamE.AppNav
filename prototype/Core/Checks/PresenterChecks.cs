@@ -131,11 +131,52 @@ internal static class PresenterChecks
         Assert(router.HistoryCount == 8, "Router failed to recover after rollback");
 
         await CheckRapidNativePops();
+        await CheckPresentationReadiness();
         await CheckRollbackSettlementFailure();
         await CheckTransitionContext();
         await CheckTopologies();
         await CheckSplits();
         Console.WriteLine("PASS: attachment epochs, recreation, tab selection, modal stack, rapid native pops, rollback, shape preflight");
+    }
+
+    private static async Task CheckPresentationReadiness()
+    {
+        using var presenter = ProbeRouter.CreatePresenter();
+        await using var router = new ProbeRouter(presenter);
+        using var waiting = new SemaphoreSlim(0);
+        using var cancellation = new CancellationTokenSource();
+        var surface = new Surface();
+        var covered = false;
+        var epoch = presenter.Attach(surface, token =>
+        {
+            if (!covered) return Task.CompletedTask;
+            waiting.Release();
+            return Task.Delay(Timeout.InfiniteTimeSpan, token);
+        });
+        var start = router.StartAsync();
+        await Ack(presenter, epoch, await surface.Next());
+        await start;
+
+        covered = true;
+        var timeout = TimeSpan.FromSeconds(5);
+        var canceled = router.DeepLinkAsync(cancellation.Token);
+        Assert(await waiting.WaitAsync(timeout), "The deep link did not wait for the covered host");
+        cancellation.Cancel();
+        try { await canceled.WaitAsync(timeout); }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        Assert(canceled.IsCanceled && router.HistoryCount == 1, "Canceling before staging must leave history intact");
+        await surface.NextFailsIfPublished();
+
+        var link = router.DeepLinkAsync();
+        Assert(await waiting.WaitAsync(timeout), "The second deep link did not wait for the covered host");
+        var replacement = new Surface();
+        var replacementEpoch = presenter.Attach(replacement);
+        var target = await replacement.Next();
+        Assert(target.Transition.Operation == "reattach", "Replacing a covered host must replay the waiting plan");
+        await Ack(presenter, replacementEpoch, target);
+        await link.WaitAsync(timeout);
+        Assert(router.HistoryCount == 2 && router.CurrentBranch == "catalog", "The replacement did not commit the deep link");
+        await surface.NextFailsIfPublished();
     }
 
     private static async Task CheckRollbackSettlementFailure()

@@ -66,7 +66,14 @@ public sealed class NavigationShellViewModel(
     public static NavigationShellViewModel Attach(
         OahuNavigationPresenter presenter, RouteEntryLeaseRegistry leases,
         OahuScreenFactory mount, Func<Action, Task> dispatch, Action<Exception> reportFailure,
-        bool presentsSplits = false)
+        bool presentsSplits = false) =>
+        Attach(presenter, leases, mount, dispatch, reportFailure, presentsSplits, waitUntilReady: null);
+
+    /// <summary>Attaches a shell that can wait for temporary native host unavailability before staging.</summary>
+    public static NavigationShellViewModel Attach(
+        OahuNavigationPresenter presenter, RouteEntryLeaseRegistry leases,
+        OahuScreenFactory mount, Func<Action, Task> dispatch, Action<Exception> reportFailure,
+        bool presentsSplits, Func<CancellationToken, Task>? waitUntilReady)
     {
         ArgumentNullException.ThrowIfNull(presenter);
         long epoch = 0;
@@ -75,7 +82,7 @@ public sealed class NavigationShellViewModel(
                 reading.ModalId.Length == 0 ? null : reading.ModalId, reading.ModalEntries,
                 reading.SecondaryEntries, ParseCompactColumn(reading.CompactColumn)),
             reportFailure) { PresentsSplits = presentsSplits };
-        shell.Epoch = epoch = presenter.Attach(shell);
+        shell.Epoch = epoch = presenter.Attach(shell, waitUntilReady);
         shell.detach = () => presenter.Detach(epoch);
         return shell;
     }
