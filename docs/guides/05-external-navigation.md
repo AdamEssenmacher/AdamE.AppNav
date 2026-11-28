@@ -74,6 +74,11 @@ values.
 MAUI host. It does not prove domain ownership or configure operating-system
 association on the application's behalf.
 
+On iOS and Mac Catalyst, AppNav handles app-delegate and scene-delegate
+deliveries. Scene-based apps should use `MauiUISceneDelegate` or call its base
+implementations when overriding scene callbacks so MAUI can raise the lifecycle
+events. A link that opens a new scene is read from its connection options.
+
 For production HTTPS links, the application still owns:
 
 - Android intent filters and the hosted Digital Asset Links association;
