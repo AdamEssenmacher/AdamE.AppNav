@@ -17,7 +17,7 @@ public static class CommerceNavigationModel
             builder.Branch("orders", "Orders", route => new OrdersRoute(GetStoreId(route)));
 
             builder.Map<StoreHomeRoute>("home", recipe => recipe
-                .EntryId(_ => "home")
+                .EntryId(route => $"home:{Uri.EscapeDataString(route.StoreId)}")
                 .ScopeKey(route => route.StoreId));
 
             builder.Map<CommerceNotFoundRoute>("home", recipe => recipe
@@ -30,11 +30,11 @@ public static class CommerceNavigationModel
                 ]));
 
             builder.Map<StoreCatalogRoute>("catalog", recipe => recipe
-                .EntryId(_ => "catalog")
+                .EntryId(route => $"catalog:{Uri.EscapeDataString(route.StoreId)}")
                 .ScopeKey(route => route.StoreId));
 
             builder.Map<ProductDetailRoute>("catalog", recipe => recipe
-                .EntryId(route => $"product-{route.ProductId}")
+                .EntryId(ProductEntryId)
                 .ScopeKey(route => route.StoreId)
                 .SlotId(_ => "product-detail")
                 .Canonical((route, metadata) =>
@@ -44,13 +44,23 @@ public static class CommerceNavigationModel
                 ]));
 
             builder.Map<CartRoute>("cart", recipe => recipe
-                .EntryId(_ => "cart")
+                .EntryId(route => $"cart:{Uri.EscapeDataString(route.StoreId)}")
                 .ScopeKey(route => route.StoreId));
 
             builder.Map<OrdersRoute>("orders", recipe => recipe
-                .EntryId(_ => "orders")
+                .EntryId(route => $"orders:{Uri.EscapeDataString(route.StoreId)}")
                 .ScopeKey(route => route.StoreId));
         });
+    }
+
+    private static string ProductEntryId(ProductDetailRoute route)
+    {
+        var id = FormattableString.Invariant($"product:{Uri.EscapeDataString(route.StoreId)}:{route.ProductId}");
+        if (route.Variant is { } variant)
+            id += $":variant={Uri.EscapeDataString(variant)}";
+        if (route.Promo is { } promo)
+            id += $":promo={Uri.EscapeDataString(promo)}";
+        return id;
     }
 
     private static StackRouteStep<AppRoute> Step(
