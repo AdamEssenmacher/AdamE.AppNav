@@ -1,4 +1,8 @@
+using AdamE.AppNav.Navigation;
 using AdamE.AppNav.Plans;
+using AdamE.AppNav.Policies;
+using AdamE.AppNav.Requests;
+using AdamE.AppNav.Routing;
 using AdamE.AppNav.State;
 using ObjCRuntime;
 using static AdamE.AppNav.iOS.NativeChecks.Checks;
@@ -12,6 +16,7 @@ internal static class PresenterChecks
     public static IEnumerable<(string Name, Func<UIWindow, CancellationToken, Task> Check)> All =>
     [
         ("empty-startup-refresh", EmptyStartupRefreshAsync),
+        ("key-overlay-navigation-and-refresh", KeyOverlayNavigationAndRefreshAsync),
         ("modal-host-events", ModalHostEventsAsync),
         ("failed-pop-record-refresh", FailedPopRecordRefreshAsync),
         ("modal-loan-retirement", ModalLoanRetirementAsync),
@@ -44,6 +49,80 @@ internal static class PresenterChecks
         await ApplyAsync(presenter, NavigationState.Empty, NavigationState.Empty, token, NavigationPlanKind.Refresh)
             .WaitAsync(TimeSpan.FromSeconds(5), token);
         Require(hidden.Hidden && hidden.RootViewController is null, "Empty refresh revealed or populated the window.");
+    }
+
+    private static async Task KeyOverlayNavigationAndRefreshAsync(UIWindow hostWindow, CancellationToken token)
+    {
+        UIWindowScene scene = hostWindow.WindowScene
+                              ?? throw new InvalidOperationException("The check window has no scene.");
+        using var window = new UIWindow(scene);
+        using var restoreHost = new ActionDisposable(() =>
+        {
+            window.Hidden = true;
+            hostWindow.MakeKeyWindow();
+        });
+        var root = new UIViewController();
+        var sheet = new UIViewController { ModalPresentationStyle = UIModalPresentationStyle.PageSheet };
+        await using var presenter = Presenter(window, entry => Page(entry.Id == "overlay-root" ? root : sheet));
+        await using var router = RouterNavigatorFactory.Create(
+            new RouteTableBuilder().Build(), new OverlayPlanner(), presenter);
+        using var overlayController = new UIViewController
+        {
+            View = new UIView { BackgroundColor = UIColor.Clear, Opaque = false }
+        };
+        using var overlay = new UIWindow(scene)
+        {
+            RootViewController = overlayController,
+            WindowLevel = UIWindowLevel.Alert,
+            Opaque = false
+        };
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(10));
+
+        await NavigateAsync(false);
+        overlay.MakeKeyAndVisible();
+        try
+        {
+            Require(OverlayIsKey(), "The overlay did not take key status from the visible presenter window.");
+            await NavigateAsync(true);
+            Require(OverlayIsKey(), "Navigation changed the overlay's key status or hid a window.");
+            Require(
+                ReferenceEquals(root.PresentedViewController, sheet)
+                && ReferenceEquals(sheet.View?.Window, window)
+                && router.CurrentState.ActiveWindow?.Modals.SingleOrDefault()?.RouteEntry.Id == "overlay-sheet",
+                "Navigation did not present and commit the sheet while the overlay was key.");
+
+            var presentationDelegate = sheet.PresentationController?.WeakDelegate?.Handle ?? NativeHandle.Zero;
+            await router.RefreshPresentationAsync(deadline.Token);
+            Require(OverlayIsKey(), "Refresh changed the overlay's key status or hid a window.");
+            Require(
+                ReferenceEquals(root.PresentedViewController, sheet)
+                && (sheet.PresentationController?.WeakDelegate?.Handle ?? NativeHandle.Zero) == presentationDelegate,
+                "Refresh replaced the accepted sheet or its delegate.");
+        }
+        finally
+        {
+            overlay.Hidden = true;
+            window.MakeKeyWindow();
+        }
+
+        async Task NavigateAsync(bool showSheet) =>
+            _ = await router.NavigateAsync(
+                RouterNavigationRequest.FromRoute(new OverlayRoute(showSheet), NavigationRequestSource.Test),
+                deadline.Token);
+
+        bool OverlayIsKey() => overlay.IsKeyWindow && !overlay.Hidden && !window.IsKeyWindow && !window.Hidden;
+    }
+
+    private sealed record OverlayRoute(bool ShowSheet) : AppRoute;
+
+    private sealed class OverlayPlanner : IAppNavigationPlanner
+    {
+        public ValueTask<NavigationPlan> CreatePlanAsync(
+            NavigationPlanningContext context,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(new NavigationPlan(
+                Shows("overlay-root", ((OverlayRoute)context.Route).ShowSheet ? "overlay-sheet" : null)));
     }
 
     private static async Task ModalHostEventsAsync(UIWindow window, CancellationToken token)
