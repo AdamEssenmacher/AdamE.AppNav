@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+
 namespace AdamE.AppNav.Routing;
 
 internal static class QueryString
@@ -11,7 +13,7 @@ internal static class QueryString
         if (string.IsNullOrWhiteSpace(query))
             return EmptyQueryValueLists;
 
-        var result = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        var result = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
         foreach (string pair in query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
         {
             int separator = pair.IndexOf('=');
@@ -21,17 +23,15 @@ internal static class QueryString
             string name = Uri.UnescapeDataString(rawName.Replace("+", "%20", StringComparison.Ordinal));
             string value = Uri.UnescapeDataString(rawValue.Replace("+", "%20", StringComparison.Ordinal));
 
-            if (!result.TryGetValue(name, out List<string>? values))
-            {
-                values = [];
-                result[name] = values;
-            }
-
-            values.Add(value);
+            ref IReadOnlyList<string>? values = ref CollectionsMarshal.GetValueRefOrAddDefault(result, name, out _);
+            values ??= new List<string>();
+            ((List<string>)values).Add(value);
         }
 
-        return result.ToDictionary(
-            pair => pair.Key, IReadOnlyList<string> (pair) => pair.Value.ToArray(),
-            StringComparer.OrdinalIgnoreCase);
+        // Replace the builders in place so QueryAll continues to expose fixed-length arrays.
+        foreach ((string name, IReadOnlyList<string> values) in result)
+            CollectionsMarshal.GetValueRefOrNullRef(result, name) = ((List<string>)values).ToArray();
+
+        return result;
     }
 }

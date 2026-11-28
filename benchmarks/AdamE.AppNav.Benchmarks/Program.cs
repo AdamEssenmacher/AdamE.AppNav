@@ -29,6 +29,10 @@ internal static class Program
 [MemoryDiagnoser]
 public class RouteMatchingBenchmarks : RouteBenchmarkBase
 {
+    private static readonly Uri SingleQueryTargetUri = new("/routes/target/items/42?tag=blue", UriKind.Relative);
+    private static readonly Uri RepeatedQueryTargetUri =
+        new("/routes/target/items/42?tag=blue&TAG=dark+green&sort=name", UriKind.Relative);
+
     [Benchmark]
     public RouteMatchResult MatchExplicit_LastRoute()
     {
@@ -39,6 +43,18 @@ public class RouteMatchingBenchmarks : RouteBenchmarkBase
     public RouteMatchResult MatchConvention_LastRoute()
     {
         return ConventionRoutes.Match(TargetUri);
+    }
+
+    [Benchmark]
+    public RouteMatchResult MatchExplicit_LastRouteWithSingleQuery()
+    {
+        return ExplicitRoutes.Match(SingleQueryTargetUri);
+    }
+
+    [Benchmark]
+    public RouteMatchResult MatchExplicit_LastRouteWithRepeatedQuery()
+    {
+        return ExplicitRoutes.Match(RepeatedQueryTargetUri);
     }
 }
 
@@ -452,6 +468,12 @@ internal static class AllocationBudgetRunner
             yield return new AllocationScenario(
                 $"RouteMatchingBenchmarks.MatchConvention_LastRoute/{routeCount}",
                 () => matching.MatchConvention_LastRoute());
+            yield return new AllocationScenario(
+                $"RouteMatchingBenchmarks.MatchExplicit_LastRouteWithSingleQuery/{routeCount}",
+                () => matching.MatchExplicit_LastRouteWithSingleQuery());
+            yield return new AllocationScenario(
+                $"RouteMatchingBenchmarks.MatchExplicit_LastRouteWithRepeatedQuery/{routeCount}",
+                () => matching.MatchExplicit_LastRouteWithRepeatedQuery());
 
             var formatting = new RouteFormattingBenchmarks();
             formatting.SetupForBudget(routeCount);
