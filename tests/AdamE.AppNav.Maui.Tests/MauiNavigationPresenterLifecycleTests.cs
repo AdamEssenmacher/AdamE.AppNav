@@ -18,6 +18,127 @@ namespace AdamE.AppNav.Maui.Tests;
 
 public sealed class MauiNavigationPresenterLifecycleTests
 {
+    [UIFact]
+    public async Task DestroyedWindowSuspendsNativePresentationAndBuildsOnlyLatestLogicalState()
+    {
+        var fixture = new PresenterFixture();
+        NavigationPlan initialPlan = Plan(Stack("schools", Entry("schools")));
+        await fixture.Presenter.ApplyAsync(
+            initialPlan,
+            Context(new TestPageRoute("schools")));
+        await fixture.Presenter.PushAsync<TestPresentationPage>("transient");
+        var destroyedRoot = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        var destroyedWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(destroyedWindow);
+        var rootChanges = new List<Page?>();
+        fixture.Presenter.RootPageChanged += (_, page) => rootChanges.Add(page);
+
+        ((Microsoft.Maui.IWindow)destroyedWindow).Created();
+        ((Microsoft.Maui.IWindow)destroyedWindow).Destroying();
+
+        Assert.Null(fixture.Presenter.AttachedWindow);
+        Assert.Null(fixture.Presenter.CurrentPage);
+        Assert.Same(destroyedRoot, destroyedWindow.Page);
+        Assert.Null(Assert.Single(rootChanges));
+        Assert.Empty(fixture.Factory.ReleasedPages);
+        Assert.Empty(fixture.Factory.ReleasedPresentationPages);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Presenter.AttachWindowAsync(destroyedWindow).AsTask());
+
+        int pagesBeforeHostlessNavigation = fixture.Factory.CreatedPages.Count;
+        NavigationPlan intermediate = Plan(Stack("schools", Entry("schools"), Entry("details")));
+        await fixture.Presenter.ApplyAsync(
+            intermediate,
+            Context(new TestPageRoute("details"), initialPlan.TargetState));
+        NavigationPlan latest = Plan(Stack(
+            "schools",
+            Entry("schools"),
+            Entry("details"),
+            Entry("settings")));
+        await fixture.Presenter.ApplyAsync(
+            latest,
+            Context(new TestPageRoute("settings"), intermediate.TargetState));
+        Assert.Equal(pagesBeforeHostlessNavigation, fixture.Factory.CreatedPages.Count);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Presenter.PushAsync<TestPresentationPage>("hostless").AsTask());
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Presenter.PopAsync().AsTask());
+
+        var replacementWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(replacementWindow);
+
+        var replacementRoot = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        Assert.NotSame(destroyedRoot, replacementRoot);
+        Assert.Same(replacementRoot, replacementWindow.Page);
+        Assert.Equal(
+            ["schools", "details", "settings"],
+            replacementRoot.Navigation.NavigationStack.Select(page => page.Title));
+        Assert.Single(fixture.Factory.CreatedPresentationPages);
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [UIFact]
+    public async Task FailedReplacementPublishesNoPartialTreeAndRemainsRetryable()
+    {
+        var verifier = new TogglePresentationVerifier();
+        var fixture = new PresenterFixture(presentationVerifier: verifier);
+        await fixture.Presenter.ApplyAsync(
+            Plan(Stack("schools", Entry("schools"))),
+            Context(new TestPageRoute("schools")));
+        var destroyedWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(destroyedWindow);
+        ((Microsoft.Maui.IWindow)destroyedWindow).Created();
+        ((Microsoft.Maui.IWindow)destroyedWindow).Destroying();
+
+        verifier.Fail = true;
+        var rejectedWindow = new Window();
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Presenter.AttachWindowAsync(rejectedWindow).AsTask());
+        Assert.Null(fixture.Presenter.CurrentPage);
+        Assert.Null(fixture.Presenter.AttachedWindow);
+        Assert.Null(rejectedWindow.Page);
+
+        verifier.Fail = false;
+        var replacementWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(replacementWindow);
+        Assert.Same(fixture.Presenter.CurrentPage, replacementWindow.Page);
+        await fixture.Presenter.StartShutdown();
+    }
+
+    [UIFact]
+    public async Task DeferredModalCallbackFromDestroyedEpochCannotChangeReplacementState()
+    {
+        var dispatcher = new ControlledMainThreadDispatcher();
+        var fixture = new PresenterFixture(
+            mainThreadDispatcher: dispatcher);
+        var state = new NavigationState(
+            [new WindowNode(
+                "main",
+                Stack("schools", Entry("schools")),
+                [new ModalNode("cart", Entry("cart"))])],
+            "main");
+        await fixture.Presenter.ApplyAsync(
+            new NavigationPlan(state),
+            Context(new TestPageRoute("cart")));
+        var root = Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage);
+        Page modal = Assert.Single(root.Navigation.ModalStack);
+        var reconciliations = new List<NavigationReconciliation>();
+        fixture.Presenter.ReconciliationRequested += (_, args) => reconciliations.Add(args.Reconciliation);
+        var destroyedWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(destroyedWindow);
+
+        fixture.Presenter.ScheduleModalDismissalReconciliation(modal);
+        Assert.Equal(1, dispatcher.PendingCallbacks);
+        ((Microsoft.Maui.IWindow)destroyedWindow).Created();
+        ((Microsoft.Maui.IWindow)destroyedWindow).Destroying();
+        var replacementWindow = new Window();
+        await fixture.Presenter.AttachWindowAsync(replacementWindow);
+        dispatcher.RunPendingCallbacks();
+        Assert.Empty(reconciliations);
+        Assert.Single(Assert.IsType<NavigationPage>(fixture.Presenter.CurrentPage).Navigation.ModalStack);
+        await fixture.Presenter.StartShutdown();
+    }
+
     [Fact]
     public async Task DisposeReleasesCurrentStackPagesAndDetachesHandlersOnce()
     {
@@ -2744,6 +2865,38 @@ public sealed class MauiNavigationPresenterLifecycleTests
         return Assert.IsType<SemaphoreSlim>(field.GetValue(presenter));
     }
 
+    private sealed class TogglePresentationVerifier : IMauiPresentationVerifier
+    {
+        public bool Fail { get; set; }
+
+        public MauiPresentationVerificationMismatch? Verify(MauiPresentationVerificationContext context) =>
+            Fail
+                ? new MauiPresentationVerificationMismatch("$.root", "valid", "invalid")
+                : MauiPresentationVerifier.Instance.Verify(context);
+    }
+
+    private sealed class ControlledMainThreadDispatcher : IMauiMainThreadDispatcher
+    {
+        private readonly Queue<Action> _callbacks = new();
+
+        public bool IsMainThread => true;
+
+        public int PendingCallbacks => _callbacks.Count;
+
+        public Task InvokeAsync(Func<Task> callback) => callback();
+
+        public Task<T> InvokeAsync<T>(Func<Task<T>> callback) => callback();
+
+        public void BeginInvoke(Action callback) => _callbacks.Enqueue(callback);
+
+        public void RunPendingCallbacks()
+        {
+            while (_callbacks.TryDequeue(out Action? callback))
+                callback();
+        }
+    }
+
+
     private sealed class PresenterFixture
     {
         public PresenterFixture(
@@ -2751,7 +2904,9 @@ public sealed class MauiNavigationPresenterLifecycleTests
             Func<RouteEntry, Page>? createPage = null,
             Action<Page, RouteEntry, MauiRoutePageUpdateContext>? updatePage = null,
             IMauiNativeNavigationOperations? nativeOperations = null,
-            Action<MauiRoutePresentationOptions>? configurePresentation = null)
+            Action<MauiRoutePresentationOptions>? configurePresentation = null,
+            IMauiPresentationVerifier? presentationVerifier = null,
+            IMauiMainThreadDispatcher? mainThreadDispatcher = null)
         {
             Diagnostics = new NavigationDiagnostics();
             Diagnostics.AddObserver(Observer);
@@ -2763,7 +2918,9 @@ public sealed class MauiNavigationPresenterLifecycleTests
                 Factory,
                 diagnostics: Diagnostics,
                 presentationOptions: PresentationOptions,
-                nativeOperations: nativeOperations);
+                nativeOperations: nativeOperations,
+                presentationVerifier: presentationVerifier,
+                mainThreadDispatcher: mainThreadDispatcher);
         }
 
         public InstrumentedRoutePageFactory Factory { get; }

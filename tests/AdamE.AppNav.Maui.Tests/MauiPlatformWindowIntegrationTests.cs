@@ -25,6 +25,37 @@ public sealed class MauiPlatformWindowIntegrationCollection
 public sealed class MauiPlatformWindowIntegrationTests
 {
     [Fact]
+    public Task HostlessNavigationPreservesTheHomeScopeAndOpensTheNewDetailLease() =>
+        MainThread.InvokeOnMainThreadAsync(async () =>
+        {
+            var first = new Window(new ContentPage());
+            await using var provider = CreateServices();
+            var startup = provider.GetRequiredService<IAppNavStartupService>();
+            var navigator = provider.GetRequiredService<IRouterNavigator>();
+            Assert.Equal(AppNavStartupOutcome.FallbackNavigated, (await startup.StartAsync(first)).Outcome);
+            var oldRoot = Assert.IsType<NavigationPage>(first.Page);
+            var home = Assert.IsType<PlatformHomePage>(oldRoot.CurrentPage);
+
+            ((Microsoft.Maui.IWindow)first).Created();
+            ((Microsoft.Maui.IWindow)first).Destroying();
+            await navigator.NavigateAsync(new PlatformDetailRoute("hostless"));
+            var replacement = new Window(new ContentPage());
+            var result = await startup.StartAsync(replacement);
+            Assert.True(result.Succeeded, result.Exception?.ToString());
+            Assert.Equal(AppNavStartupOutcome.NoNavigation, result.Outcome);
+
+            var root = Assert.IsType<NavigationPage>(replacement.Page);
+            var rebuiltHome = Assert.IsType<PlatformHomePage>(root.Navigation.NavigationStack[0]);
+            Assert.NotSame(home, rebuiltHome);
+            Assert.Same(home.Scope, rebuiltHome.Scope);
+            Assert.Equal(0, home.Scope.DisposeCount);
+            Assert.IsType<PlatformDetailPage>(root.CurrentPage);
+            AssertLogicalStack(navigator, typeof(PlatformHomeRoute), typeof(PlatformDetailRoute));
+            await provider.DisposeAsync();
+            Assert.Equal(1, home.Scope.DisposeCount);
+        });
+
+    [Fact]
     public Task RealWindowNavigationAndBackKeepLogicalNativeHistoryAndScopesConsistent()
     {
         return MainThread.InvokeOnMainThreadAsync(RunOnMainThreadAsync);

@@ -105,7 +105,21 @@ internal sealed class AppNavStartupService : IAppNavStartupService
         ArgumentNullException.ThrowIfNull(window);
         ArgumentException.ThrowIfNullOrWhiteSpace(windowId);
 
+        // CreateWindow can call Start before MAUI has attached the Android activity. A restored
+        // modal needs the replacement window's native handler before its first push.
+        if (MainThread.IsMainThread && window.Handler is null && _windowAttachment.IsAwaitingReplacement(windowId))
+        {
+            window.Created += OnCreated;
+            return;
+        }
+
         _ = ObserveScheduledStartAsync(window, windowId);
+
+        void OnCreated(object? sender, EventArgs args)
+        {
+            window.Created -= OnCreated;
+            _ = ObserveScheduledStartAsync(window, windowId);
+        }
     }
 
     public ValueTask<AppNavStartupResult> StartAsync(
@@ -140,6 +154,7 @@ internal sealed class AppNavStartupService : IAppNavStartupService
     {
         var operationId = Guid.NewGuid().ToString("N");
         var attached = false;
+        bool replacingWindow = _windowAttachment.IsAwaitingReplacement(windowId);
 
         _diagnostics.Write(
             NavigationDiagnosticEventKind.StartupStarted,
@@ -191,6 +206,16 @@ internal sealed class AppNavStartupService : IAppNavStartupService
                             windowId,
                             (NavigationDiagnosticDataKeys.StartupDeferredRequestPending, true)));
                 }
+            }
+
+            // A replacement resumes the existing route. A freshly seeded navigator still needs its startup policy.
+            if (replacingWindow && _navigator.CurrentState.FindWindow(windowId) is not null)
+            {
+                attached = await AttachAsync(window, windowId, attached, cancellationToken);
+                return Complete(
+                    operationId,
+                    windowId,
+                    AppNavStartupOutcome.NoNavigation);
             }
 
             RouterNavigationRequest? fallbackRequest = await CreateFallbackRequestAsync(

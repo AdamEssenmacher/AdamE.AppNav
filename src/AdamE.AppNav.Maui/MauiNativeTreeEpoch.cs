@@ -37,7 +37,12 @@ internal sealed class MauiNativeTreeEpoch
 
     public AppRoute? PendingHostBackRoute { get; set; }
 
-    public CancellationToken CancellationToken => _cancellation.Token;
+    public MauiNativeTreeEpoch()
+    {
+        CancellationToken = _cancellation.Token;
+    }
+
+    public CancellationToken CancellationToken { get; }
 
     public bool IsOpen
     {
@@ -134,15 +139,17 @@ internal sealed record MauiNativeTreeEpochClosure(
 {
     public static MauiNativeTreeEpochClosure Empty { get; } = new([], [], Task.CompletedTask, null);
 
-    public async Task CompleteAsync()
+    public Task CompleteAsync() => CompleteAsync(Cancellation, CancellationSource);
+
+    private static async Task CompleteAsync(Task cancellation, CancellationTokenSource? source)
     {
         try
         {
-            await Cancellation.ConfigureAwait(false);
+            await cancellation.ConfigureAwait(false);
         }
         finally
         {
-            CancellationSource?.Dispose();
+            source?.Dispose();
         }
     }
 }
