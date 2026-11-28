@@ -72,10 +72,10 @@ That is an adapter requirement, not the definition of the route. The route
 remains semantic destination identity, while the page and its view model are
 application-owned presentation choices.
 
-An anchor page can display one route in a particular state, host custom
-controls, and update when a compatible route entry is reused. A route can also
-own a native segment of additional presentation pages. Those pages participate
-in native Back without becoming new routes or logical history entries. See
+An anchor page can display one route in a particular state and host custom
+controls. A route can also own a native segment of additional presentation
+pages. Those pages participate in native Back without becoming new routes or
+logical history entries. See
 [Route-owned presentation pages](../advanced/route-owned-presentation-pages.md)
 for that advanced lifecycle.
 
@@ -84,6 +84,25 @@ by the app's page or composition layer. AppNav does not navigate to a view-model
 type or require a one-route-to-one-view-model relationship. A custom host
 adapter may map logical entries to non-page artifacts; the MAUI adapter uses
 pages so it can participate in MAUI's native navigation containers.
+
+### Page reuse
+
+When MAUI retains a navigation stack, it compares route entry IDs from the root
+and keeps the existing pages for the matching prefix, even if their route values
+change. A host replacement or an earlier entry ID change can still cause a page
+to be rebuilt.
+
+A retained page's constructor does not run again. MAUI passes the incoming
+`RouteEntry` to registered `IMauiRoutePageLifecycleHook.OnPageUpdatedAsync`
+hooks. Choose how each page handles incoming route values:
+
+- If the page captures values at construction and needs a fresh instance when
+  they change, include those values in the entry ID. The Commerce sample keys
+  its branch roots by store and its product detail by store, product, variant,
+  and promo.
+- If the page should keep its instance, keep the entry ID stable and refresh
+  displayed values and navigation commands from `entry.Route` in the update
+  hook.
 
 ## Common flow
 

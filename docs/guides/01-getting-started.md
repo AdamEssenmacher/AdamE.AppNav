@@ -129,7 +129,13 @@ declared shape from any prior state.
 `Pages.cs` applies `[MauiRoutePage(typeof(HomeRoute))]` and
 `[MauiRoutePage(typeof(DetailRoute))]`. The MAUI generator emits
 `AppNavMauiPages.g.cs` and its `MauiPageModule`. Page constructors receive the
-typed route and any services supplied by DI.
+typed route and any services supplied by DI when MAUI creates the page.
+
+Within a retained stack, MAUI reuses pages along the matching entry ID prefix.
+If route values change under a retained ID, the constructor does not run again.
+Include values that require a fresh page in its entry ID, or handle
+`IMauiRoutePageLifecycleHook.OnPageUpdatedAsync` to refresh the page from the
+incoming route. See [MAUI page reuse](02-maui-integration.md#page-reuse).
 
 This minimal sample uses one page per route for clarity. The [route and
 presentation distinction](../concepts/00-why-appnav.md#a-route-is-neither-a-page-nor-a-view-model)
