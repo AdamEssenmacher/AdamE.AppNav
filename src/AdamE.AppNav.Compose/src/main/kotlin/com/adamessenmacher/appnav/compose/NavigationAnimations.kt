@@ -99,6 +99,19 @@ public class NavigationEntryScope internal constructor(
     public val animatedVisibilityScope: AnimatedVisibilityScope,
     private val backProgress: () -> Float?,
     private val backCancellations: () -> Long,
+    /** The split column that holds this entry, or null outside a split. */
+    public val splitColumn: NavigationSplitColumn? = null,
+    /**
+     * Whether the window shows the split's columns side by side. Use [isNavigationRoot] to decide whether an
+     * entry shows an Up or Back affordance.
+     */
+    public val isSplitExpanded: Boolean = false,
+    /**
+     * Whether to hide an Up affordance that invokes the shell's Back action. In a split, only the
+     * pane that Back pops or closes can show Up. When the shell lets system Back leave the app,
+     * both panes hide Up. Always false inside a modal; a modal over an entry does not change its value.
+     */
+    public val isNavigationRoot: Boolean = false,
 ) {
     /** 0–1 while Android is dispatching predictive Back. The route remains committed during a preview. */
     public val predictiveBackProgress: Float? get() = backProgress()
@@ -120,6 +133,7 @@ internal class NavigationOrigins {
     private data class Origin(val source: MountedEntry, val push: NavigationPresentationTransition)
     private val origins = mutableStateMapOf<MountedEntry, Origin>()
     private var resetRevision = Long.MIN_VALUE
+    private var dropped = emptySet<MountedEntry>()
 
     fun stage(target: NavigationProjection) {
         val transition = target.transition
@@ -134,10 +148,21 @@ internal class NavigationOrigins {
             entry in predecessors && predecessors[entry] != origin.source
         }
         if (transition.operation != "push") return
-        val stack = target.modalEntries.takeIf { it.isNotEmpty() }
-            ?: target.branches.firstOrNull { it.branch == target.selectedBranch }?.entries.orEmpty()
+        val stack = target.modalEntries.takeIf { it.isNotEmpty() } ?: target.presentedStack()
         val (source, destination) = transition.matchingPush(stack) ?: return
-        origins[destination] = Origin(source, transition)
+        if (destination !in dropped) origins[destination] = Origin(source, transition)
+    }
+
+    /**
+     * Drops the origins of a split's entries, which show side by side, so a later fold cannot replay a zoom
+     * into them. A modal's own pushes keep their origins.
+     */
+    fun dropSplit(target: NavigationProjection) {
+        val split = target.split ?: return
+        val columns = target.branches.firstOrNull { it.branch == target.selectedBranch }?.entries.orEmpty() +
+            split.secondaryEntries
+        dropped = columns.toSet()
+        origins.keys.removeAll(dropped)
     }
 
     fun prune(target: NavigationProjection) {
@@ -150,7 +175,7 @@ internal class NavigationOrigins {
         projection: NavigationPresentationTransition,
         stack: List<MountedEntry>,
     ): NavigationPresentationTransition? {
-        if (projection.resetsOrigins) return null
+        if (projection.resetsOrigins || destination in dropped) return null
         if (projection.matchingPush(stack)?.second == destination) return projection
         val origin = origins[destination] ?: return null
         val index = stack.indexOf(destination)
@@ -168,10 +193,23 @@ internal class NavigationOrigins {
     }
 
     private fun predecessors(target: NavigationProjection): Map<MountedEntry, MountedEntry?> = buildMap {
-        (target.branches.map(NavigationBranch::entries) + listOf(target.modalEntries)).forEach { stack ->
+        // A split's secondary root follows the primary column's top, as a one-pane window stacks them.
+        val split = target.split
+        val stacks = target.branches.map { branch ->
+            if (split != null && branch.branch == target.selectedBranch) branch.entries + split.secondaryEntries
+            else branch.entries
+        }
+        (stacks + listOf(target.modalEntries)).forEach { stack ->
             stack.forEachIndexed { index, entry -> put(entry, stack.getOrNull(index - 1)) }
         }
     }
+}
+
+/** The stack one pane presents: the selected branch, or a split's primary column with its secondary on top. */
+private fun NavigationProjection.presentedStack(): List<MountedEntry> {
+    val primary = branches.firstOrNull { it.branch == selectedBranch }?.entries.orEmpty()
+    val split = split ?: return primary
+    return if (split.compactColumn == NavigationSplitColumn.Secondary) primary + split.secondaryEntries else primary
 }
 
 private fun NavigationPresentationTransition.matchingPush(

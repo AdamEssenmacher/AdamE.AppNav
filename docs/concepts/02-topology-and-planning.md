@@ -176,11 +176,16 @@ list and detail inside one section is a split.
 
 Apps build splits through `IAppNavigationPlanner`; the standard models do not
 produce them. The [SwiftUI renderer](../../src/AdamE.AppNav.SwiftUI/README.md#splits)
-presents a split at the window root whose columns are stacks. The MAUI,
-UIKit and Android presenters do not present splits yet and refuse a plan
-containing one with `NotSupportedException` before any native change. The
-Compose host does not report `PresentsSplits`, so the shared OAHU presenter
-refuses a split for it the same way.
+and the [Compose renderer](../../src/AdamE.AppNav.Compose/README.md#splits)
+present a split at the window root whose columns are stacks. The Compose
+renderer shows two panes on windows at least 840 dp wide and 480 dp tall. On
+Android, system Back at the secondary root while both columns show and the
+primary column is at its root is not sent to the router: the system leaves the
+app there, as Material's list-detail layout does, instead of closing the column
+as a planned Back would. With the primary column deeper, Back closes the
+column as planned. The MAUI,
+UIKit and Android View presenters do not present splits yet and refuse a plan
+containing one with `NotSupportedException` before any native change.
 
 ## Standard models
 

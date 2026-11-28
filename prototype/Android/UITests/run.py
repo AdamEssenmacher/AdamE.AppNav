@@ -28,11 +28,37 @@ class Probe:
             self.adb + list(args), check=True, text=True, stdout=subprocess.PIPE, timeout=timeout
         ).stdout.strip()
 
-    def reset(self):
+    def reset(self, activity=ACTIVITY, split=False):
         # Start each scenario from a new managed router and restrict logs to that process.
         self.run("shell", "am", "force-stop", PACKAGE)
-        self.run("shell", "am", "start", "-W", "-n", ACTIVITY)
+        self.activity = activity
+        self.run("shell", "am", "start", "-W", "-a", "android.intent.action.MAIN",
+                 "-c", "android.intent.category.LAUNCHER", "-n", activity, "--ez", "split", str(split).lower())
         self.pid = self.run("shell", "pidof", "-s", PACKAGE)
+
+    def fold(self, folded):
+        """Fold or unfold the foldable emulator and bring the probe's task back to the front.
+
+        The emulator sleeps when it folds, so wake it and resume the task with an intent that matches its root.
+        Requires `adb shell locksettings set-disabled true` so no keyguard stands in front of the task.
+        """
+        self.run("emu", "fold" if folded else "unfold")
+        time.sleep(2)
+        self.run("shell", "input", "keyevent", "KEYCODE_WAKEUP")
+        self.run("shell", "wm", "dismiss-keyguard")
+        time.sleep(1)
+        self.run("shell", "am", "start", "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER",
+                 "-f", "0x10000000", "-n", self.activity)
+        state = self.run("shell", "cmd", "device_state", "print-state")
+        assert state == ("0" if folded else "2"), f"Device state {state}"
+
+    def missing(self, *texts):
+        visible = self.wait_for_texts()
+        present = [text for text in texts if text.casefold() in (label.casefold() for label in visible)]
+        assert not present, f"Expected {present} to be hidden; visible texts were {list(visible)}"
+
+    def focused(self):
+        return self.run("shell", "dumpsys", "window").split("mCurrentFocus=", 1)[1].split("\n", 1)[0]
 
     def wait_for_texts(self, *expected):
         deadline = time.monotonic() + 75
@@ -383,6 +409,193 @@ def verify_game_recreation(probe):
     print("PASS Activity recreation interrupts the shared Game push and the replacement commits exactly once")
 
 
+HANDLED = f"{PACKAGE}/.HandledActivity"
+SPLIT_HOME = r"split\[home\]@primary history=1\b"
+GAME_A = r"split\[home\]\+game-a-stack\[game-a\]@secondary history=2\b"
+GAME_A_PAGE = r"split\[home\]\+game-a-stack\[game-a,game-a-page-1\]@secondary history=3\b"
+
+
+def start_split(probe, folded, activity=HANDLED):
+    probe.run("emu", "fold" if folded else "unfold")
+    time.sleep(2)
+    probe.run("shell", "input", "keyevent", "KEYCODE_WAKEUP")
+    probe.run("shell", "wm", "dismiss-keyguard")
+    probe.reset(activity, split=True)
+    probe.wait_for_log(SPLIT_HOME)
+
+
+def split_history(probe):
+    return [int(count) for count in re.findall(r"split\[[^\n]*history=(\d+)\b", probe.logs())][-1]
+
+
+def verify_split_unfolded(probe):
+    start_split(probe, folded=False)
+    probe.wait_for_texts("Page: home", "Pick a game")
+    probe.tap("Game A")
+    probe.wait_for_log(GAME_A)
+    probe.wait_for_log(r"surface [^\n]*home-stack \[home\] modal= \[\] secondary=\[game-a\] compact=secondary")
+    probe.wait_for_texts("Page: home", "Page: game-a")
+    probe.missing("Up", "Pick a game")
+    probe.tap("Game page")
+    probe.wait_for_log(GAME_A_PAGE)
+    probe.wait_for_texts("Page: home", "Page: game-a-page-1", "Up")
+
+    before = len(probe.logs())
+    probe.predictive_back(0.12, cancel=True)
+    time.sleep(1.5)
+    probe.wait_for_texts("Page: game-a-page-1", "Page: home")
+    assert "HostReconciliation" not in probe.logs()[before:], probe.logs()[before:]
+    probe.predictive_back(0.70)
+    probe.wait_for_log(r"split\[home\]\+game-a-stack\[game-a\]@secondary history=4\b[^\n]*HostReconciliation", after=before)
+    probe.wait_for_texts("Page: home", "Page: game-a")
+
+    # Side by side, Back at the game's root is not intercepted: the system leaves the app as from Home.
+    probe.back()
+    time.sleep(2)
+    assert PACKAGE not in probe.focused(), probe.focused()
+    assert split_history(probe) == 4, probe.logs()
+    print("PASS two panes: list beside detail, in-pane push, predictive cancel and pop, root Back leaves the app")
+
+
+def verify_split_game_switch(probe):
+    start_split(probe, folded=False)
+    probe.tap("Game A")
+    probe.wait_for_log(GAME_A)
+    probe.tap("Game B")
+    probe.wait_for_log(r"split\[home\]\+game-b-stack\[game-b\]@secondary history=3\b")
+    probe.wait_for_texts("Page: home", "Page: game-b")
+    probe.missing("Page: game-a")
+    print("PASS two panes: selecting another game replaces the detail pane beside Home")
+
+
+def verify_split_fold_mid_navigation(probe):
+    start_split(probe, folded=False)
+    probe.tap("Game A")
+    probe.wait_for_log(GAME_A)
+    probe.tap("Game page")
+    probe.wait_for_log(GAME_A_PAGE)
+    probe.tap("Local count 0")
+    probe.wait_for_texts("Local count 1")
+    readings = len(re.findall(r"surface epoch=", probe.logs()))
+
+    probe.fold(True)
+    probe.wait_for_texts("Page: game-a-page-1", "Local count 1", "Up")
+    probe.missing("Page: home")
+    assert len(re.findall(r"surface epoch=", probe.logs())) == readings, "A fold sent a reading"
+    before = len(probe.logs())
+    probe.predictive_back(0.70)
+    probe.wait_for_log(r"split\[home\]\+game-a-stack\[game-a\]@secondary history=4\b", after=before)
+    probe.wait_for_texts("Page: game-a", "Up")
+    probe.back()
+    probe.wait_for_log(r"split\[home\]@primary history=5\b[^\n]*HostReconciliation@split\[home\]@primary", after=before)
+    probe.wait_for_texts("Page: home")
+
+    probe.fold(False)
+    probe.wait_for_texts("Page: home", "Pick a game")
+    assert split_history(probe) == 5, probe.logs()
+    print("PASS fold mid-navigation keeps the game and its state; folded Back pops, then closes the column")
+
+
+def verify_split_folded_selection(probe):
+    start_split(probe, folded=True)
+    probe.wait_for_texts("Page: home")
+    probe.tap("Game A")
+    probe.wait_for_log(GAME_A)
+    probe.wait_for_log(r"split zoom active game=game-a")
+    probe.wait_for_texts("Page: game-a", "Up")
+    probe.missing("Page: home")
+    # A fold or unfold is not navigation: the game keeps its place without another zoom.
+    probe.fold(False)
+    probe.wait_for_texts("Page: home", "Page: game-a")
+    probe.fold(True)
+    probe.wait_for_texts("Page: game-a", "Up")
+    time.sleep(1.5)
+    zooms = re.findall(r"split zoom active", probe.logs())
+    assert len(zooms) == 1, probe.logs()
+    before = len(probe.logs())
+    probe.predictive_back(0.12, cancel=True)
+    time.sleep(1.5)
+    probe.wait_for_texts("Page: game-a")
+    assert "HostReconciliation" not in probe.logs()[before:], probe.logs()[before:]
+    probe.predictive_back(0.70)
+    probe.wait_for_log(r"split\[home\]@primary history=3\b[^\n]*HostReconciliation", after=before)
+    probe.wait_for_texts("Page: home")
+    probe.fold(False)
+    print("PASS one pane: selection zooms the game over Home once, folds replay no zoom, predictive cancel keeps it, "
+          "and Back at its root closes the column")
+
+
+def verify_split_display_default(probe):
+    start_split(probe, folded=False)
+    probe.tap("More Home")
+    probe.wait_for_log(r"split\[home,home-more\]@primary history=2\b")
+    probe.tap("Default A")
+    probe.wait_for_log(r"split\[home,home-more\]\+game-a-stack\[game-a\]@primary history=3\b")
+    probe.wait_for_texts("Page: home-more", "Page: game-a")
+    probe.fold(True)
+    probe.wait_for_texts("Page: home-more")
+    probe.missing("Page: game-a")
+    probe.back()
+    probe.wait_for_log(r"split\[home\]@primary history=4\b[^\n]*HostReconciliation")
+    probe.wait_for_texts("Page: home")
+    probe.fold(False)
+    probe.wait_for_texts("Page: home", "Pick a game")
+    print("PASS a default game shows beside Home but not over it folded; Back pops Home and closes the default")
+
+
+def verify_split_modal(probe):
+    start_split(probe, folded=False)
+    probe.tap("Game A")
+    probe.wait_for_log(GAME_A)
+    probe.tap("Modal")
+    probe.wait_for_log(r"split\[home\]\+game-a-stack\[game-a\]\+modal:editor@secondary history=3\b")
+    probe.wait_for_texts("Page: edit")
+    probe.back()
+    probe.wait_for_log(r"split\[home\]\+game-a-stack\[game-a\]@secondary history=4\b[^\n]*HostReconciliation")
+    probe.wait_for_texts("Page: home", "Page: game-a")
+    print("PASS a modal covers the split and Back dismisses it, leaving both panes")
+
+
+def verify_split_sideways(probe):
+    start_split(probe, folded=False)
+    probe.tap("Game A")
+    probe.wait_for_log(GAME_A)
+    probe.run("shell", "settings", "put", "system", "accelerometer_rotation", "0")
+    try:
+        probe.run("shell", "settings", "put", "system", "user_rotation", "1")
+        time.sleep(3)
+        probe.wait_for_texts("Page: home", "Page: game-a")
+    finally:
+        probe.run("shell", "settings", "put", "system", "user_rotation", "0")
+    print("PASS unfolded sideways (883x852 dp) keeps two panes")
+
+
+def verify_split_fold_recreation(probe):
+    start_split(probe, folded=False, activity=ACTIVITY)
+    probe.tap("Game A")
+    probe.wait_for_log(GAME_A)
+    attached = probe.wait_for_log(r"attached epoch=(\d+)")
+    probe.fold(True)
+    probe.wait_for_log(rf"attached epoch={int(attached[1]) + 1}\b")
+    probe.wait_for_texts("Page: game-a", "Up")
+    probe.back()
+    probe.wait_for_log(r"split\[home\]@primary history=\d+\b[^\n]*HostReconciliation@split\[home\]@primary")
+    probe.wait_for_texts("Page: home")
+    probe.fold(False)
+    print("PASS a fold that recreates the Activity reattaches the split and folded Back closes the column")
+
+
+SPLIT_SCENARIOS = {
+    "split-unfolded": verify_split_unfolded,
+    "split-switch": verify_split_game_switch,
+    "split-fold": verify_split_fold_mid_navigation,
+    "split-folded": verify_split_folded_selection,
+    "split-default": verify_split_display_default,
+    "split-modal": verify_split_modal,
+    "split-sideways": verify_split_sideways,
+    "split-recreate": verify_split_fold_recreation,
+}
+
 SCENARIOS = {
     "branches": verify_branch_switch,
     "recreate-link": verify_recreation,
@@ -399,13 +612,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--serial", default=os.environ.get("ANDROID_SERIAL"))
     parser.add_argument("--apk", type=Path, help="Install this APK before testing")
-    parser.add_argument("--case", action="append", choices=SCENARIOS, help="Run only the named scenario; may be repeated")
+    parser.add_argument("--case", action="append", choices=[*SCENARIOS, *SPLIT_SCENARIOS],
+                        help="Run only the named scenario; may be repeated")
+    parser.add_argument("--split", action="store_true", help="Run the split scenarios, which need a foldable emulator")
     args = parser.parse_args()
     probe = Probe(args.serial)
     if args.apk:
         probe.run("install", "-r", str(args.apk), timeout=120)
-    for name in args.case or SCENARIOS:
-        SCENARIOS[name](probe)
+    scenarios = {**SCENARIOS, **SPLIT_SCENARIOS}
+    for name in args.case or (SPLIT_SCENARIOS if args.split else SCENARIOS):
+        scenarios[name](probe)
         log = probe.logs()
         assert "FAULT" not in log, log
 

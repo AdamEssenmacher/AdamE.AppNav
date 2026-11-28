@@ -123,8 +123,17 @@ public sealed class NavigationShellViewModel(
             Task operation = Task.CompletedTask;
             await dispatch(() =>
             {
-                if (!disposed)
-                    operation = observe(observation);
+                if (disposed)
+                    return;
+                // A native screen that does not map the split wire would report a split without its columns,
+                // which never matches, and the presentation would stall until it timed out.
+                if (observation.CompactColumn.Length == 0 && surface.Target.Current is { Split.SplitId.Length: > 0 } staged &&
+                    staged.Revision == observation.Revision)
+                    throw new InvalidOperationException(
+                        $"The native shell reported revision {observation.Revision} of split '{staged.Split.SplitId}' " +
+                        "without its split columns. Map ShellTarget.Split into the native projection and report the " +
+                        "reading's SecondaryEntries and CompactColumn.");
+                operation = observe(observation);
             }).ConfigureAwait(false);
             await operation.ConfigureAwait(false);
         }

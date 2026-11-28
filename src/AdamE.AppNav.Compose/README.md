@@ -1,6 +1,6 @@
 # AppNav for Jetpack Compose
 
-Android hosts can render AppNav's one-window projection with `AppNavNavigationShell`. It supports a single primary stack or a selected stack within a branch host, plus an optional modal with its own stack, shown in a dialog by default or in a window the app supplies. Every destination draws an OAHU mount supplied by the managed host. Android Back edits the displayed stack and reports the settled result to AppNav. A replacement Activity starts from the projection sent to its new attachment.
+Android hosts can render AppNav's one-window projection with `AppNavNavigationShell`. It supports a single primary stack, a selected stack within a branch host, or a [split](#splits) at the window root, plus an optional modal with its own stack, shown in a dialog by default or in a window the app supplies. Every destination draws an OAHU mount supplied by the managed host. Android Back edits the displayed stack and reports the settled result to AppNav. A replacement Activity starts from the projection sent to its new attachment.
 
 Include this directory's `src/main/kotlin` in the Android screen library's Kotlin source set. When consuming the NuGet package, use its `native/src/main/kotlin` directory. The [probe Gradle project](../../prototype/Android/Native/screens/build.gradle.kts) shows how to compile against the same OAHU runtime and Compose versions packaged by the .NET app. It uses Navigation 3 runtime and UI 1.2.1. The managed package supplies the matching Compose dependencies and includes the two unbound Nav3 AARs in the app build. The probe's [host project](../../prototype/Android/Host/Host.csproj) shows the OAHU code generation and Gradle integration.
 
@@ -42,7 +42,36 @@ Repeated requests are harmless: the shell ignores them while one is pending.
 
 A host that draws in the Activity window instead of its own still receives system Back: the shell routes it to the modal while one is shown. A callback from a retired modal occurrence does nothing, so a host can't dismiss the modal's replacement.
 
-The host renders one window and one optional modal stack. Shared elements require both destinations to register in the same stack's shared scope. Retained-router reattachment restores the current projection during same-process Activity recreation. The app owns navigation persistence across process death. Predictive Back progress comes from the default native path. Supplying `requestBack` routes the decision through managed policy and applies the projection that the router publishes.
+The host renders one window, which can be a split, and one optional modal stack. Shared elements require both destinations to register in the same stack's shared scope. Retained-router reattachment restores the current projection during same-process Activity recreation. The app owns navigation persistence across process death. Predictive Back progress comes from the default native path. Supplying `requestBack` routes the decision through managed policy and applies the projection that the router publishes.
+
+## Splits
+
+A window whose root is a `SplitNode` with a stack in each column renders as Material's list-detail layout through a custom Navigation 3 scene strategy. Map the wire's `ShellTarget.Split` into `NavigationProjection.split` with `NavigationSplitColumn.fromWireName`, and report the observation's `secondaryEntries` and `compactColumn.wireName`. A screen that reports a split reading without them gets an `InvalidOperationException` through the host's failure handler naming the missing fields. The reading is not observed, so the presentation still waits for a matching reading and fails when it times out; the report says why. See [the probe screen](../../prototype/Android/Native/screens/src/main/kotlin/com/adamessenmacher/appnav/probe/DemoScreens.kt) for the mapping. The projection's only branch is the primary column. `AndroidNavigationHost` reports `PresentsSplits`, so the OAHU presenter projects splits to it. Splits inside branches or modals, and branch hosts inside a column, are refused with `NotSupportedException` before anything is staged.
+
+The shell hands Navigation 3 one flattened back stack: the primary column's entries, then the secondary column's. Each entry renders from exactly one scene:
+
+- When the window is at least 840 dp wide and at least 480 dp tall (expanded width, not compact height), the two-pane scene shows the primary column's top in a 360 dp list pane, a divider, and the secondary column's top in the detail pane. With nothing selected the detail pane shows the composable the app provides as `LocalNavigationSplitPlaceholder` around the shell. A phone turned sideways keeps one pane.
+- Otherwise the one-pane scene shows the phone stack: the primary column, with the secondary column on top while `compactColumn` is `Secondary`. A default secondary column under a primary column on top stays in the stack unrendered, so its saved state survives until a wider window shows it.
+
+Folding, unfolding and resizing never change the logical state or send a reading, and they swap layouts without an animation: neither the scenes nor their panes animate, and no shared element is matched across the swap. Entries keep their saved state across the swap because they stay in the same `NavDisplay`. A window that changes size during a Back gesture, predictive or through `requestBack`, keeps the gesture's layout, and the Back it completes, until the gesture ends. A root that changes from a plain stack to a split, or back, also swaps without an animation. With the Activity handling its own size changes, the composition survives; a recreated Activity starts from the projection as usual.
+
+Back follows the column on top, as AppNav plans it:
+
+| Window | On top | System Back |
+| --- | --- | --- |
+| One pane | Secondary column deeper than its root | Pops inside the secondary column |
+| One pane | Secondary root | Closes the column, as `ClearSecondary` does; the reading reports no secondary column and the primary column on top |
+| Two panes | Secondary column on top, deeper than its root | Pops inside the detail pane, with predictive Back confined to that pane |
+| Two panes | Secondary column on top at its root, primary column at its root | Not intercepted, so the system leaves the app, as from Home on a phone |
+| Two panes | Secondary column on top at its root, primary column deeper | Closes the detail, as AppNav plans it |
+| Either | Primary column on top, deeper than its root | Pops the primary column and closes a default secondary column, as AppNav plans it, even when the default shows a deeper page beside it |
+| Either | Primary column on top at its root | Not intercepted |
+
+This deviates from Material's recommended default, `PopUntilScaffoldValueChange`, which leaves the app from any detail screen while both panes show; here Back first goes back inside the detail pane. At the detail root both leave the app. Not intercepting there also deviates from AppNav core, whose planned Back would close the column: the press never reaches the router, so managed Back policy is not asked. With `requestBack`, the shell asks the router only when it would intercept, and the router's projection drives the change.
+
+In two panes, a pane whose top changes cross-fades with Navigation 3's default 700 ms fade, and a predictive Back scrubs that fade. The other pane stays still. Entries can read `LocalNavigationEntryScope`'s `splitColumn`, `isSplitExpanded` and `isNavigationRoot`. Show an Up button that invokes Back only when `isNavigationRoot` is false. In a split this is the pane that Back pops or closes, as described in the table above. When the shell lets system Back leave the app, both panes hide Up. The flag is always false inside a modal, and a modal over an entry does not change its value. A selection shown beside its source has no `origin`, so a shared-element zoom from a list row applies only when one pane stacks the selection over the list, and an unfold drops a zoom already shown.
+
+A modal covers the whole split. Route entries in both columns stay mounted, and their leases stay open, in both layouts. The placeholder is not an entry; it can compose twice while a pane animates. Hinge-aware and tabletop layouts are not supported: a half-open book posture shows the same 360 dp list pane.
 
 ## Nav3 transitions and shared elements
 

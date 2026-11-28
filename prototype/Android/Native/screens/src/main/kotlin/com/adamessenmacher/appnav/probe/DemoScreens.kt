@@ -5,7 +5,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -14,6 +18,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -24,10 +30,17 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.adamessenmacher.appnav.compose.AppNavNavigationShell
 import com.adamessenmacher.appnav.compose.MountedEntry
+import com.adamessenmacher.appnav.compose.LocalNavigationEntryScope
+import com.adamessenmacher.appnav.compose.LocalNavigationSplitPlaceholder
 import com.adamessenmacher.appnav.compose.NavigationBranch
+import com.adamessenmacher.appnav.compose.NavigationEntryScope
+import com.adamessenmacher.appnav.compose.NavigationSplit
+import com.adamessenmacher.appnav.compose.NavigationSplitColumn
 import com.adamessenmacher.appnav.compose.NavigationPresentationTransition
 import com.adamessenmacher.appnav.compose.NavigationProjection
 import java.util.concurrent.atomic.AtomicLong
@@ -84,14 +97,18 @@ public fun DemoShellScreen(model: DemoShellModel) {
         }
     }
     MaterialTheme {
-        CompositionLocalProvider(LocalGameActions provides actions) {
+        CompositionLocalProvider(
+            LocalGameActions provides actions,
+            LocalNavigationSplitPlaceholder provides {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Pick a game") }
+            },
+        ) {
             AppNavNavigationShell(
                 projection,
                 report = { observed ->
                     model.report(NativeObservation(
                         observed.revision, observed.branch, observed.entries, observed.modalId, observed.modalEntries,
-                        // The Compose shell presents no splits, so it reports no split columns.
-                        emptyList(), "",
+                        observed.secondaryEntries, observed.compactColumn?.wireName.orEmpty(),
                     ))
                 },
                 requestBack = if (managedBack) requestManagedBack else null,
@@ -162,6 +179,11 @@ public fun PageScreen(model: PageModel) {
         "game" -> 0.95f
         else -> 1f
     }
+    val entry = LocalNavigationEntryScope.current
+    if (entry?.splitColumn != null) {
+        SplitPage(title, entry)
+        return
+    }
     Box(Modifier.fillMaxWidth().fillMaxHeight(sceneHeight), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text("Page: $title", style = MaterialTheme.typography.headlineMedium)
@@ -172,6 +194,57 @@ public fun PageScreen(model: PageModel) {
             TextButton(onClick = { localCount++ }) { Text("Local count $localCount") }
         }
     }
+}
+
+// The split probe: Home rows select a game; a game's pages push in its own column.
+@Composable
+private fun SplitPage(title: String, entry: NavigationEntryScope) {
+    val actions = LocalGameActions.current
+    var localCount by rememberSaveable { mutableIntStateOf(0) }
+    Column(Modifier.fillMaxSize().statusBarsPadding().padding(12.dp)) {
+        Text("Page: $title", style = MaterialTheme.typography.headlineSmall)
+        val gameRoot = title == "game-a" || title == "game-b"
+        if (!entry.isNavigationRoot) {
+            TextButton(onClick = { actions?.command?.invoke("up") }) { Text("Up") }
+        }
+        if (entry.splitColumn == NavigationSplitColumn.Primary) {
+            listOf("game-a" to "Game A", "game-b" to "Game B").forEach { (game, label) ->
+                TextButton(onClick = { actions?.command?.invoke("select-$game") }) {
+                    SplitCover(game, entry)
+                    Text(label, Modifier.padding(start = 12.dp))
+                }
+            }
+            TextButton(onClick = { actions?.command?.invoke("select-default-a") }) { Text("Default A") }
+            TextButton(onClick = { actions?.command?.invoke("push-home-page") }) { Text("More Home") }
+        } else {
+            if (gameRoot) SplitCover(title, entry, expanded = true)
+            TextButton(onClick = { actions?.command?.invoke("push-game-page") }) { Text("Game page") }
+        }
+        TextButton(onClick = { localCount++ }) { Text("Local count $localCount") }
+    }
+}
+
+// A Home row's cover zooms into the game it selects when one pane stacks the game over Home. Side by side the
+// shell gives the game no origin, so the row keeps its cover.
+@Composable
+private fun SplitCover(game: String, entry: NavigationEntryScope, expanded: Boolean = false) {
+    val key = "split-cover-$game"
+    val shared = !expanded || entry.origin?.sourceKey == key
+    val size = Modifier.size(if (expanded) 160.dp else 40.dp)
+    val actions = LocalGameActions.current
+    val modifier = if (!shared) size else with(entry.sharedTransitionScope) {
+        val cover = rememberSharedContentState(key)
+        if (expanded && actions != null) {
+            // The UI checks count zooms: one for a one-pane selection, none for a fold or unfold.
+            LaunchedEffect(cover) {
+                snapshotFlow { isTransitionActive && cover.isMatchFound }.collect { zooming ->
+                    if (zooming) actions.trace("split zoom active game=$game revision=${entry.revision}")
+                }
+            }
+        }
+        Modifier.sharedElement(cover, entry.animatedVisibilityScope).then(size)
+    }
+    Box(modifier.clip(RoundedCornerShape(12.dp)).background(Color(0xFF2C7BFF)))
 }
 
 private fun ShellTarget.toProjection() = NavigationProjection(
@@ -189,6 +262,9 @@ private fun ShellTarget.toProjection() = NavigationProjection(
         transition.sourceScreen,
         transition.destinationScreen,
     ),
+    NavigationSplitColumn.fromWireName(split.compactColumn)?.let { compact ->
+        NavigationSplit(split.splitId, split.secondaryId, split.secondaryEntries.map(ScreenEntry::toMountedEntry), compact)
+    },
 )
 
 private fun ScreenEntry.toMountedEntry() = MountedEntry(entryId, mount)

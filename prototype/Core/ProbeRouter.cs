@@ -45,6 +45,7 @@ public sealed class ProbeRouter : IAsyncDisposable
     {
         Screen page => page.Name,
         SelectGame game => game.Id,
+        SelectDefaultGame game => game.Id,
         PushGamePage => "game-page",
         OpenGame => "game",
         DetailLink => "detail",
@@ -58,6 +59,7 @@ public sealed class ProbeRouter : IAsyncDisposable
     {
         Screen page => page.Name,
         SelectGame game => game.Id,
+        SelectDefaultGame game => game.Id,
         PushGamePage => "game-page",
         OpenGame => "game",
         DetailLink => "detail",
@@ -132,6 +134,11 @@ public sealed class ProbeRouter : IAsyncDisposable
         OnCommit();
     }
 
+    /// <summary>Shows a game beside Home as the split's default, with Home on top in a single pane.</summary>
+    public Task SelectDefaultGameAsync(string game, CancellationToken cancellationToken = default) =>
+        NavigateAsync(RouterNavigationRequest.FromRoute(new SelectDefaultGame(game), NavigationRequestSource.InAppCommand),
+            cancellationToken);
+
     public Task PushGamePageAsync(CancellationToken cancellationToken = default) =>
         NavigateAsync(RouterNavigationRequest.FromRoute(new PushGamePage(), NavigationRequestSource.InAppCommand), cancellationToken);
 
@@ -197,6 +204,7 @@ public sealed class ProbeRouter : IAsyncDisposable
     private sealed record DetailLink : AppRoute;
     private sealed record Screen(string Name) : AppRoute;
     private sealed record SelectGame(string Id) : AppRoute;
+    private sealed record SelectDefaultGame(string Id) : AppRoute;
     private sealed record PushGamePage : AppRoute;
 
     private sealed class Planner(bool split) : IAppNavigationPlanner
@@ -257,9 +265,13 @@ public sealed class ProbeRouter : IAsyncDisposable
             {
                 case SelectGame game:
                     return Plan(current.Select(new StackNode(game.Id + "-stack", [new RouteEntry(game.Id, game)])));
+                case SelectDefaultGame game:
+                    return Plan(current.Select(new StackNode(game.Id + "-stack", [new RouteEntry(game.Id, game)]),
+                        SplitColumn.Primary));
                 case PushGamePage when current.Secondary is StackNode stack:
+                    // Select puts the game on top, so a page pushed onto a default game shows in one pane too.
                     var page = new RouteEntry($"{stack.Entries[0].Id}-page-{stack.Entries.Count}", context.Route);
-                    return Plan(current with { Secondary = stack with { Entries = [.. stack.Entries, page] } });
+                    return Plan(current.Select(stack with { Entries = [.. stack.Entries, page] }));
                 case Screen { Name: "home-more" } when current.Primary is StackNode primary:
                     return Plan(current with { Primary = primary with { Entries = [.. primary.Entries, new RouteEntry("home-more", context.Route)] } });
                 case OpenModal:

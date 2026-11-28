@@ -67,7 +67,9 @@ public sealed class AndroidNavigationHost : IDisposable
         Action<Exception> reportFailure) where TContract : class
     {
         EnsureMainThread();
-        var shell = NavigationShellViewModel.Attach(presenter, leases, mount, DispatchAsync, reportFailure);
+        // The Compose shell presents a split at the window root, side by side or as one stack.
+        var shell = NavigationShellViewModel.Attach(presenter, leases, mount, DispatchAsync, reportFailure,
+            presentsSplits: true);
         OahuScreen? screen = null;
         try
         {
