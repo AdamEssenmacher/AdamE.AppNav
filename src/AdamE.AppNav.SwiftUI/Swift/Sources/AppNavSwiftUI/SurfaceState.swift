@@ -106,13 +106,14 @@ struct SurfaceState {
         let hasPolicy: Bool
     }
 
-    // `sourceKey` is the stack holding the source. It differs from `key` only for a sheet root,
-    // whose source is the top of the branch it covers.
+    // Sheet roots and cross-column selections have a source in a different stack.
     struct PushOrigin: Equatable {
         let key: StackKey
         let sourceKey: StackKey
         let source: NavigationEntry
         let context: NavigationTransitionContext
+
+        var crossesIntoSecondaryColumn: Bool { key.isSecondary && sourceKey != key }
     }
 
     private struct Authority: Equatable {
@@ -284,7 +285,7 @@ struct SurfaceState {
         // zoom dismissal, which keeps the edge swipe from starting.
         if let split = next.split, target?.split?.id != split.id {
             forgetSplitLayout()
-            pushOrigins = pushOrigins.filter { _, origin in !origin.key.isSecondary }
+            pushOrigins = pushOrigins.filter { _, origin in !origin.crossesIntoSecondaryColumn }
         }
         // While collapsed, SwiftUI can leave the binding on the primary column with the secondary root still on top.
         // It then neither pops that column for a staged primary column, nor shows a different secondary column, so
@@ -852,7 +853,7 @@ struct SurfaceState {
         if splitLayoutHeld, sample.split?.isCollapsed == false {
             // Unfolded, the selected row is on screen beside its game, so Back from the game no longer zooms into it.
             // SwiftUI still hides the row's cover while the zoomed game shows.
-            pushOrigins = pushOrigins.filter { _, origin in !(origin.key.isSecondary && origin.sourceKey != origin.key) }
+            pushOrigins = pushOrigins.filter { _, origin in !origin.crossesIntoSecondaryColumn }
         }
         // The top column of a collapsed split is read on held layouts only; a passing layout keeps the last one.
         guard splitLayoutHeld else { return }
