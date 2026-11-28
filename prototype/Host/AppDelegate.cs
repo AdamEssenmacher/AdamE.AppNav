@@ -40,6 +40,7 @@ public sealed class SceneDelegate : UIWindowSceneDelegate
     private bool replaceDuringPush;
     private (long Epoch, long Revision)? replacedPresentation;
     private NativeObservation? heldReading;
+    private UIAlertController? pushAlert;
     public override UIWindow? Window { get; set; }
 
     public override void WillConnect(UIScene scene, UISceneSession session, UISceneConnectionOptions connectionOptions)
@@ -84,6 +85,14 @@ public sealed class SceneDelegate : UIWindowSceneDelegate
             switch (command)
             {
                 case "open-game": Run(() => current.OpenGameAsync(token)); break;
+                case "push-behind-alert":
+                    if (host is not { } activeHost || pushAlert is not null)
+                        break;
+                    var alert = UIAlertController.Create("Host alert", current.Status, UIAlertControllerStyle.Alert);
+                    alert.AddAction(UIAlertAction.Create("Dismiss", UIAlertActionStyle.Default, _ => pushAlert = null));
+                    pushAlert = alert;
+                    activeHost.ViewController.PresentViewController(alert, true, () => Run(() => current.OpenGameAsync(token)));
+                    break;
                 case "open-game-crossfade": Run(() => current.OpenGameAsync("game-crossfade", token)); break;
                 case "open-fade-sheet": Run(() => current.OpenFadeSheetAsync(token)); break;
                 case "replace-during-push":
@@ -189,6 +198,8 @@ public sealed class SceneDelegate : UIWindowSceneDelegate
         if (router is not { } current) return;
         Trace(current.Status);
         shell?.SetStatus(current.Status);
+        if (pushAlert is { } alert)
+            alert.Message = current.Status;
     });
 
     private async void Run(Func<Task> operation)
@@ -219,6 +230,7 @@ public sealed class SceneDelegate : UIWindowSceneDelegate
         presenter = null;
         leases = null;
         heldReading = null;
+        pushAlert = null;
         replacedPresentation = null;
         replaceDuringPush = false;
         Window?.RootViewController = null;

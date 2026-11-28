@@ -51,12 +51,12 @@ private struct SplitHarness {
 
     /// A frame in which UIKit shows the shell's paths. Collapsed, it shows the secondary column on top when
     /// `secondaryOnTop` says so, which defaults to the binding.
-    func faithfulSample(secondaryOnTop: Bool? = nil, primaryInWindow: Bool = true, hittable: Bool = true) -> NativeSample {
+    func faithfulSample(secondaryOnTop: Bool? = nil, primaryInWindow: Bool = true, holdsSettlement: Bool = false) -> NativeSample {
         var tops: [StackSample] = []
         let home = primary
         func sample(_ key: StackKey, _ entries: [NavigationEntry]) -> StackSample {
             StackSample(key: key, top: entries[entries.count - 1], depth: entries.count,
-                        identities: entries.map { Optional($0.id) }, isHittable: hittable)
+                        identities: entries.map { Optional($0.id) })
         }
         if collapsed {
             if let secondary, secondaryOnTop ?? (state.compactColumn == .secondary) {
@@ -73,7 +73,7 @@ private struct SplitHarness {
         }
         return NativeSample(time: time, markerKeys: tops.map(\.key), tops: tops,
                             mounted: tops.map { MountedPage(key: $0.key, entry: $0.top) },
-                            split: SplitSample(isCollapsed: collapsed))
+                            holdsSettlement: holdsSettlement, split: SplitSample(isCollapsed: collapsed))
     }
 
     /// A collapsed frame in which UIKit still shows `game`'s root over Home, whatever the shell staged.
@@ -349,7 +349,7 @@ final class SplitSurfaceStateTests: XCTestCase {
         h.stage(split(1))
         h.frames()
         h.stage(split(2, game: ["game"], transition: selection), hasPolicy: true)
-        h.frame(h.faithfulSample(hittable: false))
+        h.frame(h.faithfulSample(holdsSettlement: true))
         h.absorb(h.state.setCompactColumn(.primary))
         // The Back was cancelled and UIKit settles with the game still on top; SwiftUI keeps its primary binding.
         h.frames(4, secondaryOnTop: true)
@@ -365,7 +365,7 @@ final class SplitSurfaceStateTests: XCTestCase {
         h.stage(split(1))
         h.frames()
         h.stage(split(2, game: ["game"], transition: selection), hasPolicy: true)
-        h.frame(h.faithfulSample(hittable: false))
+        h.frame(h.faithfulSample(holdsSettlement: true))
         h.absorb(h.state.setCompactColumn(.primary))
         h.frames()
         XCTAssertEqual(h.state.diagnostics.pushesTakenBack, 0)
@@ -553,7 +553,7 @@ final class SplitSurfaceStateTests: XCTestCase {
         h.stage(split(2, game: ["game"], transition: selection), hasPolicy: true)
         XCTAssertTrue(h.state.withholdsBack(.secondary("game-stack")))
         // The game is on screen but not settled yet.
-        h.frame(h.faithfulSample(hittable: false))
+        h.frame(h.faithfulSample(holdsSettlement: true))
         XCTAssertFalse(h.state.withholdsBack(.secondary("game-stack")), "Back is allowed once the game was seen")
         h.absorb(h.state.setCompactColumn(.primary))
         h.frames()
@@ -567,7 +567,7 @@ final class SplitSurfaceStateTests: XCTestCase {
         h.stage(split(1))
         h.frames()
         h.stage(split(2, game: ["game"], transition: selection), hasPolicy: true)
-        h.frame(h.faithfulSample(hittable: false))
+        h.frame(h.faithfulSample(holdsSettlement: true))
         h.absorb(h.state.setCompactColumn(.primary))
         h.absorb(h.state.setCompactColumn(.secondary))
         h.frames()

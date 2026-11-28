@@ -32,6 +32,9 @@ final class NavigationTests: XCTestCase {
         if name.contains("testSplitSelectionTakenBack") {
             app.launchArguments.append("--probe-hold-game-settlement")
         }
+        if name.contains("testHostPresentation") {
+            app.launchArguments.append("--probe-host-presentation")
+        }
         app.launch()
     }
 
@@ -40,6 +43,30 @@ final class NavigationTests: XCTestCase {
     private let returned = "home[home,home-detail] history=3 [InAppCommand@home[home,home-detail];InAppCommand@home[home,home-detail,game];HostReconciliation@home[home,home-detail]]"
     private let deep = "catalog[catalog,group,item,detail] history=2 [InAppCommand@home[home,home-detail];AppLink@catalog[catalog,group,item,detail]]"
     private let popped = "catalog[catalog,group] history=3 [InAppCommand@home[home,home-detail];AppLink@catalog[catalog,group,item,detail];HostReconciliation@catalog[catalog,group]]"
+
+    func testHostPresentationAlertAllowsPushToCommit() {
+        awaitLabel("probe-status") { $0 == self.home }
+        app.buttons["probe-push-behind-alert"].tap()
+
+        let alert = app.alerts["Host alert"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        XCTAssertTrue(alert.staticTexts[game].waitForExistence(timeout: 5))
+        alert.buttons["Dismiss"].tap()
+        awaitLabel("probe-status") { $0 == self.game }
+        XCTAssertTrue(app.staticTexts["page-game"].exists)
+    }
+
+    func testHostPresentationFullScreenCoverAllowsDeepLinkToCommit() {
+        awaitLabel("probe-status") { $0 == self.home }
+        app.buttons["probe-show-host-cover"].tap()
+        awaitLabel("probe-cover-status") { $0 == self.home }
+        app.buttons["probe-cover-link"].tap()
+        awaitLabel("probe-cover-status", timeout: 5) { $0 == self.deep }
+
+        app.buttons["probe-dismiss-host-cover"].tap()
+        awaitLabel("probe-status") { $0 == self.deep }
+        XCTAssertTrue(app.staticTexts["page-detail"].exists)
+    }
 
     func testHomeGameZoomCancelAndReturn() {
         verifyGameCancelAndReturn(openButton: "probe-open-game")
