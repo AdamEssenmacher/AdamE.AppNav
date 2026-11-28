@@ -132,7 +132,7 @@ public sealed class RouteTemplate
         {
             if (segment.ParameterName is null)
             {
-                segments.Add(Uri.EscapeDataString(segment.Literal!));
+                segments.Add(segment.EscapedLiteral!);
                 continue;
             }
 
@@ -400,6 +400,8 @@ public sealed class RouteTemplate
         bool IsOptional,
         bool IsCatchAll)
     {
+        public string? EscapedLiteral { get; private init; }
+
         public int Precedence =>
             Literal is not null ? 5 :
             Constraint is not null ? 4 :
@@ -409,7 +411,10 @@ public sealed class RouteTemplate
 
         public static TemplateSegment ForLiteral(string value)
         {
-            return new TemplateSegment(value, null, null, false, false);
+            return new TemplateSegment(value, null, null, false, false)
+            {
+                EscapedLiteral = Uri.EscapeDataString(value)
+            };
         }
 
         public static TemplateSegment Parameter(string name, string? constraint, bool optional)
